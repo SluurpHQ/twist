@@ -1,0 +1,9 @@
+{
+  "name": "sluurp-dom-conformance",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.5",
+    "happy-dom": "^20.14.5"
+  }
+}

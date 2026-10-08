@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "react": ["../src/react.ts"],
+      "react/jsx-runtime": ["../src/jsx-runtime.ts"],
+      "react/jsx-dev-runtime": ["../src/jsx-runtime.ts"],
+      "react-dom": ["../src/react-dom.ts"],
+      "react-dom/client": ["../src/client.ts"],
+      "react-dom/server": ["../src/server.ts"],
+      "react-dom/server.browser": ["../src/server.ts"],
+      "react-dom/server.node": ["../src/server.ts"],
+      "react-dom/server.edge": ["../src/server.ts"],
+      "react-dom/static": ["../src/server.ts"],
+      "react-dom/test-utils": ["./shim/test-utils.ts"],
+      "scheduler": ["./shim/scheduler.ts"],
+      "scheduler/unstable_mock": ["./shim/scheduler.ts"],
+      "internal-test-utils": ["./shim/test-utils.ts"]
+    }
+  }
+}

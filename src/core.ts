@@ -877,5 +877,14 @@ onAfterEvent((el, e) => {
   if ("checked" in p && p.checked !== undefined && (el as any).checked !== !!p.checked) (el as any).checked = !!p.checked;
 });
 
+/** The DOM node a class component instance (or an element) draws first: React's findDOMNode. */
+export function findDOMNode(x: any): Node | null {
+  if (x == null) return null;
+  if (typeof x.nodeType === "number") return x;
+  const f: Fiber | undefined = x.__f;
+  if (!f) throw new Error("Argument appears to not be a ReactComponent.");
+  return firstDom(f);
+}
+
 export const version = "19.3.0";
 export { ELEMENT };
