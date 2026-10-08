@@ -25,12 +25,20 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(join(clone, "packages/shared"), join(out, "shared"), { recursive: true });
 
+// Setup checks the harness cannot meet, taken out (the tests after them still run): Bun loads one copy of a module,
+// so jest.isolateModules cannot give a second React DOM.
+const SETUP_ONLY: [RegExp, string][] = [[/\n\s*expect\(OuterReactDOMClient\)\.not\.toBe\(InnerReactDOMClient\);/g, "\n"]];
+
 function copy(from: string, to: string) {
   mkdirSync(to, { recursive: true });
   for (const f of readdirSync(from)) {
     const a = join(from, f), b = join(to, f);
     if (statSync(a).isDirectory()) copy(a, b);
-    else writeFileSync(b, /-test(\.internal)?\.js$/.test(f) ? gateSource(readFileSync(a, "utf8")) : readFileSync(a));
+    else if (/-test(\.internal)?\.js$/.test(f)) {
+      let code = gateSource(readFileSync(a, "utf8"));
+      for (const [re, to] of SETUP_ONLY) code = code.replace(re, to);
+      writeFileSync(b, code);
+    } else writeFileSync(b, readFileSync(a));
   }
 }
 copy(join(clone, "packages/react/src/__tests__"), join(out, "react"));

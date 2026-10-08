@@ -5,6 +5,8 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import * as ReactAll from "react";
+(window as any).__dom = { createRoot, React: ReactAll };
 import { renderToString } from "react-dom/server";
 import { signal } from "../../signals/index.js";
 

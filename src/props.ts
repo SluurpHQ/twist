@@ -2,6 +2,7 @@
 // element itself (no delegation), each event given what React's handlers expect of it.
 
 import { XLINK_NS, XML_NS, attribute } from "./attributes.ts";
+import { configure, delegated, want } from "./events.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const MATH_NS = "http://www.w3.org/1998/Math/MathML";
@@ -59,6 +60,18 @@ export function onAfterEvent(fn: typeof afterEvent) {
   afterEvent = fn;
 }
 
+/** The props of `el` that a native `type` event, in this phase, runs. */
+function propsFor(el: Element, type: string, capture: boolean, props: any): string[] {
+  const out: string[] = [];
+  for (const k in props) {
+    if (k[0] !== "o" || k[1] !== "n" || k.length < 3 || k[2] !== k[2]!.toUpperCase() || typeof props[k] !== "function") continue;
+    const [t, c] = eventOf(el, k);
+    if (t === type && c === capture) out.push(k);
+  }
+  return out;
+}
+configure(propsFor, (el, e) => afterEvent(el, e));
+
 function asReactEvent(e: any, el: Element) {
   if (!("nativeEvent" in e)) {
     Object.defineProperties(e, {
@@ -73,6 +86,11 @@ function asReactEvent(e: any, el: Element) {
 
 function listen(el: Element, prop: string, handler: any) {
   const [type, capture] = eventOf(el, prop);
+  // Most events: found at the root's listener from the element's props (React's delegation).
+  if (delegated(type)) {
+    if (handler != null && handler !== false) want(type);
+    return;
+  }
   const key = type + (capture ? "!" : "");
   const all: Listeners = ((el as any).__l ??= {});
   const had = all[key];

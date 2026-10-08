@@ -3,7 +3,8 @@
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement } from "./element.ts";
-import { MATH_NS, SVG_NS, onAfterEvent, setDefaults, setProps } from "./props.ts";
+import { MATH_NS, SVG_NS, eventOf, onAfterEvent, setDefaults, setProps } from "./props.ts";
+import { addContainer } from "./events.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -225,6 +226,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const f = fiber(PORTAL_F, type, key, c, parent);
     f.dom = c.containerInfo;
     f.ns = nsOf(f.dom);
+    addContainer(f.dom, f.root);
     reconcile(f, toList(c.children), f.dom, null);
     return f;
   }
@@ -284,6 +286,7 @@ function update(f: Fiber, c: any) {
       f.children = [];
       f.dom = c.containerInfo;
       f.ns = nsOf(f.dom);
+      addContainer(f.dom, f.root);
     }
     reconcile(f, toList(c.children), f.dom, null);
     return;
@@ -872,6 +875,7 @@ export function readContext(f: Fiber, ctx: any) {
 export function createRoot(container: Element | DocumentFragment, options?: any) {
   const state: RootState = { ids: 0, container };
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
+  addContainer(container, state);
   let first = true;
   return {
     render(children: any) {
@@ -918,7 +922,7 @@ onAfterEvent((el, e) => {
   flushSignals();
   // Only once the field's own change has been told: a checkbox's click comes before its change, and putting it
   // back then would undo the toggle the change is about to report.
-  if (e.type !== "input" && e.type !== "change") return;
+  if (e.type !== eventOf(el, "onChange")[0]) return;
   const p = (el as any).__props;
   if (!p) return;
   if ("value" in p && p.value !== undefined && (el as any).value !== String(p.value ?? "")) (el as any).value = p.value ?? "";

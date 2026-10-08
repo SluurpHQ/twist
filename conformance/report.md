@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-1486 pass, 1545 fail, 227 skipped (gated off for stable React 19).
+1565 pass, 1417 fail, 268 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -10,7 +10,7 @@
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
 | react-dom/quoteAttributeValueForBrowser-test.js | 0 | 8 | 0 |  |
-| react-dom/ReactBrowserEventEmitter-test.js | 7 | 3 | 0 |  |
+| react-dom/ReactBrowserEventEmitter-test.js | 8 | 2 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 0 | 5 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 2 | 17 | 2 |  |
@@ -27,8 +27,8 @@
 | react-dom/ReactDOMComponentTree-test.js | 3 | 1 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
-| react-dom/ReactDOMEventListener-test.js | 13 | 10 | 0 |  |
-| react-dom/ReactDOMEventPropagation-test.js | 0 | 92 | 0 |  |
+| react-dom/ReactDOMEventListener-test.js | 14 | 9 | 0 |  |
+| react-dom/ReactDOMEventPropagation-test.js | 47 | 45 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 0 | 36 | 1 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
@@ -57,7 +57,7 @@
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 2 | 5 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
-| react-dom/ReactDOMLegacyFiber-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMLegacyFiber-test.js | 0 | 1 | 42 |  |
 | react-dom/ReactDOMLegacyFloat-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMNativeEventHeuristic-test.js | 5 | 3 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 0 | 1 | 0 |  |
@@ -74,7 +74,7 @@
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 17 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 72 | 69 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 0 | 10 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 17 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 39 | 12 | 0 |  |
@@ -104,10 +104,10 @@
 | react-dom/ReactDOMUseId-test.js | 0 | 12 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 0 | 14 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 18 | 6 | 0 |  |
-| react-dom/ReactErrorBoundaries-test.internal.js | 0 | 49 | 1 |  |
+| react-dom/ReactErrorBoundaries-test.internal.js | 0 | 0 | 0 | ReactErrorBoundaries-test.internal.js: |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactEventIndependence-test.js | 2 | 1 | 0 |  |
+| react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactFunctionComponent-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactIdentity-test.js | 2 | 9 | 0 |  |
 | react-dom/ReactLegacyCompositeComponent-test.js | 0 | 2 | 14 |  |
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 0 | 29 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 1 | 3 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 2 | 9 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 0 | 45 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 16 | 29 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 10 | 14 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
@@ -135,7 +135,7 @@
 | react-dom/refs-test.js | 7 | 5 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 1 | 2 | 0 |  |
-| react/createReactClassIntegration-test.js | 0 | 26 | 2 |  |
+| react/createReactClassIntegration-test.js | 12 | 14 | 2 |  |
 | react/forwardRef-test.internal.js | 0 | 6 | 0 |  |
 | react/forwardRef-test.js | 0 | 19 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
