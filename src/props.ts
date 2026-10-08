@@ -12,7 +12,7 @@ const UNITLESS = new Set(
 );
 
 // React's names for attributes that are written otherwise.
-const ALIASES: Record<string, string> = { className: "class", htmlFor: "for", acceptCharset: "accept-charset", httpEquiv: "http-equiv" };
+const ALIASES: Record<string, string> = { className: "class", htmlFor: "for", acceptCharset: "accept-charset", httpEquiv: "http-equiv", tabIndex: "tabindex" };
 
 // SVG attributes React writes in camelCase but the DOM wants hyphenated (strokeWidth → stroke-width); the
 // camelCase SVG attributes (viewBox, preserveAspectRatio…) are left as they are.

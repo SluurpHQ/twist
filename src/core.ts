@@ -153,6 +153,12 @@ function fiber(kind: number, type: any, key: string, props: any, parent: Fiber):
   return { kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root };
 }
 
+/** The namespace what goes into `node` is made in: SVG inside an SVG element (a portal into a <g>), else HTML. */
+function nsOf(node: Node): string | null {
+  const ns = (node as Element).namespaceURI;
+  return ns === SVG_NS && node.nodeName !== "foreignObject" ? SVG_NS : ns === MATH_NS ? MATH_NS : null;
+}
+
 function childNs(host: Fiber): string | null {
   if (host.type === "foreignObject") return null;
   return host.ns;
@@ -173,7 +179,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   if (type === PORTAL) {
     const f = fiber(PORTAL_F, type, key, c, parent);
     f.dom = c.containerInfo;
-    f.ns = null;
+    f.ns = nsOf(f.dom);
     reconcile(f, toList(c.children), f.dom, null);
     return f;
   }
@@ -227,6 +233,7 @@ function update(f: Fiber, c: any) {
       for (const n of f.children) unmount(n, true);
       f.children = [];
       f.dom = c.containerInfo;
+      f.ns = nsOf(f.dom);
     }
     reconcile(f, toList(c.children), f.dom, null);
     return;
@@ -381,7 +388,29 @@ function restart(f: Fiber) {
   start(f, hostParentOf(f), nextDomAfter(f));
 }
 
+/** A component's name, for messages. */
+export const nameOf = (t: any): string =>
+  typeof t === "string" ? t : t?.displayName ?? t?.name ?? (t?.render ? nameOf(t.render) : t?.type ? nameOf(t.type) : "Anonymous");
+
+// Draws per component within one task: past the limit it is a loop (it sets state on every draw), stopped and named,
+// as React's "Maximum update depth exceeded".
+let drawsReset = false;
+const LIMIT = 50;
+
 function draw(f: Fiber, place: [Node, Node | null] | null) {
+  (f as any).draws = ((f as any).draws ?? 0) + 1;
+  if (!drawsReset) {
+    drawsReset = true;
+    setTimeout(() => {
+      drawsReset = false;
+      loops.clear();
+    }, 0);
+  }
+  loops.add(f);
+  if ((f as any).draws > LIMIT) {
+    if ((f as any).draws === LIMIT + 1) report(new Error(`Maximum update depth exceeded in <${nameOf(f.type)}> (inside ${path(f)}): it updates state on every render.`));
+    return;
+  }
   if (depth++ === 0) runPassive(false);
   f.layout = [];
   f.passive = [];
@@ -412,6 +441,24 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   layoutQueue.push(...f.layout);
   passiveQueue.push(...f.passive);
   if (--depth === 0) commit();
+}
+
+const loops = {
+  seen: new Set<Fiber>(),
+  add(f: Fiber) {
+    this.seen.add(f);
+  },
+  clear() {
+    for (const f of this.seen) (f as any).draws = 0;
+    this.seen.clear();
+  },
+};
+
+/** Where a fiber is, by its components' names: for messages. */
+function path(f: Fiber) {
+  const names: string[] = [];
+  for (let p = f.parent; p && names.length < 6; p = p.parent) if (p.kind === COMP) names.push(nameOf(p.type));
+  return names.join(" < ") || "the root";
 }
 
 /** A class component's render, its lifecycle around it. */
@@ -649,15 +696,19 @@ export const client = {
     return hook(() => `_r_${(f.root.ids++).toString(32)}_`);
   },
   useSyncExternalStore<T>(subscribe: (cb: () => void) => () => void, getSnapshot: () => T): T {
-    const h = hook(() => ({ v: signal(0) as Sig<number> }));
+    const h = hook(() => ({ v: signal(0) as Sig<number>, get: getSnapshot, value: undefined as any }));
     h.v();
     const value = getSnapshot();
+    // The newest getSnapshot and what this render showed: a change in the store re-renders only when what this
+    // component reads from it is different (a store updated for others leaves it alone).
+    h.get = getSnapshot;
+    h.value = value;
     effectHook(
       () => {
         const check = () => {
-          if (!Object.is(getSnapshot(), value)) h.v.set(h.v.peek() + 1);
+          if (!Object.is(h.get(), h.value)) h.v.set(h.v.peek() + 1);
         };
-        const off = subscribe(() => h.v.set(h.v.peek() + 1));
+        const off = subscribe(check);
         check();
         return off;
       },
@@ -766,7 +817,7 @@ export function readContext(f: Fiber, ctx: any) {
 
 export function createRoot(container: Element | DocumentFragment, _options?: any) {
   const state: RootState = { ids: 0, container };
-  const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: null, root: state };
+  const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
   let first = true;
   return {
     render(children: any) {

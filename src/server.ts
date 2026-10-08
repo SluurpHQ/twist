@@ -6,7 +6,7 @@ import { withHooks } from "./hooks.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
 const UNITLESS = new Set("animationIterationCount aspectRatio columnCount flex flexGrow flexShrink fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth gridRow gridColumn gridArea".split(" "));
-const ALIASES: Record<string, string> = { className: "class", htmlFor: "for", acceptCharset: "accept-charset", httpEquiv: "http-equiv" };
+const ALIASES: Record<string, string> = { className: "class", htmlFor: "for", acceptCharset: "accept-charset", httpEquiv: "http-equiv", tabIndex: "tabindex" };
 const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "suppressHydrationWarning", "suppressContentEditableWarning", "innerHTML"]);
 const SVG_HYPHEN = /^(accent|alignment|arabic|baseline|cap|clip|color|dominant|enable|fill|flood|font|glyph|horiz|image|letter|lighting|marker|overline|paint|panose|pointer|rendering|shape|stop|strikethrough|stroke|text|underline|unicode|units|v|vector|vert|word|writing|x)[A-Z]/;
 const BOOLEAN = new Set("allowFullScreen async autoFocus autoPlay checked controls default defer disabled formNoValidate hidden inert loop multiple muted noModule noValidate open playsInline readOnly required reversed selected itemScope".split(" "));

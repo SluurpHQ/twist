@@ -156,6 +156,17 @@ test("portal draws elsewhere and goes", async (box) => {
   away.remove();
 });
 
+test("a portal into SVG makes SVG", async (box) => {
+  function C() {
+    const [layer, set] = useState<SVGGElement | null>(null);
+    return <svg><g ref={set} />{layer && createPortal(<rect width={3} />, layer)}</svg>;
+  }
+  mount(box, <C />);
+  await tick();
+  const rect = box.querySelector("rect")!;
+  eq([rect.namespaceURI, rect.parentElement!.nodeName], ["http://www.w3.org/2000/svg", "g"]);
+});
+
 test("suspense waits on use(promise)", async (box) => {
   let done: any;
   const p = new Promise<string>((r) => (done = r));
