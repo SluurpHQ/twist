@@ -156,7 +156,10 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
 /** Every prop of a new element, or the ones that changed on an update. */
 export function setProps(el: Element, next: any, prev: any, svg: boolean) {
   if (prev) for (const k in prev) if (!(k in next)) setProp(el, k, undefined, prev[k], svg);
+  // An input's type first: setting it afterwards resets what `checked` and `value` set.
+  if (next.type !== undefined && (!prev || prev.type !== next.type)) setProp(el, "type", next.type, prev?.type, svg);
   for (const k in next) {
+    if (k === "type") continue;
     const v = next[k];
     if (!prev || prev[k] !== v || k === "value" || k === "checked") setProp(el, k, v, prev ? prev[k] : undefined, svg);
   }

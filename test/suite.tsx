@@ -134,6 +134,18 @@ test("controlled input", async (box) => {
   eq(i2.value, "fixed");
 });
 
+test("controlled checkbox: checked before type, toggled by a click", async (box) => {
+  function C() {
+    const [on, set] = useState(true);
+    return <label><input checked={on} type="checkbox" onClick={() => {}} onChange={(e: any) => set(e.target.checked)} />{on ? "on" : "off"}</label>;
+  }
+  mount(box, <C />);
+  const input = box.querySelector("input")!;
+  eq(input.checked, true, "starts checked");
+  input.click();
+  eq([input.checked, box.textContent], [false, "off"]);
+});
+
 test("portal draws elsewhere and goes", async (box) => {
   const away = document.createElement("section");
   document.body.append(away);

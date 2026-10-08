@@ -804,9 +804,12 @@ export function flushSync<T>(fn?: () => T): T {
 
 // After a handler: what it changed drawn now (React draws a discrete event's updates before the next one), and a
 // controlled field put back to what its state says when the handler did not take what was typed.
-onAfterEvent((el) => {
+onAfterEvent((el, e) => {
   if (depth > 0) return;
   flushSignals();
+  // Only once the field's own change has been told: a checkbox's click comes before its change, and putting it
+  // back then would undo the toggle the change is about to report.
+  if (e.type !== "input" && e.type !== "change") return;
   const p = (el as any).__props;
   if (!p) return;
   if ("value" in p && p.value !== undefined && (el as any).value !== String(p.value ?? "")) (el as any).value = p.value ?? "";
