@@ -103,48 +103,104 @@ export function createPortal(children: any, container: Node, key?: any) {
   return { $$typeof: PORTAL, key: key == null ? null : "" + key, children, containerInfo: container, implementation: null };
 }
 
-/** Children as React's `Children` helpers see them: arrays flattened, each element keyed by where it is. */
-function walk(children: any, out: any[], prefix: string) {
-  if (Array.isArray(children)) {
-    children.forEach((c, i) => walk(c, out, `${prefix}${prefix ? ":" : "."}${keyOf(c, i)}`));
-    return;
+/** A lazy component's value, or the promise to wait for (thrown, to suspend). */
+export function readLazy(p: any) {
+  if (p.status === 1) return p.value;
+  if (p.status === 2) throw p.value;
+  if (p.status === -1) {
+    p.status = 0;
+    p.promise = p.load().then(
+      (m: any) => ((p.status = 1), (p.value = m.default ?? m)),
+      (e: any) => ((p.status = 2), (p.value = e)),
+    );
   }
-  if (children && typeof children === "object" && !isValidElement(children) && typeof children[Symbol.iterator] === "function") {
-    walk([...children], out, prefix);
-    return;
-  }
-  out.push([children, prefix || ".0"]);
+  throw p.promise;
 }
-const keyOf = (c: any, i: number) => (isValidElement(c) && c.key != null ? "$" + c.key : i.toString(36));
+
+/** A promise's value, or the promise itself thrown (to suspend), as `use` reads it. */
+export function readThenable(t: any) {
+  if (t.status === "fulfilled") return t.value;
+  if (t.status === "rejected") throw t.reason;
+  if (t.status !== "pending") {
+    t.status = "pending";
+    t.then(
+      (v: any) => ((t.status = "fulfilled"), (t.value = v)),
+      (e: any) => ((t.status = "rejected"), (t.reason = e)),
+    );
+  }
+  throw t;
+}
+
+/** A child that is a lazy or a promise, as what it resolves to (React 19 renders both as children). */
+export function unwrapChild(c: any): any {
+  for (let i = 0; i < 10 && c && typeof c === "object"; i++) {
+    if (c.$$typeof === LAZY) c = readLazy(c._payload);
+    else if (typeof c.then === "function" && !c.$$typeof) c = readThenable(c);
+    else break;
+  }
+  return c;
+}
+
+/** Children as React's `Children` helpers walk them (its mapIntoArray): arrays flattened, each child keyed by where it
+ * is (`.0`, `.$key`, `:` between levels), keys the callback returns joined with `/`. */
+const escapeKey = (key: string) => "$" + key.replace(/[=:]/g, (m) => (m === "=" ? "=0" : "=2"));
+const escapeUserKey = (key: string) => key.replace(/\/+/g, "$&/");
+const keyAt = (c: any, i: number) => (c && typeof c === "object" && c.key != null ? escapeKey("" + c.key) : i.toString(36));
+
+function mapInto(children: any, out: any[], prefix: string, name: string, fn: (c: any) => any): number {
+  children = unwrapChild(children);
+  const t = typeof children;
+  const single =
+    children == null || t === "boolean" || t === "string" || t === "number" || t === "bigint" ||
+    (t === "object" && (children.$$typeof === ELEMENT || children.$$typeof === PORTAL));
+  if (single) {
+    const child = t === "boolean" || children === undefined ? null : children;
+    const mapped = fn(child);
+    const key = name === "" ? "." + keyAt(child, 0) : name;
+    if (Array.isArray(mapped)) {
+      mapInto(mapped, out, escapeUserKey(key) + "/", "", (c) => c);
+    } else if (mapped != null) {
+      out.push(
+        isValidElement(mapped)
+          ? cloneElement(mapped, {
+              key: prefix + (mapped.key != null && (!child || child.key !== mapped.key) ? escapeUserKey("" + mapped.key) + "/" : "") + key,
+            })
+          : mapped,
+      );
+    }
+    return 1;
+  }
+  const next = name === "" ? "." : name + ":";
+  let count = 0;
+  if (Array.isArray(children)) {
+    children.forEach((c, i) => (count += mapInto(c, out, prefix, next + keyAt(c, i), fn)));
+    return count;
+  }
+  if (t === "object" && typeof children[Symbol.iterator] === "function") {
+    let i = 0;
+    for (const c of children) count += mapInto(c, out, prefix, next + keyAt(c, i++), fn);
+    return count;
+  }
+  const shown = Object.prototype.toString.call(children) === "[object Object]" ? `object with keys {${Object.keys(children).join(", ")}}` : String(children);
+  throw new Error(`Objects are not valid as a React child (found: ${shown}). If you meant to render a collection of children, use an array instead.`);
+}
 
 export const Children = {
   map(children: any, fn: (c: any, i: number) => any, ctx?: any) {
     if (children == null) return children;
     const out: any[] = [];
     let i = 0;
-    const all: any[] = [];
-    walk(children, all, "");
-    for (const [c, key] of all) {
-      const mapped = fn.call(ctx, typeof c === "boolean" || c === undefined ? null : c, i++);
-      const list: any[] = [];
-      walk(mapped, list, "");
-      for (const [m, k2] of list) {
-        if (m == null || typeof m === "boolean") continue;
-        out.push(isValidElement(m) ? cloneElement(m, { key: (m.key != null && m.key !== c?.key ? "." + "$" + m.key + "/" : "") + key + (list.length > 1 ? k2 : "") }) : m);
-      }
-    }
+    mapInto(children, out, "", "", (c) => fn.call(ctx, c, i++));
     return out;
   },
   forEach(children: any, fn: (c: any, i: number) => void, ctx?: any) {
-    const all: any[] = [];
-    walk(children, all, "");
-    all.forEach(([c], i) => fn.call(ctx, typeof c === "boolean" || c === undefined ? null : c, i));
+    if (children == null) return;
+    let i = 0;
+    mapInto(children, [], "", "", (c) => void fn.call(ctx, c, i++));
   },
   count(children: any) {
     if (children == null) return 0;
-    const all: any[] = [];
-    walk(children, all, "");
-    return all.length;
+    return mapInto(children, [], "", "", () => null);
   },
   toArray(children: any) {
     return Children.map(children, (c) => c) ?? [];

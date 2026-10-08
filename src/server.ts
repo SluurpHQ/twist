@@ -250,4 +250,15 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   };
 }
 
+// `react-dom/static`: the whole page, once everything it waits on has settled.
+export async function prerender(node: any, options: any = {}) {
+  return { prelude: await renderToReadableStream(node, options), postponed: null };
+}
+
+export async function prerenderToNodeStream(node: any, _options: any = {}) {
+  const html = await complete(node);
+  const { Readable } = await import("node:stream");
+  return { prelude: Readable.from([html]), postponed: null };
+}
+
 export const version = "19.3.0";

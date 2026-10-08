@@ -2,7 +2,7 @@
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, eventOf, onAfterEvent, setDefaults, setProps } from "./props.ts";
 import { addContainer } from "./events.ts";
 
@@ -124,7 +124,9 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   for (const f of old) byKey.set(f.key, f);
   const next: Fiber[] = [];
   let i = 0;
-  for (const c of list) {
+  for (let c of list) {
+    // A lazy or a promise as a child: what it gives, once it has (suspending until then).
+    c = unwrapChild(c);
     if (c == null || typeof c === "boolean") {
       i++;
       continue;
@@ -410,18 +412,6 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
   throw new Error(`Element type is invalid: got ${type === undefined ? "undefined" : typeof type === "object" ? JSON.stringify(Object.keys(type)) : String(type)}`);
 }
 
-function readLazy(p: any) {
-  if (p.status === 1) return p.value;
-  if (p.status === 2) throw p.value;
-  if (p.status === -1) {
-    p.status = 0;
-    p.promise = p.load().then(
-      (m: any) => ((p.status = 1), (p.value = m.default ?? m)),
-      (e: any) => ((p.status = 2), (p.value = e)),
-    );
-  }
-  throw p.promise;
-}
 
 /** The component's effect started, rendering it now into `host` before `before`. */
 function start(f: Fiber, host?: Node, before?: Node | null) {
@@ -852,18 +842,6 @@ function startTransitionWith(fn: () => any, pending?: Sig<number>) {
 }
 export const startTransition = (fn: () => any) => startTransitionWith(fn);
 
-function readThenable(t: any) {
-  if (t.status === "fulfilled") return t.value;
-  if (t.status === "rejected") throw t.reason;
-  if (t.status !== "pending") {
-    t.status = "pending";
-    t.then(
-      (v: any) => ((t.status = "fulfilled"), (t.value = v)),
-      (e: any) => ((t.status = "rejected"), (t.reason = e)),
-    );
-  }
-  throw t;
-}
 
 export function readContext(f: Fiber, ctx: any) {
   for (let p = f.parent; p; p = p.parent) if (p.kind === PROVIDER && p.type === ctx) return p.value!();

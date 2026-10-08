@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-1565 pass, 1417 fail, 268 skipped (gated off for stable React 19).
+1590 pass, 1391 fail, 268 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -40,7 +40,7 @@
 | react-dom/ReactDOMFizzShellHydration-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 0 | 6 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzStaticNode-test.js | 0 | 17 | 0 |  |
+| react-dom/ReactDOMFizzStaticNode-test.js | 2 | 15 | 0 |  |
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 0 | 12 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 1 | 0 |  |
@@ -72,12 +72,12 @@
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 32 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationElements-test.js | 243 | 93 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 17 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 72 | 69 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 78 | 63 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 0 | 10 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 17 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationNewContext-test.js | 39 | 12 | 0 |  |
+| react-dom/ReactDOMServerIntegrationNewContext-test.js | 45 | 6 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 4 | 6 | 0 |  |
 | react-dom/ReactDOMserverIntegrationProgress-test.js | 2 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationReconnecting-test.js | 54 | 0 | 0 |  |
@@ -122,14 +122,14 @@
 | react-dom/ReactMultiChildReconcile-test.js | 0 | 29 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 1 | 3 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 2 | 9 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 16 | 29 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 17 | 28 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 10 | 14 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 3 | 21 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 0 | 5 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
-| react-dom/ReactUpdates-test.js | 15 | 27 | 3 |  |
+| react-dom/ReactUpdates-test.js | 14 | 28 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 1 | 3 | 0 |  |
 | react-dom/refs-test.js | 7 | 5 | 0 |  |
@@ -139,7 +139,7 @@
 | react/forwardRef-test.internal.js | 0 | 6 | 0 |  |
 | react/forwardRef-test.js | 0 | 19 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
-| react/ReactChildren-test.js | 24 | 18 | 0 |  |
+| react/ReactChildren-test.js | 35 | 7 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
 | react/ReactContextValidator-test.js | 0 | 8 | 5 |  |
 | react/ReactCreateElement-test.js | 12 | 15 | 0 |  |
@@ -150,7 +150,7 @@
 | react/ReactJSXElementValidator-test.js | 7 | 7 | 0 |  |
 | react/ReactJSXRuntime-test.js | 5 | 10 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 10 | 9 | 0 |  |
-| react/ReactMismatchedVersions-test.js | 0 | 1 | 0 |  |
+| react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
 | react/ReactProfiler-test.internal.js | 0 | 33 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 0 | 7 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |

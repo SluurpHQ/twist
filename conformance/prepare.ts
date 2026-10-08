@@ -8,7 +8,7 @@ import { gateSource } from "./gates.ts";
 const REF = process.env.REACT_REF ?? "main";
 const here = import.meta.dir;
 const clone = join(tmpdir(), "sluurp-react-src");
-const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/react-dom/src/test-utils", "packages/internal-test-utils", "packages/shared"];
+const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/react-dom/src/test-utils", "packages/internal-test-utils", "packages/shared", "scripts/jest"];
 
 const git = (args: string[], cwd?: string) => {
   const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -27,7 +27,11 @@ cpSync(join(clone, "packages/shared"), join(out, "shared"), { recursive: true })
 
 // Setup checks the harness cannot meet, taken out (the tests after them still run): Bun loads one copy of a module,
 // so jest.isolateModules cannot give a second React DOM.
-const SETUP_ONLY: [RegExp, string][] = [[/\n\s*expect\(OuterReactDOMClient\)\.not\.toBe\(InnerReactDOMClient\);/g, "\n"]];
+const SETUP_ONLY: [RegExp, string][] = [
+  [/\n\s*expect\(OuterReactDOMClient\)\.not\.toBe\(InnerReactDOMClient\);/g, "\n"],
+  // React's own jest helpers, by the path they have in React's repository: the copy here instead.
+  [/(['"])(?:\.\.\/)+scripts\/jest\//g, "$1../scripts/jest/"],
+];
 
 function copy(from: string, to: string) {
   mkdirSync(to, { recursive: true });
@@ -46,5 +50,6 @@ copy(join(clone, "packages/react-dom/src/__tests__"), join(out, "react-dom"));
 // Helpers the tests import by path: React DOM's test-utils (FizzTestUtils…) and internal-test-utils' own files.
 copy(join(clone, "packages/react-dom/src/test-utils"), join(out, "test-utils"));
 copy(join(clone, "packages/internal-test-utils"), join(out, "internal-test-utils"));
+copy(join(clone, "scripts/jest"), join(out, "scripts", "jest"));
 writeFileSync(join(out, "REF"), at + "\n");
 console.log(`React's tests at ${at} in react-tests/`);
