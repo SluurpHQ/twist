@@ -1,6 +1,8 @@
 // Props on DOM elements, as React sets them: attributes or properties, styles, and events listened to on the
 // element itself (no delegation), each event given what React's handlers expect of it.
 
+import { XLINK_NS, XML_NS, attribute } from "./attributes.ts";
+
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const MATH_NS = "http://www.w3.org/1998/Math/MathML";
 
@@ -11,13 +13,7 @@ const UNITLESS = new Set(
   "animationIterationCount aspectRatio borderImageOutset borderImageSlice borderImageWidth boxFlex boxFlexGroup boxOrdinalGroup columnCount columns flex flexGrow flexPositive flexShrink flexNegative flexOrder gridArea gridRow gridRowEnd gridRowSpan gridRowStart gridColumn gridColumnEnd gridColumnSpan gridColumnStart fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth".split(" "),
 );
 
-// React's names for attributes that are written otherwise.
-const ALIASES: Record<string, string> = { className: "class", htmlFor: "for", acceptCharset: "accept-charset", httpEquiv: "http-equiv", tabIndex: "tabindex" };
 
-// SVG attributes React writes in camelCase but the DOM wants hyphenated (strokeWidth → stroke-width); the
-// camelCase SVG attributes (viewBox, preserveAspectRatio…) are left as they are.
-const SVG_HYPHEN = /^(accent|alignment|arabic|baseline|cap|clip|color|dominant|enable|fill|flood|font|glyph|horiz|image|letter|lighting|marker|overline|paint|panose|pointer|rendering|shape|stop|strikethrough|stroke|text|underline|unicode|units|v|vector|vert|word|writing|x)[A-Z]/;
-const XLINK = "http://www.w3.org/1999/xlink";
 
 function styleValue(name: string, value: any) {
   if (value == null || typeof value === "boolean" || value === "") return "";
@@ -133,24 +129,18 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     if (name === "value" && el.nodeName === "SELECT") queueMicrotask(() => ((el as any).value !== want && ((el as any).value = want)));
     return;
   }
-  let attr = ALIASES[name] ?? name;
-  if (svg) {
-    if (name === "xlinkHref") return next == null ? el.removeAttributeNS(XLINK, "href") : el.setAttributeNS(XLINK, "xlink:href", next);
-    if (SVG_HYPHEN.test(name)) attr = name.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
-  } else if (
-    attr !== "class" && attr !== "for" && attr !== "width" && attr !== "height" && attr !== "href" && attr !== "list" && attr !== "form" &&
-    attr !== "tabIndex" && attr !== "download" && attr !== "rowSpan" && attr !== "colSpan" && attr !== "role" && attr !== "popover" &&
-    attr !== "src" && attr !== "type" && !attr.includes("-") && attr in el && typeof next !== "function"
-  ) {
-    try {
-      (el as any)[attr] = next == null ? "" : next;
-      if (next == null || next === false) el.removeAttribute(attr);
-      return;
-    } catch {}
-  }
-  if (typeof next === "function" || typeof next === "symbol") return;
-  if (next == null || (next === false && !/^(aria|data)-/.test(attr))) el.removeAttribute(attr);
-  else el.setAttribute(attr, next === true && !/^(aria|data)-/.test(attr) ? "" : String(next));
+  if (name === "muted") return void ((el as any).muted = !!next);
+  // React focuses it when it is made; there is no attribute.
+  if (name === "autoFocus") return;
+  const tag = el.localName;
+  // A custom element takes what it has as a property (React 19).
+  if (tag.includes("-") && name in el && typeof next !== "string") return void ((el as any)[name] = next);
+  const out = attribute(tag, name, next, svg);
+  if (!out) return;
+  const [attr, value] = out;
+  const ns = attr.startsWith("xlink:") ? XLINK_NS : attr.startsWith("xml:") ? XML_NS : null;
+  if (value == null) ns ? el.removeAttributeNS(ns, attr.slice(attr.indexOf(":") + 1)) : el.removeAttribute(attr);
+  else ns ? el.setAttributeNS(ns, attr, value) : el.setAttribute(attr, value);
 }
 
 /** Every prop of a new element, or the ones that changed on an update. */

@@ -168,11 +168,52 @@ function childNs(host: Fiber): string | null {
   return host.ns;
 }
 
+// ---------------------------------------------------------------- hydration
+
+/** While a root takes over what the server drew: for each parent, the next of its server nodes to claim. */
+let hydrating: Map<Node, Node | null> | null = null;
+
+/** The next server node in `host`, past comments (React's separators and markers). */
+function nextServerNode(host: Node): Node | null {
+  if (!hydrating) return null;
+  let n = hydrating.has(host) ? hydrating.get(host)! : host.firstChild;
+  while (n && n.nodeType === 8) n = n.nextSibling;
+  return n;
+}
+
+/** A server node taken for a fiber: the next one, if it is the same kind of thing. */
+function claim(host: Node, match: (n: Node) => boolean): Node | null {
+  const n = nextServerNode(host);
+  if (!n || !match(n)) return null;
+  hydrating!.set(host, n.nextSibling);
+  return n;
+}
+
+/** What the server drew in `host` and the client did not claim: taken away, as React does on a mismatch. */
+function dropUnclaimed(host: Node) {
+  if (!hydrating) return;
+  let n = nextServerNode(host);
+  while (n) {
+    const next = n.nextSibling;
+    if (n.nodeType !== 8) host.removeChild(n);
+    n = next;
+  }
+  hydrating.delete(host);
+}
+
 function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before: Node | null): Fiber {
   if (type === TEXT_NODE) {
     const f = fiber(TEXT, type, key, c, parent);
-    f.dom = document.createTextNode("" + c);
-    host.insertBefore(f.dom, before);
+    const text = "" + c;
+    // A server text node holds this one and maybe the next (adjacent text runs together in HTML): split off.
+    const had = hydrating && text !== "" ? (claim(host, (n) => n.nodeType === 3 && (n as Text).data.startsWith(text)) as Text | null) : null;
+    if (had) {
+      if (had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
+      f.dom = had;
+    } else {
+      f.dom = document.createTextNode(text);
+      host.insertBefore(f.dom, before);
+    }
     return f;
   }
   if (type === FRAGMENT) {
@@ -192,7 +233,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const f = fiber(HOST, type, key, props, parent);
     const ns = type === "svg" ? SVG_NS : type === "math" ? MATH_NS : f.ns;
     f.ns = ns;
-    const el = (f.dom = ns ? document.createElementNS(ns, type) : document.createElement(type));
+    const server = hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null;
+    const el = (f.dom = server ?? (ns ? document.createElementNS(ns, type) : document.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     (el as any).__fiber = f;
     setProps(el, props, null, ns === SVG_NS);
@@ -200,7 +242,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     (el as any).__props = props;
     if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
     if (type === "select" && props.value !== undefined) (el as any).value = props.value;
-    host.insertBefore(el, before);
+    if (server) {
+      if (props.dangerouslySetInnerHTML == null) dropUnclaimed(el);
+    } else host.insertBefore(el, before);
     if (props.ref != null) layoutQueue.push(() => setRef(f, props.ref, el));
     return f;
   }
@@ -825,20 +869,24 @@ export function readContext(f: Fiber, ctx: any) {
 
 // ---------------------------------------------------------------- roots
 
-export function createRoot(container: Element | DocumentFragment, _options?: any) {
+export function createRoot(container: Element | DocumentFragment, options?: any) {
   const state: RootState = { ids: 0, container };
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
   let first = true;
   return {
     render(children: any) {
+      const hydrate = first && options?.hydrate;
       if (first) {
         first = false;
-        (container as Element).replaceChildren?.();
+        if (!hydrate) (container as Element).replaceChildren?.();
       }
       depth++;
+      if (hydrate) hydrating = new Map();
       try {
         reconcile(top, [children], container, null);
+        if (hydrate) dropUnclaimed(container);
       } finally {
+        if (hydrate) hydrating = null;
         if (--depth === 0) commit();
       }
       flushSignals();
@@ -850,9 +898,9 @@ export function createRoot(container: Element | DocumentFragment, _options?: any
   };
 }
 
-/** Taken over as the server drew it: drawn again in its place (the same markup, so nothing moves). */
+/** Taken over as the server drew it: its nodes claimed in order and kept, what differs drawn anew. */
 export function hydrateRoot(container: Element, children: any, options?: any) {
-  const root = createRoot(container, options);
+  const root = createRoot(container, { ...options, hydrate: true });
   root.render(children);
   return root;
 }

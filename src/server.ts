@@ -3,13 +3,11 @@
 import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
+import { attribute } from "./attributes.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
 const UNITLESS = new Set("animationIterationCount aspectRatio columnCount flex flexGrow flexShrink fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth gridRow gridColumn gridArea".split(" "));
-const ALIASES: Record<string, string> = { className: "class", htmlFor: "for", acceptCharset: "accept-charset", httpEquiv: "http-equiv", tabIndex: "tabindex" };
 const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "suppressHydrationWarning", "suppressContentEditableWarning", "innerHTML"]);
-const SVG_HYPHEN = /^(accent|alignment|arabic|baseline|cap|clip|color|dominant|enable|fill|flood|font|glyph|horiz|image|letter|lighting|marker|overline|paint|panose|pointer|rendering|shape|stop|strikethrough|stroke|text|underline|unicode|units|v|vector|vert|word|writing|x)[A-Z]/;
-const BOOLEAN = new Set("allowFullScreen async autoFocus autoPlay checked controls default defer disabled formNoValidate hidden inert loop multiple muted noModule noValidate open playsInline readOnly required reversed selected itemScope".split(" "));
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#39" }[c]};`);
 
@@ -29,32 +27,38 @@ type Ctx = { values: Map<any, any>; ids: number; waiting: Promise<any>[]; svg: b
 
 function attrs(props: any, ctx: Ctx, tag: string) {
   let out = "";
+  const put = (name: string, value: string | null) => {
+    if (value != null) out += value === "" && !name.includes("-") && !name.includes(":") ? ` ${name}=""` : ` ${name}="${escape(value)}"`;
+  };
   for (const k in props) {
-    let v = props[k];
-    if (SKIP.has(k) || v == null || typeof v === "function" || typeof v === "symbol") continue;
+    const v = props[k];
+    if (SKIP.has(k)) continue;
     if (k[0] === "o" && k[1] === "n" && k.length > 2 && k[2] === k[2]!.toUpperCase()) continue;
+    if (k === "style") {
+      const css = v == null ? "" : style(v);
+      if (css) put("style", css);
+      continue;
+    }
     if (k === "defaultValue") {
-      if (tag === "input" && props.value === undefined) out += ` value="${escape(String(v))}"`;
+      if (tag === "input" && props.value == null && v != null) put("value", String(v));
       continue;
     }
     if (k === "defaultChecked") {
-      if (v && props.checked === undefined) out += " checked";
+      if (v && props.checked == null) put("checked", "");
       continue;
     }
-    if (k === "value" && (tag === "textarea" || tag === "select")) continue;
-    let name = ALIASES[k] ?? k;
-    if (ctx.svg && SVG_HYPHEN.test(k)) name = k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
-    else if (!ctx.svg && !/^(aria|data)-/.test(k) && !k.includes("-")) name = name === "class" || name === "for" ? name : name.toLowerCase();
-    if (k === "style") {
-      v = style(v);
-      if (!v) continue;
-    }
-    if (BOOLEAN.has(k)) {
-      if (v) out += ` ${name}`;
+    if (k === "value") {
+      if (tag !== "textarea" && tag !== "select" && v != null && typeof v !== "function" && typeof v !== "symbol") put("value", String(v));
       continue;
     }
-    if (v === false && !/^(aria|data)-/.test(k)) continue;
-    out += ` ${name}="${escape(v === true && !/^(aria|data)-/.test(k) ? "" : String(v))}"`;
+    if (k === "checked" || k === "selected" || k === "muted") {
+      if (v && typeof v !== "function" && typeof v !== "symbol") put(k, "");
+      continue;
+    }
+    if (k === "autoFocus") continue;
+    if ((k === "action" || k === "formAction") && typeof v === "function") continue;
+    const a = attribute(tag, k, v, ctx.svg);
+    if (a) put(a[0], a[1]);
   }
   return out;
 }

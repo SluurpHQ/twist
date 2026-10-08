@@ -16,7 +16,8 @@
       "react-dom/test-utils": ["./shim/test-utils.ts"],
       "scheduler": ["./shim/scheduler.ts"],
       "scheduler/unstable_mock": ["./shim/scheduler.ts"],
-      "internal-test-utils": ["./shim/test-utils.ts"]
+      "internal-test-utils": ["./shim/test-utils.ts"],
+      "internal-test-utils/*": ["./react-tests/internal-test-utils/*"]
     }
   }
 }

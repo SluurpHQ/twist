@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-269 pass, 1242 fail, 220 skipped (gated off for stable React 19).
+1486 pass, 1545 fail, 227 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -19,15 +19,15 @@
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 1 | 7 | 1 |  |
-| react-dom/ReactDOM-test.js | 0 | 16 | 2 |  |
+| react-dom/ReactDOM-test.js | 8 | 8 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 0 | 7 | 1 |  |
-| react-dom/ReactDOMAttribute-test.js | 6 | 7 | 0 |  |
+| react-dom/ReactDOMAttribute-test.js | 7 | 6 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMComponent-test.js | 0 | 0 | 0 | did not run |
 | react-dom/ReactDOMComponentTree-test.js | 3 | 1 | 0 |  |
-| react-dom/ReactDOMConsoleErrorReporting-test.js | 0 | 7 | 0 |  |
+| react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
-| react-dom/ReactDOMEventListener-test.js | 11 | 12 | 0 |  |
+| react-dom/ReactDOMEventListener-test.js | 13 | 10 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 0 | 92 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 0 | 36 | 1 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
@@ -64,30 +64,30 @@
 | react-dom/ReactDOMOption-test.js | 8 | 4 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 12 | 15 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
-| react-dom/ReactDOMSelect-test.js | 19 | 41 | 1 |  |
+| react-dom/ReactDOMSelect-test.js | 16 | 44 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
-| react-dom/ReactDOMServerIntegrationAttributes-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationBasic-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationAttributes-test.js | 488 | 62 | 0 |  |
+| react-dom/ReactDOMServerIntegrationBasic-test.js | 42 | 13 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationClassContextType-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationFragment-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationClassContextType-test.js | 32 | 3 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 243 | 93 | 0 |  |
+| react-dom/ReactDOMServerIntegrationFragment-test.js | 17 | 3 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 72 | 69 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationModes-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationNewContext-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationObject-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMserverIntegrationProgress-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationReconnecting-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationRefs-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationSelect-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationTextarea-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerLifecycles-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 0 | 10 | 0 |  |
+| react-dom/ReactDOMServerIntegrationModes-test.js | 17 | 3 | 0 |  |
+| react-dom/ReactDOMServerIntegrationNewContext-test.js | 39 | 12 | 0 |  |
+| react-dom/ReactDOMServerIntegrationObject-test.js | 4 | 6 | 0 |  |
+| react-dom/ReactDOMserverIntegrationProgress-test.js | 2 | 3 | 0 |  |
+| react-dom/ReactDOMServerIntegrationReconnecting-test.js | 54 | 0 | 0 |  |
+| react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
+| react-dom/ReactDOMServerIntegrationSelect-test.js | 42 | 29 | 0 |  |
+| react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 26 | 4 | 0 |  |
+| react-dom/ReactDOMServerIntegrationTextarea-test.js | 26 | 14 | 0 |  |
+| react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 54 | 23 | 0 |  |
+| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 7 | 13 | 7 |  |
+| react-dom/ReactDOMServerLifecycles-test.js | 2 | 8 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 0 | 57 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 0 | 37 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
@@ -97,13 +97,13 @@
 | react-dom/ReactDOMSingletonComponents-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 0 | 2 | 3 |  |
-| react-dom/ReactDOMSVG-test.js | 4 | 1 | 0 |  |
+| react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
 | react-dom/ReactDOMTextarea-test.js | 0 | 0 | 0 | assertConsoleErrorDev; |
 | react-dom/ReactDOMTextComponent-test.js | 3 | 1 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 0 | 12 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 0 | 14 | 12 |  |
-| react-dom/ReactEmptyComponent-test.js | 0 | 24 | 0 |  |
+| react-dom/ReactEmptyComponent-test.js | 18 | 6 | 0 |  |
 | react-dom/ReactErrorBoundaries-test.internal.js | 0 | 49 | 1 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
@@ -115,21 +115,21 @@
 | react-dom/ReactLegacyErrorBoundaries-test.internal.js | 0 | 0 | 41 |  |
 | react-dom/ReactLegacyMount-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactLegacyRootWarnings-test.js | 0 | 0 | 1 |  |
-| react-dom/ReactLegacyUpdates-test.js | 0 | 1 | 39 |  |
+| react-dom/ReactLegacyUpdates-test.js | 1 | 0 | 39 |  |
 | react-dom/ReactMockedComponent-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactMountDestruction-test.js | 1 | 0 | 2 |  |
 | react-dom/ReactMultiChild-test.js | 6 | 8 | 0 |  |
 | react-dom/ReactMultiChildReconcile-test.js | 0 | 29 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 1 | 3 | 0 |  |
-| react-dom/ReactRenderDocument-test.js | 3 | 8 | 0 |  |
+| react-dom/ReactRenderDocument-test.js | 2 | 9 | 0 |  |
 | react-dom/ReactServerRendering-test.js | 0 | 45 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactServerRenderingHydration-test.js | 7 | 17 | 0 |  |
+| react-dom/ReactServerRenderingHydration-test.js | 10 | 14 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 3 | 21 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 0 | 5 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
-| react-dom/ReactUpdates-test.js | 0 | 42 | 3 |  |
+| react-dom/ReactUpdates-test.js | 15 | 27 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 1 | 3 | 0 |  |
 | react-dom/refs-test.js | 7 | 5 | 0 |  |

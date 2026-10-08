@@ -11,6 +11,14 @@ GlobalRegistrator.register({ url: "http://localhost/" });
 const g = globalThis as any;
 // Modules stay loaded between tests (Bun has no registry reset); each test still gets its own container and root.
 const bunJest: any = (await import("bun:test")).jest;
+// As React's setupTests has them, for development.
+const spyOn = (obj: any, key: string) => bunJest.spyOn(obj, key);
+g.spyOn = spyOn;
+g.spyOnDev = spyOn;
+g.spyOnDevAndProd = spyOn;
+g.spyOnProd = () => {};
+g.__EXTENSION__ = false;
+g.__REACT_ROOT_PATH_TEST__ = import.meta.dir;
 for (const j of [bunJest, g.jest].filter(Boolean)) {
   j.resetModules ??= () => {};
   j.isolateModules ??= (fn: () => void) => fn();

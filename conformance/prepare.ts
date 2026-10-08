@@ -8,7 +8,7 @@ import { gateSource } from "./gates.ts";
 const REF = process.env.REACT_REF ?? "main";
 const here = import.meta.dir;
 const clone = join(tmpdir(), "sluurp-react-src");
-const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/shared"];
+const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/react-dom/src/test-utils", "packages/internal-test-utils", "packages/shared"];
 
 const git = (args: string[], cwd?: string) => {
   const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -35,5 +35,8 @@ function copy(from: string, to: string) {
 }
 copy(join(clone, "packages/react/src/__tests__"), join(out, "react"));
 copy(join(clone, "packages/react-dom/src/__tests__"), join(out, "react-dom"));
+// Helpers the tests import by path: React DOM's test-utils (FizzTestUtils…) and internal-test-utils' own files.
+copy(join(clone, "packages/react-dom/src/test-utils"), join(out, "test-utils"));
+copy(join(clone, "packages/internal-test-utils"), join(out, "internal-test-utils"));
 writeFileSync(join(out, "REF"), at + "\n");
 console.log(`React's tests at ${at} in react-tests/`);

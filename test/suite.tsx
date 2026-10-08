@@ -353,7 +353,7 @@ test("server render", () => {
     const [n] = useState(3);
     return <p className="x" style={{ marginTop: 2 }} data-on={true}>{n} &lt; {useContext(Ctx)}</p>;
   };
-  eq(renderToString(<Ctx value={9}><C /><input defaultValue="v" disabled /></Ctx>), '<p class="x" style="margin-top:2px" data-on="true">3 &lt; 9</p><input value="v" disabled>');
+  eq(renderToString(<Ctx value={9}><C /><input defaultValue="v" disabled /></Ctx>), '<p class="x" style="margin-top:2px" data-on="true">3 &lt; 9</p><input value="v" disabled="">');
 });
 
 (async () => {
