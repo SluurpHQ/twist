@@ -331,6 +331,22 @@ test("form action gets the form's data", async (box) => {
   eq(got, "hello");
 });
 
+test("Base UI slider shows its thumb", async (box) => {
+  const { Slider } = await import("@base-ui/react/slider");
+  mount(box, (
+    <Slider.Root defaultValue={[15]} thumbAlignment="edge" style={{ width: 200 }}>
+      <Slider.Control style={{ width: 200, height: 10, position: "relative" }}>
+        <Slider.Track><Slider.Indicator /></Slider.Track>
+        {[0].map((i) => <Slider.Thumb key={i} style={{ width: 10, height: 10 }} />)}
+      </Slider.Control>
+    </Slider.Root>
+  ));
+  await frame();
+  await frame();
+  const thumb = box.querySelector("[data-index]") as HTMLElement;
+  eq(thumb.style.visibility, "", "thumb visible");
+});
+
 test("server render", () => {
   const Ctx = createContext(1);
   const C = () => {

@@ -29,6 +29,7 @@ export type Fiber = {
   tick?: Sig<number>;
   pending?: Sig<number>;
   compare?: ((a: any, b: any) => boolean) | null;
+  insertion?: (() => void)[];
   layout?: (() => void)[];
   passive?: (() => void)[];
   value?: Sig;
@@ -40,6 +41,9 @@ type RootState = { ids: number; container: Node };
 let current: Fiber | null = null;
 let hookAt = 0;
 let depth = 0;
+// Phases, as React's commit has them: insertion effects first (before any ref or layout effect: a ref may call
+// what one set up), then refs and layout effects, then passive effects after paint.
+const insertionQueue: (() => void)[] = [];
 const layoutQueue: (() => void)[] = [];
 const passiveQueue: (() => void)[] = [];
 let passiveBooked = false;
@@ -189,6 +193,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const ns = type === "svg" ? SVG_NS : type === "math" ? MATH_NS : f.ns;
     f.ns = ns;
     const el = (f.dom = ns ? document.createElementNS(ns, type) : document.createElement(type));
+    // Its fiber, for tools that look from the page into the tree.
+    (el as any).__fiber = f;
     setProps(el, props, null, ns === SVG_NS);
     setDefaults(el, props);
     (el as any).__props = props;
@@ -412,6 +418,7 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     return;
   }
   if (depth++ === 0) runPassive(false);
+  f.insertion = [];
   f.layout = [];
   f.passive = [];
   let out: any;
@@ -438,6 +445,7 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   } catch (e) {
     caught(f, e);
   }
+  insertionQueue.push(...f.insertion);
   layoutQueue.push(...f.layout);
   passiveQueue.push(...f.passive);
   if (--depth === 0) commit();
@@ -587,6 +595,8 @@ function commit() {
   depth++;
   try {
     untrack(() => {
+      for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
+      insertionQueue.length = 0;
       for (let i = 0; i < layoutQueue.length; i++) guard(layoutQueue[i]!);
       layoutQueue.length = 0;
     });
@@ -670,7 +680,7 @@ export const client = {
     effectHook(create, deps, "layout");
   },
   useInsertionEffect(create: () => any, deps?: any[]) {
-    effectHook(create, deps, "layout");
+    effectHook(create, deps, "insertion");
   },
   useImperativeHandle(ref: any, create: () => any, deps?: any[]) {
     effectHook(
@@ -771,7 +781,7 @@ export const client = {
   },
 };
 
-function effectHook(create: () => any, deps: any[] | undefined, phase: "layout" | "passive") {
+function effectHook(create: () => any, deps: any[] | undefined, phase: "insertion" | "layout" | "passive") {
   const f = current!;
   const h = hook(() => ({ deps: undefined as any, cleanup: null as any, first: true }));
   if (!h.first && deps && !depsChanged(h.deps, deps)) return;
