@@ -1,0 +1,817 @@
+// The runtime: React's API on Sluurp's signals. Each component renders inside a signals effect, so what it reads
+// (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
+// changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
+import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement } from "./element.ts";
+import { MATH_NS, SVG_NS, onAfterEvent, setDefaults, setProps } from "./props.ts";
+
+type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
+
+const TEXT = 1, HOST = 2, COMP = 3, FRAG = 4, PROVIDER = 5, PORTAL_F = 6, ROOT = 7;
+
+export type Fiber = {
+  kind: number;
+  type: any;
+  key: string;
+  props: any;
+  parent: Fiber | null;
+  children: Fiber[];
+  dom: any;
+  ns: string | null;
+  root: RootState;
+  dead?: boolean;
+  // A component: how it renders, its hooks, the effect it renders in.
+  render?: (f: Fiber, props: any) => any;
+  hooks?: any[];
+  stop?: () => void;
+  out?: any;
+  inst?: any;
+  tick?: Sig<number>;
+  pending?: Sig<number>;
+  compare?: ((a: any, b: any) => boolean) | null;
+  layout?: (() => void)[];
+  passive?: (() => void)[];
+  value?: Sig;
+  refCleanup?: (() => void) | null;
+};
+
+type RootState = { ids: number; container: Node };
+
+let current: Fiber | null = null;
+let hookAt = 0;
+let depth = 0;
+const layoutQueue: (() => void)[] = [];
+const passiveQueue: (() => void)[] = [];
+let passiveBooked = false;
+
+const report = (e: unknown) => (typeof reportError === "function" ? reportError(e) : console.error(e));
+
+// ---------------------------------------------------------------- children
+
+const TEXT_NODE = Symbol("text");
+
+/** What a component or element gives as children, as a list: arrays nest as fragments, text as text. */
+function toList(children: any): any[] {
+  if (children == null || typeof children === "boolean") return [];
+  if (Array.isArray(children)) return children;
+  if (typeof children === "object" && !children.$$typeof && typeof children[Symbol.iterator] === "function") return [...children];
+  return [children];
+}
+
+/** A child's key among its siblings, and the fiber kind it makes. */
+function keyOf(c: any, i: number) {
+  return c && typeof c === "object" && c.key != null ? "k" + c.key : "i" + i;
+}
+
+function typeOf(c: any): any {
+  if (typeof c === "string" || typeof c === "number" || typeof c === "bigint") return TEXT_NODE;
+  if (Array.isArray(c)) return FRAGMENT;
+  if (c.$$typeof === PORTAL) return PORTAL;
+  return c.type;
+}
+
+// ---------------------------------------------------------------- DOM placement
+
+function hostParentOf(f: Fiber): Node {
+  let p = f.parent;
+  while (p && p.kind !== HOST && p.kind !== ROOT && p.kind !== PORTAL_F) p = p.parent;
+  return p!.dom;
+}
+
+function firstDom(f: Fiber): Node | null {
+  if (f.kind === HOST || f.kind === TEXT) return f.dom;
+  if (f.kind === PORTAL_F) return null;
+  for (const c of f.children) {
+    const d = firstDom(c);
+    if (d) return d;
+  }
+  return null;
+}
+
+/** The DOM node after everything `f` put on the page: where what it draws next goes before. */
+function nextDomAfter(f: Fiber): Node | null {
+  let at: Fiber | null = f;
+  while (at && at.parent) {
+    const sibs = at.parent.children;
+    for (let i = sibs.indexOf(at) + 1; i < sibs.length; i++) {
+      const d = firstDom(sibs[i]!);
+      if (d) return d;
+    }
+    const p: Fiber = at.parent;
+    if (p.kind === HOST || p.kind === ROOT || p.kind === PORTAL_F) return null;
+    at = p;
+  }
+  return null;
+}
+
+function domNodes(f: Fiber, out: Node[] = []): Node[] {
+  if (f.kind === HOST || f.kind === TEXT) out.push(f.dom);
+  else if (f.kind !== PORTAL_F) for (const c of f.children) domNodes(c, out);
+  return out;
+}
+
+// ---------------------------------------------------------------- reconciling
+
+/** `parent`'s children made to be `list`: kept by key and type, the rest made or taken away, in order. */
+function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) {
+  const old = parent.children;
+  const byKey = new Map<string, Fiber>();
+  for (const f of old) byKey.set(f.key, f);
+  const next: Fiber[] = [];
+  let i = 0;
+  for (const c of list) {
+    if (c == null || typeof c === "boolean") {
+      i++;
+      continue;
+    }
+    const key = keyOf(c, i++);
+    const type = typeOf(c);
+    const had = byKey.get(key);
+    if (had && had.type === type && !had.dead) {
+      byKey.delete(key);
+      update(had, c);
+      next.push(had);
+    } else {
+      next.push(mount(c, key, type, parent, host, before));
+    }
+  }
+  for (const f of byKey.values()) unmount(f, true);
+  parent.children = next;
+  // In order, back to front: each node before the one after it, moved only when it is not already there.
+  let cursor = before;
+  for (let j = next.length - 1; j >= 0; j--) {
+    const nodes = domNodes(next[j]!);
+    for (let k = nodes.length - 1; k >= 0; k--) {
+      const n = nodes[k]!;
+      if (n.parentNode !== host || n.nextSibling !== cursor) host.insertBefore(n, cursor);
+      cursor = n;
+    }
+  }
+}
+
+function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
+  return { kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root };
+}
+
+function childNs(host: Fiber): string | null {
+  if (host.type === "foreignObject") return null;
+  return host.ns;
+}
+
+function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before: Node | null): Fiber {
+  if (type === TEXT_NODE) {
+    const f = fiber(TEXT, type, key, c, parent);
+    f.dom = document.createTextNode("" + c);
+    host.insertBefore(f.dom, before);
+    return f;
+  }
+  if (type === FRAGMENT) {
+    const f = fiber(FRAG, type, key, null, parent);
+    reconcile(f, Array.isArray(c) ? c : toList(c.props.children), host, before);
+    return f;
+  }
+  if (type === PORTAL) {
+    const f = fiber(PORTAL_F, type, key, c, parent);
+    f.dom = c.containerInfo;
+    f.ns = null;
+    reconcile(f, toList(c.children), f.dom, null);
+    return f;
+  }
+  const props = c.props;
+  if (typeof type === "string") {
+    const f = fiber(HOST, type, key, props, parent);
+    const ns = type === "svg" ? SVG_NS : type === "math" ? MATH_NS : f.ns;
+    f.ns = ns;
+    const el = (f.dom = ns ? document.createElementNS(ns, type) : document.createElement(type));
+    setProps(el, props, null, ns === SVG_NS);
+    setDefaults(el, props);
+    (el as any).__props = props;
+    if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
+    if (type === "select" && props.value !== undefined) (el as any).value = props.value;
+    host.insertBefore(el, before);
+    if (props.ref != null) layoutQueue.push(() => setRef(f, props.ref, el));
+    return f;
+  }
+  if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY) {
+    const f = fiber(FRAG, type, key, props, parent);
+    if (!(type === ACTIVITY && props.mode === "hidden")) reconcile(f, toList(props.children), host, before);
+    return f;
+  }
+  if (type && type.$$typeof === CONTEXT) {
+    const f = fiber(PROVIDER, type, key, props, parent);
+    f.value = signal(props.value);
+    reconcile(f, toList(props.children), host, before);
+    return f;
+  }
+  const f = fiber(COMP, type, key, props, parent);
+  f.render = renderer(type, f);
+  f.hooks = [];
+  start(f, host, before);
+  return f;
+}
+
+function update(f: Fiber, c: any) {
+  if (f.kind === TEXT) {
+    if (f.props !== c) (f.dom as Text).data = "" + (f.props = c);
+    return;
+  }
+  if (f.kind === FRAG) {
+    const host = hostParentOf(f);
+    reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
+    f.props = c.props;
+    return;
+  }
+  if (f.kind === PORTAL_F) {
+    if (f.dom !== c.containerInfo) {
+      // Moved to another container: what it drew goes with it.
+      for (const n of f.children) unmount(n, true);
+      f.children = [];
+      f.dom = c.containerInfo;
+    }
+    reconcile(f, toList(c.children), f.dom, null);
+    return;
+  }
+  const props = c.props;
+  if (f.kind === HOST) {
+    const prev = f.props;
+    if (prev === props) return;
+    f.props = props;
+    const el = f.dom as Element;
+    (el as any).__props = props;
+    setProps(el, props, prev, f.ns === SVG_NS);
+    if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
+    else if (f.children.length) {
+      for (const n of f.children) unmount(n, false);
+      f.children = [];
+    }
+    if (f.type === "select" && props.value !== undefined) (el as any).value = props.value;
+    if (prev.ref !== props.ref) {
+      layoutQueue.push(() => {
+        clearRef(f, prev.ref);
+        if (props.ref != null) setRef(f, props.ref, el);
+      });
+    }
+    return;
+  }
+  if (f.kind === PROVIDER) {
+    f.props = props;
+    f.value!.set(props.value);
+    reconcile(f, toList(props.children), hostParentOf(f), nextDomAfter(f));
+    return;
+  }
+  // A component: drawn again only if what it was given changed.
+  if (f.props === props) return;
+  const same = f.compare ? f.compare(f.props, props) : shallowEqual(f.props, props);
+  f.props = props;
+  if (!same) restart(f);
+}
+
+function shallowEqual(a: any, b: any) {
+  if (Object.is(a, b)) return true;
+  if (!a || !b) return false;
+  let n = 0;
+  for (const k in a) {
+    if (!Object.is(a[k], b[k])) return false;
+    n++;
+  }
+  for (const _ in b) n--;
+  return n === 0;
+}
+
+function unmount(f: Fiber, removeDom: boolean) {
+  if (f.dead) return;
+  if (removeDom) for (const n of domNodes(f)) n.parentNode?.removeChild(n);
+  f.dead = true;
+  if (f.kind === COMP) {
+    f.stop?.();
+    const inst = f.inst;
+    if (inst?.componentWillUnmount) untrack(() => guard(() => inst.componentWillUnmount()));
+    for (const h of f.hooks!) if (h && h.cleanup) untrack(() => guard(h.cleanup)), (h.cleanup = null);
+  } else if (f.kind === HOST && f.props.ref != null) {
+    clearRef(f, f.props.ref);
+  }
+  for (const c of f.children) unmount(c, f.kind === PORTAL_F);
+}
+
+function guard(fn: () => void) {
+  try {
+    fn();
+  } catch (e) {
+    report(e);
+  }
+}
+
+function setRef(f: Fiber, ref: any, value: any) {
+  if (typeof ref === "function") {
+    const back = ref(value);
+    f.refCleanup = typeof back === "function" ? back : null;
+  } else if (ref && typeof ref === "object") ref.current = value;
+}
+
+function clearRef(f: Fiber, ref: any) {
+  if (typeof ref === "function") {
+    if (f.refCleanup) f.refCleanup(), (f.refCleanup = null);
+    else ref(null);
+  } else if (ref && typeof ref === "object") ref.current = null;
+}
+
+// ---------------------------------------------------------------- components
+
+/** How a component type renders: functions, classes, forwardRef, memo, lazy, Consumer, Suspense. */
+function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
+  if (typeof type === "function") {
+    if (type.prototype?.isReactComponent) {
+      f.tick = signal(0);
+      return renderClass;
+    }
+    return (_f, props) => type(props);
+  }
+  if (type === SUSPENSE) {
+    f.pending = signal(0);
+    return (fb, props) => (fb.pending!() > 0 ? props.fallback : props.children);
+  }
+  switch (type?.$$typeof) {
+    case FORWARD_REF:
+      return (_f, props) => {
+        if (!("ref" in props)) return type.render(props, null);
+        const { ref, ...rest } = props;
+        return type.render(rest, ref);
+      };
+    case MEMO:
+      f.compare = type.compare;
+      return typeof type.type === "function" && !type.type.prototype?.isReactComponent
+        ? (_f, props) => type.type(props)
+        : (_f, props) => createElement(type.type, props);
+    case LAZY:
+      return (_f, props) => createElement(readLazy(type._payload), props);
+    case CONSUMER:
+      return (fb, props) => props.children(readContext(fb, type._context));
+  }
+  throw new Error(`Element type is invalid: got ${type === undefined ? "undefined" : typeof type === "object" ? JSON.stringify(Object.keys(type)) : String(type)}`);
+}
+
+function readLazy(p: any) {
+  if (p.status === 1) return p.value;
+  if (p.status === 2) throw p.value;
+  if (p.status === -1) {
+    p.status = 0;
+    p.promise = p.load().then(
+      (m: any) => ((p.status = 1), (p.value = m.default ?? m)),
+      (e: any) => ((p.status = 2), (p.value = e)),
+    );
+  }
+  throw p.promise;
+}
+
+/** The component's effect started, rendering it now into `host` before `before`. */
+function start(f: Fiber, host?: Node, before?: Node | null) {
+  let place: [Node, Node | null] | null = host ? [host, before ?? null] : null;
+  f.stop = effect(() => {
+    if (f.tick) f.tick();
+    if (f.dead) return;
+    const at = place;
+    place = null;
+    draw(f, at);
+  });
+}
+
+/** Drawn again now with new props: a fresh effect, so what it reads is tracked as its own. */
+function restart(f: Fiber) {
+  f.stop?.();
+  start(f, hostParentOf(f), nextDomAfter(f));
+}
+
+function draw(f: Fiber, place: [Node, Node | null] | null) {
+  if (depth++ === 0) runPassive(false);
+  f.layout = [];
+  f.passive = [];
+  let out: any;
+  const prevCurrent = current;
+  const prevAt = hookAt;
+  current = f;
+  hookAt = 0;
+  try {
+    out = f.render!(f, f.props);
+  } catch (e) {
+    out = null;
+    current = prevCurrent;
+    hookAt = prevAt;
+    caught(f, e);
+  } finally {
+    current = prevCurrent;
+    hookAt = prevAt;
+  }
+  if (out === KEEP) out = f.out;
+  f.out = out;
+  const [host, before] = place ?? [hostParentOf(f), nextDomAfter(f)];
+  try {
+    reconcile(f, toList(out), host, before);
+  } catch (e) {
+    caught(f, e);
+  }
+  layoutQueue.push(...f.layout);
+  passiveQueue.push(...f.passive);
+  if (--depth === 0) commit();
+}
+
+/** A class component's render, its lifecycle around it. */
+const KEEP = Symbol("keep");
+function renderClass(f: Fiber, props: any) {
+  const C = f.type;
+  const ctx = C.contextType ? readContext(f, C.contextType) : undefined;
+  let inst = f.inst;
+  if (!inst) {
+    inst = f.inst = new C(props, ctx);
+    inst.props = props;
+    inst.context = ctx;
+    if (inst.state === undefined) inst.state = null;
+    inst.__f = f;
+    inst.__queue = [];
+    if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...C.getDerivedStateFromProps(props, inst.state) };
+    const out = inst.render();
+    if (inst.componentDidMount) f.layout!.push(() => guard(() => inst.componentDidMount()));
+    return out;
+  }
+  const prevProps = inst.props;
+  const prevState = inst.state;
+  let state = prevState;
+  let force = false;
+  for (const u of inst.__queue.splice(0)) {
+    if (u === FORCE) force = true;
+    else state = { ...state, ...(typeof u === "function" ? u.call(inst, state, props) : u) };
+  }
+  if (C.getDerivedStateFromProps) state = { ...state, ...C.getDerivedStateFromProps(props, state) };
+  if (!force && inst.shouldComponentUpdate && prevProps !== props && !inst.shouldComponentUpdate(props, state, ctx)) {
+    inst.props = props;
+    inst.state = state;
+    return KEEP;
+  }
+  if (!force && prevProps === props && state === prevState && inst.context === ctx) return KEEP;
+  inst.props = props;
+  inst.state = state;
+  inst.context = ctx;
+  const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
+  const out = inst.render();
+  if (inst.componentDidUpdate) f.layout!.push(() => guard(() => inst.componentDidUpdate(prevProps, prevState, snapshot)));
+  const done = inst.__done?.splice(0);
+  if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
+  return out;
+}
+const FORCE = Symbol("force");
+
+export class Component<P = any, S = any> {
+  props: P;
+  state!: S;
+  context: any;
+  refs = {};
+  declare __f: Fiber;
+  declare __queue: any[];
+  declare __done: any[];
+  constructor(props: P, context?: any) {
+    this.props = props;
+    this.context = context;
+  }
+  setState(partial: any, done?: () => void) {
+    if (!this.__f) {
+      this.state = { ...this.state, ...(typeof partial === "function" ? partial(this.state, this.props) : partial) };
+      return;
+    }
+    this.__queue.push(partial);
+    if (done) (this.__done ??= []).push(done);
+    this.__f.tick!.set(this.__f.tick!.peek() + 1);
+  }
+  forceUpdate(done?: () => void) {
+    if (!this.__f) return;
+    this.__queue.push(FORCE);
+    if (done) (this.__done ??= []).push(done);
+    this.__f.tick!.set(this.__f.tick!.peek() + 1);
+  }
+  render(): any {
+    return null;
+  }
+}
+(Component.prototype as any).isReactComponent = {};
+
+export class PureComponent<P = any, S = any> extends Component<P, S> {
+  shouldComponentUpdate(props: P, state: S) {
+    return !shallowEqual(this.props, props) || !shallowEqual(this.state, state);
+  }
+}
+(PureComponent.prototype as any).isPureReactComponent = true;
+
+/** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
+function caught(f: Fiber, e: any) {
+  if (e && typeof e.then === "function") {
+    for (let p = f.parent; p; p = p.parent) {
+      if (p.type === SUSPENSE && p.pending && !p.dead) {
+        const s = p;
+        s.pending!.set(s.pending!.peek() + 1);
+        // Settled: the boundary shows its children again, and this component (kept, if the children kept
+        // their shape) tries again.
+        const done = () => {
+          s.pending!.set(Math.max(0, s.pending!.peek() - 1));
+          if (!f.dead) restart(f);
+          flushSignals();
+        };
+        e.then(done, done);
+        return;
+      }
+    }
+    // No boundary: drawn again when it settles.
+    e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
+    return;
+  }
+  for (let p = f.parent; p; p = p.parent) {
+    const inst = p.inst;
+    if (inst && !p.dead && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
+      if (p.type.getDerivedStateFromError) inst.__queue.push(p.type.getDerivedStateFromError(e));
+      if (inst.componentDidCatch) layoutQueue.push(() => guard(() => inst.componentDidCatch(e, { componentStack: "" })));
+      p.tick!.set(p.tick!.peek() + 1);
+      return;
+    }
+  }
+  report(e);
+}
+
+// ---------------------------------------------------------------- effects and commit
+
+// Counted as rendering while it runs: an event it fires (a focus() in a layout effect) does not flush from inside.
+function commit() {
+  depth++;
+  try {
+    untrack(() => {
+      for (let i = 0; i < layoutQueue.length; i++) guard(layoutQueue[i]!);
+      layoutQueue.length = 0;
+    });
+  } finally {
+    depth--;
+  }
+  if (passiveQueue.length && !passiveBooked) {
+    passiveBooked = true;
+    afterPaint(() => runPassive(true));
+  }
+}
+
+const afterPaint: (fn: () => void) => void =
+  typeof MessageChannel !== "undefined"
+    ? (fn) => {
+        const ch = new MessageChannel();
+        ch.port1.onmessage = () => fn();
+        ch.port2.postMessage(null);
+      }
+    : (fn) => setTimeout(fn, 0);
+
+/** Passive effects run; `drawAfter` when called on its own (not from inside a render), so what they set is drawn. */
+function runPassive(drawAfter: boolean) {
+  passiveBooked = false;
+  if (!passiveQueue.length) return;
+  const run = passiveQueue.splice(0);
+  untrack(() => run.forEach(guard));
+  if (drawAfter) flushSignals();
+}
+
+// ---------------------------------------------------------------- hooks
+
+function hook<T>(make: () => T): T {
+  const f = current;
+  if (!f) throw new Error("Invalid hook call. Hooks can only be called inside of the body of a function component.");
+  const hooks = f.hooks!;
+  const i = hookAt++;
+  if (i >= hooks.length) hooks.push(make());
+  return hooks[i];
+}
+
+export const depsChanged = (a: any[] | undefined, b: any[] | undefined) =>
+  !a || !b || a.length !== b.length || a.some((x, i) => !Object.is(x, b[i]));
+
+export const client = {
+  useState<T>(init: T | (() => T)): [T, (v: T | ((p: T) => T)) => void] {
+    const h = hook(() => {
+      const s: Sig<T> = signal(typeof init === "function" ? (init as () => T)() : init);
+      return { s, set: (v: any) => s.set(typeof v === "function" ? v(s.peek()) : v) };
+    });
+    return [h.s(), h.set];
+  },
+  useReducer(reducer: any, arg: any, init?: any) {
+    const h = hook(() => {
+      const s: Sig = signal(init ? init(arg) : arg);
+      const box: any = { s, reducer };
+      box.dispatch = (a: any) => s.set(box.reducer(s.peek(), a));
+      return box;
+    });
+    h.reducer = reducer;
+    return [h.s(), h.dispatch];
+  },
+  useRef<T>(init: T) {
+    return hook(() => ({ current: init }));
+  },
+  useMemo<T>(fn: () => T, deps?: any[]): T {
+    const h = hook(() => ({ deps: undefined as any, value: undefined as any }));
+    if (!deps || depsChanged(h.deps, deps)) {
+      h.value = fn();
+      h.deps = deps;
+    }
+    return h.value;
+  },
+  useCallback<T>(fn: T, deps?: any[]): T {
+    return client.useMemo(() => fn, deps);
+  },
+  useEffect(create: () => any, deps?: any[]) {
+    effectHook(create, deps, "passive");
+  },
+  useLayoutEffect(create: () => any, deps?: any[]) {
+    effectHook(create, deps, "layout");
+  },
+  useInsertionEffect(create: () => any, deps?: any[]) {
+    effectHook(create, deps, "layout");
+  },
+  useImperativeHandle(ref: any, create: () => any, deps?: any[]) {
+    effectHook(
+      () => {
+        if (typeof ref === "function") {
+          ref(create());
+          return () => ref(null);
+        }
+        if (ref) {
+          ref.current = create();
+          return () => (ref.current = null);
+        }
+      },
+      deps ? [...deps, ref] : undefined,
+      "layout",
+    );
+  },
+  useContext(ctx: any) {
+    return readContext(current!, ctx);
+  },
+  useId() {
+    const f = current!;
+    return hook(() => `_r_${(f.root.ids++).toString(32)}_`);
+  },
+  useSyncExternalStore<T>(subscribe: (cb: () => void) => () => void, getSnapshot: () => T): T {
+    const h = hook(() => ({ v: signal(0) as Sig<number> }));
+    h.v();
+    const value = getSnapshot();
+    effectHook(
+      () => {
+        const check = () => {
+          if (!Object.is(getSnapshot(), value)) h.v.set(h.v.peek() + 1);
+        };
+        const off = subscribe(() => h.v.set(h.v.peek() + 1));
+        check();
+        return off;
+      },
+      [subscribe],
+      "layout",
+    );
+    return value;
+  },
+  useTransition(): [boolean, (fn: () => any) => void] {
+    const h = hook(() => {
+      const p: Sig<number> = signal(0);
+      return { p, start: (fn: () => any) => startTransitionWith(fn, p) };
+    });
+    return [h.p() > 0, h.start];
+  },
+  useDeferredValue<T>(value: T, _initial?: T) {
+    return value;
+  },
+  useDebugValue() {},
+  useActionState(action: (state: any, payload: any) => any, initial: any) {
+    const h = hook(() => {
+      const s: Sig = signal(initial);
+      const going: Sig<number> = signal(0);
+      let chain: Promise<any> = Promise.resolve();
+      const box: any = { s, going, action };
+      box.dispatch = (payload: any) => {
+        going.set(going.peek() + 1);
+        chain = chain
+          .then(() => box.action(s.peek(), payload))
+          .then((v) => s.set(v), report)
+          .finally(() => going.set(going.peek() - 1));
+      };
+      return box;
+    });
+    h.action = action;
+    return [h.s(), h.dispatch, h.going() > 0];
+  },
+  useOptimistic(state: any, change?: (s: any, a: any) => any) {
+    const h = hook(() => ({ base: state, list: signal([]) as Sig<any[]> }));
+    if (!Object.is(h.base, state)) {
+      h.base = state;
+      if (h.list.peek().length) h.list = signal([]);
+    }
+    const list = h.list;
+    const shown = list().reduce((s: any, a: any) => (change ? change(s, a) : a), state);
+    return [shown, (a: any) => list.set([...list.peek(), a])];
+  },
+  useEffectEvent<T extends (...a: any[]) => any>(fn: T): T {
+    const h = hook(() => {
+      const box: any = { fn };
+      box.call = (...a: any[]) => box.fn(...a);
+      return box;
+    });
+    h.fn = fn;
+    return h.call;
+  },
+  use(usable: any) {
+    if (usable && usable.$$typeof === CONTEXT) return readContext(current!, usable);
+    return readThenable(usable);
+  },
+};
+
+function effectHook(create: () => any, deps: any[] | undefined, phase: "layout" | "passive") {
+  const f = current!;
+  const h = hook(() => ({ deps: undefined as any, cleanup: null as any, first: true }));
+  if (!h.first && deps && !depsChanged(h.deps, deps)) return;
+  h.first = false;
+  h.deps = deps;
+  f[phase]!.push(() => {
+    if (f.dead) return;
+    if (typeof h.cleanup === "function") h.cleanup();
+    const back = create();
+    h.cleanup = typeof back === "function" ? back : null;
+  });
+}
+
+function startTransitionWith(fn: () => any, pending?: Sig<number>) {
+  const r = fn();
+  if (pending && r && typeof r.then === "function") {
+    pending.set(pending.peek() + 1);
+    const done = () => pending.set(pending.peek() - 1);
+    r.then(done, done);
+  }
+}
+export const startTransition = (fn: () => any) => startTransitionWith(fn);
+
+function readThenable(t: any) {
+  if (t.status === "fulfilled") return t.value;
+  if (t.status === "rejected") throw t.reason;
+  if (t.status !== "pending") {
+    t.status = "pending";
+    t.then(
+      (v: any) => ((t.status = "fulfilled"), (t.value = v)),
+      (e: any) => ((t.status = "rejected"), (t.reason = e)),
+    );
+  }
+  throw t;
+}
+
+export function readContext(f: Fiber, ctx: any) {
+  for (let p = f.parent; p; p = p.parent) if (p.kind === PROVIDER && p.type === ctx) return p.value!();
+  return ctx._defaultValue;
+}
+
+// ---------------------------------------------------------------- roots
+
+export function createRoot(container: Element | DocumentFragment, _options?: any) {
+  const state: RootState = { ids: 0, container };
+  const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: null, root: state };
+  let first = true;
+  return {
+    render(children: any) {
+      if (first) {
+        first = false;
+        (container as Element).replaceChildren?.();
+      }
+      depth++;
+      try {
+        reconcile(top, [children], container, null);
+      } finally {
+        if (--depth === 0) commit();
+      }
+      flushSignals();
+    },
+    unmount() {
+      for (const c of top.children) unmount(c, true);
+      top.children = [];
+    },
+  };
+}
+
+/** Taken over as the server drew it: drawn again in its place (the same markup, so nothing moves). */
+export function hydrateRoot(container: Element, children: any, options?: any) {
+  const root = createRoot(container, options);
+  root.render(children);
+  return root;
+}
+
+export function flushSync<T>(fn?: () => T): T {
+  const r = fn ? fn() : (undefined as T);
+  if (depth === 0) flushSignals();
+  return r;
+}
+
+// After a handler: what it changed drawn now (React draws a discrete event's updates before the next one), and a
+// controlled field put back to what its state says when the handler did not take what was typed.
+onAfterEvent((el) => {
+  if (depth > 0) return;
+  flushSignals();
+  const p = (el as any).__props;
+  if (!p) return;
+  if ("value" in p && p.value !== undefined && (el as any).value !== String(p.value ?? "")) (el as any).value = p.value ?? "";
+  if ("checked" in p && p.checked !== undefined && (el as any).checked !== !!p.checked) (el as any).checked = !!p.checked;
+});
+
+export const version = "19.3.0";
+export { ELEMENT };

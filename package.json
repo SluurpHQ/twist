@@ -1,0 +1,15 @@
+{
+  "name": "@sluurp/dom",
+  "version": "0.1.0",
+  "description": "Sluurp's React: React's API on signals, in TypeScript, for the browser and the server.",
+  "type": "module",
+  "exports": {
+    ".": "./src/react.ts",
+    "./jsx-runtime": "./src/jsx-runtime.ts",
+    "./jsx-dev-runtime": "./src/jsx-runtime.ts",
+    "./dom": "./src/react-dom.ts",
+    "./client": "./src/client.ts",
+    "./server": "./src/server.ts"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}
