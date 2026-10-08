@@ -12,7 +12,8 @@ type FiberLike = { kind: number; props: any; parent: FiberLike | null; dom: any;
 
 /** The containers listened on, the roots each belongs to, and the event types each listens for. */
 const containers = new Map<EventTarget, { roots: Set<object>; types: Set<string> }>();
-const wanted = new Set<string>();
+// Always heard, handlers or not: a controlled field is put back after them even when it has no onChange.
+const wanted = new Set<string>(["input", "change", "click"]);
 
 /** What maps a native event and phase to the React props it runs: given by props.ts (it knows onChange's rules). */
 let propsFor: (el: Element, type: string, capture: boolean, props: any) => string[] = () => [];

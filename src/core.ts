@@ -5,6 +5,7 @@ import { effect, flush as flushSignals, signal, untrack } from "../../signals/in
 import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, eventOf, onAfterEvent, setDefaults, setProps } from "./props.ts";
 import { addContainer } from "./events.ts";
+import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -86,11 +87,19 @@ const report = (e: unknown) => (typeof reportError === "function" ? reportError(
 
 const TEXT_NODE = Symbol("text");
 
+/** An iterable child's items (Symbol.iterator, or the `@@iterator` React still accepts), or null. */
+function iterated(c: any): any[] | null {
+  if (!c || typeof c !== "object" || c.$$typeof || Array.isArray(c)) return null;
+  const at = c[Symbol.iterator] ?? c["@@iterator"];
+  return typeof at === "function" ? [...{ [Symbol.iterator]: () => at.call(c) }] : null;
+}
+
 /** What a component or element gives as children, as a list: arrays nest as fragments, text as text. */
 function toList(children: any): any[] {
   if (children == null || typeof children === "boolean") return [];
   if (Array.isArray(children)) return children;
-  if (typeof children === "object" && !children.$$typeof && typeof children[Symbol.iterator] === "function") return [...children];
+  const items = iterated(children);
+  if (items) return items;
   return [children];
 }
 
@@ -158,6 +167,9 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   for (let c of list) {
     // A lazy or a promise as a child: what it gives, once it has (suspending until then).
     c = unwrapChild(c);
+    // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
+    const items = Array.isArray(c) ? null : iterated(c);
+    if (items) c = items;
     if (c == null || typeof c === "boolean") {
       i++;
       continue;
@@ -272,11 +284,16 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const el = (f.dom = server ?? (ns ? document.createElementNS(ns, type) : document.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     (el as any).__fiber = f;
-    setProps(el, props, null, ns === SVG_NS);
-    setDefaults(el, props);
     (el as any).__props = props;
-    if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
-    if (type === "select" && props.value !== undefined) (el as any).value = props.value;
+    if (FORM_TAGS.has(type) && !ns) {
+      // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
+      if (type !== "textarea" && type !== "input") reconcile(f, toList(props.children), el, null);
+      initForm(el, type, props, false);
+    } else {
+      setProps(el, props, null, ns === SVG_NS);
+      setDefaults(el, props);
+      if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
+    }
     if (server) {
       if (props.dangerouslySetInnerHTML == null) dropUnclaimed(el);
     } else host.insertBefore(el, before);
@@ -331,13 +348,17 @@ function update(f: Fiber, c: any) {
     f.props = props;
     const el = f.dom as Element;
     (el as any).__props = props;
-    setProps(el, props, prev, f.ns === SVG_NS);
-    if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
-    else if (f.children.length) {
-      for (const n of f.children) unmount(n, false);
-      f.children = [];
+    if (FORM_TAGS.has(f.type) && !f.ns) {
+      if (f.type !== "textarea" && f.type !== "input") reconcile(f, toList(props.children), el, null);
+      updateForm(el, f.type, props, prev, false);
+    } else {
+      setProps(el, props, prev, f.ns === SVG_NS);
+      if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
+      else if (f.children.length) {
+        for (const n of f.children) unmount(n, false);
+        f.children = [];
+      }
     }
-    if (f.type === "select" && props.value !== undefined) (el as any).value = props.value;
     if (prev.ref !== props.ref) {
       layoutQueue.push(() => {
         clearRef(f, prev.ref);
@@ -378,6 +399,7 @@ function unmount(f: Fiber, removeDom: boolean) {
   if (f.kind === COMP) {
     f.stop?.();
     const inst = f.inst;
+    if (inst && (f as any).classRef != null) clearRef(f, (f as any).classRef);
     if (inst?.componentWillUnmount) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
     for (const h of f.hooks!) if (h && h.cleanup) untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
   } else if (f.kind === HOST && f.props.ref != null) {
@@ -549,8 +571,16 @@ function path(f: Fiber) {
 
 /** A class component's render, its lifecycle around it. */
 const KEEP = Symbol("keep");
-function renderClass(f: Fiber, props: any) {
+function renderClass(f: Fiber, withRef: any) {
   const C = f.type;
+  let props = withRef;
+  if (withRef && "ref" in withRef) {
+    const { ref: _ref, ...rest } = withRef;
+    props = rest;
+    // The same props object while nothing else changed, so an update with equal props still bails out.
+    if (f.inst && shallowEqual(f.inst.props, rest)) props = f.inst.props;
+  }
+  const ref = withRef?.ref;
   const ctx = C.contextType ? readContext(f, C.contextType) : undefined;
   // React calls the legacy will-lifecycles only for a class that does not use the newer static ones.
   const legacy = !C.getDerivedStateFromProps && !f.inst?.getSnapshotBeforeUpdate && !C.prototype.getSnapshotBeforeUpdate;
@@ -581,6 +611,8 @@ function renderClass(f: Fiber, props: any) {
     inst.state = apply(inst.state, props)[0];
     const out = inst.render();
     if (inst.componentDidMount) f.layout!.push(() => lifecycle(f, () => inst.componentDidMount()));
+    if (ref != null) f.layout!.push(() => setRef(f, ref, inst));
+    (f as any).classRef = ref;
     const done = inst.__done?.splice(0);
     if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
     return out;
@@ -588,6 +620,14 @@ function renderClass(f: Fiber, props: any) {
   const prevProps = inst.props;
   const prevState = inst.state;
   const prevCtx = inst.context;
+  const prevRef = (f as any).classRef;
+  if (prevRef !== ref) {
+    (f as any).classRef = ref;
+    f.layout!.push(() => {
+      if (prevRef != null) clearRef(f, prevRef);
+      if (ref != null) setRef(f, ref, inst);
+    });
+  }
   if (prevProps !== props || prevCtx !== ctx) call("componentWillReceiveProps", props, ctx);
   let [state, force] = apply(prevState, props);
   if (C.getDerivedStateFromProps) state = { ...state, ...C.getDerivedStateFromProps(props, state) };
@@ -974,10 +1014,7 @@ onAfterEvent((el, e) => {
   // Only once the field's own change has been told: a checkbox's click comes before its change, and putting it
   // back then would undo the toggle the change is about to report.
   if (e.type !== eventOf(el, "onChange")[0]) return;
-  const p = (el as any).__props;
-  if (!p) return;
-  if ("value" in p && p.value !== undefined && (el as any).value !== String(p.value ?? "")) (el as any).value = p.value ?? "";
-  if ("checked" in p && p.checked !== undefined && (el as any).checked !== !!p.checked) (el as any).checked = !!p.checked;
+  if (FORM_TAGS.has(el.localName)) restoreForm(el);
 });
 
 /** The DOM node a class component instance (or an element) draws first: React's findDOMNode. */

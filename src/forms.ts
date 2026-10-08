@@ -1,0 +1,200 @@
+// Form fields as React DOM handles them (ported from its ReactDOMInput, ReactDOMTextarea and ReactDOMSelect): the
+// value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
+// back by name after a change, select options chosen from value.
+import { setProp } from "./props.ts";
+
+export const FORM_TAGS = new Set(["input", "textarea", "select", "option"]);
+
+/** React's ToStringValue: what a value prop shows as text (functions and symbols as nothing). */
+function toStringValue(v: any): any {
+  switch (typeof v) {
+    case "bigint":
+    case "boolean":
+    case "number":
+    case "string":
+    case "undefined":
+    case "object":
+      return v;
+    default:
+      return "";
+  }
+}
+const str = (v: any) => "" + toStringValue(v);
+const usable = (v: any) => v != null && typeof v !== "function" && typeof v !== "symbol" && typeof v !== "boolean";
+
+/** The props React reads itself for each field: everything else is an ordinary attribute. */
+const OWN: Record<string, Set<string>> = {
+  input: new Set(["name", "type", "checked", "defaultChecked", "value", "defaultValue", "children", "dangerouslySetInnerHTML"]),
+  select: new Set(["value", "defaultValue"]),
+  textarea: new Set(["value", "defaultValue", "children", "dangerouslySetInnerHTML"]),
+  option: new Set(["selected"]),
+};
+
+function setDefaultValue(node: HTMLInputElement, value: any) {
+  if (node.defaultValue !== str(value)) node.defaultValue = str(value);
+}
+
+// ---------------------------------------------------------------- input
+
+function initInput(node: HTMLInputElement, p: any) {
+  const { value, defaultValue, checked, defaultChecked, type, name } = p;
+  if (usable(type)) node.type = type;
+  if (value != null || defaultValue != null) {
+    const isButton = type === "submit" || type === "reset";
+    if (isButton && value == null) return;
+    const defaultStr = defaultValue != null ? str(defaultValue) : "";
+    const initial = value != null ? str(value) : defaultStr;
+    if (initial !== node.value) node.value = initial;
+    node.defaultValue = initial;
+  }
+  const checkedOrDefault = checked != null ? checked : defaultChecked;
+  const initialChecked = typeof checkedOrDefault !== "function" && typeof checkedOrDefault !== "symbol" && !!checkedOrDefault;
+  node.checked = initialChecked;
+  // Toggled twice, as React does, so the attribute is written even when it was already right.
+  node.defaultChecked = !node.defaultChecked;
+  node.defaultChecked = initialChecked;
+  if (usable(name)) node.name = name;
+}
+
+function updateInput(node: HTMLInputElement, p: any, lastDefaultValue: any) {
+  const { value, defaultValue, checked, defaultChecked, type, name } = p;
+  // Cleared first: a radio's checked would otherwise uncheck one of the same name in the old group.
+  node.name = "";
+  if (usable(type)) node.type = type;
+  else node.removeAttribute("type");
+  if (value != null) {
+    if (type === "number") {
+      if ((value === 0 && node.value === "") || node.value != value) node.value = str(value);
+    } else if (node.value !== str(value)) node.value = str(value);
+  } else if (type === "submit" || type === "reset") node.removeAttribute("value");
+  if (value != null) {
+    if (type === "number" && node.value == value) setDefaultValue(node, node.value);
+    else setDefaultValue(node, value);
+  } else if (defaultValue != null) setDefaultValue(node, defaultValue);
+  else if (lastDefaultValue != null) node.removeAttribute("value");
+  if (checked == null && defaultChecked != null) node.defaultChecked = !!defaultChecked;
+  if (checked != null) node.checked = checked && typeof checked !== "function" && typeof checked !== "symbol";
+  if (usable(name)) node.name = str(name);
+  else node.removeAttribute("name");
+}
+
+// ---------------------------------------------------------------- textarea
+
+function initTextarea(node: HTMLTextAreaElement, p: any) {
+  let { value, defaultValue, children } = p;
+  let initial = value;
+  if (initial == null) {
+    if (children != null) {
+      if (defaultValue != null) throw new Error("If you supply `defaultValue` on a <textarea>, do not pass children.");
+      if (Array.isArray(children)) {
+        if (children.length > 1) throw new Error("<textarea> can only have at most one child.");
+        children = children[0];
+      }
+      defaultValue = children;
+    }
+    if (defaultValue == null) defaultValue = "";
+    initial = defaultValue;
+  }
+  const s = toStringValue(initial);
+  node.defaultValue = s;
+  const text = node.textContent;
+  if (text === s && text !== "" && text !== null) node.value = text;
+}
+
+function updateTextarea(node: HTMLTextAreaElement, p: any) {
+  const { value, defaultValue } = p;
+  if (value != null) {
+    const next = str(value);
+    if (next !== node.value) node.value = next;
+    if (defaultValue == null) {
+      if (node.defaultValue !== next) node.defaultValue = next;
+      return;
+    }
+  }
+  node.defaultValue = defaultValue != null ? str(defaultValue) : "";
+}
+
+// ---------------------------------------------------------------- select
+
+function updateOptions(node: HTMLSelectElement, multiple: boolean, value: any, setDefault: boolean) {
+  const options = node.options;
+  if (multiple) {
+    const chosen = new Set((value as any[]).map((v) => "$" + v));
+    for (let i = 0; i < options.length; i++) {
+      const selected = chosen.has("$" + options[i]!.value);
+      if (options[i]!.selected !== selected) options[i]!.selected = selected;
+      if (selected && setDefault) options[i]!.defaultSelected = true;
+    }
+    return;
+  }
+  const want = str(value);
+  let fallback: HTMLOptionElement | null = null;
+  for (let i = 0; i < options.length; i++) {
+    const o = options[i]!;
+    if (o.value === want) {
+      o.selected = true;
+      if (setDefault) o.defaultSelected = true;
+      return;
+    }
+    if (fallback === null && !o.disabled) fallback = o;
+  }
+  if (fallback !== null) fallback.selected = true;
+}
+
+function initSelect(node: HTMLSelectElement, p: any) {
+  node.multiple = !!p.multiple;
+  if (p.value != null) updateOptions(node, !!p.multiple, p.value, false);
+  else if (p.defaultValue != null) updateOptions(node, !!p.multiple, p.defaultValue, true);
+}
+
+function updateSelect(node: HTMLSelectElement, p: any, wasMultiple: any) {
+  if (p.value != null) updateOptions(node, !!p.multiple, p.value, false);
+  else if (!!wasMultiple !== !!p.multiple) {
+    if (p.defaultValue != null) updateOptions(node, !!p.multiple, p.defaultValue, true);
+    else updateOptions(node, !!p.multiple, p.multiple ? [] : "", false);
+  }
+}
+
+// ---------------------------------------------------------------- the calls core makes
+
+/** A new field's props set: the ordinary ones first (type, step, min, max before value), then React's own. */
+export function initForm(el: Element, tag: string, props: any, svg: boolean) {
+  const own = OWN[tag]!;
+  for (const k in props) if (!own.has(k) && props[k] != null) setProp(el, k, props[k], undefined, svg);
+  if (tag === "input") initInput(el as HTMLInputElement, props);
+  else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
+  else if (tag === "select") initSelect(el as HTMLSelectElement, props);
+  else if (tag === "option" && props.selected != null) (el as HTMLOptionElement).selected = !!props.selected && typeof props.selected !== "function" && typeof props.selected !== "symbol";
+}
+
+/** A field's props changed from `prev` to `next`. */
+export function updateForm(el: Element, tag: string, next: any, prev: any, svg: boolean) {
+  const own = OWN[tag]!;
+  for (const k in prev) if (!own.has(k) && !(k in next)) setProp(el, k, undefined, prev[k], svg);
+  for (const k in next) if (!own.has(k) && next[k] !== prev[k]) setProp(el, k, next[k], prev[k], svg);
+  if (tag === "input") updateInput(el as HTMLInputElement, next, prev.defaultValue);
+  else if (tag === "textarea") updateTextarea(el as HTMLTextAreaElement, next);
+  else if (tag === "select") updateSelect(el as HTMLSelectElement, next, prev.multiple);
+  else if (tag === "option" && next.selected !== prev.selected && next.selected != null) (el as HTMLOptionElement).selected = !!next.selected;
+}
+
+/** After a field's change event: put back what its props say (React's restoreControlledState), radio groups too. */
+export function restoreForm(el: Element) {
+  const props = (el as any).__props;
+  if (!props) return;
+  const tag = el.localName;
+  if (tag === "input") {
+    updateInput(el as HTMLInputElement, props, props.defaultValue);
+    if (props.type === "radio" && props.name != null) {
+      let top: Node = el;
+      while (top.parentNode) top = top.parentNode;
+      const group = (top as ParentNode).querySelectorAll(`input[name="${CSS.escape("" + props.name)}"][type="radio"]`);
+      for (const other of group) {
+        if (other === el || (other as HTMLInputElement).form !== (el as HTMLInputElement).form) continue;
+        const theirs = (other as any).__props;
+        if (theirs) updateInput(other as HTMLInputElement, theirs, theirs.defaultValue);
+      }
+    }
+  } else if (tag === "textarea") updateTextarea(el as HTMLTextAreaElement, props);
+  else if (tag === "select" && props.value != null) updateOptions(el as HTMLSelectElement, !!props.multiple, props.value, false);
+}
