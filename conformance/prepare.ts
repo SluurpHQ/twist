@@ -23,7 +23,6 @@ const at = git(["rev-parse", "--short", "HEAD"], clone);
 const out = join(here, "react-tests");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-cpSync(join(clone, "packages/shared"), join(out, "shared"), { recursive: true });
 
 // Setup checks the harness cannot meet, taken out (the tests after them still run): Bun loads one copy of a module,
 // so jest.isolateModules cannot give a second React DOM.
@@ -33,16 +32,21 @@ const SETUP_ONLY: [RegExp, string][] = [
   [/(['"])(?:\.\.\/)+scripts\/jest\//g, "$1../scripts/jest/"],
 ];
 
+// React's sources are Flow-typed: the types taken out, as React's own build does.
+const flowRemoveTypes = (await import("flow-remove-types")).default;
+const unflow = (code: string) => flowRemoveTypes(code, { all: true }).toString();
+
 function copy(from: string, to: string) {
   mkdirSync(to, { recursive: true });
   for (const f of readdirSync(from)) {
     const a = join(from, f), b = join(to, f);
     if (statSync(a).isDirectory()) copy(a, b);
     else if (/-test(\.internal)?\.js$/.test(f)) {
-      let code = gateSource(readFileSync(a, "utf8"));
+      let code = unflow(gateSource(readFileSync(a, "utf8")));
       for (const [re, to] of SETUP_ONLY) code = code.replace(re, to);
       writeFileSync(b, code);
-    } else writeFileSync(b, readFileSync(a));
+    } else if (f.endsWith(".js")) writeFileSync(b, unflow(readFileSync(a, "utf8")));
+    else writeFileSync(b, readFileSync(a));
   }
 }
 copy(join(clone, "packages/react/src/__tests__"), join(out, "react"));
@@ -51,5 +55,6 @@ copy(join(clone, "packages/react-dom/src/__tests__"), join(out, "react-dom"));
 copy(join(clone, "packages/react-dom/src/test-utils"), join(out, "test-utils"));
 copy(join(clone, "packages/internal-test-utils"), join(out, "internal-test-utils"));
 copy(join(clone, "scripts/jest"), join(out, "scripts", "jest"));
+copy(join(clone, "packages/shared"), join(out, "shared"));
 writeFileSync(join(out, "REF"), at + "\n");
 console.log(`React's tests at ${at} in react-tests/`);

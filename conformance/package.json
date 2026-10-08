@@ -5,6 +5,7 @@
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.14.5",
     "create-react-class": "^15.7.0",
+    "flow-remove-types": "^2.334.0",
     "happy-dom": "^20.14.5",
     "prop-types": "^15.8.1",
     "react-is": "^19.3.0"

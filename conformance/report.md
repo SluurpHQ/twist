@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-1590 pass, 1391 fail, 268 skipped (gated off for stable React 19).
+1834 pass, 2046 fail, 313 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 9 | 6 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 0 | 1 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 21 | 28 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
@@ -14,37 +14,37 @@
 | react-dom/ReactChildReconciler-test.js | 0 | 5 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 2 | 17 | 2 |  |
-| react-dom/ReactComponentLifeCycle-test.js | 6 | 20 | 0 |  |
-| react-dom/ReactCompositeComponent-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactComponentLifeCycle-test.js | 8 | 18 | 0 |  |
+| react-dom/ReactCompositeComponent-test.js | 11 | 29 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactCompositeComponentState-test.js | 1 | 7 | 1 |  |
+| react-dom/ReactCompositeComponentState-test.js | 2 | 6 | 1 |  |
 | react-dom/ReactDOM-test.js | 8 | 8 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 0 | 7 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 7 | 6 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 0 | 0 | 0 | did not run |
+| react-dom/ReactDOMComponent-test.js | 66 | 98 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 3 | 1 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
 | react-dom/ReactDOMEventListener-test.js | 14 | 9 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 47 | 45 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 0 | 36 | 1 |  |
-| react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
+| react-dom/ReactDOMFiberAsync-test.js | 8 | 10 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMFizzServer-test.js | 0 | 173 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 4 | 17 | 0 |  |
-| react-dom/ReactDOMFizzShellHydration-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMFizzShellHydration-test.js | 0 | 12 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 0 | 6 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 2 | 15 | 0 |  |
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 0 | 12 | 0 |  |
-| react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzViewTransition-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFloat-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
+| react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
+| react-dom/ReactDOMFloat-test.js | 0 | 140 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 4 | 41 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 0 | 89 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 0 | 10 | 0 |  |
@@ -53,7 +53,7 @@
 | react-dom/ReactDOMHydrationDiff-test.js | 0 | 39 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 0 | 10 | 0 |  |
-| react-dom/ReactDOMInput-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMInput-test.js | 41 | 82 | 1 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 2 | 5 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
@@ -68,12 +68,12 @@
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 488 | 62 | 0 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 42 | 13 | 0 |  |
-| react-dom/ReactDOMServerIntegrationCheckbox-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationCheckbox-test.js | 24 | 6 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 32 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 243 | 93 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 244 | 92 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 17 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 78 | 63 | 0 |  |
-| react-dom/ReactDOMServerIntegrationInput-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 81 | 60 | 0 |  |
+| react-dom/ReactDOMServerIntegrationInput-test.js | 25 | 10 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 0 | 10 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 17 | 3 | 0 |  |
@@ -94,17 +94,17 @@
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 6 | 3 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMSingletonComponents-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMSingletonComponents-test.js | 0 | 13 | 9 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 0 | 2 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
-| react-dom/ReactDOMTextarea-test.js | 0 | 0 | 0 | assertConsoleErrorDev; |
+| react-dom/ReactDOMTextarea-test.js | 22 | 31 | 0 |  |
 | react-dom/ReactDOMTextComponent-test.js | 3 | 1 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 0 | 12 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 0 | 14 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 18 | 6 | 0 |  |
-| react-dom/ReactErrorBoundaries-test.internal.js | 0 | 0 | 0 | ReactErrorBoundaries-test.internal.js: |
+| react-dom/ReactErrorBoundaries-test.internal.js | 9 | 40 | 1 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
@@ -118,7 +118,7 @@
 | react-dom/ReactLegacyUpdates-test.js | 1 | 0 | 39 |  |
 | react-dom/ReactMockedComponent-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactMountDestruction-test.js | 1 | 0 | 2 |  |
-| react-dom/ReactMultiChild-test.js | 6 | 8 | 0 |  |
+| react-dom/ReactMultiChild-test.js | 7 | 7 | 0 |  |
 | react-dom/ReactMultiChildReconcile-test.js | 0 | 29 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 1 | 3 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 2 | 9 | 0 |  |
@@ -129,24 +129,24 @@
 | react-dom/ReactTestUtilsAct-test.js | 3 | 21 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 0 | 5 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
-| react-dom/ReactUpdates-test.js | 14 | 28 | 3 |  |
+| react-dom/ReactUpdates-test.js | 17 | 25 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 1 | 3 | 0 |  |
 | react-dom/refs-test.js | 7 | 5 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 1 | 2 | 0 |  |
-| react/createReactClassIntegration-test.js | 12 | 14 | 2 |  |
+| react/createReactClassIntegration-test.js | 13 | 13 | 2 |  |
 | react/forwardRef-test.internal.js | 0 | 6 | 0 |  |
 | react/forwardRef-test.js | 0 | 19 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
 | react/ReactChildren-test.js | 35 | 7 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
-| react/ReactContextValidator-test.js | 0 | 8 | 5 |  |
+| react/ReactContextValidator-test.js | 1 | 7 | 5 |  |
 | react/ReactCreateElement-test.js | 12 | 15 | 0 |  |
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
 | react/ReactElementClone-test.js | 13 | 8 | 0 |  |
 | react/ReactElementValidator-test.internal.js | 11 | 10 | 0 |  |
-| react/ReactES6Class-test.js | 0 | 0 | 0 | did not run |
+| react/ReactES6Class-test.js | 13 | 11 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 7 | 7 | 0 |  |
 | react/ReactJSXRuntime-test.js | 5 | 10 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 10 | 9 | 0 |  |

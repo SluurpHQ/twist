@@ -257,7 +257,7 @@ export async function prerender(node: any, options: any = {}) {
 
 export async function prerenderToNodeStream(node: any, _options: any = {}) {
   const html = await complete(node);
-  const { Readable } = await import("node:stream");
+  const { Readable } = await import("node:stream" as string);
   return { prelude: Readable.from([html]), postponed: null };
 }
 

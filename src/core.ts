@@ -37,7 +37,38 @@ export type Fiber = {
   refCleanup?: (() => void) | null;
 };
 
-type RootState = { ids: number; container: Node };
+type RootState = {
+  ids: number;
+  container: Node;
+  top?: Fiber;
+  /** React's root options: where errors go. */
+  onUncaughtError?: (error: unknown, info: { componentStack: string }) => void;
+  onCaughtError?: (error: unknown, info: { componentStack: string; errorBoundary: any }) => void;
+};
+
+/** Who hears an error no boundary caught, before the root's own option: `act` in tests, which rethrows it. */
+let uncaughtListener: ((e: unknown) => void) | null = null;
+export function onUncaught(fn: typeof uncaughtListener) {
+  const was = uncaughtListener;
+  uncaughtListener = fn;
+  return () => (uncaughtListener = was);
+}
+
+/** An error nothing caught: the root is taken down (React unmounts it), and the error told. */
+function uncaught(root: RootState, e: unknown) {
+  layoutQueue.push(() => {
+    const top = root.top;
+    if (top) {
+      for (const c of top.children) unmount(c, true);
+      top.children = [];
+    }
+  });
+  // Outside a render (an effect after paint): taken down now.
+  if (depth === 0) commit();
+  if (uncaughtListener) uncaughtListener(e);
+  else if (root.onUncaughtError) root.onUncaughtError(e, { componentStack: "" });
+  else report(e);
+}
 
 let current: Fiber | null = null;
 let hookAt = 0;
@@ -347,12 +378,21 @@ function unmount(f: Fiber, removeDom: boolean) {
   if (f.kind === COMP) {
     f.stop?.();
     const inst = f.inst;
-    if (inst?.componentWillUnmount) untrack(() => guard(() => inst.componentWillUnmount()));
-    for (const h of f.hooks!) if (h && h.cleanup) untrack(() => guard(h.cleanup)), (h.cleanup = null);
+    if (inst?.componentWillUnmount) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
+    for (const h of f.hooks!) if (h && h.cleanup) untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
   } else if (f.kind === HOST && f.props.ref != null) {
     clearRef(f, f.props.ref);
   }
   for (const c of f.children) unmount(c, f.kind === PORTAL_F);
+}
+
+/** A lifecycle or cleanup of `f` run, what it throws handed to `f`'s nearest boundary. */
+function lifecycle(f: Fiber, fn: () => void) {
+  try {
+    fn();
+  } catch (e) {
+    caught(f, e);
+  }
 }
 
 function guard(fn: () => void) {
@@ -444,10 +484,11 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   (f as any).draws = ((f as any).draws ?? 0) + 1;
   if (!drawsReset) {
     drawsReset = true;
-    setTimeout(() => {
+    // After this task (a message, which a test's fake timers leave alone).
+    afterPaint(() => {
       drawsReset = false;
       loops.clear();
-    }, 0);
+    });
   }
   loops.add(f);
   if ((f as any).draws > LIMIT) {
@@ -511,6 +552,21 @@ const KEEP = Symbol("keep");
 function renderClass(f: Fiber, props: any) {
   const C = f.type;
   const ctx = C.contextType ? readContext(f, C.contextType) : undefined;
+  // React calls the legacy will-lifecycles only for a class that does not use the newer static ones.
+  const legacy = !C.getDerivedStateFromProps && !f.inst?.getSnapshotBeforeUpdate && !C.prototype.getSnapshotBeforeUpdate;
+  const call = (name: string, ...args: any[]) => {
+    const fn = inst[name] ?? inst["UNSAFE_" + name];
+    if (legacy && typeof fn === "function") untrack(() => fn.apply(inst, args));
+  };
+  /** setState calls queued so far, applied to `state`. */
+  const apply = (state: any, nextProps: any) => {
+    let force = false;
+    for (const u of inst.__queue.splice(0)) {
+      if (u === FORCE) force = true;
+      else state = { ...state, ...(typeof u === "function" ? u.call(inst, state, nextProps) : u) };
+    }
+    return [state, force] as const;
+  };
   let inst = f.inst;
   if (!inst) {
     inst = f.inst = new C(props, ctx);
@@ -520,31 +576,35 @@ function renderClass(f: Fiber, props: any) {
     inst.__f = f;
     inst.__queue = [];
     if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...C.getDerivedStateFromProps(props, inst.state) };
+    call("componentWillMount");
+    // setState in componentWillMount: taken into this first render.
+    inst.state = apply(inst.state, props)[0];
     const out = inst.render();
-    if (inst.componentDidMount) f.layout!.push(() => guard(() => inst.componentDidMount()));
+    if (inst.componentDidMount) f.layout!.push(() => lifecycle(f, () => inst.componentDidMount()));
+    const done = inst.__done?.splice(0);
+    if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
     return out;
   }
   const prevProps = inst.props;
   const prevState = inst.state;
-  let state = prevState;
-  let force = false;
-  for (const u of inst.__queue.splice(0)) {
-    if (u === FORCE) force = true;
-    else state = { ...state, ...(typeof u === "function" ? u.call(inst, state, props) : u) };
-  }
+  const prevCtx = inst.context;
+  if (prevProps !== props || prevCtx !== ctx) call("componentWillReceiveProps", props, ctx);
+  let [state, force] = apply(prevState, props);
   if (C.getDerivedStateFromProps) state = { ...state, ...C.getDerivedStateFromProps(props, state) };
-  if (!force && inst.shouldComponentUpdate && prevProps !== props && !inst.shouldComponentUpdate(props, state, ctx)) {
+  if (!force && prevProps === props && state === prevState && prevCtx === ctx) return KEEP;
+  if (!force && inst.shouldComponentUpdate && !untrack(() => inst.shouldComponentUpdate(props, state, ctx))) {
     inst.props = props;
     inst.state = state;
+    inst.context = ctx;
     return KEEP;
   }
-  if (!force && prevProps === props && state === prevState && inst.context === ctx) return KEEP;
+  call("componentWillUpdate", props, state, ctx);
   inst.props = props;
   inst.state = state;
   inst.context = ctx;
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
   const out = inst.render();
-  if (inst.componentDidUpdate) f.layout!.push(() => guard(() => inst.componentDidUpdate(prevProps, prevState, snapshot)));
+  if (inst.componentDidUpdate) f.layout!.push(() => lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
   if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
   return out;
@@ -618,11 +678,12 @@ function caught(f: Fiber, e: any) {
     if (inst && !p.dead && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
       if (p.type.getDerivedStateFromError) inst.__queue.push(p.type.getDerivedStateFromError(e));
       if (inst.componentDidCatch) layoutQueue.push(() => guard(() => inst.componentDidCatch(e, { componentStack: "" })));
+      p.root.onCaughtError?.(e, { componentStack: "", errorBoundary: inst });
       p.tick!.set(p.tick!.peek() + 1);
       return;
     }
   }
-  report(e);
+  uncaught(f.root, e);
 }
 
 // ---------------------------------------------------------------- effects and commit
@@ -656,6 +717,11 @@ const afterPaint: (fn: () => void) => void =
     : (fn) => setTimeout(fn, 0);
 
 /** Passive effects run; `drawAfter` when called on its own (not from inside a render), so what they set is drawn. */
+/** Effects waiting for after paint, run now (React's act does this): for tests and tools. */
+export function flushPassiveEffects() {
+  if (depth === 0) runPassive(true);
+}
+
 function runPassive(drawAfter: boolean) {
   passiveBooked = false;
   if (!passiveQueue.length) return;
@@ -826,9 +892,13 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
   h.deps = deps;
   f[phase]!.push(() => {
     if (f.dead) return;
-    if (typeof h.cleanup === "function") h.cleanup();
-    const back = create();
-    h.cleanup = typeof back === "function" ? back : null;
+    try {
+      if (typeof h.cleanup === "function") h.cleanup();
+      const back = create();
+      h.cleanup = typeof back === "function" ? back : null;
+    } catch (e) {
+      caught(f, e);
+    }
   });
 }
 
@@ -854,6 +924,9 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   const state: RootState = { ids: 0, container };
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
   addContainer(container, state);
+  state.top = top;
+  state.onUncaughtError = options?.onUncaughtError;
+  state.onCaughtError = options?.onCaughtError;
   let first = true;
   return {
     render(children: any) {

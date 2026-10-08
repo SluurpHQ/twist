@@ -9,8 +9,21 @@ import "./gates.ts";
 GlobalRegistrator.register({ url: "http://localhost/" });
 
 const g = globalThis as any;
+g.__realSetTimeout = setTimeout;
 // Modules stay loaded between tests (Bun has no registry reset); each test still gets its own container and root.
 const bunJest: any = (await import("bun:test")).jest;
+// Jest's expect takes a function for .rejects/.resolves and calls it; Bun's wants the promise.
+const bunExpect: any = (await import("bun:test")).expect;
+const expectLikeJest: any = (value: any, ...rest: any[]) => {
+  const m = bunExpect(value, ...rest);
+  if (typeof value !== "function") return m;
+  return new Proxy(m, {
+    get: (t, k) => (k === "rejects" || k === "resolves" ? bunExpect((async () => value())(), ...rest)[k] : Reflect.get(t, k)),
+  });
+};
+for (const k of Object.getOwnPropertyNames(bunExpect)) if (!(k in Function.prototype)) expectLikeJest[k] = bunExpect[k];
+g.expect = expectLikeJest;
+
 // As React's setupTests has them, for development.
 const spyOn = (obj: any, key: string) => bunJest.spyOn(obj, key);
 g.spyOn = spyOn;

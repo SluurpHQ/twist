@@ -1,23 +1,35 @@
 // React's internal-test-utils, for a runtime that renders synchronously on microtasks: `act` and the waits drain
 // everything pending (updates, effects after paint, settled promises), then the log is checked as React's tests do.
-import { flushSync } from "../../src/core.ts";
+import { flushPassiveEffects, flushSync, onUncaught } from "../../src/core.ts";
 import { unstable_clearLog } from "./scheduler.ts";
 
-const macrotask = () => new Promise<void>((r) => setTimeout(r, 0));
-
-/** Until nothing more happens: a few turns of microtasks and tasks, with updates flushed between. */
+/**
+ * Until nothing more happens: updates and effects flushed, between turns of microtasks (promises settling). No
+ * timers: tests fake them (Bun fakes even ones kept earlier), and React's act does not wait on them either.
+ */
 async function drain() {
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 30; i++) {
     flushSync();
+    flushPassiveEffects();
     await Promise.resolve();
-    await macrotask();
   }
   flushSync();
+  flushPassiveEffects();
 }
 
+/** Runs `fn` and everything it sets off; an error no boundary caught is thrown from here, as React's act does. */
 export async function act<T>(fn: () => T | Promise<T>): Promise<T> {
-  const out = await fn();
-  await drain();
+  const errors: unknown[] = [];
+  const off = onUncaught((e) => errors.push(e));
+  let out: T;
+  try {
+    out = await fn();
+    await drain();
+  } finally {
+    off();
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors);
   return out;
 }
 export const serverAct = act;
