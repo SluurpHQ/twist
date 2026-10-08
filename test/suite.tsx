@@ -349,6 +349,36 @@ test("Base UI slider shows its thumb", async (box) => {
   eq(thumb.style.visibility, "", "thumb visible");
 });
 
+test("Base UI select opens and picks", async (box) => {
+  const { Select } = await import("@base-ui/react/select");
+  const items = [{ value: "a", label: "Apple" }, { value: "b", label: "Banana" }];
+  mount(box, (
+    <Select.Root items={items} defaultValue="a">
+      <Select.Trigger data-testid="trigger"><Select.Value /></Select.Trigger>
+      <Select.Portal>
+        <Select.Positioner>
+          <Select.Popup>
+            {items.map((i) => <Select.Item key={i.value} value={i.value}><Select.ItemText>{i.label}</Select.ItemText></Select.Item>)}
+          </Select.Popup>
+        </Select.Positioner>
+      </Select.Portal>
+    </Select.Root>
+  ));
+  await frame();
+  const trigger = box.querySelector("[data-testid=trigger]") as HTMLElement;
+  eq(trigger.textContent, "Apple", "shows the value");
+  trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
+  trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  trigger.click();
+  await frame();
+  await frame();
+  const options = [...document.querySelectorAll("[role=option]")] as HTMLElement[];
+  eq(options.map((o) => o.textContent), ["Apple", "Banana"], "options shown");
+  options[1]!.click();
+  await frame();
+  eq(trigger.textContent, "Banana", "picked");
+});
+
 test("server render", () => {
   const Ctx = createContext(1);
   const C = () => {
