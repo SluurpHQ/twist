@@ -703,9 +703,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     stack: b ? b.stack.slice() : [],
     streaming: { shared, onError },
   });
+  let postamble = "";
   const close = () => {
     if (closed) return;
     closed = true;
+    if (postamble) write(postamble);
     options.onAllReady?.();
     finish();
   };
@@ -776,7 +778,10 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options), bootstrapPreloads(options, nonce, res)));
   // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
   const paint = !shared.boundaries.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
-  write(shellWithPreamble + paint + bootstrap(options, nonce));
+  // The document's closing tags come last, once everything has streamed (React's postamble).
+  const end = /(<\/body>)?<\/html>$/.exec(shellWithPreamble);
+  postamble = end ? end[0] : "";
+  write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
   options.onShellReady?.();
   watch();
   return {
