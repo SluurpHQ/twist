@@ -24,6 +24,7 @@ const mount = (box: HTMLElement, el: any) => {
   flushSync(() => root.render(el));
   return root;
 };
+// Updates from a click are drawn on the next microtask, as React 19 draws them (tick waits for that).
 const click = (el: Element) => (el as HTMLElement).click();
 
 test("draws elements and text", (box) => {
@@ -44,6 +45,7 @@ test("state updates only its component", async (box) => {
   }
   mount(box, <Parent />);
   click(box.querySelector("button")!);
+  await tick();
   eq(box.textContent, "1");
   eq([parents, children], [1, 2], "renders");
 });
@@ -55,6 +57,7 @@ test("functional updates batch", async (box) => {
   }
   mount(box, <C />);
   click(box.querySelector("button")!);
+  await tick();
   eq(box.textContent, "3");
 });
 
@@ -222,6 +225,7 @@ test("class component: state and lifecycle", async (box) => {
   }
   const root = mount(box, <C />);
   click(box.querySelector("button")!);
+  await tick();
   eq(box.textContent, "1");
   root.unmount();
   eq(log, ["mount", "update 0->1", "unmount"]);
@@ -280,6 +284,7 @@ test("useReducer", async (box) => {
   }
   mount(box, <C />);
   click(box.querySelector("button")!);
+  await tick();
   eq(box.textContent, "15");
 });
 
@@ -334,6 +339,7 @@ test("form action gets the form's data", async (box) => {
   let got = "";
   mount(box, <form action={(d: FormData) => { got = String(d.get("q")); }}><input name="q" defaultValue="hello" /><button>go</button></form>);
   click(box.querySelector("button")!);
+  await tick();
   eq(got, "hello");
 });
 

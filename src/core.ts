@@ -3790,11 +3790,13 @@ export function flushSync<T>(fn?: () => T): T {
 // controlled field put back to what its state says when the handler did not take what was typed.
 onAfterEvent((el, e) => {
   if (depth > 0 || actDepth > 0) return;
-  flushSignals();
+  // Updates are drawn on the next microtask; only a controlled field's change is drawn at once, so the field can be
+  // put back to what its state says (React's finishEventHandler).
   // Only once the field's own change has been told: a checkbox's click comes before its change, and putting it
   // back then would undo the toggle the change is about to report.
-  if (e.type !== eventOf(el, "onChange")[0]) return;
-  if (FORM_TAGS.has(el.localName)) restoreForm(el);
+  if (e.type !== eventOf(el, "onChange")[0] || !FORM_TAGS.has(el.localName)) return;
+  flushSignals();
+  restoreForm(el);
 });
 
 /** The DOM node a class component instance (or an element) draws first: React's findDOMNode. */
