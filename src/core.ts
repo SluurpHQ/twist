@@ -681,6 +681,13 @@ function mountHoist(f: Fiber, host: Node) {
   (f as any).hoistRoot = root;
   // A stylesheet not in the document yet: a render that can wait commits once it has loaded.
   if (resource && work) suspendResource(work.wait, root, resource, f.props);
+  // Inside a Suspense, outside a transition: the boundary shows its fallback until the stylesheet has loaded.
+  else if (resource?.type === "stylesheet" && !hydrating && !applyingTransition && suspenseAbove(f)) {
+    const st = newCommitWait();
+    suspendResource(st, root, resource, f.props);
+    const ready = commitWhenReady(st);
+    if (ready) caught(f, new Promise<void>((done) => ready(done)));
+  }
   layoutQueue.push(() => {
     if (f.dead) return;
     f.dom = resource ? acquireResource(root, resource, f.props) : placeHoistable(root, f.type, f.props);
@@ -1581,7 +1588,7 @@ function caught(f: Fiber, e: any) {
         // their shape) tries again.
         const done = () => {
           s.pending!.set(Math.max(0, s.pending!.peek() - 1));
-          if (!f.dead) restart(f);
+          if (!f.dead && f.kind === COMP) restart(f);
           flushSignals();
         };
         e.then(done, done);
