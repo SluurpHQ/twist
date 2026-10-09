@@ -2487,6 +2487,18 @@ export class Component<P = any, S = any> {
   declare render: () => any;
 }
 (Component.prototype as any).isReactComponent = {};
+// React's updater, which a class may reach into (this.updater.enqueueReplaceState…).
+(Component.prototype as any).updater = {
+  isMounted: (inst: any) => !!inst.__f?.committed && !inst.__f.dead,
+  enqueueSetState: (inst: any, partial: any, done?: () => void) => inst.setState(partial, done),
+  enqueueForceUpdate: (inst: any, done?: () => void) => inst.forceUpdate(done),
+  enqueueReplaceState: (inst: any, state: any, done?: () => void) => {
+    if (!inst.__f) return;
+    inst.__queue.push({ [REPLACE]: state });
+    if (done) (inst.__done ??= []).push(done);
+    inst.__f.tick!.set(inst.__f.tick!.peek() + 1);
+  },
+};
 
 export class PureComponent<P = any, S = any> extends Component<P, S> {}
 (PureComponent.prototype as any).isPureReactComponent = true;

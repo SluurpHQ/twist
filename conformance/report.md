@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3743 pass, 242 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3747 pass, 238 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -18,7 +18,7 @@
 | react-dom/ReactCompositeComponent-test.js | 39 | 1 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactCompositeComponentState-test.js | 4 | 4 | 1 |  |
+| react-dom/ReactCompositeComponentState-test.js | 5 | 3 | 1 |  |
 | react-dom/ReactDOM-test.js | 11 | 5 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 3 | 4 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 12 | 1 | 0 |  |
@@ -110,7 +110,7 @@
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactFunctionComponent-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactIdentity-test.js | 11 | 0 | 0 |  |
-| react-dom/ReactLegacyCompositeComponent-test.js | 0 | 2 | 14 |  |
+| react-dom/ReactLegacyCompositeComponent-test.js | 2 | 0 | 14 |  |
 | react-dom/ReactLegacyContextDisabled-test.internal.js | 1 | 1 | 0 |  |
 | react-dom/ReactLegacyErrorBoundaries-test.internal.js | 0 | 0 | 41 |  |
 | react-dom/ReactLegacyMount-test.js | 0 | 1 | 0 |  |
@@ -135,7 +135,7 @@
 | react-dom/refs-test.js | 12 | 0 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 3 | 0 | 0 |  |
-| react/createReactClassIntegration-test.js | 25 | 1 | 2 |  |
+| react/createReactClassIntegration-test.js | 26 | 0 | 2 |  |
 | react/forwardRef-test.internal.js | 6 | 0 | 0 |  |
 | react/forwardRef-test.js | 19 | 0 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
