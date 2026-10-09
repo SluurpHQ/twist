@@ -413,7 +413,8 @@ export function connect(mapStateToProps?: any, mapDispatchToProps?: any, mergePr
           }
         }, { equals: (a: any, b: any) => a.props !== undefined && a.props === b.props });
       }, [store, select]);
-      const result: any = box();
+      // Read for tracking: a change in what it selects re-renders this.
+      box();
       // On the server, or taking over its markup: the Provider's serverState, then the store's after hydrating.
       const [, rerender] = useReducer((n: number) => n + 1, 0);
       const fromServer = !fromProps && ctx?.getServerState && (rendersOnServer() || isHydrating());

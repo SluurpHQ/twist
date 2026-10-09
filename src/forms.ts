@@ -2,7 +2,8 @@
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
 import { setProp } from "./props.ts";
-import { checkControlled, checkControlledSwitch, checkPropName } from "./warnings.ts";
+import { checkControlled, checkControlledSwitch } from "./warnings.ts";
+import { validateProps } from "./validate-props.ts";
 
 export const FORM_TAGS = new Set(["input", "textarea", "select", "option"]);
 
@@ -180,7 +181,7 @@ export function valueChanged(el: Element): boolean {
 export function initForm(el: Element, tag: string, props: any, svg: boolean) {
   const own = OWN[tag]!;
   checkControlled(tag, props);
-  for (const k in props) checkPropName(tag, k, props[k]);
+  validateProps(tag, props, true);
   for (const k in props) if (!own.has(k) && props[k] != null) setProp(el, k, props[k], undefined, svg);
   if (tag === "input") initInput(el as HTMLInputElement, props);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);

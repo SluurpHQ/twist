@@ -31,7 +31,7 @@ const BLOCKED = "javascript:throw new Error('React has blocked a javascript: URL
 const JAVASCRIPT = /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:/i;
 export const sanitizeURL = (v: string) => (JAVASCRIPT.test(v) ? BLOCKED : v);
 
-import { warn, warnOnce } from "./warnings.ts";
+import { warn } from "./warnings.ts";
 export { warn };
 
 const dataOrAria = (n: string) => /^(data|aria)-/i.test(n);
@@ -58,12 +58,7 @@ export function customAttribute(tag: string, name: string, value: any): [string,
 export function attribute(tag: string, name: string, value: any, svg: boolean): [string, string | null] | null {
   const t = typeof value;
   if (BOOLEAN.has(name)) {
-    if (t === "function" || t === "symbol") warnOnce(`Invalid value for prop \`${name}\` on <${tag}> tag.`);
     return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
-  }
-  // A function or a symbol is never an attribute's value: left out, and warned about (whatever the attribute).
-  if ((t === "function" || t === "symbol") && attributeNameSafe(name)) {
-    warnOnce(`Invalid value for prop \`${name}\` on <${tag}> tag. Either remove it from the element, or pass a string or number value to keep it in the DOM.`);
   }
   if (BOOLEANISH.has(name)) {
     if (value == null || t === "function" || t === "symbol") return [name, null];
@@ -82,11 +77,10 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   }
   if (URL.has(name)) {
     if (value === "" && !(tag === "a" && name === "href") && (name === "src" || name === "href")) {
-      warn(`An empty string ("") was passed to the ${name} attribute. This may cause the browser to download the whole page again over the network. To fix this, either do not render the element at all or pass null to ${name} instead of an empty string.`);
+      warn(`An empty string ("") was passed to the ${name} attribute. ${name === "src" ? "This may cause the browser to download the whole page again over the network. " : ""}To fix this, either do not render the element at all or pass null to ${name} instead of an empty string.`);
       return [name, null];
     }
     if (value == null || t === "function" || t === "symbol" || t === "boolean") {
-      if (t === "boolean") warnOnce(`Received \`${value}\` for a non-boolean attribute \`${name}\`.`);
       return [name, null];
     }
     return [name, sanitizeURL(String(value))];
@@ -94,7 +88,6 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   if (KNOWN.has(name)) {
     const attr = ALIASES[name] ?? name;
     if (value == null || t === "function" || t === "symbol" || t === "boolean") {
-      if (t === "boolean") warnOnce(`Received \`${value}\` for a non-boolean attribute \`${name}\`.`);
       return [attr, null];
     }
     return [attr, String(value)];
@@ -104,14 +97,8 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   let attr = ALIASES[name] ?? name;
   if (svg && SVG_HYPHEN.test(name)) attr = name.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
   if (value == null) return [attr, null];
-  if (t === "function" || t === "symbol") {
-    warnOnce(`Invalid value for prop \`${name}\` on <${tag}> tag. Either remove it from the element, or pass a string or number value to keep it in the DOM.`);
-    return [attr, null];
-  }
-  if (t === "boolean" && !dataOrAria(name)) {
-    warnOnce(`Received \`${value}\` for a non-boolean attribute \`${name}\`.`);
-    return [attr, null];
-  }
+  if (t === "function" || t === "symbol") return [attr, null];
+  if (t === "boolean" && !dataOrAria(name)) return [attr, null];
   return [attr, String(value)];
 }
 

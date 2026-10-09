@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-2591 pass, 1433 fail, 314 skipped (gated off for stable React 19).
+2665 pass, 1359 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
-| react-dom/CSSPropertyOperations-test.js | 9 | 6 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 27 | 22 | 0 |  |
+| react-dom/CSSPropertyOperations-test.js | 15 | 0 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 28 | 21 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
@@ -21,9 +21,9 @@
 | react-dom/ReactCompositeComponentState-test.js | 2 | 6 | 1 |  |
 | react-dom/ReactDOM-test.js | 8 | 8 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 0 | 7 | 1 |  |
-| react-dom/ReactDOMAttribute-test.js | 7 | 6 | 0 |  |
+| react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 96 | 68 | 1 |  |
+| react-dom/ReactDOMComponent-test.js | 133 | 31 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
@@ -53,9 +53,9 @@
 | react-dom/ReactDOMHydrationDiff-test.js | 0 | 39 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 0 | 10 | 0 |  |
-| react-dom/ReactDOMInput-test.js | 100 | 23 | 1 |  |
+| react-dom/ReactDOMInput-test.js | 99 | 24 | 1 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMInvalidARIAHook-test.js | 3 | 4 | 0 |  |
+| react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
 | react-dom/ReactDOMLegacyFiber-test.js | 0 | 1 | 42 |  |
 | react-dom/ReactDOMLegacyFloat-test.js | 0 | 1 | 0 |  |
@@ -66,11 +66,11 @@
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
 | react-dom/ReactDOMSelect-test.js | 28 | 32 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
-| react-dom/ReactDOMServerIntegrationAttributes-test.js | 528 | 22 | 0 |  |
+| react-dom/ReactDOMServerIntegrationAttributes-test.js | 538 | 12 | 0 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 28 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 304 | 32 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 305 | 31 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 126 | 15 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 33 | 2 | 0 |  |
@@ -82,7 +82,7 @@
 | react-dom/ReactDOMserverIntegrationProgress-test.js | 3 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationReconnecting-test.js | 52 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationSelect-test.js | 58 | 13 | 0 |  |
+| react-dom/ReactDOMServerIntegrationSelect-test.js | 64 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationTextarea-test.js | 33 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 66 | 11 | 0 |  |
@@ -99,7 +99,7 @@
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 0 | 2 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
-| react-dom/ReactDOMTextarea-test.js | 37 | 16 | 0 |  |
+| react-dom/ReactDOMTextarea-test.js | 38 | 15 | 0 |  |
 | react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 0 | 12 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 4 | 10 | 12 |  |
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 2 | 2 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 4 | 7 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 23 | 22 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 27 | 18 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 13 | 11 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
@@ -157,7 +157,7 @@
 | react/ReactPureComponent-test.js | 2 | 2 | 0 |  |
 | react/ReactStartTransition-test.js | 0 | 1 | 0 |  |
 | react/ReactStrictMode-test.internal.js | 1 | 4 | 0 |  |
-| react/ReactStrictMode-test.js | 3 | 20 | 3 |  |
+| react/ReactStrictMode-test.js | 4 | 19 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
 | redux-tests/components/connect.spec.tsx | 66 | 1 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |

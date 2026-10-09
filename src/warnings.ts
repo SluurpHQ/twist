@@ -67,45 +67,6 @@ export function duplicateKey(key: string) {
 
 // ---------------------------------------------------------------- DOM props
 
-// React's possibleStandardNames, for the mistakes people make: lowercase or HTML spellings of React's props.
-const STANDARD: Record<string, string> = {
-  class: "className", for: "htmlFor", tabindex: "tabIndex", readonly: "readOnly", maxlength: "maxLength", minlength: "minLength",
-  colspan: "colSpan", rowspan: "rowSpan", autofocus: "autoFocus", autocomplete: "autoComplete", autoplay: "autoPlay",
-  contenteditable: "contentEditable", crossorigin: "crossOrigin", enctype: "encType", formaction: "formAction",
-  frameborder: "frameBorder", novalidate: "noValidate", srcset: "srcSet", usemap: "useMap", accesskey: "accessKey",
-  allowfullscreen: "allowFullScreen", cellpadding: "cellPadding", cellspacing: "cellSpacing", charset: "charSet",
-  classname: "className", datetime: "dateTime", htmlfor: "htmlFor", httpequiv: "httpEquiv", "http-equiv": "httpEquiv",
-  inputmode: "inputMode", spellcheck: "spellCheck", srcdoc: "srcDoc", srclang: "srcLang", onclick: "onClick",
-  ondblclick: "onDoubleClick", onchange: "onChange", oninput: "onInput", onkeydown: "onKeyDown", onkeyup: "onKeyUp",
-  onsubmit: "onSubmit", onfocus: "onFocus", onblur: "onBlur", onmousedown: "onMouseDown", onmouseup: "onMouseUp",
-};
-const KNOWN_EVENTS = new Set(
-  "Abort AnimationEnd AnimationIteration AnimationStart AnimationCancel AuxClick BeforeInput BeforeToggle Blur Cancel CanPlay CanPlayThrough Change Click Close CompositionEnd CompositionStart CompositionUpdate ContextMenu Copy Cut DoubleClick Drag DragEnd DragEnter DragExit DragLeave DragOver DragStart Drop DurationChange Emptied Encrypted Ended Error Focus GotPointerCapture Input Invalid KeyDown KeyPress KeyUp Load LoadedData LoadedMetadata LoadStart LostPointerCapture MouseDown MouseEnter MouseLeave MouseMove MouseOut MouseOver MouseUp Paste Pause Play Playing PointerCancel PointerDown PointerEnter PointerLeave PointerMove PointerOut PointerOver PointerUp Progress RateChange Reset Resize Scroll ScrollEnd Seeked Seeking Select Stalled Submit Suspend TimeUpdate Toggle TouchCancel TouchEnd TouchMove TouchStart TransitionEnd TransitionRun TransitionStart TransitionCancel VolumeChange Waiting Wheel FullscreenChange FullscreenError".split(" "),
-);
-
-/** What React says of a prop name on a DOM element, if anything: before it is set. */
-export function checkPropName(tag: string, name: string, value: any) {
-  if (!dev() || tag.includes("-")) return;
-  const lower = name.toLowerCase();
-  if (name.startsWith("on") && name.length > 2) {
-    if (name === "onFocusIn" || name === "onFocusOut") {
-      warnOnce("React uses onFocus and onBlur instead of onFocusIn and onFocusOut. All React events are normalized to bubble, so onFocusIn and onFocusOut are not needed/supported by React.");
-      return;
-    }
-    const rest = name.slice(2).replace(/Capture$/, "");
-    if (name[2] === name[2]!.toUpperCase() && !KNOWN_EVENTS.has(rest)) {
-      warnOnce(`Unknown event handler property \`${name}\`. It will be ignored.`);
-      return;
-    }
-  }
-  if (/^aria[A-Z]/.test(name) || (lower.startsWith("aria") && !lower.startsWith("aria-") && name !== "aria")) {
-    warnOnce(`Invalid ARIA attribute \`${name}\`. ARIA attributes follow the pattern aria-* and must be lowercase.`);
-    return;
-  }
-  const standard = STANDARD[name] ?? (STANDARD[lower] !== name ? STANDARD[lower] : undefined);
-  if (standard && standard !== name && value !== undefined) warnOnce(`Invalid DOM property \`${name}\`. Did you mean \`${standard}\`?`);
-}
-
 /** An element whose tag the browser does not know (a component written in lowercase, say). */
 export function checkTag(el: Element, tag: string) {
   if (!dev() || tag.includes("-") || el.namespaceURI !== "http://www.w3.org/1999/xhtml") return;
@@ -133,13 +94,6 @@ export function checkControlled(tag: string, props: any) {
     if (tag === "input" && props.checked != null && !handled && !props.onClick) {
       warnOnce("You provided a `checked` prop to a form field without an `onChange` handler. This will render a read-only field. If the field should be mutable use `defaultChecked`. Otherwise, set either `onChange` or `readOnly`.");
     }
-  }
-  if ((tag === "input" || tag === "textarea" || tag === "select") && props.value === null && "value" in props) {
-    warnOnce(
-      tag === "select"
-        ? "`value` prop on `select` should not be null. Consider using an empty string to clear the component or `undefined` for uncontrolled components."
-        : `\`value\` prop on \`${tag}\` should not be null. Consider using an empty string to clear the component or \`undefined\` for uncontrolled components.`,
-    );
   }
   if (tag === "textarea" && props.children != null && props.value == null) warnOnce("Use the `defaultValue` or `value` props instead of setting children on <textarea>.");
 }

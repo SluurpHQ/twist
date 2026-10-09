@@ -3,7 +3,7 @@
 
 import { XLINK_NS, XML_NS, attribute, customAttribute, isCustomElement } from "./attributes.ts";
 import { configure, delegated, want } from "./events.ts";
-import { checkPropName } from "./warnings.ts";
+import { validateProps, validateStyle } from "./validate-props.ts";
 import { valueChanged } from "./forms.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
@@ -34,7 +34,7 @@ function setStyle(el: HTMLElement, next: any, prev: any) {
   }
   if (typeof prev === "string") s.cssText = "";
   if (prev && typeof prev === "object") for (const k in prev) if (!next || !(k in next)) s.setProperty(cssName(k), "");
-  if (next) for (const k in next) if (!prev || prev[k] !== next[k]) s.setProperty(cssName(k), styleValue(k, next[k]));
+  if (next) for (const k in next) if (!prev || prev[k] !== next[k]) validateStyle(k, next[k]), s.setProperty(cssName(k), styleValue(k, next[k]));
 }
 
 /** The DOM event a React event prop listens to, and whether in the capture phase. */
@@ -189,7 +189,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
 
 /** Every prop of a new element, or the ones that changed on an update. */
 export function setProps(el: Element, next: any, prev: any, svg: boolean) {
-  if (!prev && !isCustomElement(el.localName, next)) for (const k in next) checkPropName(el.localName, k, next[k]);
+  validateProps(el.localName, next, true);
   if (prev) for (const k in prev) if (!(k in next)) setProp(el, k, undefined, prev[k], svg);
   // An input's type first: setting it afterwards resets what `checked` and `value` set.
   if (next.type !== undefined && (!prev || prev.type !== next.type)) setProp(el, "type", next.type, prev?.type, svg);

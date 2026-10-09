@@ -3,7 +3,8 @@
 import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, unwrapChild } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
-import { VOID_TAGS, assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
+import { validateProps, validateStyle } from "./validate-props.ts";
+import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
 const UNITLESS = new Set("animationIterationCount aspectRatio columnCount flex flexGrow flexShrink fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth gridRow gridColumn gridArea".split(" "));
@@ -16,6 +17,7 @@ function style(s: any) {
   let out = "";
   for (const k in s) {
     const v = s[k];
+    validateStyle(k, v);
     if (v == null || typeof v === "boolean" || v === "") continue;
     const name = k.startsWith("--") ? k : k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()).replace(/^ms-/, "-ms-");
     out += `${out ? ";" : ""}${name}:${typeof v === "number" && v !== 0 && !UNITLESS.has(k) && !k.startsWith("--") ? v + "px" : String(v).trim()}`;
@@ -273,6 +275,7 @@ function render(node: any, ctx: Ctx, hooks: any): string {
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   checkTagName(tag);
   assertValidProps(tag, props);
+  validateProps(tag, props, false);
   const svg = ctx.svg;
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
