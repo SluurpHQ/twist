@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-2749 pass, 1275 fail, 314 skipped (gated off for stable React 19).
+2773 pass, 1251 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 15 | 0 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 28 | 21 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 30 | 19 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
@@ -27,9 +27,9 @@
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
-| react-dom/ReactDOMEventListener-test.js | 16 | 7 | 0 |  |
-| react-dom/ReactDOMEventPropagation-test.js | 77 | 15 | 0 |  |
-| react-dom/ReactDOMFiber-test.js | 23 | 13 | 1 |  |
+| react-dom/ReactDOMEventListener-test.js | 21 | 2 | 0 |  |
+| react-dom/ReactDOMEventPropagation-test.js | 86 | 6 | 0 |  |
+| react-dom/ReactDOMFiber-test.js | 25 | 11 | 1 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
@@ -128,7 +128,7 @@
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 9 | 15 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 2 | 3 | 0 |  |
-| react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
+| react-dom/ReactTreeTraversal-test.js | 11 | 0 | 0 |  |
 | react-dom/ReactUpdates-test.js | 30 | 12 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |

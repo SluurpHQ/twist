@@ -8,10 +8,58 @@ const NOT_BUBBLING = new Set(
   "cancel close invalid load scroll scrollend toggle beforetoggle abort canplay canplaythrough durationchange emptied encrypted ended error loadeddata loadedmetadata loadstart pause play playing progress ratechange resize seeked seeking stalled suspend timeupdate volumechange waiting".split(" "),
 );
 // Not bubbled by React either: only the target's own handlers.
-const TARGET_ONLY = new Set(["scroll", "scrollend"]);
-// Fired on each element entered or left: listened to on the element itself.
-const ON_ELEMENT = new Set(["mouseenter", "mouseleave", "pointerenter", "pointerleave"]);
-export const delegated = (type: string) => !ON_ELEMENT.has(type);
+const TARGET_ONLY = new Set(["scroll", "scrollend", "toggle", "beforetoggle"]);
+export const delegated = (_type: string) => true;
+
+// React's onMouseEnter/onMouseLeave (and the pointer ones): made from mouseover/mouseout at each root, entering and
+// leaving each element between where the pointer was and where it is.
+const ENTER_LEAVE: Record<string, [string, string, boolean]> = {
+  mouseover: ["mouseenter", "mouseleave", true],
+  mouseout: ["mouseenter", "mouseleave", false],
+  pointerover: ["pointerenter", "pointerleave", true],
+  pointerout: ["pointerenter", "pointerleave", false],
+};
+/** The native events an enter or leave prop needs heard. */
+export const enterLeaveSources = (type: string) =>
+  type === "mouseenter" || type === "mouseleave" ? ["mouseover", "mouseout"] : type === "pointerenter" || type === "pointerleave" ? ["pointerover", "pointerout"] : null;
+
+/** Host fibers from `f` up to its root, nearest first. */
+function hostPath(f: FiberLike | null): FiberLike[] {
+  const out: FiberLike[] = [];
+  for (let p = f; p; p = p.parent) if (p.kind === HOST) out.push(p);
+  return out;
+}
+
+function enterLeave(native: Event, roots: Set<object>) {
+  const [enter, leave, over] = ENTER_LEAVE[native.type]!;
+  const related = (native as MouseEvent).relatedTarget as Node | null;
+  // Coming from an element React draws: its mouseout already did this.
+  if (over && related && nearestAny(related)) return;
+  const fromNode = over ? null : (native.target as Node);
+  const toNode = over ? (native.target as Node) : related;
+  const from = fromNode ? nearest(fromNode, roots) : null;
+  const to = toNode ? nearest(toNode, roots) : null;
+  if (from === to) return;
+  const up = hostPath(from);
+  const down = hostPath(to);
+  // What both share is neither left nor entered.
+  while (up.length && down.length && up[up.length - 1] === down[down.length - 1]) up.pop(), down.pop();
+  const run = (list: FiberLike[], type: string, target: Node | null, relatedTo: Node | null) => {
+    const prop = type === "mouseenter" ? "onMouseEnter" : type === "mouseleave" ? "onMouseLeave" : type === "pointerenter" ? "onPointerEnter" : "onPointerLeave";
+    for (const f of list) {
+      const fn = f.props?.[prop];
+      if (typeof fn !== "function") continue;
+      const synthetic = wrap(native);
+      synthetic.type = type;
+      synthetic.target = target;
+      synthetic.relatedTarget = relatedTo;
+      synthetic.__current = f.dom;
+      fn.call(f.dom, synthetic);
+    }
+  };
+  run(up, leave, fromNode, toNode);
+  run(down.reverse(), enter, toNode, fromNode);
+}
 
 type FiberLike = { kind: number; props: any; parent: FiberLike | null; dom: any; root: object };
 
@@ -39,7 +87,7 @@ export function addContainer(container: EventTarget, root: object) {
 // The non-bubbling events React listens for on an element itself, by tag, from when it is made.
 const MEDIA = "abort canplay canplaythrough durationchange emptied encrypted ended error loadeddata loadedmetadata loadstart pause play playing progress ratechange resize seeked seeking stalled suspend timeupdate volumechange waiting".split(" ");
 const BY_TAG: Record<string, string[]> = {
-  dialog: ["cancel", "close"],
+  dialog: ["cancel", "close", "toggle", "beforetoggle"],
   iframe: ["load"],
   object: ["load"],
   embed: ["load"],
@@ -135,7 +183,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   const path: [Element, string[]][] = [];
   for (let f: FiberLike | null = from; f; f = f.parent) {
     if (f.kind !== HOST) continue;
-    if (TARGET_ONLY.has(native.type) && f.dom !== native.target) continue;
+    if (!capture && TARGET_ONLY.has(native.type) && f.dom !== native.target) continue;
     const names = propsFor(f.dom, native.type, capture, f.props, native);
     if (names.length) path.push([f.dom, names]);
   }
@@ -150,6 +198,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
     }
   }
   synthetic.__current = null;
+  if (!capture && native.type in ENTER_LEAVE) enterLeave(native, roots);
   if (!capture) after((native.target as Element) ?? (container as Element), native);
   return synthetic.isPropagationStopped();
 }
@@ -173,7 +222,8 @@ function wrap(native: Event): any {
   return new Proxy(native, {
     get(t, k) {
       if (k === "currentTarget") return own.__current;
-      if (k === "type") return SYNTHETIC_TYPE[t.type] ?? t.type;
+      if (k === "type") return own.type ?? SYNTHETIC_TYPE[t.type] ?? t.type;
+      if ((k === "target" || k === "relatedTarget") && k in own) return own[k];
       if (k in own) return own[k as string];
       const v = Reflect.get(t, k, t);
       return typeof v === "function" ? v.bind(t) : v;

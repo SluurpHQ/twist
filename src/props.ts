@@ -2,7 +2,7 @@
 // element itself (no delegation), each event given what React's handlers expect of it.
 
 import { XLINK_NS, XML_NS, attribute, customAttribute, isCustomElement } from "./attributes.ts";
-import { configure, delegated, listenAt, want } from "./events.ts";
+import { configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { valueChanged } from "./forms.ts";
 
@@ -68,11 +68,14 @@ function propsFor(el: Element, type: string, capture: boolean, props: any, nativ
   const out: string[] = [];
   for (const k in props) {
     if (k[0] !== "o" || k[1] !== "n" || k.length < 3 || k[2] !== k[2]!.toUpperCase() || typeof props[k] !== "function") continue;
-    const [t, c] = eventOf(el, k);
+    const change = k === "onChange" || k === "onChangeCapture";
+    // onChange is the target's change, whoever listens: a text field's input event is every ancestor's onChange.
+    const target = change && native.target instanceof Element ? native.target : el;
+    const [t, c] = eventOf(target, k);
     if (t !== type || c !== capture) continue;
     // A field's onChange only when its value really changed (React's value tracking): an event dispatched again
     // from inside its own handler does not call it again.
-    if ((k === "onChange" || k === "onChangeCapture") && FIELDS.has(el.localName) && !changedOnce(el, native)) continue;
+    if (change && FIELDS.has(target.localName) && !changedOnce(target, native)) continue;
     out.push(k);
   }
   return out;
@@ -107,6 +110,10 @@ function listen(el: Element, prop: string, handler: any) {
   if (delegated(type)) {
     if (handler != null && handler !== false) {
       want(type);
+      // onChange on an element that is not a field hears its fields' changes, typed or picked.
+      if (type === "change") want("input");
+      // Entering and leaving are made from over and out events.
+      for (const t of enterLeaveSources(type) ?? []) want(t);
       // Scrolling and a popover's toggle are heard on the element itself, as React listens for them there.
       if (type === "scroll" || type === "scrollend" || type === "toggle" || type === "beforetoggle") listenAt(el, type);
     }
@@ -177,6 +184,8 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     if (name === "value" && el.nodeName === "SELECT") queueMicrotask(() => ((el as any).value !== want && ((el as any).value = want)));
     return;
   }
+  // A popover fires toggle events React bubbles: listened to on it, as React does.
+  if (name === "popover" && next != null) listenAt(el, "toggle"), listenAt(el, "beforetoggle");
   if (name === "muted") return void ((el as any).muted = !!next);
   // React focuses it when it is made; there is no attribute.
   if (name === "autoFocus") return;
