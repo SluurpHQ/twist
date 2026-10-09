@@ -1165,14 +1165,16 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   };
   // Aborted while the shell renders: what is left is aborted once it is done.
   let renderingShell = true;
+  // (A shell that failed has nothing left to abort.)
+  let api: { abort(reason?: unknown): void } | null = null;
   expose?.((reason?: unknown) => {
     if (renderingShell) shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
-    else api.abort(reason);
+    else api?.abort(reason);
   });
   const failed = tryShell();
   renderingShell = false;
   if (failed) return { abort() {}, failed, flow() {} };
-  const api = {
+  const handle = {
     failed: null,
     /** The stream flows (piped): the shell and what completed into it written, then the rest as it comes. */
     flow() {
@@ -1208,8 +1210,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       close();
     },
   };
-  if (shared.aborted) api.abort(shared.aborted.reason);
-  return api;
+  api = handle;
+  if (shared.aborted) handle.abort(shared.aborted.reason);
+  return handle;
 }
 
 export function renderToPipeableStream(node: any, options: any = {}) {
