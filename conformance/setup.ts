@@ -113,6 +113,18 @@ if (!("nonce" in HTMLElement.prototype)) {
       },
     });
 }
+// jsdom reflects `autofocus` on every HTML element.
+if (!("autofocus" in HTMLElement.prototype)) {
+  Object.defineProperty(HTMLElement.prototype, "autofocus", {
+    configurable: true,
+    get(this: Element) {
+      return this.hasAttribute("autofocus");
+    },
+    set(this: Element, v: boolean) {
+      v ? this.setAttribute("autofocus", "") : this.removeAttribute("autofocus");
+    },
+  });
+}
 // React's tests run in jsdom, where an element turned into a string is "[object HTMLDivElement]" (happy-dom prints
 // its markup).
 // jsdom focuses only focusable elements (happy-dom any): focus() on a plain <div> does nothing there.

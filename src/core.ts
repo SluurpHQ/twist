@@ -752,6 +752,9 @@ let attrsDiffer = false;
 const HYDRATION_ATTRS_FORMAT = "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\n%s%s";
 const HYDRATION_ATTRS = "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch";
 
+/** A custom element's properties the browser does not let React set: told when hydrating. */
+const READ_ONLY = new Set(["offsetParent", "offsetTop", "offsetLeft", "offsetWidth", "offsetHeight", "isContentEditable", "outerText", "outerHTML"]);
+
 /** The server's attributes against those the props draw (on a scratch element): whether any differs. */
 type Attrs = { names: Map<string, string>; css: string; html: string; style: Record<string, string> };
 const attrsOf = (el: Element): Attrs => ({
@@ -781,7 +784,16 @@ function serverDifferences(server: Element, had: Attrs, type: string, ns: string
   if (typeof props.action === "function") skip.add("action");
   if (typeof props.formAction === "function") skip.add("formaction");
   const names = new Set([...had.names.keys(), ...probe.getAttributeNames()]);
-  for (const n of names) if (!skip.has(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
+  // A custom element's object, function and read-only props have no attribute to compare (React's diffHydratedCustomComponent).
+  const custom = customTag(type);
+  const unseen = (n: string) => {
+    if (!custom) return false;
+    if (READ_ONLY.has(keyFor(n))) return true;
+    if (had.names.has(n)) return false;
+    const v = props[keyFor(n)];
+    return (v !== null && typeof v === "object") || typeof v === "function" || typeof v === "symbol";
+  };
+  for (const n of names) if (!skip.has(n) && !unseen(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
   const want = props.style == null ? null : styleText(props.style) || null;
   if ((had.names.get("style") ?? null) !== want) (out.style = had.names.has("style") ? had.style : null), (any = true);
   if (inner?.__html != null) {
@@ -1473,8 +1485,11 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
         hostOwner = wasOwner;
       }
     } else {
-      // Taken over from the server: listeners only (a custom element's properties are still set: the server could not).
-      if (server && hydrating && !customTag(type)) hydrateProps(el, props, ns === SVG_NS);
+      // Taken over from the server: listeners only (a custom element's properties too are left alone, as React does).
+      if (server && hydrating) {
+        hydrateProps(el, props, ns === SVG_NS);
+        if (dev() && customTag(type)) for (const k in props) if (READ_ONLY.has(k)) console.error(`Assignment to read-only property will result in a no-op: \`${k}\``);
+      }
       else setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
       // A noscript's children are not drawn on the client (React leaves them to the server).
       if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), el, null);

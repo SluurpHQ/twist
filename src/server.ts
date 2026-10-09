@@ -95,7 +95,10 @@ function attrs(props: any, ctx: Ctx, tag: string) {
       if (v && typeof v !== "function" && typeof v !== "symbol") put(k, "");
       continue;
     }
-    if (k === "autoFocus") continue;
+    if (k === "autoFocus") {
+      if (v && typeof v !== "function" && typeof v !== "symbol") put("autofocus", "");
+      continue;
+    }
     if ((k === "action" || k === "formAction") && typeof v === "function") continue;
     // A custom element's object and array props are properties the client sets, not attributes (React's Fizz).
     if (isCustomElement(tag, props) && v !== null && typeof v === "object") continue;
@@ -360,7 +363,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
   }
   // A context as a child: its value where it is rendered.
   if (node.$$typeof === CONTEXT) return render(ctx.values.has(node) ? ctx.values.get(node) : node._defaultValue, ctx, hooks);
-  if (node.$$typeof === PORTAL) return "";
+  if (node.$$typeof === PORTAL) throw new Error("Portals are not currently supported by the server renderer. Render them conditionally so that they only appear on the client render.");
   if (node.$$typeof !== ELEMENT) throw objectChild(node);
   const { type, props } = node;
   if (typeof type === "string") return host(type, props, ctx, hooks);
