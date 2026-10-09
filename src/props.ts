@@ -253,6 +253,8 @@ let toldPopoverTarget = false;
 
 /** One prop set on `el`, from `prev` to `next`. */
 export function setProp(el: Element, name: string, next: any, prev: any, svg: boolean) {
+  // The commonest prop, straight on (SVG's className is not a string).
+  if (name === "className" && typeof next === "string" && !svg) return void (el.className = next);
   if (SKIP.has(name)) return;
   if (name === "style") return setStyle(el as HTMLElement, next, prev);
   // A custom element's own events (any on* React does not know): listened to on it, the name as written.

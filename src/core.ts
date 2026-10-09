@@ -55,6 +55,13 @@ export type Fiber = {
   passive?: (() => void)[];
   value?: Sig;
   refCleanup?: (() => void) | null;
+  placed?: boolean;
+  strict?: boolean;
+  again?: boolean;
+  draws?: number;
+  tree?: TreeContext;
+  unbind?: () => void;
+  doc?: Document;
 };
 
 type RootState = {
@@ -362,6 +369,8 @@ function domParent(host: Node): Node {
 }
 
 /** The document nodes are made in: the container's own (a test's jsdom, an iframe), else the page's. */
+/** Where `parent`'s child nodes go in `host` (an element's own children go straight in it). */
+const intoOf = (parent: Fiber, host: Node) => (parent.kind === HOST && !(parent as any).singleton ? host : domParent(host));
 const docOf = (host: Node): Document => (host.nodeType === 9 ? (host as Document) : host.ownerDocument) ?? document;
 
 /** A suspended tree's nodes hidden (React's display: none, text emptied) or shown again as they were. */
@@ -590,7 +599,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // Taking over server markup, nodes are claimed or made in place: nothing to move.
   if (hydrating) return;
   // All new: each was put in place as it was made.
-  if (!old.length && !((parent as any).singleton && host.nodeName === "BODY") && domParent(host) === host) return;
+  if (!old.length && !((parent as any).singleton && host.nodeName === "BODY") && intoOf(parent, host) === host) return;
   // The same children in the same order (most updates): nothing moves.
   if (next.length === old.length) {
     let same = true;
@@ -610,7 +619,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   }
   // Nothing new and nothing moved: every node is where it was.
   if (!placed.size) return;
-  const into = domParent(host);
+  const into = intoOf(parent, host);
   // A document's children go in its <body>, beside what the <body> holds: each new one before the next sibling that
   // was already there (React's getHostSibling, which passes over singletons and what is being placed).
   if (into !== host) {
@@ -833,11 +842,57 @@ let committing = false;
 /** Fibers made since the last commit: committed by it. */
 const fresh: Fiber[] = [];
 
+/**
+ * A fiber with every field it uses often set from the start, so all fibers share one shape (engines then read their
+ * fields at a fixed place; a field added later makes a new shape, and code reading many shapes slows down). Rarer
+ * fields (hydration, boundaries, fragments) are still added as needed.
+ */
+class FiberNode {
+  kind: number;
+  type: any;
+  key: string;
+  props: any;
+  parent: Fiber | null;
+  children: Fiber[] = [];
+  dom: any = null;
+  ns: string | null;
+  root: RootState;
+  dead = false;
+  committed = false;
+  placed = false;
+  strict = false;
+  again = false;
+  draws = 0;
+  tree: TreeContext | undefined = undefined;
+  render: ((f: Fiber, props: any) => any) | undefined = undefined;
+  hooks: any[] | undefined = undefined;
+  stop: (() => void) | undefined = undefined;
+  out: any = undefined;
+  inst: any = undefined;
+  tick: Sig<number> | undefined = undefined;
+  compare: ((a: any, b: any) => boolean) | null | undefined = undefined;
+  insertion: (() => void)[] | undefined = undefined;
+  layout: (() => void)[] | undefined = undefined;
+  passive: (() => void)[] | undefined = undefined;
+  unbind: (() => void) | undefined = undefined;
+  doc: Document | undefined;
+  constructor(kind: number, type: any, key: string, props: any, parent: Fiber | null, ns: string | null, root: RootState) {
+    this.kind = kind;
+    this.type = type;
+    this.key = key;
+    this.props = props;
+    this.parent = parent;
+    this.ns = ns;
+    this.root = root;
+    this.doc = parent?.doc;
+  }
+}
+
 function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
-  const f: Fiber = { kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root };
-  if (nextTree) ((f as any).tree = nextTree), (nextTree = null);
+  const f = new FiberNode(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber;
+  if (nextTree) (f.tree = nextTree), (nextTree = null);
   if (nextOwner) Object.defineProperty(f, "owner", { value: nextOwner, enumerable: false }), (nextOwner = null);
-  if ((parent as any).strict || parent.type === STRICT) (f as any).strict = true;
+  if (parent.strict || parent.type === STRICT) f.strict = true;
   return remember(f);
 }
 
@@ -1584,8 +1639,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
           if (e) e.serverProps = (next as Text).data;
         } else diffMissing(f, next);
       }
-      f.dom = docOf(host).createTextNode(text);
-      (hydrating ? host : domParent(host)).insertBefore(f.dom, hydrating ? serverCursor(host) : before);
+      f.dom = (parent.doc ?? docOf(host)).createTextNode(text);
+      (hydrating ? host : intoOf(parent, host)).insertBefore(f.dom, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
     }
     toldFragmentsAdded(f);
@@ -1608,6 +1663,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   if (type === PORTAL) {
     const f = fiber(PORTAL_F, type, key, c, parent);
     f.dom = c.containerInfo;
+    f.doc = docOf(f.dom);
     f.ns = nsOf(f.dom);
     // iOS Safari sends clicks only to elements it thinks clickable: React gives a portal's container a no-op onclick.
     if (f.dom.nodeType === 1 && f.dom.onclick == null) f.dom.onclick = () => {};
@@ -1643,7 +1699,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (single && !hydrating) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
     // A customized built-in (is="…") is made as one.
-    const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : type === "script" ? inertScript(docOf(host)) : typeof props.is === "string" ? docOf(host).createElement(type, { is: props.is }) : docOf(host).createElement(type)));
+    const doc = parent.doc ?? docOf(host);
+    const el = (f.dom = server ?? (ns ? doc.createElementNS(ns, type) : type === "script" ? inertScript(doc) : typeof props.is === "string" ? doc.createElement(type, { is: props.is }) : doc.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     (el as any)[FIBER] = f;
     (el as any)[PROPS] = null;
@@ -1692,7 +1749,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (server) {
       if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !single && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el, f);
     } else {
-      (hydrating ? host : domParent(host)).insertBefore(el, hydrating ? serverCursor(host) : before);
+      (hydrating ? host : intoOf(parent, host)).insertBefore(el, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
     }
     toldFragmentsAdded(f);
@@ -3596,7 +3653,9 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   const state: RootState = { ids: 0, container };
   const refreshRoot = { current: { memoizedState: null, alternate: null } } as unknown as RefreshRoot;
   (state as any).idPrefix = options?.identifierPrefix ?? "";
-  const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
+  const top = new FiberNode(ROOT, null, "", null, null, nsOf(container), state) as Fiber;
+  top.dom = container;
+  top.doc = docOf(container);
   addContainer(container, state);
   state.top = top;
   // The container finds its root fiber (React's container key), as an element finds its own.
@@ -3990,6 +4049,8 @@ export function flushSync<T>(fn?: () => T): T {
     }
   } else nestedSync = 0;
   const was = syncing;
+  // Asked for from outside React (not by a render, a commit or an effect): a new update, not a loop's next turn.
+  if (!was && depth === 0 && !committing && !inEffects && !inPassive) loops.clear();
   syncing = true;
   try {
     const r = fn ? fn() : (undefined as T);

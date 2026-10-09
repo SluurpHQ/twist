@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { webkit, chromium } = require(process.argv[2] ?? "playwright-core");
-const runs = 15;
+const runs = 31;
 const rows = {};
 for (const [engine, type] of [["webkit", webkit], ["chromium", chromium]]) {
   // WEBKIT_EXE: a WebKit build already on disk, when this playwright-core wants a newer one.
