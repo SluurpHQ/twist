@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3558 pass, 466 fail, 314 skipped (gated off for stable React 19).
+3562 pass, 462 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -25,7 +25,7 @@
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMComponent-test.js | 161 | 3 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
-| react-dom/ReactDOMConsoleErrorReporting-test.js | 3 | 4 | 0 |  |
+| react-dom/ReactDOMConsoleErrorReporting-test.js | 4 | 3 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
 | react-dom/ReactDOMEventListener-test.js | 21 | 2 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 86 | 6 | 0 |  |
@@ -129,7 +129,7 @@
 | react-dom/ReactTestUtilsAct-test.js | 19 | 5 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 4 | 1 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 11 | 0 | 0 |  |
-| react-dom/ReactUpdates-test.js | 38 | 4 | 3 |  |
+| react-dom/ReactUpdates-test.js | 41 | 1 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
 | react-dom/refs-test.js | 12 | 0 | 0 |  |

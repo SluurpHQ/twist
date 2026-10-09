@@ -74,7 +74,29 @@ export function onUncaught(fn: typeof uncaughtListener) {
 }
 
 /** An error nothing caught: the root is taken down (React unmounts it), and the error told. */
-function uncaught(root: RootState, e: unknown) {
+/**
+ * React's component stack for what happened at `f`: a frame for it and each component and element above it
+ * ("\n    in Name"), as errorInfo.componentStack gives it.
+ */
+export function componentStackOf(f: Fiber | null | undefined): string {
+  let out = "";
+  for (let p = f ?? null; p; p = p.parent) {
+    let name: string | null = null;
+    let component = false;
+    if (p.kind === HOST || p.kind === HOIST) name = p.type;
+    else if (p.kind === COMP) {
+      const t = p.type;
+      component = typeof t === "function" || !!t?.render || (!!t?.type && t.$$typeof !== LAZY);
+      name =
+        t === SUSPENSE ? "Suspense" : t === ACTIVITY ? "Activity" : t === SUSPENSE_LIST ? "SuspenseList" : t?.$$typeof === LAZY ? "Lazy" : component ? nameOf(t) : null;
+    }
+    // A component's frame has a place in source, as a stack frame does; a built-in one (an element) has none.
+    if (name) out += component ? `\n    in ${name} (at ${name}.js:1:1)` : `\n    in ${name}`;
+  }
+  return out;
+}
+
+function uncaught(root: RootState, e: unknown, at?: Fiber | null) {
   (root as any).failed = true;
   layoutQueue.push(() => {
     const top = root.top;
@@ -86,8 +108,9 @@ function uncaught(root: RootState, e: unknown) {
   // Outside a render (an effect after paint): taken down now.
   if (depth === 0) commit();
   const tell = () => {
-    if (uncaughtListener) uncaughtListener(e);
-    else if (root.onUncaughtError) root.onUncaughtError(e, { componentStack: "" });
+    // The root's own handler takes it; only React's default (reporting it) is what act rethrows.
+    if (root.onUncaughtError) root.onUncaughtError(e, { componentStack: componentStackOf(at) });
+    else if (uncaughtListener) uncaughtListener(e);
     else report(e);
   };
   // In a root's render: rendered once more first (as React does), and told after, once.
@@ -492,7 +515,26 @@ const profiled = new Map<Fiber, number>();
 /** An update set while committing (in componentDidMount, a layout effect): the next render is a nested update. */
 let nestedUpdate = false;
 let renderIsNested = false;
-export const scheduledInCommit = () => committing && (nestedUpdate = true);
+export const scheduledInCommit = () => {
+  if (committing) nestedUpdate = true;
+  // An update from a passive effect: past React's limit of them in a row, the loop is warned about (in development).
+  if (inPassive) {
+    updatedInPassive = true;
+    if (dev() && nestedPassive > 50) {
+      nestedPassive = 0;
+      withFiber(effectFiber, () =>
+        console.error(
+          "Maximum update depth exceeded. This can happen when a component calls setState inside useEffect, but useEffect either doesn't have a dependency array, or one of the dependencies changes on every render.",
+        ),
+      );
+    }
+  }
+};
+/** Passive effects running now, whether they updated, how many runs of them in a row did, and whose effect runs. */
+let inPassive = false;
+let updatedInPassive = false;
+let nestedPassive = 0;
+let effectFiber: Fiber | null = null;
 
 /** Renders counted, so a Profiler knows whether it began in the one now under way. */
 let renderSerial = 0;
@@ -2251,13 +2293,13 @@ function caught(f: Fiber, e: any) {
           if (p.dead) return;
           const tick = p.tick?.peek();
           const queued = inst.__queue.length;
-          guard(() => inst.componentDidCatch(e, { componentStack: "" }));
+          guard(() => inst.componentDidCatch(e, { componentStack: componentStackOf(f) }));
           // With no getDerivedStateFromError and no update of its own, it swallows the error: React says so.
           if (dev() && !p.type.getDerivedStateFromError && p.tick?.peek() === tick && inst.__queue.length === queued)
             withFiber(p, () => warn(`${nameOf(p.type)}: Error boundaries should implement getDerivedStateFromError(). In that method, return a state update to display an error message or fallback UI.`));
         });
       if (rendering) (p.root as any).threw = true;
-      const tell = () => (p.root.onCaughtError ?? toldCaught(f, p))(e, { componentStack: "", errorBoundary: inst });
+      const tell = () => (p.root.onCaughtError ?? toldCaught(f, p))(e, { componentStack: componentStackOf(f), errorBoundary: inst });
       if (rendering) caughtThisRender.push(() => !p.dead && tell());
       else tell();
       // Rendering now (its draw under way): it renders again when its own render is done, in its error state.
@@ -2266,7 +2308,7 @@ function caught(f: Fiber, e: any) {
       return;
     }
   }
-  uncaught(f.root, e);
+  uncaught(f.root, e, f);
 }
 
 // ---------------------------------------------------------------- effects and commit
@@ -2288,7 +2330,13 @@ function commit() {
       deletions.length = 0;
       for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
       insertionQueue.length = 0;
-      for (let i = 0; i < layoutQueue.length; i++) timed(layoutQueue[i]!, effectTime);
+      inEffects++;
+      try {
+        for (let i = 0; i < layoutQueue.length; i++) timed(layoutQueue[i]!, effectTime);
+      } finally {
+        inEffects--;
+        effectsDone();
+      }
       layoutQueue.length = 0;
       const made = fresh.splice(0);
       for (const f of made) f.committed = true;
@@ -2396,7 +2444,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0));
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0));
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -2475,7 +2523,18 @@ function runPassive(drawAfter: boolean) {
   if (!passiveQueue.length && !passiveUnmounts.length) return;
   const run = [...passiveUnmounts.splice(0), ...passiveQueue.splice(0)];
   untrack(() => {
-    for (const fn of run) timed(fn, passiveTime);
+    inEffects++;
+    const wasPassive = inPassive;
+    inPassive = true;
+    updatedInPassive = false;
+    try {
+      for (const fn of run) timed(fn, passiveTime);
+    } finally {
+      inEffects--;
+      inPassive = wasPassive;
+      nestedPassive = updatedInPassive ? nestedPassive + 1 : 0;
+      effectsDone();
+    }
     tellPostCommit();
   });
   if (drawAfter) flushSignals();
@@ -2814,12 +2873,16 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
     h.ranIn = renderSerial;
     h.first = false;
     h.deps = deps;
+    const wasFiber = effectFiber;
+    effectFiber = f;
     try {
       if (typeof h.cleanup === "function") h.cleanup();
       const back = create();
       h.cleanup = typeof back === "function" ? back : null;
     } catch (e) {
       caught(f, e);
+    } finally {
+      effectFiber = wasFiber;
     }
   });
 }
@@ -3313,7 +3376,26 @@ export function useFormStatus() {
 
 /** Inside flushSync: a root's render is drawn at once, not as a concurrent render. */
 let syncing = false;
+/** Effects (layout or passive) running now, and how many synchronous renders they forced in a row: past React's
+ * limit (NESTED_UPDATE_LIMIT) it is a loop, React's error thrown where the next one is asked. */
+let inEffects = 0;
+let nestedSync = 0;
+/** Whether the effects running now forced a synchronous render (if they did not, the run of them ends). */
+let syncInEffects = false;
+/** An effect phase ended: one that forced no synchronous render breaks the chain. */
+function effectsDone() {
+  if (inEffects) return;
+  if (!syncInEffects) nestedSync = 0;
+  syncInEffects = false;
+}
 export function flushSync<T>(fn?: () => T): T {
+  if (inEffects) {
+    syncInEffects = true;
+    if (++nestedSync > 50) {
+      nestedSync = 0;
+      throw new Error("Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops.");
+    }
+  } else nestedSync = 0;
   const was = syncing;
   syncing = true;
   try {
