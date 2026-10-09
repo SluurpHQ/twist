@@ -1,6 +1,6 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
-import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild } from "./element.ts";
+import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, unwrapChild } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { VOID_TAGS, assertValidProps, attribute, checkTagName } from "./attributes.ts";
@@ -165,6 +165,8 @@ function serverHooks(ctx: Ctx) {
 }
 
 function render(node: any, ctx: Ctx, hooks: any): string {
+  // A lazy or a promise as a child: what it resolves to (thrown to the nearest Suspense until then).
+  node = unwrapChild(node);
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") {
     const text = String(node);
