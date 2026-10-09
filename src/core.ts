@@ -528,7 +528,7 @@ function update(f: Fiber, c: any) {
   }
   // A component: drawn again only if what it was given changed.
   if (f.props === props) return;
-  const same = f.compare ? f.compare(f.props, props) : shallowEqual(f.props, props);
+  const same = f.compare ? f.compare(f.props, props) : false;
   f.props = props;
   if (!same) restart(f);
 }
@@ -631,7 +631,7 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
         return type.render(rest, ref);
       };
     case MEMO:
-      f.compare = type.compare;
+      f.compare = type.compare ?? shallowEqual;
       return typeof type.type === "function" && !type.type.prototype?.isReactComponent
         ? (_f, props) => type.type(props)
         : (_f, props) => createElement(type.type, props);

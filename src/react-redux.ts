@@ -3,7 +3,7 @@
 // a dispatch recomputes only selections whose inputs changed. Redux itself (the store, reducers, middleware) is
 // whatever the app uses; only the binding to components is ours.
 import { computed, signal } from "../../signals/index.js";
-import { createElement, forwardRef as forwardRefOf } from "./element.ts";
+import { createElement, forwardRef as forwardRefOf, memo } from "./element.ts";
 import { createContext } from "./element.ts";
 import { rendersOnServer, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "./hooks.ts";
 import { isHydrating } from "./core.ts";
@@ -428,17 +428,21 @@ export function connect(mapStateToProps?: any, mapDispatchToProps?: any, mergePr
       // Own props changed since: the selector decides with them (it keeps the same object when nothing changed).
       // A selector that threw when the store changed (logged then) runs again here: thrown only if it throws still.
       const merged = select(fromServer ? ctx.getServerState() : stateOf(store).peek(), wrapperProps);
-      return createElement(Wrapped, forwardRef ? { ...merged, ref: reactReduxForwardedRef } : merged);
+      // The same element while the merged props are the same object, as react-redux keeps it: the child is left alone.
+      return useMemo(() => createElement(Wrapped, forwardRef ? { ...merged, ref: reactReduxForwardedRef } : merged), [Wrapped, merged, reactReduxForwardedRef]);
     }
     Connect.displayName = displayName;
-    (Connect as any).WrappedComponent = Wrapped;
+    // Memoized, as react-redux's is: drawn again when its own props or what it selects change.
+    const Memo: any = memo(Connect);
+    Memo.displayName = displayName;
+    Memo.WrappedComponent = Wrapped;
     if (forwardRef) {
-      const forwarded: any = forwardRefOf((props: any, ref: any) => createElement(Connect, { ...props, reactReduxForwardedRef: ref }));
+      const forwarded: any = forwardRefOf((props: any, ref: any) => createElement(Memo, { ...props, reactReduxForwardedRef: ref }));
       forwarded.displayName = displayName;
       forwarded.WrappedComponent = Wrapped;
       return hoistStatics(forwarded, Wrapped);
     }
-    return hoistStatics(Connect, Wrapped);
+    return hoistStatics(Memo, Wrapped);
   };
 }
 
