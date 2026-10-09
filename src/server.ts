@@ -732,7 +732,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         b.waiting = e;
         shared.boundaries.length = queued;
         shared.boundaries.push(b);
-        const early = res.late();
+        const early = res.late() + res.lateStyleTags(deps);
         if (early) write(early);
         return watch();
       }
@@ -745,8 +745,10 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     const late = res.late();
     const { styleTags, sheets } = res.boundaryStyles(deps);
     // With stylesheets (or style rules) of its own, the boundary is revealed once they have loaded ($SR).
+    const hoist = res.stylesToHoist;
+    res.stylesToHoist = false;
     const reveal =
-      styleTags || sheets.length
+      hoist || sheets.length
         ? `$SR("B:${b.id}","S:${b.id}",${jsArg(sheets.map((s) => (s[1] === "" ? [s[0]] : [s[0], s[1], ...Object.entries(s[2]).flat()])))})`
         : `$SC("B:${b.id}","S:${b.id}")`;
     write(`${late}${runtimeSent ? "" : RUNTIME}<div hidden id="S:${b.id}">${inner}</div>${styleTags}${scriptOpen}${reveal}</script>`);

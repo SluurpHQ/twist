@@ -398,7 +398,8 @@ export function isHoistable(type: string, props: any, svg: boolean, inContainer:
 const tagCaches = new WeakMap<Document, Map<string, Element[] | null>>();
 export function claimHoistable(d: Document, type: string, props: any): Element | null {
   const keyAttr = type === "title" ? null : type === "meta" ? "content" : "href";
-  const cache = mapOf(tagCaches, d, () => new Map());
+  // Built once per commit (what streamed in since is found by the next one).
+  const cache = mapOf(tagCaches, d, () => (queueMicrotask(() => tagCaches.delete(d)), new Map()));
   if (!cache.has(type)) {
     cache.set(type, null);
     for (const node of d.getElementsByTagName(type)) {

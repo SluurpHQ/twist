@@ -1107,9 +1107,9 @@ function unmount(f: Fiber, removeDom: boolean) {
   // A singleton let go: emptied, its attributes taken off, the element kept (React's releaseSingletonInstance).
   if ((f as any).singleton && f.dom) {
     const el = f.dom as Element;
-    for (const c of f.children) unmount(c, false);
+    // Its children's nodes go with them; what others put in it (resources, extensions' nodes) stays.
+    for (const c of f.children) unmount(c, true);
     f.children = [];
-    if (f.type !== "html") el.replaceChildren();
     for (const a of [...el.attributes]) el.removeAttribute(a.name);
   }
   // A boundary still as the server drew it: its markup goes with it.

@@ -304,9 +304,18 @@ export class Resources {
   }
 
   /** A completed boundary's own stylesheets (not yet in the document) and inline style rules. */
+  /** Style rules a boundary has met so far, sent ahead hidden (media="not all") until it is revealed. */
+  lateStyleTags(state: { styles: Set<StyleQueue> }) {
+    let out = "";
+    for (const q of state.styles) if (q.hrefs.length) out += this.styleElement(q, true);
+    if (out) this.stylesToHoist = true;
+    return out;
+  }
+  /** Late style tags were sent: the next boundary revealed moves them into <head> (React's stylesToHoist). */
+  stylesToHoist = false;
+
   boundaryStyles(state: { sheets: Set<Sheet>; styles: Set<StyleQueue> }) {
-    let styleTags = "";
-    for (const q of state.styles) if (q.hrefs.length) styleTags += this.styleElement(q, true);
+    const styleTags = this.lateStyleTags(state);
     const sheets: [string, string, Record<string, string>][] = [];
     for (const s of state.sheets) {
       if (s.state === PREAMBLE) continue;

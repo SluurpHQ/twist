@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3029 pass, 995 fail, 314 skipped (gated off for stable React 19).
+3035 pass, 989 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -44,7 +44,7 @@
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 7 | 5 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
-| react-dom/ReactDOMFloat-test.js | 100 | 40 | 3 |  |
+| react-dom/ReactDOMFloat-test.js | 105 | 35 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 17 | 28 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 43 | 46 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 7 | 3 | 0 |  |
@@ -121,7 +121,7 @@
 | react-dom/ReactMultiChild-test.js | 11 | 3 | 0 |  |
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 2 | 2 | 0 |  |
-| react-dom/ReactRenderDocument-test.js | 6 | 5 | 0 |  |
+| react-dom/ReactRenderDocument-test.js | 7 | 4 | 0 |  |
 | react-dom/ReactServerRendering-test.js | 27 | 18 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 14 | 10 | 0 |  |
