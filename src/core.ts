@@ -6,7 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
-import { configureViewTransitions, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
+import { configureViewTransitions, renderInViewTransition, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
@@ -3263,6 +3263,26 @@ export function flushTransitions(): boolean {
       return true;
     }
   }
+  // With boundaries on the page, drawn inside the browser's view transition (the old state captured first).
+  if (!viewTransitionWaiting) {
+    viewTransitionWaiting = true;
+    const wrapped = renderInViewTransition(() => {
+      viewTransitionWaiting = false;
+      applyTransitions();
+      // What was asked for meanwhile, drawn next.
+      if (transitionWork.length && !transitionBooked) (transitionBooked = true), scheduleTransitions(flushTransitions);
+    });
+    // Drawn when the browser calls back (at once in a test's stand-in, on its next frame in a browser).
+    if (wrapped) return true;
+    viewTransitionWaiting = false;
+  } else return false;
+  return applyTransitions();
+}
+
+/** A view transition started, its render not run yet: transitions wait for it. */
+let viewTransitionWaiting = false;
+
+function applyTransitions(): boolean {
   applyingTransition = true;
   viewTransitionsBegin();
   try {

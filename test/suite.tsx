@@ -437,6 +437,28 @@ test("react-redux: a dispatch re-renders only what selects the changed part", as
   eq(renders, { A: 2, B: 1 }, "renders");
 });
 
+test("ViewTransition: drawn inside the browser's view transition, callbacks told", async (box) => {
+  if (!(document as any).startViewTransition) return;
+  const VT = (ReactAll as any).ViewTransition;
+  const told: string[] = [];
+  let seenBefore = "";
+  const real = (document as any).startViewTransition.bind(document);
+  // The page as the browser captures it: before the update runs.
+  (document as any).startViewTransition = (arg: any) => {
+    seenBefore = box.textContent ?? "";
+    return real(arg);
+  };
+  try {
+    const root = mount(box, <VT name="card" onUpdate={() => told.push("update")}><div>short</div></VT>);
+    await tick();
+    ReactAll.startTransition(() => root.render(<VT name="card" onUpdate={() => told.push("update")}><div>a much longer text</div></VT>));
+    for (let i = 0; i < 50 && !told.length; i++) await frame();
+    eq([seenBefore, box.textContent, told], ["short", "a much longer text", ["update"]]);
+  } finally {
+    (document as any).startViewTransition = real;
+  }
+});
+
 test("server render", () => {
   const Ctx = createContext(1);
   const C = () => {

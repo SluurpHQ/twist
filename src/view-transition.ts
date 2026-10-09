@@ -64,9 +64,10 @@ export function viewTransitionsCommit(made: VTFiber[], transition: boolean) {
   const entered = made.filter((f) => !f.dead && !live.has(f));
   for (const f of entered) live.add(f);
   const gone = exited.splice(0);
+  // Another commit meanwhile (an urgent one): the transition's measures stay for its own.
+  if (!transition) return;
   const was = before;
   before = new Map();
-  if (!transition) return;
 
   const fresh = new Set(entered);
   const enters = entered.filter((f) => {
@@ -100,49 +101,103 @@ export function viewTransitionsCommit(made: VTFiber[], transition: boolean) {
     }
   }
 
-  const calls: [VTFiber | Exited, string][] = [];
+  const calls: Call[] = [];
   for (const f of enters) if (!sharedIn.has(f)) calls.push([f, "onEnter"]);
   for (const x of exits) calls.push([x, shared.has(x) ? "onShare" : "onExit"]);
   for (const f of updates) calls.push([f, "onUpdate"]);
   if (!calls.length) return;
 
+  // Inside a view transition started before the render (the old state captured): its new state named too.
+  if (running) {
+    for (const f of enters) name(running, f, sharedIn.has(f) ? "share" : "enter");
+    for (const f of updates) name(running, f, "update");
+    running.calls.push(...calls);
+    return;
+  }
+  // Started now, after the render: the browser animates what it can (what enters).
   const doc: any = typeof document !== "undefined" ? document : null;
   if (!doc || typeof doc.startViewTransition !== "function") return;
-  // The boundaries' elements named for the browser (and given their classes) while it animates them.
-  const named: Element[] = [];
-  const name = (f: VTFiber, kind: string) => {
-    for (const el of elementsOf(f)) {
-      const style = (el as HTMLElement).style;
-      if (!style) continue;
-      style.setProperty("view-transition-name", nameOf(f));
-      const cls = f.props?.[kind] ?? f.props?.default;
-      if (typeof cls === "string" && cls !== "auto") style.setProperty("view-transition-class", cls);
-      named.push(el);
-    }
-  };
-  for (const f of enters) name(f, sharedIn.has(f) ? "share" : "enter");
-  for (const f of updates) name(f, "update");
+  const vt: Running = { named: [], calls };
+  for (const f of enters) name(vt, f, sharedIn.has(f) ? "share" : "enter");
+  for (const f of updates) name(vt, f, "update");
   let started: any;
   try {
     started = doc.startViewTransition({ update: () => {}, types: [] });
   } catch {
-    return;
+    return unname(vt);
   }
+  follow(vt, started);
+}
+
+type Call = [VTFiber | Exited, string];
+/** A view transition under way: the elements named for it and the callbacks it tells when ready. */
+type Running = { named: Element[]; calls: Call[] };
+let running: Running | null = null;
+
+/** A boundary's elements named for the browser (and given their class for this kind of change). */
+function name(vt: Running, f: VTFiber, kind: string) {
+  for (const el of elementsOf(f)) {
+    const style = (el as HTMLElement).style;
+    if (!style) continue;
+    style.setProperty("view-transition-name", nameOf(f));
+    const cls = f.props?.[kind] ?? f.props?.default;
+    if (typeof cls === "string" && cls !== "auto") style.setProperty("view-transition-class", cls);
+    else style.removeProperty("view-transition-class");
+    vt.named.push(el);
+  }
+}
+function unname(vt: Running) {
+  for (const el of vt.named) {
+    (el as HTMLElement).style.removeProperty("view-transition-name");
+    (el as HTMLElement).style.removeProperty("view-transition-class");
+  }
+}
+/** Its callbacks told once the browser is ready to animate; its names taken off when it is done. */
+function follow(vt: Running, started: any) {
   const tell = () => {
-    for (const [x, callback] of calls) {
+    for (const [x, callback] of vt.calls) {
       const f = "fiber" in x ? x.fiber : x;
       const fn = f.props?.[callback];
       if (typeof fn === "function") fn(instanceFor(nameOf(f)), []);
     }
   };
-  const unname = () => {
-    for (const el of named) {
-      (el as HTMLElement).style.removeProperty("view-transition-name");
-      (el as HTMLElement).style.removeProperty("view-transition-class");
-    }
-  };
-  Promise.resolve(started?.ready).then(tell, tell);
-  Promise.resolve(started?.finished).then(unname, unname);
+  const done = () => unname(vt);
+  // After its update has run (what it animates is known then), once it is ready or was skipped.
+  const ready = () => Promise.resolve(started?.ready).then(tell, tell);
+  Promise.resolve(started?.updateCallbackDone).then(ready, ready);
+  Promise.resolve(started?.finished).then(done, done);
+}
+
+/**
+ * A transition rendered inside a view transition, when boundaries are on the page: the browser captures the page
+ * as it is (each boundary named), then `render` changes it. False when there is nothing to animate this way.
+ */
+export function renderInViewTransition(render: () => void): boolean {
+  const doc: any = typeof document !== "undefined" ? document : null;
+  if (running || !live.size || !doc || typeof doc.startViewTransition !== "function") return false;
+  const vt: Running = { named: [], calls: [] };
+  for (const f of live) if (!f.dead) name(vt, f, "default");
+  let started: any;
+  try {
+    started = doc.startViewTransition({
+      update: () => {
+        running = vt;
+        try {
+          render();
+        } finally {
+          running = null;
+        }
+        // Nothing of it entered, exited, updated or was shared: no animation.
+        if (!vt.calls.length) started?.skipTransition?.();
+      },
+      types: [],
+    });
+  } catch {
+    unname(vt);
+    return false;
+  }
+  follow(vt, started);
+  return true;
 }
 
 const depthOf = (f: VTFiber) => {
