@@ -8,6 +8,22 @@ import "./gates.ts";
 
 GlobalRegistrator.register({ url: "http://localhost/" });
 
+// jsdom runs a page's inline scripts (the streamed HTML's) with vm.runInContext, which Bun refuses for jsdom's window
+// ("Proxy is not allowed in the global prototype chain"): run them against that window with `with` instead.
+{
+  const vm: any = await import("node:vm");
+  const target = vm.default ?? vm;
+  const run = target.runInContext;
+  target.runInContext = (code: string, context: any, options?: any) => {
+    try {
+      return run.call(target, code, context, options);
+    } catch (e: any) {
+      if (!/Proxy is not allowed in the global prototype chain/.test(String(e?.message))) throw e;
+      return new Function("__window", `with (__window) {\n${code}\n}`)(context);
+    }
+  };
+}
+
 const g = globalThis as any;
 g.__realSetTimeout = setTimeout;
 // Some tests put their own jsdom in place (global.window = …): these must be writable, as they are under Jest.
