@@ -1,0 +1,19 @@
+// What Solid's tests import, redirected to Twist: the public API to ours, vitest to Bun's runner, the DOM from
+// happy-dom. A test file reaching into Solid's internals (src/core/…, attribution, dev, server) cannot run against
+// another implementation: its import fails and run.ts counts the file as not ours.
+import { plugin } from "bun";
+import { join } from "node:path";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+
+GlobalRegistrator.register();
+const src = join(import.meta.dir, "..", "..", "src");
+const solid = join(src, "solid.ts");
+
+plugin({
+  name: "twist",
+  setup(b) {
+    // The package by name (../src/index.js is a file prepare.ts writes).
+    b.onResolve({ filter: /^(solid-js|@solidjs\/signals)$/ }, () => ({ path: solid }));
+    b.onResolve({ filter: /^vitest$/ }, () => ({ path: join(import.meta.dir, "vitest.ts") }));
+  },
+});

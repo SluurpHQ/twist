@@ -9,7 +9,7 @@ const rows = {};
 for (const [engine, type] of [["webkit", webkit], ["chromium", chromium]]) {
   // WEBKIT_EXE: a WebKit build already on disk, when this playwright-core wants a newer one.
   const browser = await type.launch(engine === "webkit" && process.env.WEBKIT_EXE ? { executablePath: process.env.WEBKIT_EXE } : {});
-  for (const name of ["vanilla", "solid", "sluurp-solid", "react", "sluurp"]) {
+  for (const name of ["vanilla", "solid", "react", "sluurp", "signals"]) {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:8820/bench/${name}/index.html`);
     const got = await page.evaluate((n) => window.bench(n), runs);
