@@ -1,7 +1,7 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
 import { createErrorBoundary, createLoadingBoundary, createMemo, flatten, sharedConfig, untrack } from "./signals.ts";
-import { mapArray, merge, repeat } from "./flow.ts";
+import { LIVE, mapArray, merge, repeat } from "./flow.ts";
 
 // ---------------------------------------------------------------- marks from the pass
 
@@ -48,9 +48,9 @@ export function componentProps(raw: Record<string, any>): Record<string, any> {
 
 /** A spread's object, read each time a key is read (so a props object's getters keep working). */
 export function spreadSource(read: () => any) {
-  return new Proxy({}, {
-    get: (_t, k) => read()?.[k],
-    has: (_t, k) => k in (read() ?? {}),
+  return new Proxy({ [LIVE]: true } as any, {
+    get: (_t, k) => (k === LIVE ? true : read()?.[k]),
+    has: (_t, k) => k === LIVE || k in (read() ?? {}),
     ownKeys: () => Reflect.ownKeys(read() ?? {}),
     getOwnPropertyDescriptor: (_t, k) => {
       const s = read();

@@ -174,12 +174,35 @@ export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, opt
 // ---------------------------------------------------------------- props
 
 /** Sources merged into one view: later ones win (an undefined value too), each read where it is used. */
+/** Marks a view whose keys can change (read each time). */
+export const LIVE = Symbol("twist.live");
+
 export function merge<T extends object[]>(...sources: T): any {
   const list = sources.filter((s) => s != null);
   const view: any = {};
   const keys = new Set<PropertyKey>();
   // (A function source is read for its object, keys and values alike.)
   const at = (s: any) => (typeof s === "function" ? s() ?? {} : s);
+  // A source whose keys can change (a function, a live view): the merge is live too, its keys read each time.
+  if (list.some((s) => typeof s === "function" || (s as any)[LIVE])) {
+    const ordered = () => {
+      const ks = new Set<PropertyKey>();
+      for (const s of list) for (const k of Reflect.ownKeys(at(s))) ks.delete(k), ks.add(k);
+      return [...ks];
+    };
+    const find = (k: PropertyKey) => {
+      for (let i = list.length - 1; i >= 0; i--) {
+        const s = at(list[i]);
+        if (k in s) return s;
+      }
+    };
+    return new Proxy({ [LIVE]: true } as any, {
+      get: (_t, k) => (k === LIVE ? true : find(k)?.[k]),
+      has: (_t, k) => k === LIVE || find(k) !== undefined,
+      ownKeys: () => ordered(),
+      getOwnPropertyDescriptor: (_t, k) => (find(k) ? { enumerable: true, configurable: true, get: () => find(k)?.[k] } : undefined),
+    });
+  }
   // Each key where its winning (last) source puts it.
   for (const s of list) for (const k of Reflect.ownKeys(at(s))) keys.delete(k), keys.add(k);
   for (const k of keys) {

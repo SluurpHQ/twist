@@ -77,20 +77,41 @@ const PROPS: Record<string, Set<string>> = {
 
 function element(tag: string, props: Record<string, any>): Element {
   const el = SVG_TAGS.has(tag) && tag !== "title" ? document.createElementNS(SVG_NS, tag) : MATH_TAGS.has(tag) ? document.createElementNS(MATH_NS, tag) : document.createElement(tag);
-  for (const k of Object.keys(props)) {
-    if (k === "children") continue;
-    const v = props[k];
-    if (k.startsWith("$spread$")) spread(el, spreadSource(v));
-    else set(el, k, v);
-  }
+  // With a spread: every prop as one merged source (later ones winning, a key the spread drops falling back).
+  if (hasSpread(props)) return spreadOn(el, mergedProps(props), false, false), el;
+  for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) insert(el, props.children);
   return el;
+}
+
+const hasSpread = (props: Record<string, any>) => Object.keys(props).some((k) => k.startsWith("$spread$"));
+
+/** JSX props with spreads as one source, in their order: a marked part read where used, a spread read each time. */
+function mergedProps(props: Record<string, any>) {
+  const sources: any[] = [];
+  let own: Record<string, any> | null = null;
+  for (const k of Object.keys(props)) {
+    const v = props[k];
+    if (k.startsWith("$spread$")) {
+      if (own) sources.push(own), (own = null);
+      sources.push(spreadSource(v));
+      continue;
+    }
+    own ??= {};
+    if (isDynamic(v) && !/^on[A-Z]/.test(k) && k !== "ref") Object.defineProperty(own, k, { enumerable: true, configurable: true, get: v });
+    else own[k] = v;
+  }
+  if (own) sources.push(own);
+  return merge(...sources);
 }
 
 /** A prop on an element: bound when it can change, set once when it cannot. */
 function set(el: Element, name: string, value: any) {
   if (name === "ref") return applyRef(value, el);
-  if (/^on[A-Z]/.test(name)) return addEvent(el, name.slice(2).toLowerCase(), value);
+  if (/^on[A-Z]/.test(name)) {
+    const type = name.slice(2).toLowerCase();
+    return addEvent(el, type, value, BUBBLING.has(type));
+  }
   if (isDynamic(value)) {
     // (A binding takes no id: the server makes none for it.) Hydrating, its first value is what the page shows already:
     // nothing written (what the user typed, styles the page has, stay).
@@ -175,17 +196,31 @@ export function applyRef(r: any, el: Element) {
 
 /** Props given as a whole: each applied, kept current. */
 export function spread(el: Element, props: any, skipChildren?: boolean) {
-  spreadOn(el, props, !!skipChildren, false);
+  // (An accessor is read where each key is read.)
+  spreadOn(el, typeof props === "function" ? spreadSource(props) : props, !!skipChildren, false);
 }
 
 /** A spread applied: `claiming` the server's element, its first value is what the page shows already. */
 function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: boolean) {
   if (!props) return;
+  // A spread's handlers: listeners of their own, swapped as the spread changes.
+  const isEvent = (k: string) => /^on[A-Z]/.test(k);
+  const listeners = new Map<string, EventListener>();
+  const listenOn = (k: string, h: any) => {
+    if (h == null) return;
+    const l = listenerFor(h);
+    listeners.set(k, l);
+    el.addEventListener(k.slice(2).toLowerCase(), l);
+  };
+  const unlisten = (k: string) => {
+    const l = listeners.get(k);
+    if (l) el.removeEventListener(k.slice(2).toLowerCase(), l), listeners.delete(k);
+  };
   let prev: Record<string, any> = {};
   createRenderEffect(
     () => {
       const next: Record<string, any> = {};
-      for (const k of Object.keys(props)) if (k !== "children" && k !== "ref" && !/^on[A-Z]/.test(k)) next[k] = props[k];
+      for (const k of Object.keys(props)) if (k !== "children" && k !== "ref") next[k] = props[k];
       return next;
     },
     (next: Record<string, any>) => {
@@ -193,17 +228,20 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
       if (claiming) {
         claiming = false;
         if ("class" in next) (el as any).$$cls = classes(next.class);
+        // (Handlers are not in the page: attached.)
+        for (const k of Object.keys(next)) if (isEvent(k)) listenOn(k, next[k]);
         prev = next;
         return;
       }
-      for (const k of Object.keys(prev)) if (!(k in next)) assign(el, k, undefined, prev[k]);
-      for (const k of Object.keys(next)) if (next[k] !== prev[k]) assign(el, k, next[k], prev[k]);
+      for (const k of Object.keys(prev)) if (!(k in next)) isEvent(k) ? unlisten(k) : assign(el, k, undefined, prev[k]);
+      for (const k of Object.keys(next)) if (next[k] !== prev[k]) isEvent(k) ? (unlisten(k), listenOn(k, next[k])) : assign(el, k, next[k], prev[k]);
       prev = next;
     },
   );
-  for (const k of Object.keys(props)) if (/^on[A-Z]/.test(k)) addEvent(el, k.slice(2).toLowerCase(), props[k]);
-  if (props.ref) applyRef(props.ref, el);
-  if (skipChildren || !("children" in props)) return;
+  // (Read untracked: a change to the spread is its effect's, never the enclosing computation's.)
+  const ref = untrack(() => props.ref);
+  if (ref) applyRef(ref, el);
+  if (skipChildren || !untrack(() => "children" in props)) return;
   if (claiming) claimChildren(props.children, { parent: el, next: el.firstChild });
   else insert(el, () => props.children);
 }
@@ -215,12 +253,24 @@ const roots = new Set<Node>();
 const listening = new WeakMap<Node, Set<string>>();
 
 /** `onX` handlers: kept on the element, run by the root's listener as the event bubbles. */
-function addEvent(el: Element, type: string, handler: any) {
+export function addEvent(el: Element, type: string, handler: any, delegate = true) {
+  // Not delegated: a listener of its own on the element (a handler given as [fn, data] is called with data first).
+  if (!delegate) return void el.addEventListener(type, listenerFor(handler));
   (el as any)["$$" + type] = handler;
   if (!delegated.has(type)) {
     delegated.add(type);
     for (const r of roots) listen(r, type);
   }
+}
+
+/** Events that bubble, handled by one listener per root; the rest get a listener on their element. */
+const BUBBLING = new Set(
+  "beforeinput,click,dblclick,contextmenu,focusin,focusout,input,keydown,keyup,mousedown,mousemove,mouseout,mouseover,mouseup,pointerdown,pointermove,pointerout,pointerover,pointerup,touchend,touchmove,touchstart".split(","),
+);
+
+/** A handler as a DOM listener: [fn, data] calls fn(data, event). */
+function listenerFor(handler: any): EventListener {
+  return Array.isArray(handler) ? (e) => handler[0].call(e.currentTarget, handler[1], e) : typeof handler === "function" ? handler : (e) => handler?.handleEvent?.(e);
 }
 
 /** The event names compiled code says it needs. */
@@ -650,12 +700,8 @@ function claimElement(d: { tag: string; props: Record<string, any> }, keyed: boo
     at.parent.insertBefore(el, at.next);
   } else if (el === at.next) at.next = el.nextSibling;
   const props = d.props;
-  for (const k of Object.keys(props)) {
-    if (k === "children") continue;
-    const v = props[k];
-    if (k.startsWith("$spread$")) spreadOn(el, spreadSource(v), false, true);
-    else set(el, k, v);
-  }
+  if (hasSpread(props)) return spreadOn(el, mergedProps(props), false, true), el;
+  for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) claimChildren(props.children, { parent: el, next: el.firstChild });
   return el;
 }
