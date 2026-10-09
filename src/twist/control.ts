@@ -96,7 +96,14 @@ export function Loading(props: { fallback?: any; on?: unknown; children: any }) 
 export function Errored(props: { fallback: any; children: any }) {
   return createErrorBoundary(
     () => props.children,
-    (err, reset) => (typeof props.fallback === "function" ? untrack(() => props.fallback(err, reset)) : props.fallback),
+    // A function fallback is called with the error and reset (a fallback that declares no parameters cannot see the
+    // error: development tells it on the console).
+    (err, reset) => {
+      const f = props.fallback;
+      if (typeof f !== "function") return f;
+      if (f.length === 0 && !/\.\.\./.test(String(f).slice(0, String(f).indexOf(")") + 1))) console.error(untrack(err));
+      return f(err, reset);
+    },
   );
 }
 

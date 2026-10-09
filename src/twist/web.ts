@@ -134,6 +134,9 @@ export function setProperty(el: Element, name: string, value: any) {
 
 /** A class: a string, an object of name → on, or an array of either (nested). */
 export function className(el: Element, value: any, prev?: any) {
+  // A number is its text (0 included).
+  if (typeof value === "number") value = String(value);
+  if (typeof prev === "number") prev = String(prev);
   const now = classes(value);
   const before = classes(prev);
   if (typeof value === "string" || value == null || value === false) {
