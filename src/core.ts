@@ -485,6 +485,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   if (kind === "$?") {
     // Still streaming: the server's fallback stays until its content arrives (the stream's script says so).
     (raw as any)._reactRetry = () => retryBoundary(f);
+    (f as any).dehydrated = true;
     return;
   }
   if (kind === "$!") {
@@ -515,10 +516,12 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     for (const c of f.children) unmount(c, false);
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
+    (f as any).dehydrated = true;
     const again = () => retryBoundary(f);
     r.suspended.then(again, again);
     return;
   }
+  (f as any).dehydrated = false;
   if (r.mismatch) {
     for (const c of f.children) unmount(c, false);
     f.children = [];
@@ -553,13 +556,14 @@ function drawFresh(f: Fiber, host: Node, end: Node | null) {
 /** A dehydrated boundary hydrated again (its data is there, or its content streamed in). */
 function retryBoundary(f: Fiber) {
   const region = (f as any).region as { start: Comment; end: Comment } | undefined;
-  if (!region || f.dead || hydrating) return;
+  if (!region || f.dead || hydrating || !(f as any).dehydrated) return;
   const host = region.start.parentNode;
   if (!host) return;
   if (region.start.data === "$!") {
     serverGaveUp(f, region);
     const after = removeRegion(region);
     (f as any).region = undefined;
+    (f as any).dehydrated = false;
     drawFresh(f, host, after);
     flushSignals();
     return;
@@ -847,6 +851,21 @@ function update(f: Fiber, c: any) {
   }
   // A component: drawn again only if what it was given changed.
   if (f.props === props) return;
+  if ((f as any).dehydrated && !hydrating) {
+    f.props = props;
+    retryBoundary(f);
+    if ((f as any).dehydrated) {
+      // Still waiting: what the server drew goes, and the boundary is drawn on the client (its fallback, if it
+      // suspends), as React does when an update cannot wait for hydration.
+      const region = (f as any).region;
+      const host = region.start.parentNode;
+      const after = removeRegion(region);
+      (f as any).region = undefined;
+      (f as any).dehydrated = false;
+      drawFresh(f, host, after);
+    }
+    return;
+  }
   const same = f.compare ? f.compare(f.props, props) : false;
   f.props = props;
   if (!same) restart(f);
