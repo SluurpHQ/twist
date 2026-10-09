@@ -74,7 +74,7 @@ const readHandler: ProxyHandler<Raw> = {
     if (Array.isArray(target) && key === "length") return v;
     // A method of an array (or anything inherited) is not a property of the state.
     if (!desc && typeof v === "function") return v;
-    return wrap(v);
+    return leaf(target, key, v);
   },
   has(target, key) {
     if (key === $PROXY || key === $TARGET) return true;
@@ -87,10 +87,10 @@ const readHandler: ProxyHandler<Raw> = {
   },
   getOwnPropertyDescriptor(target, key) {
     const o = records.get(target)?.overlay?.get(key);
-    if (o) return o.v === DELETE ? undefined : { value: wrap(o.v), writable: true, enumerable: true, configurable: true };
+    if (o) return o.v === DELETE ? undefined : { value: leaf(target, key, o.v), writable: true, enumerable: true, configurable: true };
     const desc = Reflect.getOwnPropertyDescriptor(target, key);
     if (!desc || desc.get || !desc.configurable) return desc;
-    return { ...desc, value: wrap(desc.value) };
+    return { ...desc, value: leaf(target, key, desc.value) };
   },
   // Read-only from the outside: changes go through the setter. (A frozen property must answer false: the proxy may
   // not claim to have changed what cannot change.)
@@ -141,6 +141,19 @@ function trackAll(target: Raw) {
 }
 
 const proxies = new WeakMap<object, any>();
+
+/** Stores made with `shallow`: their values are given as they are, not as stores of their own. */
+const shallowTargets = new WeakSet<object>();
+export const markShallow = (target: object) => void shallowTargets.add(target);
+
+/** A value read from `target[key]`: a store of its own, unless the store is shallow or the property frozen (a proxy
+ * must give a frozen property's value as it is). */
+function leaf(target: Raw, key: PropertyKey, v: any) {
+  if (shallowTargets.has(target)) return v;
+  const d = Reflect.getOwnPropertyDescriptor(target, key);
+  if (d && !d.configurable && !d.writable) return v;
+  return wrap(v);
+}
 export function wrap<T>(v: T): T {
   if (!isWrappable(v)) return v;
   let p = proxies.get(v as object);
@@ -223,6 +236,10 @@ const draftHandler: ProxyHandler<Raw> = {
     if (key === $PROXY) return receiver;
     const v = pendingValue(target, key);
     if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(target, key)) return v;
+    // (Shallow, or a frozen property: as it is.)
+    if (shallowTargets.has(target)) return v;
+    const d = Reflect.getOwnPropertyDescriptor(target, key);
+    if (d && !d.configurable && !d.writable) return v;
     return draftOf(v);
   },
   has: (target, key) => pendingHas(target, key),
@@ -293,9 +310,10 @@ function replaceInto(target: Raw, next: any) {
 export type StoreSetter<T> = (fn: ((draft: T) => T | void) | Partial<T>) => void;
 
 /** A store and its setter; given a function, a store derived from what the function reads (RFC 04). */
-export function createStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: { key?: string | ((v: any) => any) }): [T, StoreSetter<T>] {
+export function createStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: StoreOptions): [T, StoreSetter<T>] {
   if (typeof init === "function") return derivedStore(init as any, seed ?? ({} as T), options, true) as [T, StoreSetter<T>];
   const target = unwrap(init) as Raw;
+  if ((seed as any)?.shallow ?? options?.shallow) markShallow(target);
   const set: StoreSetter<T> = (fn) => {
     guardStoreWrite();
     const d = draftOf(target);
@@ -315,8 +333,11 @@ export function createProjection<T extends object>(fn: (draft: T) => T | void | 
   return derivedStore(fn, seed, options, false)[0];
 }
 
-function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: { key?: string | ((v: any) => any); seedLoadingValue?: boolean } | undefined, writable: boolean): [T, StoreSetter<T>] {
+type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean };
+
+function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: StoreOptions | undefined, writable: boolean): [T, StoreSetter<T>] {
   const target = unwrap(seed) as Raw;
+  if (options?.shallow) markShallow(target);
   const key = options?.key ?? "id";
   // The derive: run as a memo, its draft writes staged like a setter's (owned writes are allowed here).
   // An async derive makes the memo async: the store is not ready until its first derive lands.
@@ -590,7 +611,7 @@ function guessDraftOf<T>(v: T): T {
  * function), until the action that made them ends (or, outside an action, the flush does).
  */
 export function createOptimisticStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: { key?: string | ((v: any) => any) }): [T, StoreSetter<T>] {
-  const [store] = typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true) : createStore(init as T);
+  const [store] = typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true) : createStore(init as T, undefined, options);
   const target = unwrap(store) as Raw;
   const set: StoreSetter<T> = (fn) => {
     const d = guessDraftOf(target);
