@@ -63,8 +63,11 @@ for (const [pkg, file] of Object.entries(SRC)) {
   mkdirSync(join(out, pkg, "src"), { recursive: true });
   await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist(file))};\n`);
 }
+// Solid's dev tooling objects (DEV, OBSERVE): not in Twist. Present as nothing, so a file that imports them for one
+// test loads, and only the tests that use them fail.
+const devTools = `export const DEV = undefined;\nexport const OBSERVE = undefined;\n`;
 // storePath (a Solid 1 compat helper) is not in Twist: its tests count as not ours, the rest of their files still run.
-const notOurs = `export const storePath = () => { throw new Error("NOT OURS: storePath is a Solid 1 compat helper"); };\n`;
+const notOurs = `export const storePath = () => { throw new Error("NOT OURS: storePath is a Solid 1 compat helper"); };\n` + devTools;
 for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n` + notOurs);
 // <Dynamic> (deprecated, kept in 2.0 for Solid 1 code): not in Twist; its tests count as not ours.
 const noDynamic = `export const Dynamic = () => { throw new Error("NOT OURS: <Dynamic> is deprecated; dynamic() replaces it"); };\n`;
@@ -78,7 +81,7 @@ for (const name of ["solid-js", "@solidjs/signals"]) {
   const dir = join(here, "node_modules", name);
   mkdirSync(dir, { recursive: true });
   await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js" }));
-  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(ours)};\n`);
+  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(ours)};\n` + devTools);
 }
 // The web runtime, and the JSX runtime Bun's transform imports from it.
 const web = join(here, "..", "..", "src", "twist", "web.ts").split("\\").join("/");
@@ -94,6 +97,6 @@ for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-s
   const dir = join(here, "node_modules", ...name.split("/"));
   mkdirSync(dir, { recursive: true });
   await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js" } }));
-  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(twist(file))};\n`);
+  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(twist(file))};\n` + (name === "@twist/solid-server" ? devTools : ""));
 }
 console.log(`Solid's tests at ${REF} (${git(["rev-parse", "--short", "HEAD"], clone)}) in solid-tests/`);
