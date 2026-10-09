@@ -165,7 +165,8 @@ export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
   const Comp = (props: P) => {
     if (loaded) return untrack(() => loaded!(props));
     // Not loaded yet: an async memo of the component (its readers wait, as for any first load), then rendered.
-    const which = createMemo<(props: P) => any>(() => (loaded ?? start()) as any);
+    // (Its code holds a stream's shell: a page never streams the fallback of a module still loading.)
+    const which = createMemo<(props: P) => any>(() => (loaded ?? start()) as any, { deferStream: true } as any);
     return createMemo(() => {
       const C = which();
       return untrack(() => C(props));

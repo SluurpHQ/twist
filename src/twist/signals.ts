@@ -196,12 +196,31 @@ export function settlesOf(e: NotReadyError): Promise<void> | null {
   const find = (n: any): Promise<void> | null => {
     if (!n || seen.has(n)) return null;
     seen.add(n);
+    // A promise named by the error itself (user code throwing NotReadyError(promise)).
+    if (typeof n.then === "function") return Promise.resolve(n).then(noop, noop);
     if (n.flight && n.settles) return n.settles;
+    if (n.waitsFor && n.waitsFor.source !== n) {
+      const p = find(n.waitsFor.source);
+      if (p) return p;
+    }
     for (const s of n.sources ?? []) {
       const p = find(s);
       if (p) return p;
     }
     return null;
+  };
+  return find(e.source);
+}
+
+/** Whether what a not-ready read waits on holds a stream's shell (a module loading, data marked deferStream). */
+export function holdsShell(e: NotReadyError): boolean {
+  const seen = new Set<unknown>();
+  const find = (n: any): boolean => {
+    if (!n || seen.has(n) || typeof n.then === "function") return false;
+    seen.add(n);
+    if (n.deferStream && n.flight) return true;
+    if (n.waitsFor && n.waitsFor.source !== n && find(n.waitsFor.source)) return true;
+    return (n.sources ?? []).some(find);
   };
   return find(e.source);
 }
@@ -409,6 +428,7 @@ export class Computation<T> extends Node<T> implements Owner {
     giveId(this, owner);
     this.equals = options?.equals ?? Object.is;
     this.lazy = !!options?.lazy;
+    if ((options as any)?.deferStream) (this as any).deferStream = true;
     this.unobserved = options?.unobserved;
     // A declared first paint: born committed with it; its first flight is quiet (never pending, never held).
     if (options && "loadingValue" in options) {
@@ -575,6 +595,14 @@ export class Computation<T> extends Node<T> implements Owner {
       // Waiting on a first load upstream: still not ready (its readers wait too); the Loading above shows its fallback.
       if (threw instanceof NotReadyError) {
         this.error = NONE;
+        // (What it waits on, for a server render to wait too.)
+        (this as any).waitsFor = threw;
+        // Waiting on a promise its code named: run again when it settles.
+        const p = threw.source as any;
+        if (p && typeof p.then === "function") {
+          const at = this.ranAt;
+          p.then(() => !this.disposed && this.ranAt === at && (this.mark(DIRTY), schedule()), noop);
+        }
         if (this.kind !== MEMO || !this.ready) boundaryOf(this)?.wait(this);
         return;
       }

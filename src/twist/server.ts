@@ -1,7 +1,7 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
-import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, setServerAnswers, setServerRender, sharedConfig, untrack } from "./signals.ts";
+import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
@@ -62,6 +62,30 @@ export function dynamic<P>(source: () => any, options?: { static?: boolean }): (
     const which = createMemo(source);
     return createMemo(() => ({ t: html(make(which(), props), false) }));
   };
+}
+
+/** Its children, or its fallback (given the error and a reset) once rendering them throws. */
+export function Errored(props: { fallback: any; children?: any }) {
+  const parent = getOwner();
+  const boundary = createOwner(parent);
+  const fallback = (e: unknown) => {
+    const f = props.fallback;
+    return runWithOwner(parent, () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
+  };
+  try {
+    const before = holeCount;
+    const t = runWithOwner(boundary, () => html(props.children, false));
+    // Holes in it that wait: it waits with them, and shows its fallback if one of them fails.
+    const r = render;
+    if (!r || holeCount === before || !/\u0000hole\d+\u0000/.test(t)) return { t };
+    const token = "\u0000hole" + holeCount++ + "\u0000";
+    r.holes.set(token, filled(r, t).catch((e) => rendering(r, r.options, () => fallback(e))));
+    return { t: token };
+  } catch (e) {
+    // Waiting is not failing: the Loading or the shell above waits.
+    if (e instanceof NotReadyError) throw e;
+    return { t: fallback(e) };
+  }
 }
 
 // ---------------------------------------------------------------- hydration keys
@@ -146,7 +170,7 @@ export function html(v: any, inTemplate: boolean): string {
   if (typeof v === "string") return escape(v);
   if (typeof v === "number") return String(v);
   if (Array.isArray(v)) return list(v, !!(v as any)[OWN], inTemplate);
-  if (typeof v === "function") return html(v(), false);
+  if (typeof v === "function") return hole(() => html(v(), false));
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return html(createComponent(v.fn, componentProps(v.props)), false);
   if (typeof v.t === "string") return v.t;
@@ -243,7 +267,7 @@ function propsOf(el: Element_): Record<string, any> {
 
 /** An element's children: elements written here are in its template; anything else is a hole. */
 function children(c: any): string {
-  return Array.isArray(c) ? list(c, !!(c as any)[OWN], true) : typeof c === "function" ? list([c], true, true) : c && c[EL] ? element(c, c.keyed ?? false) : html(c, false);
+  return Array.isArray(c) ? list(c, !!(c as any)[OWN], true) : typeof c === "function" ? hole(() => list([c], true, true)) : c && c[EL] ? element(c, c.keyed ?? false) : html(c, false);
 }
 
 type Part = { s: string; text: boolean; split: boolean };
@@ -339,8 +363,68 @@ type Render = {
   /** What async nodes answered, by id: a retry takes the same answer instead of asking again. */
   answers: Map<string, [boolean, unknown]>;
   options: { renderId?: string; noHydrate?: boolean };
+  /** Whether the shell has gone out (later, nothing holds it). */
+  shellSent: boolean;
+  /** Holes of the shell still waiting, by placeholder. */
+  holes: Map<string, Promise<string>>;
 };
 let render: Render | null = null;
+/** Loading boundaries being rendered (under one, a waiting hole shows the boundary's fallback instead). */
+let boundaries = 0;
+let holeCount = 0;
+
+/**
+ * A hole of the shell, outside every Loading: one that is not ready yet waits on its own (a placeholder in the shell,
+ * filled when it renders), the rest of the shell rendered once.
+ */
+function hole(fn: () => string): string {
+  const r = render;
+  if (!r || !r.async || boundaries > 0) return fn();
+  const o = getOwner() as any;
+  const at = o?.childCount ?? 0;
+  try {
+    return fn();
+  } catch (e) {
+    const waits = e instanceof NotReadyError && settlesOf(e);
+    if (!waits) throw e;
+    return later(r, fn, waits, o, at);
+  }
+}
+
+/** A placeholder in the shell for `fn`, rendered again (from the same ids) once `waits` settles. */
+function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: number): string {
+  {
+    const token = "\u0000hole" + holeCount++ + "\u0000";
+    r.holes.set(
+      token,
+      new Promise<string>((ok, fail) => {
+        const again = (w: Promise<void>) =>
+          w.then(() => {
+            // From the same ids: the hole takes again what it took the first time.
+            if (o) o.childCount = at;
+            try {
+              ok(rendering(r, r.options, () => runWithOwner(o, fn)));
+            } catch (e2) {
+              const next = e2 instanceof NotReadyError && settlesOf(e2);
+              next ? again(next) : fail(e2);
+            }
+          });
+        again(waits);
+      }),
+    );
+    return token;
+  }
+}
+
+/** The shell with its waiting holes filled (holes rendered late may hold holes of their own). */
+async function filled(r: Render, s: string): Promise<string> {
+  for (;;) {
+    const m = /\u0000hole\d+\u0000/.exec(s);
+    if (!m) return s;
+    const v = await r.holes.get(m[0])!;
+    s = s.replace(m[0], () => v);
+  }
+}
 
 /**
  * Its children, or its fallback while something under it is not ready. In a stream the fallback is sent first, between
@@ -351,12 +435,25 @@ export function Loading(props: { fallback?: any; children?: any }) {
   const boundary = createOwner(parent);
   const id = (boundary as any).id as string | undefined;
   try {
-    return { t: runWithOwner(boundary, () => html(props.children, false)) };
+    boundaries++;
+    try {
+      return { t: runWithOwner(boundary, () => html(props.children, false)) };
+    } finally {
+      boundaries--;
+    }
   } catch (e) {
     if (!(e instanceof NotReadyError)) throw e;
-    const fallback = runWithOwner(parent, () => html(props.fallback, false));
     const r = render;
     const waits = settlesOf(e);
+    // What holds the shell (a module loading, data marked deferStream): the boundary waits in the shell, unseen.
+    if (r && r.async && !r.shellSent && waits && holdsShell(e)) {
+      resetOwner(boundary);
+      const at = (parent as any)?.childCount ?? 0;
+      (parent as any).owned?.splice((parent as any).owned.indexOf(boundary), 1);
+      if (parent) (parent as any).childCount = at - 1;
+      return { t: later(r, () => (Loading(props) as any).t, waits, parent, at - 1) };
+    }
+    const fallback = runWithOwner(parent, () => html(props.fallback, false));
     if (!r || !r.async || !waits || id == null) return { t: fallback };
     const retry = (p: Promise<void>) => {
       r.waiting.add(p);
@@ -364,7 +461,13 @@ export function Loading(props: { fallback?: any; children?: any }) {
         r.waiting.delete(p);
         resetOwner(boundary);
         try {
-          const content = rendering(r, r.options, () => runWithOwner(boundary, () => html(props.children, false)));
+          boundaries++;
+          let content: string;
+          try {
+            content = rendering(r, r.options, () => runWithOwner(boundary, () => html(props.children, false)));
+          } finally {
+            boundaries--;
+          }
           r.chunks.push(`<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
@@ -424,14 +527,14 @@ type Writable = { write(chunk: string): void; end(): void };
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: { renderId?: string; noHydrate?: boolean; onCompleteShell?: () => void; onCompleteAll?: () => void } = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false };
   let dispose!: () => void;
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.
   const shellReady = new Promise<string>((ok, fail) => {
     const attempt = () => {
       try {
-        ok(rendering(r, options, () => runWithOwner(root, () => html(code(), false))));
+        filled(r, rendering(r, options, () => runWithOwner(root, () => html(code(), false)))).then(ok, fail);
       } catch (e) {
         const waits = e instanceof NotReadyError && settlesOf(e);
         if (!waits) return fail(e);
@@ -469,6 +572,7 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
     (s) => {
       shell = s;
       shellSent = true;
+      r.shellSent = true;
       for (const w of sinks) w.write(shell);
       options.onCompleteShell?.();
       rendering(r, options, drain);
