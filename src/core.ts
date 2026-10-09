@@ -1421,8 +1421,32 @@ function singleton(host: Node, type: string): Element | null {
   return made;
 }
 
-/** Our own fields on a DOM node, kept out of enumeration (snapshot serializers, devtools listing its keys). */
-const hide = (node: any, key: string, value: any) => Object.defineProperty(node, key, { value, writable: true, configurable: true, enumerable: false });
+/**
+ * Our own fields on a DOM node, kept out of enumeration (snapshot serializers, devtools listing its keys): an
+ * accessor on the node's prototype, once, over a symbol field (defineProperty per node is slow, and slows the node).
+ */
+const hidden = new WeakMap<object, Set<string>>();
+const hide = (node: any, key: string, value: any) => {
+  const proto = Object.getPrototypeOf(node) ?? node;
+  let keys = hidden.get(proto);
+  if (!keys) hidden.set(proto, (keys = new Set()));
+  if (!keys.has(key)) {
+    keys.add(key);
+    const sym = Symbol.for("sluurp." + key);
+    if (!Object.getOwnPropertyDescriptor(proto, key))
+      Object.defineProperty(proto, key, {
+        get() {
+          return this[sym];
+        },
+        set(v) {
+          this[sym] = v;
+        },
+        configurable: true,
+        enumerable: false,
+      });
+  }
+  node[key] = value;
+};
 
 /** What this hydration inserted (not the server's): removed if it is given up. */
 let madeWhileHydrating: Node[] = [];

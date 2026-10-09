@@ -9,7 +9,8 @@ Bun.serve({
     const path = new URL(req.url).pathname;
     if (path === "/") Bun.spawnSync([process.execPath, join(import.meta.dir, "build.ts")], { stdout: "inherit", stderr: "inherit" });
     const file = Bun.file(join(out, path === "/" ? "index.html" : path));
-    return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
+    // js-profiling: pages may sample themselves (new Profiler(), for the benchmark).
+    return (await file.exists()) ? new Response(file, { headers: { "Document-Policy": "js-profiling" } }) : new Response("not found", { status: 404 });
   },
 });
 console.log("checks on http://127.0.0.1:8820/");

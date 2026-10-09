@@ -1,7 +1,13 @@
 // React's development warnings, in React's words (its tests and its users know them), each once per message as
 // React dedupes them. Nothing in production.
 
-export const dev = () => (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
+// Written as bundlers replace it (process.env.NODE_ENV), so a production build drops the checks; without a bundler,
+// read at run time.
+let PROD = false;
+try {
+  PROD = process.env.NODE_ENV === "production";
+} catch {}
+export const dev = () => !PROD && (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
 const seen = new Set<string>();
 
 /** Warnings held back while fn runs (props drawn on a scratch element to compare with the server's). */
