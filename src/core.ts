@@ -208,7 +208,14 @@ const TEXT_NODE = Symbol("text");
 function iterated(c: any): any[] | null {
   if (!c || typeof c !== "object" || c.$$typeof || Array.isArray(c)) return null;
   const at = c[Symbol.iterator] ?? c["@@iterator"];
-  return typeof at === "function" ? [...{ [Symbol.iterator]: () => at.call(c) }] : null;
+  if (typeof at !== "function") return null;
+  // React's warnings, once: an iterator is used up by reading it; a Map's entries are pairs, not children.
+  if (dev()) {
+    if (at.call(c) === c)
+      warn("Using Iterators as children is unsupported and will likely yield unexpected results because enumerating a generator mutates it. You may convert it to an array with `Array.from()` or the `[...spread]` operator before rendering. You can also use an Iterable that can iterate multiple times over the same items.", "iterator-child");
+    else if (c.entries === at) warn("Using Maps as children is not supported. Use an array of keyed ReactElements instead.", "map-child");
+  }
+  return [...{ [Symbol.iterator]: () => at.call(c) }];
 }
 
 /** What a component or element gives as children, as a list: arrays nest as fragments, text as text. */
@@ -1801,7 +1808,8 @@ function update(f: Fiber, c: any) {
   // A component: drawn again only if what it was given changed.
   if (f.props === props) return;
   if ((f as any).dehydrated && !hydrating) return updateDehydrated(f, props, () => restart(f));
-  const same = f.compare ? f.compare(f.props, props) : false;
+  // A memo's compare decides, unless the ref changed (React checks it apart).
+  const same = f.compare ? f.compare(f.props, props) && f.props?.ref === props?.ref : false;
   f.props = props;
   if (!same) restart(f);
 }
@@ -3354,7 +3362,7 @@ export function readContext(f: Fiber, ctx: any) {
 
 /** What React accepts as a root's container: an element, a document, a fragment, or its mount-point comment. */
 const validContainer = (n: any) =>
-  !!n && (n.nodeType === 1 || n.nodeType === 9 || n.nodeType === 11 || (n.nodeType === 8 && n.nodeValue === " react-mount-point-unstable "));
+  !!n && (n.nodeType === 1 || n.nodeType === 9 || n.nodeType === 11);
 const HYDRATE = Symbol("hydrate");
 
 export function createRoot(container: Element | DocumentFragment, options?: any) {
@@ -3637,12 +3645,16 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
     unmount(...rest: any[]) {
       if (dev() && typeof rest[0] === "function") console.error("does not support a callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
       if (unmounted) return;
-      if (dev() && depth > 0) console.error("Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition.");
+      if (dev() && (depth > 0 || committing || inPassive)) withFiber(effectFiber, () => console.error("Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition."));
       unmounted = true;
+      // Its nodes taken out of the container by someone else: React's removal fails, as the DOM's does.
+      const into = domParent(container);
+      const moved = top.children.some((c) => domNodes(c).some((n) => n.parentNode !== into));
       (container as any).__root = false;
       pending = NONE;
       for (const c of top.children) unmount(c, true);
       top.children = [];
+      if (moved) throw new Error("The node to be removed is not a child of this node.");
     },
   };
 }
@@ -3757,6 +3769,8 @@ export function flushSync<T>(fn?: () => T): T {
     const r = fn ? fn() : (undefined as T);
     if (depth === 0) flushSignals();
     performWork();
+    // A sync commit's passive effects run at its end (React flushes the sync lane's at once).
+    if (depth === 0 && !was && !inPassive) runPassive(true);
     return r;
   } finally {
     syncing = was;

@@ -4,6 +4,11 @@ import { createElement, Fragment } from "../../src/element.ts";
 import { createRoot as domRoot } from "../../src/core.ts";
 import { flushSync as domFlushSync } from "../../src/core.ts";
 
+// A noop instance is { type, props, children }: an element read as one answers `type` with its tag (unless it has a
+// `type` of its own, as an input does).
+if (!("type" in Element.prototype))
+  Object.defineProperty(Element.prototype, "type", { configurable: true, get(this: Element) { return this.localName; } });
+
 function toJSX(node: Node): any {
   if (node.nodeType === 3) return (node as Text).data;
   const el = node as any;
