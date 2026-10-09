@@ -1,7 +1,7 @@
 // Twist's stores: objects and arrays read property by property (each a node of its own), changed through a draft.
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
-import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, NotReadyError, type Transaction } from "./signals.ts";
+import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, type Transaction } from "./signals.ts";
 
 export const $TARGET = Symbol("store-target");
 export const $PROXY = Symbol("store-proxy");
@@ -322,17 +322,20 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     const d = draftOf(target);
     const before = new Set(dirtyRecords);
     const r = fn(d as T);
-    const run = ++runs;
-    if (r && typeof (r as any).then === "function")
-      return (r as Promise<any>).then((v) => {
-        if (v !== undefined && run === runs) reconcile(v, key)(draftOf(target));
-        return run;
-      });
+    ++runs;
+    // An async derive's answer is reconciled when it lands (onTake, below): the memo flies on the derive's own promise.
+    if (r && typeof (r as any).then === "function") return r;
     if (r !== undefined) reconcile(r, key)(d);
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
-    return run;
+    return runs;
   }, options?.seedLoadingValue ? { loadingValue: 0 } : undefined);
+  onTake(m, (v) => {
+    if (v === undefined || typeof v === "number") return;
+    const before = new Set(dirtyRecords);
+    reconcile(v, key)(draftOf(target));
+    promoteWrites(before);
+  });
   const proxy = new Proxy(target, {
     ...readHandler,
     get(t, k, receiver) {

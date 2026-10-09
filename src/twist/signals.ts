@@ -372,6 +372,8 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** Serving its loading value until its first answer lands. */
   loadingWindow = false;
+  /** Told each value it takes (a derived store reconciles an async answer into itself). */
+  onTake?: (v: T) => void;
   /**
    * Autodisposed: a memo nothing owns, or a lazy one that lost its last reader. Read with nothing subscribed, it is
    * worked out again from scratch once anything has changed since it ran.
@@ -522,6 +524,7 @@ export class Computation<T> extends Node<T> implements Owner {
   /** A value it computed or that landed: staged (or committed outside a flush), its readers told if it changed. */
   take(next: T) {
     this.loadingWindow = false;
+    if (this.onTake) this.onTake(next);
     const first = !this.ready;
     this.ready = true;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
@@ -1256,22 +1259,36 @@ function boundaryOf(c: Computation<any>): LoadingState | null {
 export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _options?: { on?: () => unknown }): () => T | F {
   const state = new LoadingState();
   state.count.value = 0;
-  const m = new Computation<T | F>(MEMO, () => {
-    (m as any).loading = state;
-    listener!.track(state.count);
-    let v: T;
+  // The content: built once under the boundary (what under it waits on a first load tells the boundary), built
+  // again only when what it reads changes.
+  const NOT_READY = {};
+  const content = new Computation<T | typeof NOT_READY>(MEMO, () => {
     try {
-      v = fn();
+      return fn();
+    } catch (e) {
+      if (e instanceof NotReadyError) return NOT_READY;
+      throw e;
+    }
+  });
+  (content as any).loading = state;
+  content.run();
+  // What shows: the fallback while something under it waits, else the content (its accessors read here, so a
+  // change inside it never builds the content again).
+  const shown = new Computation<T | F>(MEMO, () => {
+    listener!.track(state.count);
+    const c = content.read();
+    for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
+    if (c === NOT_READY || state.waiting.size) return untrack(fallback);
+    try {
+      return resolveChildren(c);
     } catch (e) {
       if (e instanceof NotReadyError) return untrack(fallback);
       throw e;
     }
-    for (const c of state.waiting) if (c.disposed) state.waiting.delete(c);
-    return state.waiting.size ? untrack(fallback) : resolveChildren(v);
   });
-  m.run();
-  const read = () => m.read();
-  accessors.set(read, m);
+  shown.run();
+  const read = () => shown.read();
+  accessors.set(read, shown);
   return read;
 }
 
@@ -1529,4 +1546,10 @@ export function queueGuess(install: (tx: Transaction | null) => void) {
 export function endWith(tx: Transaction | null, end: () => void) {
   if (tx && !tx.done) tx.ends.push(end);
   else ambientEnds.push(end), schedule();
+}
+
+/** `fn` told each value the memo behind `read` takes. */
+export function onTake<T>(read: () => T, fn: (v: T) => void) {
+  const c = accessors.get(read);
+  if (c) c.onTake = fn;
 }

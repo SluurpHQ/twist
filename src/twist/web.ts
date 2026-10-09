@@ -3,6 +3,7 @@
 // once. Written from Solid 2's design (RFCs 03 and 07) and its tests, not its code.
 import {
   flush,
+  createLoadingBoundary,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -332,7 +333,8 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
   let disposer!: () => void;
   createRoot((dispose) => {
     disposer = dispose;
-    insert(element, code());
+    // Held as a whole while what it shows first waits on a first load (no half-made page): a boundary with no fallback.
+    insert(element, createLoadingBoundary(code, () => undefined));
   });
   // Rendered by the time render returns.
   flush();
