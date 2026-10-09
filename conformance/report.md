@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3673 pass, 351 fail, 314 skipped (gated off for stable React 19).
+3680 pass, 344 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -139,12 +139,12 @@
 | react/forwardRef-test.internal.js | 6 | 0 | 0 |  |
 | react/forwardRef-test.js | 16 | 3 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
-| react/ReactChildren-test.js | 38 | 4 | 0 |  |
+| react/ReactChildren-test.js | 41 | 1 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
 | react/ReactContextValidator-test.js | 6 | 2 | 5 |  |
 | react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
-| react/ReactElementClone-test.js | 17 | 4 | 0 |  |
+| react/ReactElementClone-test.js | 21 | 0 | 0 |  |
 | react/ReactElementValidator-test.internal.js | 18 | 3 | 0 |  |
 | react/ReactES6Class-test.js | 22 | 2 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 12 | 2 | 0 |  |

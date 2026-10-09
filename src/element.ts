@@ -149,12 +149,19 @@ function withDefaults(type: any, props: any) {
 }
 
 export function cloneElement(el: Element, config?: any, ...children: any[]): Element {
+  if (el === null || el === undefined) throw new Error(`The argument must be a React element, but you passed ${el}.`);
   const props = { ...el.props };
   let key = el.key;
   if (config != null) {
     if (config.key !== undefined) key = keyString(config.key);
-    for (const k in config) if (k !== "key" && k !== "__self" && k !== "__source") props[k] = config[k];
+    const defaults = (el.type as any)?.defaultProps;
+    for (const k in config) {
+      if (!Object.prototype.hasOwnProperty.call(config, k) || k === "key" || k === "__self" || k === "__source" || (k === "ref" && config.ref === undefined)) continue;
+      // An undefined prop takes the type's default, as when the element was made.
+      props[k] = config[k] === undefined && defaults !== undefined ? defaults[k] : config[k];
+    }
   }
+  if (dev()) for (const c of children) validate(c, el.type);
   if (children.length === 1) props.children = children[0];
   else if (children.length > 1) props.children = children;
   return element(el.type, key, props);
@@ -296,9 +303,11 @@ function mapInto(children: any, out: any[], prefix: string, name: string, fn: (c
     children.forEach((c, i) => (count += mapInto(c, out, prefix, next + keyAt(c, i), fn)));
     return count;
   }
-  if (t === "object" && typeof children[Symbol.iterator] === "function") {
+  // An iterable (or an old `@@iterator` object, which React still accepts).
+  const iterator = t === "object" ? (children[Symbol.iterator] ?? children["@@iterator"]) : undefined;
+  if (typeof iterator === "function") {
     let i = 0;
-    for (const c of children) count += mapInto(c, out, prefix, next + keyAt(c, i++), fn);
+    for (const c of { [Symbol.iterator]: () => iterator.call(children) }) count += mapInto(c, out, prefix, next + keyAt(c, i++), fn);
     return count;
   }
   const shown = Object.prototype.toString.call(children) === "[object Object]" ? `object with keys {${Object.keys(children).join(", ")}}` : String(children);

@@ -146,7 +146,12 @@ for (const kind of ["error", "warn", "log"] as const) {
         return;
       }
     }
-    seen[kind]!.push(args.map(String).join(" "));
+    // A format string's %s filled with the arguments after it, as the console prints it.
+    if (typeof args[0] === "string" && args.length > 1 && args[0].includes("%s")) {
+      let i = 1;
+      const text = args[0].replace(/%s/g, () => (i < args.length ? String(args[i++]) : "%s"));
+      seen[kind]!.push([text, ...args.slice(i).map(String)].join(" "));
+    } else seen[kind]!.push(args.map(String).join(" "));
     if (kind !== "log") original(...args);
   };
 }

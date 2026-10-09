@@ -450,6 +450,9 @@ function invalidChild(parent: Fiber, c: any) {
   }
 }
 
+/** How a root is named in the key warning (React's "top-level render call using <Root>"). */
+const ROOT_NAME = { displayName: "Root" };
+
 function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) {
   const old = parent.children;
   const byKey = new Map<string, Fiber>();
@@ -3477,6 +3480,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         if (typeof rest[0] === "function") console.error("does not support the second callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
         else if (validContainer(rest[0])) console.error("You passed a container to the second argument of root.render(...). You don't need to pass it again since you already passed it to create the root.");
         else if (rest.length && rest[0] !== undefined) console.error("You passed a second argument to root.render(...) but it only accepts one argument.");
+        // An array as the root's children: its elements need keys.
+        if (Array.isArray(children)) checkKeys(children, ROOT_NAME);
       }
       // Inside a render or a commit (a root made in componentDidMount): drawn with it, as before.
       latest = children;

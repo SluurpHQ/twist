@@ -66,7 +66,10 @@ export function checkKeys(children: any[], parentType: any) {
       const where = who
         ? `\n\nCheck the render method of \`${who}\`.`
         : `\n\nCheck the top-level render call using <${typeof parentType === "string" ? parentType : parentType?.displayName ?? parentType?.name ?? "Component"}>.`;
-      warn(`Each child in a list should have a unique "key" prop.${where} See https://react.dev/link/warning-keys for more information.`, "key:" + where);
+      // As React prints it: a format string and its parts (a console mock sees both).
+      if (muted || seen.has("key:" + where)) return;
+      seen.add("key:" + where);
+      console.error('Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information.', where, "");
       return;
     }
   }
