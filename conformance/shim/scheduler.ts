@@ -1,6 +1,10 @@
 // What React's tests use of its mock scheduler: a log they write to and check. Our runtime has no scheduler of its
 // own (updates run on microtasks), so the flushing calls only drain what is pending.
 let log: unknown[] = [];
+/** A fresh log for each test, as React's tests get from loading the scheduler again (called by setup.ts). */
+export function resetLog() {
+  log = [];
+}
 
 export const unstable_now = () => performance.now();
 export function logValue(v: unknown) {

@@ -50,6 +50,12 @@ g.expect = expectLikeJest;
 // React's tests load React afresh for each test, so a warning given once is given again: our dedupe reset likewise.
 const { resetWarnings } = await import("../src/warnings.ts");
 (await import("bun:test")).beforeEach(() => resetWarnings());
+// And a fresh Scheduler log and console record per test, as React's runner has.
+{
+  const { resetLog } = await import("./shim/scheduler.ts");
+  const { resetConsole } = await import("./shim/test-utils.ts");
+  (await import("bun:test")).beforeEach(() => (resetLog(), resetConsole()));
+}
 // React's jest config fakes timers in every test (fakeTimers.enableGlobally); react-redux's vitest does not.
 if (!process.argv.some((a) => a.includes("redux-tests"))) {
   const t = await import("bun:test");

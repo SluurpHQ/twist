@@ -78,6 +78,10 @@ for (const kind of ["error", "warn", "log"] as const) {
     if (kind !== "log") original(...args);
   };
 }
+/** Each test starts with nothing printed, as React's runner checks every test's console on its own (setup.ts). */
+export function resetConsole() {
+  for (const kind of ["error", "warn", "log"]) seen[kind]!.length = 0;
+}
 function consoleAssertion(kind: "error" | "warn" | "log") {
   return (expected: unknown[]) => {
     const actual = seen[kind]!.splice(0);

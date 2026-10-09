@@ -3,7 +3,7 @@
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
-import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
+import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer, listenOnElement } from "./events.ts";
 import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
@@ -74,9 +74,16 @@ function uncaught(root: RootState, e: unknown) {
   });
   // Outside a render (an effect after paint): taken down now.
   if (depth === 0) commit();
-  if (uncaughtListener) uncaughtListener(e);
-  else if (root.onUncaughtError) root.onUncaughtError(e, { componentStack: "" });
-  else report(e);
+  const tell = () => {
+    if (uncaughtListener) uncaughtListener(e);
+    else if (root.onUncaughtError) root.onUncaughtError(e, { componentStack: "" });
+    else report(e);
+  };
+  // In a root's render: rendered once more first (as React does), and told after, once.
+  if (rendering) {
+    (root as any).threw = true;
+    caughtThisRender.push(tell);
+  } else tell();
 }
 
 let current: Fiber | null = null;
@@ -301,11 +308,12 @@ function serverAttrsDiffer(server: Element, had: Attrs, type: string, ns: string
   } catch {
     return false;
   }
-  // Form state is the element's, not an attribute; style is compared as the browser reads it.
+  // Form state is the element's, not an attribute; style is compared as text with what React would have written.
   const skip = new Set(["value", "checked", "selected", "style"]);
   const names = new Set([...had.names.keys(), ...probe.getAttributeNames()]);
   for (const n of names) if (!skip.has(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) return true;
-  return had.css !== ((probe as HTMLElement).style?.cssText ?? "");
+  const want = props.style == null ? null : styleText(props.style) || null;
+  return (had.names.get("style") ?? null) !== want;
 }
 
 /** Whether this hydration found markup that differs from the client's, reported once to onRecoverableError. */
@@ -929,6 +937,17 @@ export class PureComponent<P = any, S = any> extends Component<P, S> {
 }
 (PureComponent.prototype as any).isPureReactComponent = true;
 
+/** React's default for an error a boundary caught: told on the console, naming where it came from and who caught it. */
+const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
+  const name = from.kind === COMP ? nameOf(from.type) : null;
+  console.error(
+    "%o\n\n%s\n\n%s\n",
+    error,
+    name ? `The above error occurred in the <${name}> component.` : "The above error occurred in one of your React components.",
+    `React will try to recreate this component tree from scratch using the error boundary you provided, ${nameOf(boundary.type) || "Anonymous"}.`,
+  );
+};
+
 /** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
 function caught(f: Fiber, e: any) {
   if (e && typeof e.then === "function") {
@@ -957,8 +976,9 @@ function caught(f: Fiber, e: any) {
       if (p.type.getDerivedStateFromError) inst.__queue.push(p.type.getDerivedStateFromError(e));
       if (inst.componentDidCatch) layoutQueue.push(() => !p.dead && guard(() => inst.componentDidCatch(e, { componentStack: "" })));
       if (rendering) (p.root as any).threw = true;
-      else p.root.onCaughtError?.(e, { componentStack: "", errorBoundary: inst });
-      if (rendering) caughtThisRender.push(() => !p.dead && p.root.onCaughtError?.(e, { componentStack: "", errorBoundary: inst }));
+      const tell = () => (p.root.onCaughtError ?? toldCaught(f, p))(e, { componentStack: "", errorBoundary: inst });
+      if (rendering) caughtThisRender.push(() => !p.dead && tell());
+      else tell();
       // Rendering now (its draw under way): it renders again when its own render is done, in its error state.
       if (drawing.has(p)) (p as any).redo = true;
       else p.tick!.set(p.tick!.peek() + 1);
@@ -1366,8 +1386,16 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false);
       const wasRendering = rendering;
       rendering = true;
+      // What the root's own elements throw (no component between): uncaught, as React has it.
+      const draw = () => {
+        try {
+          reconcile(top, [children], container, null);
+        } catch (e) {
+          uncaught(state, e);
+        }
+      };
       try {
-        reconcile(top, [children], container, null);
+        draw();
         // An error thrown while rendering, caught by a boundary: React renders once more before committing (the
         // render may have raced with something that has settled). Here on a first render, where nothing committed.
         if ((state as any).threw && !hydrate && top.children.every((c) => !c.committed)) {
@@ -1375,7 +1403,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           caughtThisRender.length = 0;
           for (const c of top.children) unmount(c, true);
           top.children = [];
-          reconcile(top, [children], container, null);
+          draw();
         }
         (state as any).threw = false;
         for (const tell of caughtThisRender.splice(0)) tell();

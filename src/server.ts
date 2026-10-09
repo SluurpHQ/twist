@@ -4,26 +4,18 @@ import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, 
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
-import { cssString, fieldString } from "./coercion.ts";
+import { fieldString } from "./coercion.ts";
+import { styleText } from "./props.ts";
 import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
-const UNITLESS = new Set("animationIterationCount aspectRatio columnCount flex flexGrow flexShrink fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth gridRow gridColumn gridArea".split(" "));
 const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "suppressHydrationWarning", "suppressContentEditableWarning", "innerHTML"]);
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#39" }[c]};`);
 
 function style(s: any) {
-  if (typeof s === "string") return s;
-  let out = "";
-  for (const k in s) {
-    const v = s[k];
-    validateStyle(k, v);
-    if (v == null || typeof v === "boolean" || v === "") continue;
-    const name = k.startsWith("--") ? k : k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()).replace(/^ms-/, "-ms-");
-    out += `${out ? ";" : ""}${name}:${typeof v === "number" && v !== 0 && !UNITLESS.has(k) && !k.startsWith("--") ? v + "px" : cssString(v, k).trim()}`;
-  }
-  return out;
+  if (s && typeof s === "object") for (const k in s) validateStyle(k, s[k]);
+  return styleText(s);
 }
 
 type Ctx = {

@@ -20,6 +20,18 @@ const UNITLESS = new Set(
 
 
 
+/** A style object as React writes it in markup (name:value;…): what the server sends, and what hydration expects. */
+export function styleText(s: any): string {
+  if (typeof s === "string") return s;
+  let out = "";
+  for (const k in s) {
+    const v = s[k];
+    if (v == null || typeof v === "boolean" || v === "") continue;
+    out += `${out ? ";" : ""}${cssName(k)}:${styleValue(k, v)}`;
+  }
+  return out;
+}
+
 function styleValue(name: string, value: any) {
   if (value == null || typeof value === "boolean" || value === "") return "";
   if (typeof value === "number" && value !== 0 && !UNITLESS.has(name) && !name.startsWith("--")) return value + "px";
