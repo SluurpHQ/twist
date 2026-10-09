@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-3628 pass, 396 fail, 314 skipped (gated off for stable React 19).
+3636 pass, 388 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 15 | 0 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 41 | 8 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 48 | 1 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
@@ -53,7 +53,7 @@
 | react-dom/ReactDOMHydrationDiff-test.js | 39 | 0 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 8 | 2 | 0 |  |
-| react-dom/ReactDOMInput-test.js | 118 | 5 | 1 |  |
+| react-dom/ReactDOMInput-test.js | 119 | 4 | 1 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |

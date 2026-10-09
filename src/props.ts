@@ -65,7 +65,9 @@ export function eventOf(el: Element, prop: string): [string, boolean] {
     const tag = el.nodeName;
     const type = (el as HTMLInputElement).type;
     const input = tag === "TEXTAREA" || (tag === "INPUT" && type !== "checkbox" && type !== "radio" && type !== "file");
-    return [input ? "input" : "change", capture];
+    // A checkbox or radio changes by its click (React's ChangeEventPlugin), its value tracked.
+    const clicked = tag === "INPUT" && (type === "checkbox" || type === "radio");
+    return [input ? "input" : clicked ? "click" : "change", capture];
   }
   if (name === "BeforeInput") return ["beforeinput", capture];
   return [name.toLowerCase(), capture];
@@ -87,6 +89,8 @@ function propsFor(el: Element, type: string, capture: boolean, props: any, nativ
     const change = k === "onChange" || k === "onChangeCapture";
     // onChange is the target's change, whoever listens: a text field's input event is every ancestor's onChange.
     const target = change && native.target instanceof Element ? native.target : el;
+    // Only a field or a custom element changes (React's ChangeEventPlugin): a div's change event reaches no onChange.
+    if (change && !FIELDS.has(target.localName) && !customTag(target.localName)) continue;
     const [t, c] = eventOf(target, k);
     if (t !== type || c !== capture) continue;
     // A field's onChange only when its value really changed (React's value tracking): an event dispatched again
@@ -254,7 +258,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     const type = name.slice(2, capture ? name.length - 7 : undefined);
     if (typeof prev === "function") el.removeEventListener(type, prev, capture);
     if (typeof next === "function") {
-      if (typeof prev !== "function" && prev != null) name in el ? ((el as any)[name] = null) : el.removeAttribute(name);
+      if (typeof prev !== "function" && prev !== null) name in el ? ((el as any)[name] = null) : el.removeAttribute(name);
       return el.addEventListener(type, next, capture);
     }
   }
@@ -284,7 +288,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   // type; anything else an attribute; innerText and textContent are not props.
   if (customTag(tag)) {
     if (name === "innerText" || name === "textContent" || name === "innerHTML") return;
-    if (name in el) return void ((el as any)[name] = next === undefined ? null : next);
+    if (name in el) return void ((el as any)[name] = next);
     if (!attributeNameSafe(name)) return;
     if (next === true) return el.setAttribute(name, "");
     if (next == null || next === false || typeof next === "function" || typeof next === "symbol") return el.removeAttribute(name);
