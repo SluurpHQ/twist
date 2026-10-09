@@ -118,6 +118,22 @@ export function createPortal(children: any, container: Node, key?: any) {
   return { $$typeof: PORTAL, key: key == null ? null : "" + key, children, containerInfo: container, implementation: null };
 }
 
+/** React's error for a type that is no component: undefined (a missing export), an object, null. */
+export function invalidType(type: any): Error {
+  const got = type === null ? "null" : Array.isArray(type) ? "array" : typeof type;
+  const hint =
+    type === undefined || (typeof type === "object" && type !== null && Object.keys(type).length === 0)
+      ? " You likely forgot to export your component from the file it's defined in, or you might have mixed up default and named imports."
+      : "";
+  return new Error(`Element type is invalid: expected a string (for built-in components) or a class/function (for composite components) but got: ${got}.${hint}`);
+}
+
+/** React's error for an object rendered as a child. */
+export function objectChild(c: any): Error {
+  const shown = Object.prototype.toString.call(c) === "[object Object]" ? `object with keys {${Object.keys(c).join(", ")}}` : String(c);
+  return new Error(`Objects are not valid as a React child (found: ${shown}). If you meant to render a collection of children, use an array instead.`);
+}
+
 /** A lazy component's value, or the promise to wait for (thrown, to suspend). */
 export function readLazy(p: any) {
   if (p.status === 1) return p.value;

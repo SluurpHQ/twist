@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2090 pass, 1790 fail, 313 skipped (gated off for stable React 19).
+2134 pass, 1746 fail, 313 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -13,9 +13,9 @@
 | react-dom/ReactBrowserEventEmitter-test.js | 8 | 2 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 4 | 1 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactComponent-test.js | 5 | 14 | 2 |  |
+| react-dom/ReactComponent-test.js | 10 | 9 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 10 | 16 | 0 |  |
-| react-dom/ReactCompositeComponent-test.js | 20 | 20 | 0 |  |
+| react-dom/ReactCompositeComponent-test.js | 21 | 19 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 2 | 6 | 1 |  |
@@ -36,7 +36,7 @@
 | react-dom/ReactDOMFizzServer-test.js | 0 | 173 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServerNode-test.js | 4 | 17 | 0 |  |
+| react-dom/ReactDOMFizzServerNode-test.js | 5 | 16 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 1 | 11 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 1 | 5 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
@@ -61,7 +61,7 @@
 | react-dom/ReactDOMLegacyFloat-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMNativeEventHeuristic-test.js | 4 | 4 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMOption-test.js | 8 | 4 | 0 |  |
+| react-dom/ReactDOMOption-test.js | 9 | 3 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 12 | 15 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
 | react-dom/ReactDOMSelect-test.js | 28 | 32 | 1 |  |
@@ -70,7 +70,7 @@
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 44 | 11 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 24 | 6 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 32 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 245 | 91 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 278 | 58 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 17 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 81 | 60 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 28 | 7 | 0 |  |
@@ -100,11 +100,11 @@
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
 | react-dom/ReactDOMTextarea-test.js | 37 | 16 | 0 |  |
-| react-dom/ReactDOMTextComponent-test.js | 3 | 1 | 5 |  |
+| react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 1 | 11 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 0 | 14 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 20 | 4 | 0 |  |
-| react-dom/ReactErrorBoundaries-test.internal.js | 13 | 36 | 1 |  |
+| react-dom/ReactErrorBoundaries-test.internal.js | 14 | 35 | 1 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
@@ -122,9 +122,9 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 2 | 2 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 2 | 9 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 18 | 27 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 20 | 25 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactServerRenderingHydration-test.js | 11 | 13 | 0 |  |
+| react-dom/ReactServerRenderingHydration-test.js | 10 | 14 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 1 | 23 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 0 | 5 | 0 |  |

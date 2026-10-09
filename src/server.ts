@@ -1,6 +1,6 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
-import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement } from "./element.ts";
+import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { VOID_TAGS, assertValidProps, attribute, checkTagName } from "./attributes.ts";
@@ -23,7 +23,7 @@ function style(s: any) {
   return out;
 }
 
-type Ctx = { values: Map<any, any>; ids: number; waiting: Promise<any>[]; svg: boolean; select: any };
+type Ctx = { values: Map<any, any>; ids: number; waiting: Promise<any>[]; svg: boolean; select: any; lastText: boolean };
 
 function attrs(props: any, ctx: Ctx, tag: string) {
   let out = "";
@@ -101,12 +101,18 @@ function serverHooks(ctx: Ctx) {
 
 function render(node: any, ctx: Ctx, hooks: any): string {
   if (node == null || typeof node === "boolean") return "";
-  if (typeof node === "string") return escape(node);
-  if (typeof node === "number" || typeof node === "bigint") return String(node);
+  if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") {
+    const text = String(node);
+    // Nothing for an empty string; between two texts a comment, so the browser keeps them two nodes (as React's).
+    if (text === "") return "";
+    const sep = ctx.lastText ? "<!-- -->" : "";
+    ctx.lastText = true;
+    return sep + escape(text);
+  }
   if (Array.isArray(node)) return node.map((n) => render(n, ctx, hooks)).join("");
   if (typeof node === "object" && typeof node[Symbol.iterator] === "function" && !node.$$typeof) return render([...node], ctx, hooks);
   if (node.$$typeof === PORTAL) return "";
-  if (node.$$typeof !== ELEMENT) throw new Error("Objects are not valid as a React child");
+  if (node.$$typeof !== ELEMENT) throw objectChild(node);
   const { type, props } = node;
   if (typeof type === "string") return host(type, props, ctx, hooks);
   if (typeof type === "symbol") {
@@ -166,7 +172,7 @@ function render(node: any, ctx: Ctx, hooks: any): string {
     }
   }
   if (type === FRAGMENT) return render(props.children, ctx, hooks);
-  throw new Error("Element type is invalid");
+  throw invalidType(type);
 }
 
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
@@ -175,6 +181,7 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   const svg = ctx.svg;
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
+  ctx.lastText = false;
   let open = `${tag === "html" ? "<!DOCTYPE html>" : ""}<${tag}${attrs(props, ctx, tag)}`;
   if (tag === "option") {
     const chosen = ctx.select;
@@ -199,6 +206,7 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
     inner = render(props.children, ctx, hooks);
   }
   ctx.svg = svg;
+  ctx.lastText = false;
   return `${open}${inner}</${tag}>`;
 }
 
@@ -207,7 +215,7 @@ function once(node: any, ctx: Ctx) {
   return withHooks(hooks, () => render(node, ctx, hooks));
 }
 
-const fresh = (): Ctx => ({ values: new Map(), ids: 0, waiting: [], svg: false, select: undefined });
+const fresh = (): Ctx => ({ values: new Map(), ids: 0, waiting: [], svg: false, select: undefined, lastText: false });
 
 export function renderToString(node: any, _options?: any) {
   return once(node, fresh());

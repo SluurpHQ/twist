@@ -2,7 +2,7 @@
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, readLazy, readThenable, unwrapChild } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, eventOf, onAfterEvent, setDefaults, setProps } from "./props.ts";
 import { addContainer } from "./events.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
@@ -173,6 +173,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
     const items = Array.isArray(c) ? null : iterated(c);
     if (items) c = items;
+    // A plain object is no child (an element, text, an array or an iterable is).
+    if (c && typeof c === "object" && !Array.isArray(c) && !c.$$typeof) throw objectChild(c);
     if (c == null || typeof c === "boolean") {
       i++;
       continue;
@@ -480,7 +482,7 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
     case CONSUMER:
       return (fb, props) => props.children(readContext(fb, type._context));
   }
-  throw new Error(`Element type is invalid: got ${type === undefined ? "undefined" : typeof type === "object" ? JSON.stringify(Object.keys(type)) : String(type)}`);
+  throw invalidType(type);
 }
 
 
