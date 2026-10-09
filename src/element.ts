@@ -1,4 +1,4 @@
-import { checkKeys, warn } from "./warnings.ts";
+import { checkKeys, dev, warn } from "./warnings.ts";
 import { keyString } from "./coercion.ts";
 
 // Elements as React 19 makes them: what JSX and createElement return, and what libraries inspect
@@ -35,10 +35,29 @@ export const unstable_SuspenseList = SUSPENSE_LIST;
 export function addTransitionType(_type: string) {}
 
 function element(type: any, key: any, props: any): Element {
-  const el: any = { $$typeof: ELEMENT, type, key: key == null ? null : keyString(key), props, _owner: null };
+  const el: any = { $$typeof: ELEMENT, type, key, props, _owner: null };
   // Not enumerable, as React's: elements compare equal whatever was checked on them.
-  Object.defineProperty(el, "_store", { value: {}, writable: true, configurable: false, enumerable: false });
+  const store = {};
+  Object.defineProperty(store, "validated", { value: 0, writable: true, configurable: false, enumerable: false });
+  Object.defineProperty(el, "_store", { value: store, writable: true, configurable: false, enumerable: false });
+  // element.ref: gone in React 19 (ref is a prop); reading it warns when there is one.
+  if (props.ref !== undefined && props.ref !== null) Object.defineProperty(el, "ref", { enumerable: false, get: refGetter });
+  else Object.defineProperty(el, "ref", { enumerable: false, value: null });
+  // Read-only in development, as React's (a component changing its props is a bug).
+  if (dev()) Object.freeze(props), Object.freeze(el);
   return el;
+}
+const nameForKey = (type: any) => (typeof type === "function" ? type.displayName || type.name || "Unknown" : typeof type === "string" ? type : "Unknown");
+function refGetter(this: any) {
+  warn("Accessing element.ref was removed in React 19. ref is now a regular prop. It will be removed from the JSX Element type in a future release.", "element-ref:" + nameForKey(this.type));
+  return this.props.ref !== undefined ? this.props.ref : null;
+}
+/** props.key reads as nothing, with React's warning: the key is the element's, not a prop. */
+function keyGetter(props: any, type: any) {
+  if (!dev()) return;
+  const get = () => void warn(`${nameForKey(type)}: \`key\` is not a prop. Trying to access it will result in \`undefined\` being returned. If you need to access the same value within the child component, you should pass it as a different prop. (https://react.dev/link/special-props)`, "key-prop");
+  (get as any).isReactWarning = true;
+  Object.defineProperty(props, "key", { get, configurable: true });
 }
 
 /** What the automatic JSX runtime calls: `children` already in the props, the key apart. An array as children
@@ -51,7 +70,10 @@ export function jsx(type: any, config: any, maybeKey?: any): Element {
 /** JSX with several children: they are siblings written out, needing no keys, but an array among them does. */
 export function jsxs(type: any, config: any, maybeKey?: any): Element {
   const children = config?.children;
-  if (Array.isArray(children)) for (const c of children) validate(c, type);
+  if (Array.isArray(children)) {
+    for (const c of children) validate(c, type);
+    if (dev()) Object.freeze(children);
+  } else if (children !== undefined) warn("React.jsx: Static children should always be an array. You are likely explicitly calling React.jsxs or React.jsxDEV. Use the Babel transform instead.");
   return make(type, config, maybeKey);
 }
 
@@ -63,27 +85,41 @@ function validate(c: any, type: any) {
 }
 
 function make(type: any, config: any, maybeKey?: any): Element {
-  let key = maybeKey;
+  config ??= {};
+  if (dev() && Object.prototype.hasOwnProperty.call(config, "key")) {
+    // A key spread in with other props: React wants it written as key={...}.
+    const name = nameForKey(type);
+    const keys = Object.keys(config).filter((k) => k !== "key");
+    const withKey = keys.length ? `{key: someKey, ${keys.join(": ..., ")}: ...}` : "{key: someKey}";
+    const without = keys.length ? `{${keys.join(": ..., ")}: ...}` : "{}";
+    warn(
+      `A props object containing a "key" prop is being spread into JSX:\n  let props = ${withKey};\n  <${name} {...props} />\nReact keys must be passed directly to JSX without using spread:\n  let props = ${without};\n  <${name} key={someKey} {...props} />`,
+      "key-spread:" + name + withKey,
+    );
+  }
+  let key: string | null = maybeKey !== undefined ? keyString(maybeKey) : null;
+  if (config.key !== undefined) key = keyString(config.key);
   let props = config;
-  if (config && "key" in config) {
-    key = config.key;
+  if ("key" in config) {
     props = {};
     for (const k in config) if (k !== "key") props[k] = config[k];
   }
-  return element(type, key, withDefaults(type, props ?? {}));
+  if (key !== null) keyGetter(props, type);
+  return element(type, key, withDefaults(type, props));
 }
 export const jsxDEV = (type: any, config: any, key?: any, isStatic?: boolean) => (isStatic ? jsxs : jsx)(type, config, key);
 
 export function createElement(type: any, config?: any, ...children: any[]): Element {
   for (const c of children) validate(c, type);
   const props: any = {};
-  let key = null;
+  let key: string | null = null;
   if (config != null) {
-    if (config.key !== undefined) key = config.key;
+    if (config.key !== undefined) key = keyString(config.key);
     for (const k in config) if (k !== "key" && k !== "__self" && k !== "__source") props[k] = config[k];
   }
   if (children.length === 1) props.children = children[0];
-  else if (children.length > 1) props.children = children;
+  else if (children.length > 1) props.children = dev() ? Object.freeze(children) : children;
+  if (key !== null) keyGetter(props, type);
   return element(type, key, withDefaults(type, props));
 }
 
@@ -99,7 +135,7 @@ export function cloneElement(el: Element, config?: any, ...children: any[]): Ele
   const props = { ...el.props };
   let key = el.key;
   if (config != null) {
-    if (config.key !== undefined) key = config.key;
+    if (config.key !== undefined) key = keyString(config.key);
     for (const k in config) if (k !== "key" && k !== "__self" && k !== "__source") props[k] = config[k];
   }
   if (children.length === 1) props.children = children[0];

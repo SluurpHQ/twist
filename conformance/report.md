@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3310 pass, 714 fail, 314 skipped (gated off for stable React 19).
+3337 pass, 687 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -142,14 +142,14 @@
 | react/ReactChildren-test.js | 38 | 4 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
 | react/ReactContextValidator-test.js | 1 | 7 | 5 |  |
-| react/ReactCreateElement-test.js | 13 | 14 | 0 |  |
+| react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
-| react/ReactElementClone-test.js | 15 | 6 | 0 |  |
+| react/ReactElementClone-test.js | 17 | 4 | 0 |  |
 | react/ReactElementValidator-test.internal.js | 17 | 4 | 0 |  |
 | react/ReactES6Class-test.js | 22 | 2 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 12 | 2 | 0 |  |
-| react/ReactJSXRuntime-test.js | 8 | 7 | 0 |  |
-| react/ReactJSXTransformIntegration-test.js | 12 | 7 | 0 |  |
+| react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
+| react/ReactJSXTransformIntegration-test.js | 18 | 1 | 0 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
 | react/ReactProfiler-test.internal.js | 10 | 23 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 6 | 1 | 0 |  |
