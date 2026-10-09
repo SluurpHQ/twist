@@ -1,3 +1,5 @@
+import { checkKeys } from "./warnings.ts";
+
 // Elements as React 19 makes them: what JSX and createElement return, and what libraries inspect
 // (`$$typeof`, `type`, `key`, `props`, the ref among the props).
 
@@ -28,8 +30,21 @@ function element(type: any, key: any, props: any): Element {
   return { $$typeof: ELEMENT, type, key: key == null ? null : "" + key, props, _owner: null, _store: {} };
 }
 
-/** What the automatic JSX runtime calls: `children` already in the props, the key apart. */
+/** What the automatic JSX runtime calls: `children` already in the props, the key apart. An array as children
+ * came from code (a map), so its elements should have keys. */
 export function jsx(type: any, config: any, maybeKey?: any): Element {
+  if (Array.isArray(config?.children)) checkKeys(config.children, type);
+  return make(type, config, maybeKey);
+}
+
+/** JSX with several children: they are siblings written out, needing no keys, but an array among them does. */
+export function jsxs(type: any, config: any, maybeKey?: any): Element {
+  const children = config?.children;
+  if (Array.isArray(children)) for (const c of children) if (Array.isArray(c)) checkKeys(c, type);
+  return make(type, config, maybeKey);
+}
+
+function make(type: any, config: any, maybeKey?: any): Element {
   let key = maybeKey;
   let props = config;
   if (config && "key" in config) {
@@ -39,10 +54,10 @@ export function jsx(type: any, config: any, maybeKey?: any): Element {
   }
   return element(type, key, withDefaults(type, props ?? {}));
 }
-export const jsxs = jsx;
-export const jsxDEV = (type: any, config: any, key?: any) => jsx(type, config, key);
+export const jsxDEV = (type: any, config: any, key?: any, isStatic?: boolean) => (isStatic ? jsxs : jsx)(type, config, key);
 
 export function createElement(type: any, config?: any, ...children: any[]): Element {
+  for (const c of children) if (Array.isArray(c)) checkKeys(c, type);
   const props: any = {};
   let key = null;
   if (config != null) {

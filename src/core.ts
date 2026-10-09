@@ -6,6 +6,7 @@ import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO
 import { MATH_NS, SVG_NS, eventOf, onAfterEvent, setDefaults, setProps } from "./props.ts";
 import { addContainer } from "./events.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
+import { checkTag, duplicateKey, setOwner } from "./warnings.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -163,6 +164,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   const byKey = new Map<string, Fiber>();
   for (const f of old) byKey.set(f.key, f);
   const next: Fiber[] = [];
+  const seenKeys = new Set<string>();
   let i = 0;
   for (let c of list) {
     // A lazy or a promise as a child: what it gives, once it has (suspending until then).
@@ -175,6 +177,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       continue;
     }
     const key = keyOf(c, i++);
+    if (key[0] === "k" && seenKeys.has(key)) duplicateKey(key.slice(1));
+    seenKeys.add(key);
     const type = typeOf(c);
     const had = byKey.get(key);
     if (had && had.type === type && !had.dead) {
@@ -284,6 +288,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const el = (f.dom = server ?? (ns ? document.createElementNS(ns, type) : document.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     (el as any).__fiber = f;
+    if (!server) checkTag(el, type);
     (el as any).__props = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
@@ -1028,3 +1033,6 @@ export function findDOMNode(x: any): Node | null {
 
 export const version = "19.3.0";
 export { ELEMENT };
+
+// Which component is rendering, for "Check the render method of `X`." in warnings.
+setOwner(() => (current ? nameOf(current.type) : null));

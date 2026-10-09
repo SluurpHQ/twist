@@ -31,14 +31,8 @@ const BLOCKED = "javascript:throw new Error('React has blocked a javascript: URL
 const JAVASCRIPT = /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:/i;
 export const sanitizeURL = (v: string) => (JAVASCRIPT.test(v) ? BLOCKED : v);
 
-const dev = () => (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
-const warned = new Set<string>();
-/** A development warning, once per message (as React dedupes them). */
-export function warn(message: string) {
-  if (!dev() || warned.has(message)) return;
-  warned.add(message);
-  console.error(message);
-}
+import { warn } from "./warnings.ts";
+export { warn };
 
 const dataOrAria = (n: string) => /^(data|aria)-/i.test(n);
 

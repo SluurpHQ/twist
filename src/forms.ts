@@ -2,6 +2,7 @@
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
 import { setProp } from "./props.ts";
+import { checkControlled, checkControlledSwitch, checkPropName } from "./warnings.ts";
 
 export const FORM_TAGS = new Set(["input", "textarea", "select", "option"]);
 
@@ -160,6 +161,8 @@ function updateSelect(node: HTMLSelectElement, p: any, wasMultiple: any) {
 /** A new field's props set: the ordinary ones first (type, step, min, max before value), then React's own. */
 export function initForm(el: Element, tag: string, props: any, svg: boolean) {
   const own = OWN[tag]!;
+  checkControlled(tag, props);
+  for (const k in props) checkPropName(tag, k, props[k]);
   for (const k in props) if (!own.has(k) && props[k] != null) setProp(el, k, props[k], undefined, svg);
   if (tag === "input") initInput(el as HTMLInputElement, props);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
@@ -170,6 +173,7 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean) {
 /** A field's props changed from `prev` to `next`. */
 export function updateForm(el: Element, tag: string, next: any, prev: any, svg: boolean) {
   const own = OWN[tag]!;
+  checkControlledSwitch(tag, next, prev);
   for (const k in prev) if (!own.has(k) && !(k in next)) setProp(el, k, undefined, prev[k], svg);
   for (const k in next) if (!own.has(k) && next[k] !== prev[k]) setProp(el, k, next[k], prev[k], svg);
   if (tag === "input") updateInput(el as HTMLInputElement, next, prev.defaultValue);

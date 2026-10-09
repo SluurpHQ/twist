@@ -3,6 +3,7 @@
 
 import { XLINK_NS, XML_NS, attribute } from "./attributes.ts";
 import { configure, delegated, want } from "./events.ts";
+import { checkPropName } from "./warnings.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const MATH_NS = "http://www.w3.org/1998/Math/MathML";
@@ -163,6 +164,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
 
 /** Every prop of a new element, or the ones that changed on an update. */
 export function setProps(el: Element, next: any, prev: any, svg: boolean) {
+  if (!prev) for (const k in next) checkPropName(el.localName, k, next[k]);
   if (prev) for (const k in prev) if (!(k in next)) setProp(el, k, undefined, prev[k], svg);
   // An input's type first: setting it afterwards resets what `checked` and `value` set.
   if (next.type !== undefined && (!prev || prev.type !== next.type)) setProp(el, "type", next.type, prev?.type, svg);

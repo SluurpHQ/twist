@@ -24,6 +24,10 @@ const expectLikeJest: any = (value: any, ...rest: any[]) => {
 for (const k of Object.getOwnPropertyNames(bunExpect)) if (!(k in Function.prototype)) expectLikeJest[k] = bunExpect[k];
 g.expect = expectLikeJest;
 
+// React's tests load React afresh for each test, so a warning given once is given again: our dedupe reset likewise.
+const { resetWarnings } = await import("../src/warnings.ts");
+(await import("bun:test")).beforeEach(() => resetWarnings());
+
 // As React's setupTests has them, for development.
 const spyOn = (obj: any, key: string) => bunJest.spyOn(obj, key);
 g.spyOn = spyOn;
