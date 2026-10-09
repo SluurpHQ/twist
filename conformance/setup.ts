@@ -37,7 +37,21 @@ for (const k of ["window", "document", "navigator", "location", "self"]) {
 const bunJest: any = (await import("bun:test")).jest;
 // Jest's expect takes a function for .rejects/.resolves and calls it; Bun's wants the promise.
 const bunExpect: any = (await import("bun:test")).expect;
+/** An inline snapshot as Jest stores it: its first and last line dropped, its common indent removed. */
+const dedent = (snap: string) => {
+  const lines = String(snap ?? "").replace(/^\n/, "").replace(/\n\s*$/, "").split("\n");
+  const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.match(/^ */)![0].length));
+  return lines.map((l) => l.slice(Number.isFinite(indent) ? indent : 0)).join("\n");
+};
+const isDomNode = (v: any) => v != null && typeof v === "object" && typeof v.nodeType === "number" && typeof v.nodeName === "string";
 const expectLikeJest: any = (value: any, ...rest: any[]) => {
+  // A DOM node against an inline snapshot: compared as Jest's DOM printer writes it.
+  if (isDomNode(value)) {
+    const m = bunExpect(value, ...rest);
+    return new Proxy(m, {
+      get: (t, k) => (k === "toMatchInlineSnapshot" ? (snap: string) => bunExpect(g.__printDomNode(value, "")).toBe(dedent(snap)) : Reflect.get(t, k)),
+    });
+  }
   const m = bunExpect(value, ...rest);
   if (typeof value !== "function") return m;
   return new Proxy(m, {
@@ -76,6 +90,25 @@ if (!process.argv.some((a) => a.includes("redux-tests"))) {
   // Bun gives each test file its own `vi` binding: the helpers go onto that object.
   for (const k of ["stubEnv", "unstubAllEnvs"]) t.vi[k] ??= vi[k];
   for (const fn of [t.it, t.test]) fn.for = forCases(fn);
+}
+
+// DOM nodes in snapshots printed as Jest's DOMElement plugin prints them (Bun would walk the node's internals).
+{
+  const printNode = (n: any, indent: string): string => {
+    if (n.nodeType === 3) return indent + n.data;
+    if (n.nodeType === 8) return `${indent}<!--${n.data}-->`;
+    if (n.nodeType === 11) return [...n.childNodes].map((c: any) => printNode(c, indent)).join("\n");
+    const tag = n.tagName.toLowerCase();
+    const attrs = [...n.attributes].map((a: any) => [a.name, a.value]).sort((a: any, b: any) => (a[0] < b[0] ? -1 : 1));
+    const open = attrs.length ? `${indent}<${tag}\n${attrs.map(([k, v]: any) => `${indent}  ${k}="${v}"`).join("\n")}\n${indent}` : `${indent}<${tag}`;
+    const kids = [...n.childNodes];
+    if (!kids.length) return `${open}${attrs.length ? "/>" : " />"}`;
+    return `${open}>\n${kids.map((c: any) => printNode(c, indent + "  ")).join("\n")}\n${indent}</${tag}>`;
+  };
+  g.__printDomNode = printNode;
+  // expect(x).toMatchInlineSnapshot(…), as prepare.ts rewrites it.
+  g.__inlineSnapshot = (value: any) => (snap?: string) =>
+    isDomNode(value) ? bunExpect(printNode(value, "")).toBe(dedent(snap ?? "")) : bunExpect(value).toMatchInlineSnapshot(snap);
 }
 
 // React's toMatchRenderedOutput: a noop root (or the noop renderer) drawn as the JSX expected.

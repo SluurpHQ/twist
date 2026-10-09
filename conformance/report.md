@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2892 pass, 1132 fail, 314 skipped (gated off for stable React 19).
+2895 pass, 1129 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -88,8 +88,8 @@
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 68 | 9 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 11 | 9 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 3 | 7 | 0 |  |
-| react-dom/ReactDOMServerPartialHydration-test.internal.js | 29 | 28 | 10 |  |
-| react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 12 | 25 | 3 |  |
+| react-dom/ReactDOMServerPartialHydration-test.internal.js | 31 | 26 | 10 |  |
+| react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 13 | 24 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 6 | 3 | 1 |  |

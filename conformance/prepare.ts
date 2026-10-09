@@ -61,6 +61,13 @@ function promiseExpectations(code: string): string {
     if (/^\s*\.\s*(rejects|resolves)\b/.test(code.slice(j + 1)) && /^\s*(async\b|function\b|\([^)]*\)\s*=>|\w+\s*=>)/.test(arg)) {
       out += code.slice(at, open + 1) + "(" + arg + ")()";
       at = j;
+      continue;
+    }
+    // An inline snapshot: through setup.ts, which prints DOM nodes as Jest's DOM printer does.
+    const snap = /^\s*\.\s*toMatchInlineSnapshot\(/.exec(code.slice(j + 1));
+    if (snap) {
+      out += code.slice(at, i) + "globalThis.__inlineSnapshot(" + arg + ")(";
+      at = j + 1 + snap[0].length;
     }
   }
   return out + code.slice(at);

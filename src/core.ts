@@ -585,6 +585,9 @@ function serverCursor(host: Node): Node | null {
   hydrating!.set(host, n);
   return n;
 }
+/** Our own fields on a DOM node, kept out of enumeration (snapshot serializers, devtools listing its keys). */
+const hide = (node: any, key: string, value: any) => Object.defineProperty(node, key, { value, writable: true, configurable: true, enumerable: false });
+
 /** What this hydration inserted (not the server's): removed if it is given up. */
 let madeWhileHydrating: Node[] = [];
 /** What this hydration waits for (a component suspended with no boundary around it): tried again when it settles. */
@@ -685,7 +688,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const server = hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null;
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
-    (el as any).__fiber = f;
+    hide(el, "__fiber", f);
+    hide(el, "__props", null);
     listenOnElement(el, type);
     if (!server) {
       if (hydrating) markMismatch();
@@ -852,9 +856,15 @@ function update(f: Fiber, c: any) {
   // A component: drawn again only if what it was given changed.
   if (f.props === props) return;
   if ((f as any).dehydrated && !hydrating) {
-    f.props = props;
+    // Hydrated first as the server drew it (the props it had), then updated.
     retryBoundary(f);
-    if ((f as any).dehydrated) {
+    if (!(f as any).dehydrated) {
+      f.props = props;
+      restart(f);
+      return;
+    }
+    f.props = props;
+    {
       // Still waiting: what the server drew goes, and the boundary is drawn on the client (its fallback, if it
       // suspends), as React does when an update cannot wait for hydration.
       const region = (f as any).region;
@@ -885,6 +895,11 @@ function shallowEqual(a: any, b: any) {
 
 function unmount(f: Fiber, removeDom: boolean) {
   if (f.dead) return;
+  // A boundary still as the server drew it: its markup goes with it.
+  if (removeDom && (f as any).dehydrated && (f as any).region) {
+    removeRegion((f as any).region);
+    (f as any).dehydrated = false;
+  }
   if (removeDom) for (const n of domNodes(f)) n.parentNode?.removeChild(n);
   f.dead = true;
   if (!f.committed) {
