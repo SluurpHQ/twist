@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3554 pass, 470 fail, 314 skipped (gated off for stable React 19).
+3558 pass, 466 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -129,7 +129,7 @@
 | react-dom/ReactTestUtilsAct-test.js | 19 | 5 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 4 | 1 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 11 | 0 | 0 |  |
-| react-dom/ReactUpdates-test.js | 34 | 8 | 3 |  |
+| react-dom/ReactUpdates-test.js | 38 | 4 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
 | react-dom/refs-test.js | 12 | 0 | 0 |  |

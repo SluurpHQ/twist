@@ -11,7 +11,7 @@ import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
-import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, warn } from "./warnings.ts";
+import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
@@ -98,6 +98,15 @@ function uncaught(root: RootState, e: unknown) {
 }
 
 let current: Fiber | null = null;
+/** React's warning for a setState or forceUpdate callback that is no function (once per value). */
+function warnOnInvalidCallback(cb: any) {
+  if (dev() && cb != null && typeof cb !== "function") warn(`Expected the last optional \`callback\` argument to be a function. Instead received: ${shown(cb)}.`, "invalid-callback:" + shown(cb));
+}
+/** A setState or forceUpdate callback run in the commit: React's error when it is no function. */
+function callCallback(cb: any, inst: any) {
+  if (typeof cb !== "function") throw new Error("Invalid argument passed as callback. Expected a function. Instead received: " + cb);
+  cb.call(inst);
+}
 /** A class's context when it has no (valid) contextType, as React gives it. */
 const EMPTY_CONTEXT = Object.freeze({});
 /** The component that rendered the element being made now (a form field's warnings name it). */
@@ -1986,7 +1995,11 @@ function renderClass(f: Fiber, withRef: any) {
     let force = false;
     for (const u of inst.__queue.splice(0)) {
       if (u === FORCE) force = true;
-      else state = { ...state, ...(typeof u === "function" ? strictTwice(f, () => u.call(inst, state, nextProps), true) : u) };
+      else {
+        // Nothing (null or undefined) from an update: the state as it was, the same object (no render for it).
+        const part = typeof u === "function" ? strictTwice(f, () => u.call(inst, state, nextProps), true) : u;
+        if (part != null) state = { ...state, ...part };
+      }
     }
     return [state, force] as const;
   };
@@ -2015,7 +2028,7 @@ function renderClass(f: Fiber, withRef: any) {
     if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
     (f as any).classRef = ref;
     const done = inst.__done?.splice(0);
-    if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
+    if (done?.length) f.layout!.push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
     return out;
   }
   const prevProps = inst.props;
@@ -2049,7 +2062,7 @@ function renderClass(f: Fiber, withRef: any) {
   propsReassigned(C, inst, props);
   if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
-  if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
+  if (done?.length) f.layout!.push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
   return out;
 }
 const FORCE = Symbol("force");
@@ -2115,6 +2128,7 @@ export class Component<P = any, S = any> {
     this.context = context;
   }
   setState(partial: any, done?: () => void) {
+    warnOnInvalidCallback(done);
     if (!this.__f) return notMounted(this, "setState");
     updateWhileRendering(this.__f);
     const apply = () => {
@@ -2131,6 +2145,7 @@ export class Component<P = any, S = any> {
     if (!inTransition(apply, preview, this.__f)) apply();
   }
   forceUpdate(done?: () => void) {
+    warnOnInvalidCallback(done);
     if (!this.__f) return notMounted(this, "forceUpdate");
     this.__queue.push(FORCE);
     if (done) (this.__done ??= []).push(done);
@@ -2448,7 +2463,7 @@ async function drainAct() {
 }
 
 /** Whether updates, effects or transitions are still waiting to be drawn. */
-const somethingPending = () => passiveQueue.length > 0 || passiveUnmounts.length > 0 || transitionWork.length > 0;
+export const somethingPending = () => passiveQueue.length > 0 || passiveUnmounts.length > 0 || transitionWork.length > 0;
 
 /** Effects waiting for after paint, run now (React's act does this): for tests and tools. */
 export function flushPassiveEffects() {

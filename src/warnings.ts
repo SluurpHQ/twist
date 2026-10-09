@@ -28,6 +28,18 @@ export function warn(message: string, once?: string) {
 /** A warning React gives once (it remembers having given it). */
 export const warnOnce = (message: string) => warn(message, message);
 
+/** A value as console.error's %s shows it (Node's inspect, one level): React passes values to it, not strings. */
+export function shown(v: any): string {
+  if (v === null || typeof v !== "object") return typeof v === "string" ? v : String(v);
+  if (Array.isArray(v)) return `[ ${v.map(inner).join(", ")} ]`;
+  const ctor = v.constructor?.name;
+  const keys = Object.keys(v);
+  const body = keys.length ? `{ ${keys.map((k) => `${/^[A-Za-z_$][\w$]*$/.test(k) ? k : `'${k}'`}: ${inner(v[k])}`).join(", ")} }` : "{}";
+  return ctor && ctor !== "Object" ? `${ctor} ${body}` : body;
+}
+const inner = (v: any): string =>
+  typeof v === "string" ? `'${v}'` : v === null || typeof v !== "object" ? String(v) : Array.isArray(v) ? "[Array]" : `[${v.constructor?.name ?? "Object"}]`;
+
 /** Forget what was warned (React's tests load React afresh for each test). */
 export function resetWarnings() {
   seen.clear();

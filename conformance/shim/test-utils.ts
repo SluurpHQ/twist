@@ -1,6 +1,6 @@
 // React's internal-test-utils, for a runtime that renders synchronously on microtasks: `act` and the waits drain
 // everything pending (updates, effects after paint, settled promises), then the log is checked as React's tests do.
-import { flushPassiveEffects, flushScheduled, flushSync, flushTransitions, onUncaught, performWork, setTransitionScheduler, setWorkScheduler } from "../../src/core.ts";
+import { flushPassiveEffects, flushScheduled, flushSync, flushTransitions, onUncaught, performWork, setTransitionScheduler, setWorkScheduler, somethingPending } from "../../src/core.ts";
 
 // Transitions wait for the test to flush them (act and waitForAll do; waitForPaint stops before them), as with
 // React's mock scheduler.
@@ -19,7 +19,8 @@ import { streamsStarting } from "../../src/server.ts";
 const flushAll = () => (flushScheduled(), performWork());
 
 async function drain(transitions = true) {
-  for (let i = 0; i < 30; i++) {
+  // At least a few turns (promises settling), then on while work is left (effects updating, as React's act flushes).
+  for (let i = 0; i < 30 || (somethingPending() && i < 1000); i++) {
     flushAll();
     flushPassiveEffects();
     if (transitions) flushTransitions();
