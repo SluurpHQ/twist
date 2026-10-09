@@ -21,12 +21,22 @@ export const vi: any = Object.assign(Object.create(jest), {
   },
 });
 
-/** vitest's it.for / test.for: one test per case, the case passed as the argument. */
+/** vitest's it.for / test.for: one test per case, the case passed as the argument with a test context. */
+export const forCases = (t: any) => (cases: any[]) => (name: string, fn: (c: any, ctx: any) => any) =>
+  cases.forEach((c, i) =>
+    t(name.replace(/%[sdiojO]|\$\w+/, () => (typeof c === "object" ? JSON.stringify(c) : String(c))) + (name.includes("%") ? "" : ` [${i}]`), async () => {
+      const finished: (() => any)[] = [];
+      try {
+        await fn(c, { onTestFinished: (cb: () => any) => finished.push(cb) });
+      } finally {
+        for (const cb of finished.reverse()) await cb();
+      }
+    }),
+  );
 const withFor = (t: any) => {
   const f: any = (...a: any[]) => t(...a);
   Object.assign(f, t);
-  f.for = (cases: any[]) => (name: string, fn: (c: any) => any) =>
-    cases.forEach((c, i) => t(name.replace(/%[sdiojO]|\$\w+/, () => (typeof c === "object" ? JSON.stringify(c) : String(c))) + (name.includes("%") ? "" : ` [${i}]`), () => fn(c)));
+  f.for = forCases(t);
   return f;
 };
 const it = withFor(bunIt);

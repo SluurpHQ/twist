@@ -27,21 +27,31 @@ export const SuspenseList = SUSPENSE_LIST;
 export const Activity = ACTIVITY;
 
 function element(type: any, key: any, props: any): Element {
-  return { $$typeof: ELEMENT, type, key: key == null ? null : "" + key, props, _owner: null, _store: {} };
+  const el: any = { $$typeof: ELEMENT, type, key: key == null ? null : "" + key, props, _owner: null };
+  // Not enumerable, as React's: elements compare equal whatever was checked on them.
+  Object.defineProperty(el, "_store", { value: {}, writable: true, configurable: false, enumerable: false });
+  return el;
 }
 
 /** What the automatic JSX runtime calls: `children` already in the props, the key apart. An array as children
  * came from code (a map), so its elements should have keys. */
 export function jsx(type: any, config: any, maybeKey?: any): Element {
-  if (Array.isArray(config?.children)) checkKeys(config.children, type);
+  validate(config?.children, type);
   return make(type, config, maybeKey);
 }
 
 /** JSX with several children: they are siblings written out, needing no keys, but an array among them does. */
 export function jsxs(type: any, config: any, maybeKey?: any): Element {
   const children = config?.children;
-  if (Array.isArray(children)) for (const c of children) if (Array.isArray(c)) checkKeys(c, type);
+  if (Array.isArray(children)) for (const c of children) validate(c, type);
   return make(type, config, maybeKey);
+}
+
+/** A child as written: an array's elements need keys; an element is marked checked (passed on later in an array,
+ * as a Provider passes its children, it needs none), as React marks it. */
+function validate(c: any, type: any) {
+  if (Array.isArray(c)) checkKeys(c, type);
+  else if (c?._store) c._store.validated = 1;
 }
 
 function make(type: any, config: any, maybeKey?: any): Element {
@@ -57,7 +67,7 @@ function make(type: any, config: any, maybeKey?: any): Element {
 export const jsxDEV = (type: any, config: any, key?: any, isStatic?: boolean) => (isStatic ? jsxs : jsx)(type, config, key);
 
 export function createElement(type: any, config?: any, ...children: any[]): Element {
-  for (const c of children) if (Array.isArray(c)) checkKeys(c, type);
+  for (const c of children) validate(c, type);
   const props: any = {};
   let key = null;
   if (config != null) {

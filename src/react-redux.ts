@@ -220,8 +220,8 @@ const isPlainObject = (v: any) => {
   const proto = Object.getPrototypeOf(v);
   return proto === null || proto === Object.prototype || Object.getPrototypeOf(proto) === null;
 };
-const reduxWarning = (message: string) => {
-  if ((globalThis as any).process?.env?.NODE_ENV !== "production") console.error(message);
+const reduxWarning = (message: string, ...more: any[]) => {
+  if ((globalThis as any).process?.env?.NODE_ENV !== "production") console.error(message, ...more);
 };
 
 type MapFn = ((a: any, own?: any) => any) & { dependsOnOwnProps?: boolean };
@@ -275,7 +275,17 @@ function propsSelector(dispatch: any, init: any, cmp: any) {
   const merge: any = init.merge(dispatch, cmp.displayName, cmp.wrappedName);
   let ran = false;
   let state: any, own: any, stateProps: any, dispatchProps: any, merged: any;
+  // Inputs kept only once mapped: a map function that threw is called again next time, not skipped as unchanged.
   return (nextState: any, nextOwn: any) => {
+    const was = [ran, state, own];
+    try {
+      return run(nextState, nextOwn);
+    } catch (e) {
+      [ran, state, own] = was;
+      throw e;
+    }
+  };
+  function run(nextState: any, nextOwn: any) {
     if (!ran) {
       ran = true;
       state = nextState;
@@ -305,7 +315,7 @@ function propsSelector(dispatch: any, init: any, cmp: any) {
       if (changed) merged = merge(stateProps, dispatchProps, own);
     }
     return merged;
-  };
+  }
 }
 
 const REACT_STATICS = new Set("childContextTypes contextType contextTypes defaultProps displayName getDefaultProps getDerivedStateFromError getDerivedStateFromProps mixins propTypes type".split(" "));
@@ -398,7 +408,7 @@ export function connect(mapStateToProps?: any, mapDispatchToProps?: any, mergePr
           try {
             return { props: select(state(), own.current) };
           } catch (e) {
-            reduxWarning(`An error occurred in \`mapStateToProps\` (or a selector) of the \`connect()\`-ed component "${displayName}". See https://github.com/reduxjs/react-redux/issues/1942 for details.`);
+            reduxWarning(`An error occurred in \`mapStateToProps\` (or a selector) of the \`connect()\`-ed component "${displayName}". See https://github.com/reduxjs/react-redux/issues/1942 for details.`, e);
             return { error: e };
           }
         }, { equals: (a: any, b: any) => a.props !== undefined && a.props === b.props });
@@ -415,8 +425,8 @@ export function connect(mapStateToProps?: any, mapDispatchToProps?: any, mergePr
         rerender();
       });
       // Own props changed since: the selector decides with them (it keeps the same object when nothing changed).
-      const merged = result.error ? null : select(fromServer ? ctx.getServerState() : stateOf(store).peek(), wrapperProps);
-      if (result.error) throw result.error;
+      // A selector that threw when the store changed (logged then) runs again here: thrown only if it throws still.
+      const merged = select(fromServer ? ctx.getServerState() : stateOf(store).peek(), wrapperProps);
       return createElement(Wrapped, forwardRef ? { ...merged, ref: reactReduxForwardedRef } : merged);
     }
     Connect.displayName = displayName;

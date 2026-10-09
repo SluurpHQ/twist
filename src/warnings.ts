@@ -33,8 +33,11 @@ export function setOwner(fn: () => string | null) {
 /** Children given as an array (not as JSX siblings): each element in it should have a key. */
 export function checkKeys(children: any[], parentType: any) {
   if (!dev()) return;
-  for (const c of children) {
-    if (c && typeof c === "object" && c.$$typeof === Symbol.for("react.transitional.element") && c.key == null && !c._store?.validated) {
+  const unchecked = children.filter((c) => c?._store && !c._store.validated);
+  // Checked once: the same elements passed on again (a component returning its children) warn no more.
+  for (const c of unchecked) c._store.validated = 1;
+  for (const c of unchecked) {
+    if (c && typeof c === "object" && c.$$typeof === Symbol.for("react.transitional.element") && c.key == null) {
       const who = owner();
       const where = who
         ? `\n\nCheck the render method of \`${who}\`.`

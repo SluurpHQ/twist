@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2368 pass, 1656 fail, 314 skipped (gated off for stable React 19).
+2394 pass, 1630 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -37,11 +37,11 @@
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 3 | 18 | 0 |  |
-| react-dom/ReactDOMFizzShellHydration-test.js | 1 | 11 | 0 |  |
+| react-dom/ReactDOMFizzShellHydration-test.js | 3 | 9 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 1 | 5 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 3 | 14 | 0 |  |
-| react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 3 | 9 | 0 |  |
+| react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 6 | 6 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
 | react-dom/ReactDOMFloat-test.js | 3 | 137 | 3 |  |
@@ -70,7 +70,7 @@
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 45 | 10 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 24 | 6 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 33 | 2 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 282 | 54 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 287 | 49 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 19 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 106 | 35 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 28 | 7 | 0 |  |
@@ -94,7 +94,7 @@
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 6 | 3 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMSingletonComponents-test.js | 0 | 13 | 9 |  |
+| react-dom/ReactDOMSingletonComponents-test.js | 1 | 12 | 9 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 0 | 2 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
@@ -126,7 +126,7 @@
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 9 | 15 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
-| react-dom/ReactTestUtilsAct-test.js | 8 | 16 | 0 |  |
+| react-dom/ReactTestUtilsAct-test.js | 9 | 15 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 2 | 3 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
 | react-dom/ReactUpdates-test.js | 28 | 14 | 3 |  |
@@ -139,15 +139,15 @@
 | react/forwardRef-test.internal.js | 0 | 6 | 0 |  |
 | react/forwardRef-test.js | 0 | 19 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
-| react/ReactChildren-test.js | 37 | 5 | 0 |  |
+| react/ReactChildren-test.js | 38 | 4 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
 | react/ReactContextValidator-test.js | 1 | 7 | 5 |  |
 | react/ReactCreateElement-test.js | 13 | 14 | 0 |  |
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
 | react/ReactElementClone-test.js | 15 | 6 | 0 |  |
-| react/ReactElementValidator-test.internal.js | 14 | 7 | 0 |  |
+| react/ReactElementValidator-test.internal.js | 17 | 4 | 0 |  |
 | react/ReactES6Class-test.js | 14 | 10 | 0 |  |
-| react/ReactJSXElementValidator-test.js | 10 | 4 | 0 |  |
+| react/ReactJSXElementValidator-test.js | 12 | 2 | 0 |  |
 | react/ReactJSXRuntime-test.js | 8 | 7 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 12 | 7 | 0 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
@@ -159,13 +159,13 @@
 | react/ReactStrictMode-test.internal.js | 1 | 4 | 0 |  |
 | react/ReactStrictMode-test.js | 3 | 20 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
-| redux-tests/components/connect.spec.tsx | 59 | 8 | 0 |  |
+| redux-tests/components/connect.spec.tsx | 66 | 1 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
 | redux-tests/components/Provider.spec.tsx | 8 | 0 | 0 |  |
 | redux-tests/connect/wrapMapToProps.spec.ts | 0 | 1 | 0 |  |
 | redux-tests/hooks/useDispatch.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useReduxContext.spec.tsx | 2 | 0 | 0 |  |
-| redux-tests/hooks/useSelector.spec.tsx | 27 | 2 | 0 |  |
+| redux-tests/hooks/useSelector.spec.tsx | 28 | 1 | 0 |  |
 | redux-tests/integration/dynamic-reducers.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/integration/server-rendering.spec.tsx | 5 | 0 | 0 |  |
 | redux-tests/integration/ssr.spec.tsx | 6 | 0 | 0 |  |

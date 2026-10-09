@@ -47,13 +47,13 @@ if (!process.argv.some((a) => a.includes("redux-tests"))) {
   (await import("bun:test")).expect.extend(matchers as any);
 }
 
-// vitest's it.for / test.for on the global it and test (react-redux's tests use vitest's globals).
+// vitest's globals as react-redux's tests use them: `vi` with its helpers, it.for / test.for.
 {
   const t: any = await import("bun:test");
-  for (const fn of [t.it, t.test]) {
-    fn.for ??= (cases: any[]) => (name: string, body: (c: any) => any) =>
-      cases.forEach((c, i) => fn(name.replace(/%[sdiojO]|\$\w+/, () => (typeof c === "object" ? JSON.stringify(c) : String(c))) + (name.includes("%") ? "" : ` [${i}]`), () => body(c)));
-  }
+  const { vi, forCases } = await import("./shim/vitest.ts");
+  // Bun gives each test file its own `vi` binding: the helpers go onto that object.
+  for (const k of ["stubEnv", "unstubAllEnvs"]) t.vi[k] ??= vi[k];
+  for (const fn of [t.it, t.test]) fn.for = forCases(fn);
 }
 
 // As React's setupTests has them, for development.

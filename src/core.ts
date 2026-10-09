@@ -7,7 +7,7 @@ import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, se
 import { addContainer } from "./events.ts";
 import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
-import { checkTag, duplicateKey, setOwner } from "./warnings.ts";
+import { checkKeys, checkTag, duplicateKey, setOwner } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
@@ -167,6 +167,26 @@ function domNodes(f: Fiber, out: Node[] = []): Node[] {
   return out;
 }
 
+/** The document nodes are made in: the container's own (a test's jsdom, an iframe), else the page's. */
+const docOf = (host: Node): Document => (host.nodeType === 9 ? (host as Document) : host.ownerDocument) ?? document;
+
+/** A suspended tree's nodes hidden (React's display: none, text emptied) or shown again as they were. */
+function hideNodes(f: Fiber, hide: boolean) {
+  for (const n of domNodes(f)) {
+    const box = n as any;
+    if (hide === !!box.__hidden) continue;
+    if (n.nodeType === 3) {
+      if (hide) (box.__hidden = { text: (n as Text).data }), ((n as Text).data = "");
+      else ((n as Text).data = box.__hidden.text), (box.__hidden = null);
+    } else {
+      const style = (n as HTMLElement).style;
+      if (!style) continue;
+      if (hide) (box.__hidden = { display: style.getPropertyValue("display"), priority: style.getPropertyPriority("display") }), style.setProperty("display", "none", "important");
+      else style.setProperty("display", box.__hidden.display, box.__hidden.priority), (box.__hidden = null);
+    }
+  }
+}
+
 // ---------------------------------------------------------------- reconciling
 
 /** `parent`'s children made to be `list`: kept by key and type, the rest made or taken away, in order. */
@@ -182,7 +202,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     c = unwrapChild(c);
     // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
     const items = Array.isArray(c) ? null : iterated(c);
-    if (items) c = items;
+    if (items) checkKeys((c = items), parent.type);
     // A plain object is no child (an element, text, an array or an iterable is).
     if (c && typeof c === "object" && !Array.isArray(c) && !c.$$typeof) throw objectChild(c);
     if (c == null || typeof c === "boolean") {
@@ -288,7 +308,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       f.dom = had;
     } else {
       if (hydrating && text !== "") mismatched = true;
-      f.dom = document.createTextNode(text);
+      f.dom = docOf(host).createTextNode(text);
       host.insertBefore(f.dom, hydrating ? nextServerNode(host) : before);
     }
     return f;
@@ -320,7 +340,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     checkTagName(type);
     assertValidProps(type, props);
     const server = hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null;
-    const el = (f.dom = server ?? (ns ? document.createElementNS(ns, type) : document.createElement(type)));
+    const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     (el as any).__fiber = f;
     if (!server) {
@@ -510,7 +530,21 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
   }
   if (type === SUSPENSE) {
     f.pending = signal(0);
-    return (fb, props) => (fb.pending!() > 0 ? props.fallback : props.children);
+    // Children once shown stay mounted while it waits again, hidden beside the fallback (their state kept, as React
+    // keeps it); before they were ever shown, only the fallback.
+    let shown = false;
+    return (fb, props) => {
+      const waiting = fb.pending!() > 0;
+      if (!waiting) shown = true;
+      layoutQueue.push(() => {
+        const kept = fb.children.find((c) => c.key === "kc");
+        if (kept) hideNodes(kept, waiting);
+      });
+      return [
+        shown ? createElement(FRAGMENT, { key: "c" }, props.children) : null,
+        waiting ? createElement(FRAGMENT, { key: "f" }, props.fallback) : null,
+      ];
+    };
   }
   switch (type?.$$typeof) {
     case FORWARD_REF:
@@ -608,6 +642,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   }
   if (out === KEEP) out = f.out;
   f.out = out;
+  // A component returning an array: its elements are a list, each needing a key (React checks at render).
+  if (Array.isArray(out)) checkKeys(out, f.type);
   const [host, before] = place ?? [hostParentOf(f), nextDomAfter(f)];
   try {
     reconcile(f, toList(out), host, before);
@@ -840,14 +876,42 @@ function settleAll() {
  * Returns a thenable either way, as React's does; for an async `fn`, settled once it has.
  */
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
-  const r = fn();
-  if (r && typeof (r as any).then === "function") {
-    return (r as Promise<T>).then((v) => {
-      settleAll();
-      return v;
-    });
+  // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
+  const errors: unknown[] = [];
+  const off = onUncaught((e) => errors.push(e));
+  const done = () => {
+    off();
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors);
+  };
+  let r: T | Promise<T>;
+  try {
+    r = fn();
+  } catch (e) {
+    off();
+    throw e;
   }
-  settleAll();
+  if (r && typeof (r as any).then === "function") {
+    return (r as Promise<T>).then(
+      (v) => {
+        try {
+          settleAll();
+        } finally {
+          done();
+        }
+        return v;
+      },
+      (e) => {
+        off();
+        throw e;
+      },
+    );
+  }
+  try {
+    settleAll();
+  } finally {
+    done();
+  }
   return { then: (ok?: any, no?: any) => Promise.resolve(r as T).then(ok, no) };
 }
 
