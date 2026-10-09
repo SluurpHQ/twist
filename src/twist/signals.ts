@@ -456,32 +456,79 @@ export class Computation<T> extends Node<T> implements Owner {
     if (flushing || this.tx) this.stage(next);
     else (this.value = next), this.version++, clock++;
   }
+  /**
+   * An answer still to come: in flight until it lands. A thenable that answers while `then` is called (a sync
+   * thenable) is not in flight at all: its value is taken at once.
+   */
   fly(p: PromiseLike<T>) {
     const flight = {};
+    let sync = true;
+    let early: [boolean, unknown] | null = null;
     this.flight = flight;
+    p.then(
+      (v) => (sync ? (early = [true, v]) : this.flight === flight && this.land(v)),
+      (e) => (sync ? (early = [false, e]) : this.flight === flight && this.fail(e)),
+    );
+    sync = false;
+    if (early) {
+      this.flight = null;
+      const [ok, v] = early as [boolean, unknown];
+      if (ok) return this.take(v as T);
+      return this.failNow(v);
+    }
     flights.add(this);
     statusChanged();
-    p.then(
-      (v) => this.flight === flight && this.land(v),
-      (e) => this.flight === flight && this.fail(e),
-    );
   }
-  async stream(it: AsyncIterable<T>) {
+  /** Values to come from an async iterator: each taken when it lands (at once, when it answers synchronously). */
+  stream(iterable: AsyncIterable<T>) {
     const flight = {};
     this.flight = flight;
-    flights.add(this);
-    statusChanged();
-    try {
-      for await (const v of it) {
+    const it = iterable[Symbol.asyncIterator]();
+    let yielded = false;
+    let inRun = true;
+    const step = () => {
+      let sync = true;
+      let early: [boolean, unknown] | null = null;
+      const onValue = (r: IteratorResult<T>) => {
         if (this.flight !== flight) return;
-        landings.push([this, v]);
-        schedule();
+        if (r.done) {
+          this.flight = null;
+          flights.delete(this);
+          if (!yielded) inRun ? this.take(undefined as T) : landings.push([this, undefined]);
+          statusChanged();
+          schedule();
+          return;
+        }
+        yielded = true;
+        if (inRun) this.take(r.value);
+        else landings.push([this, r.value]), schedule();
+        step();
+      };
+      const onError = (e: unknown) => {
+        if (this.flight !== flight) return;
+        this.flight = null;
+        flights.delete(this);
+        inRun ? this.failNow(e) : this.fail(e);
+      };
+      it.next().then(
+        (r) => (sync ? (early = [true, r]) : onValue(r)),
+        (e) => (sync ? (early = [false, e]) : onError(e)),
+      );
+      sync = false;
+      if (early) {
+        const [ok, v] = early as [boolean, unknown];
+        ok ? onValue(v as IteratorResult<T>) : onError(v);
       }
-    } catch (e) {
-      if (this.flight === flight) this.fail(e);
-      return;
-    }
-    if (this.flight === flight) (this.flight = null), flights.delete(this), statusChanged();
+    };
+    step();
+    inRun = false;
+    if (this.flight === flight) flights.add(this), statusChanged();
+  }
+  /** Failed while running: the error is its value's reason (readers rethrow it). */
+  failNow(e: unknown) {
+    this.error = e;
+    this.version++;
+    if (this.kind !== MEMO) handleError(this, e);
   }
   land(v: T) {
     this.flight = null;
