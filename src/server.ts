@@ -61,7 +61,7 @@ type Ctx = {
   picture: boolean;
   fallback: boolean;
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
-  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown } }; onError: (e: unknown, at?: string) => any };
+  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown }; chunk: number; inlined: number }; onError: (e: unknown, at?: string) => any };
 };
 
 function attrs(props: any, ctx: Ctx, tag: string) {
@@ -366,6 +366,22 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         const out = suspendAfter(ctx, () => render(props.children, ctx, hooks));
         if (ctx.streaming?.shared.aborted) return abortedNow();
         ctx.lastText = false;
+        const stream = ctx.streaming;
+        if (stream && !ctx.static) {
+          // Large (past React's progressiveChunkSize with what was written in place before it): sent after the shell,
+          // its fallback in its place meanwhile, as React outlines it.
+          const size = utf8Bytes(out);
+          if (size > 500 && stream.shared.inlined + size > stream.shared.chunk && !/<(html|head|body)[\s>]/.test(out)) {
+            const id = stream.shared.next++;
+            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: Promise.resolve(), stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), done: out };
+            stream.shared.boundaries.push(b);
+            ctx.res.boundary = parentDeps;
+            b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+            ctx.lastText = false;
+            return pendingMarkup(b);
+          }
+          stream.shared.inlined += size;
+        }
         if (parentDeps) {
           for (const k of ["sheets", "styles"] as const) for (const x of deps[k]) parentDeps[k].add(x);
           if ((deps as any).emitted) ((parentDeps as any).emitted ??= []).push(...(deps as any).emitted);
@@ -863,7 +879,18 @@ const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c
 /** A boundary as the shell writes it while it waits: its template, then its fallback. */
 const pendingMarkup = (b: Boundary) => `<!--$?--><template id="B:${b.id}"></template>${b.fallback}<!--/$-->`;
 
-type Boundary = { tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string };
+type Boundary = { tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
+
+/** A string's size in UTF-8 bytes (what React measures a boundary by). */
+function utf8Bytes(s: string): number {
+  let n = s.length;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    // Two bytes below U+0800, three above; a surrogate pair (two units) is four.
+    if (c >= 0x80) n += c < 0x800 || (c >= 0xd800 && c <= 0xdfff) ? 1 : 2;
+  }
+  return n;
+}
 
 /** The hidden element a boundary's late content is sent in: one the parser keeps where the boundary is (React's). */
 function segmentWrap(ctx: Ctx): [string, string] {
@@ -892,7 +919,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   let flowing = flowingAtStart;
   let held: string | null = null;
   let endHeld = false;
-  const shared = { ids: 0, boundaries: [] as Boundary[], next: 0 };
+  // chunk: React's progressiveChunkSize; inlined: the bytes of the boundaries written in place so far.
+  const shared = { ids: 0, boundaries: [] as Boundary[], next: 0, chunk: options.progressiveChunkSize ?? 12800, inlined: 0 };
   const res = new Resources(writeTag, typeof options.nonce === "object" ? options.nonce?.style : undefined);
   if (typeof options.onHeaders === "function") {
     if (typeof options.maxHeadersLength === "number" && options.maxHeadersLength <= 0)
@@ -965,6 +993,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     pending.delete(b);
     const ctx = ctxFor(b);
     let inner: string;
+    if (b.done !== undefined) return reveal(b, ctx, b.done);
     // Its stylesheets and style rules, kept across its renders (each retry meets what the last one did).
     const deps = (b.deps ??= { sheets: new Set<any>(), styles: new Set<any>() });
     // What it sent before is sent once only; this render records it all again.
@@ -999,6 +1028,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     res.boundary = res.replay = null;
     // Done before the first flush: in the shell, its resources with the shell's (text at its end kept apart).
     if (!flowing && inShell(b, `<!--$-->${inner}${ctx.lastText ? "<!-- -->" : ""}<!--/$-->`)) return watch();
+    reveal(b, ctx, inner);
+  };
+  /** A boundary's content sent after the shell, and the script that puts it in place of its fallback. */
+  const reveal = (b: Boundary, ctx: Ctx, inner: string) => {
+    const deps = (b.deps ??= { sheets: new Set<any>(), styles: new Set<any>() });
     const late = res.late();
     const { styleTags, sheets } = res.boundaryStyles(deps);
     // With stylesheets (or style rules) of its own, the boundary is revealed once they have loaded ($SR).
@@ -1112,12 +1146,21 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   let run: ReturnType<typeof startStream> | null = null;
   // Started on the next turn, as React starts its work; it flows once piped.
   let abortNow: ((reason?: unknown) => void) | null = null;
-  setImmediateOr(() => (run = startStream(node, options, write, finish, out !== null, (a) => (abortNow = a))));
+  // A shell that failed: the destination destroyed with its error, as React's fatal error does (once piped).
+  let fatal: { error: unknown } | null = null;
+  const shellError = (e: unknown) => {
+    options.onShellError?.(e);
+    fatal = { error: e };
+    out?.destroy?.(e);
+  };
+  setImmediateOr(() => (run = startStream(node, { ...options, onShellError: shellError }, write, finish, out !== null, (a) => (abortNow = a))));
   return {
     pipe(w: any) {
       out = w;
       for (const c of chunks.splice(0)) w.write(c);
-      if (ended) w.end?.();
+      // (One nobody listens to for errors is ended instead: an unhandled stream error would take the process down.)
+      if (fatal) w.listenerCount?.("error") ? w.destroy?.((fatal as any).error) : w.end?.();
+      else if (ended) w.end?.();
       run?.flow();
       return w;
     },
