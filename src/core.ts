@@ -3,6 +3,7 @@
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
+import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
 import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
@@ -502,33 +503,6 @@ function reappear(f: Fiber) {
 
 // ---------------------------------------------------------------- reconciling
 
-/**
- * The kept children (in `next`, with their old places) that form the longest run still in their old order: those need
- * not move (a longest increasing subsequence, in n log n).
- */
-function inOrder(next: Fiber[], oldIndex: Map<Fiber, number>): Set<Fiber> {
-  // tails[k]: the index in `next` ending the best run of length k+1 found so far; prev: the one before each.
-  const tails: number[] = [];
-  const prev = new Int32Array(next.length);
-  const at = (j: number) => oldIndex.get(next[j]!)!;
-  for (let j = 0; j < next.length; j++) {
-    const oi = oldIndex.get(next[j]!);
-    if (oi === undefined) continue;
-    let lo = 0;
-    let hi = tails.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (at(tails[mid]!) < oi) lo = mid + 1;
-      else hi = mid;
-    }
-    prev[j] = lo > 0 ? tails[lo - 1]! : -1;
-    tails[lo] = j;
-  }
-  const stay = new Set<Fiber>();
-  for (let j = tails.length ? tails[tails.length - 1]! : -1; j >= 0; j = prev[j]!) stay.add(next[j]!);
-  return stay;
-}
-
 /** `parent`'s children made to be `list`: kept by key and type, the rest made or taken away, in order. */
 /** The Suspense boundary a fiber is in (its nearest), if any. */
 function boundaryOf(f: Fiber): Fiber | null {
@@ -639,7 +613,9 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   const oldIndex = new Map<Fiber, number>();
   old.forEach((f, idx) => oldIndex.set(f, idx));
   const placed = new Set<Fiber>();
-  const stay = inOrder(next, oldIndex);
+  const stayAt = inOrder(next, (f) => oldIndex.get(f));
+  const stay = new Set<Fiber>();
+  for (const j of stayAt) stay.add(next[j]!);
   for (const f of next) if (!stay.has(f)) placed.add(f);
   // Nothing new and nothing moved: every node is where it was.
   if (!placed.size) return;

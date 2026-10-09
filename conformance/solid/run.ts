@@ -13,7 +13,7 @@ const walk = (d: string) => {
     else if (/\.(test|spec)\.tsx?$/.test(f.name) && p.includes(filter)) files.push(p);
   }
 };
-for (const part of ["signals", "solid", "web"]) walk(join(here, "solid-tests", part));
+for (const part of ["signals/tests", "solid/test", "web/test"]) walk(join(here, "solid-tests", part));
 
 type Row = { file: string; pass: number; fail: number; note?: string };
 const rows: Row[] = [];
@@ -36,13 +36,18 @@ async function worker() {
 await Promise.all(Array.from({ length: 8 }, worker));
 rows.sort((a, b) => a.file.localeCompare(b.file));
 
-const sum = (k: "pass" | "fail") => rows.reduce((n, r) => n + r[k], 0);
-const unloaded = rows.filter((r) => r.note);
+// Files that reach into Solid's own modules (its internals, its build output, its dev tooling): they test Solid's
+// implementation, not its behaviour, and cannot run against another.
+const INTERNAL = /Cannot find module 'solid-js\/(internal|attribution|refresh)'|Cannot find module '(\.\.\/)+(src\/(attribution|core\/|client\/|client\.js|store\/(store|target)\.js|server\/)|dist\/|frames\/src|server-functions\/src)|Export named '(DEV|OBSERVE|\$RECORD|clearSnapshots|markSnapshotScope|setSnapshotCapture|releaseSnapshotScope)'/;
+for (const r of rows) if (r.note && INTERNAL.test(r.note)) r.note = "not ours: " + r.note;
+const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
+const sum = (k: "pass" | "fail") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + r[k], 0);
+const unloaded = rows.filter((r) => r.note && !r.note.startsWith("not ours"));
 const reasons = new Map<string, number>();
 for (const r of unloaded) reasons.set(r.note!, (reasons.get(r.note!) ?? 0) + 1);
 const md = [
   `# Solid's tests on Twist\n`,
-  `${sum("pass")} pass, ${sum("fail")} fail, ${files.length} files (${unloaded.length} did not load)\n`,
+  `${sum("pass")} pass, ${sum("fail")} fail, ${files.length} files (${unloaded.length} did not load, ${notOurs.length} test Solid's internals)\n`,
   `## Why files did not load\n`,
   ...[...reasons].sort((a, b) => b[1] - a[1]).map(([why, n]) => `- ${n} × ${why}`),
   `\n## Files\n`,
