@@ -12,6 +12,8 @@ const d = () => __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.d;
 export const unstable_batchedUpdates = (fn: () => any) => fn();
 export const useFormState = (action: any, initial: any) => [initial, action, false];
 export const requestFormReset = (form: HTMLFormElement) => form.reset();
+/** A value whose use() renders the rest of its Suspense boundary in the browser only (the server gives it up). */
+export const browser = (reason?: unknown) => ({ $$typeof: Symbol.for("react.recoverable"), _reason: reason });
 
 const describeObject = (x: any) => (x === null ? "`null`" : x === undefined ? "`undefined`" : x === "" ? "an empty string" : `something with type "${typeof x}"`);
 const describeEnum = (x: any) =>
@@ -125,4 +127,4 @@ export function preinitModule(href: string, options?: any) {
   } else if (options == null) d().M(href);
 }
 
-export default { createPortal, flushSync, version, __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, unstable_batchedUpdates, useFormStatus, preload, preinit, preconnect, prefetchDNS, preloadModule, preinitModule, requestFormReset };
+export default { browser, createPortal, flushSync, version, __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE, unstable_batchedUpdates, useFormStatus, preload, preinit, preconnect, prefetchDNS, preloadModule, preinitModule, requestFormReset };

@@ -96,6 +96,38 @@ function attrs(props: any, ctx: Ctx, tag: string) {
 
 const NOOP = () => {};
 
+/** browser(): what use() throws on the server, so its boundary is rendered by the client (once per value). */
+const RECOVERABLE = Symbol.for("react.recoverable");
+const browserErrors = new WeakMap<object, Error>();
+function browserOnly(u: any): never {
+  throw browserError(u);
+}
+/** The error a browser() value stands for: "Browser-only rendering was requested", its reason as the cause. */
+function browserError(u: any): Error {
+  let reason: unknown = u._reason;
+  if (typeof reason === "function") {
+    try {
+      reason = reason();
+    } catch {
+      reason = "The reason for browser-only rendering could not be determined because its initializer threw.";
+    }
+  }
+  const error: any = new Error("Browser-only rendering was requested by `browser()`.", u._reason === undefined ? undefined : { cause: reason });
+  Object.defineProperty(error, RECOVERABLE, { value: true });
+  browserErrors.set(u, error);
+  return error;
+}
+/** A browser() bail-out with no Suspense to give to the client: the shell fails with it (React's fatal clone). */
+function fatalBrowserError(e: any): Error {
+  const fatal: any = new Error(
+    "The server render could not complete because client rendering was requested outside a Suspense boundary. See this error's cause for additional details.",
+    Object.prototype.hasOwnProperty.call(e, "cause") ? { cause: e.cause } : undefined,
+  );
+  if (typeof e.stack === "string") fatal.stack = "Error: " + fatal.message + e.stack.slice(e.stack.indexOf("\n") < 0 ? e.stack.length : e.stack.indexOf("\n"));
+  return fatal;
+}
+const isBrowserOnly = (e: any) => !!e && typeof e === "object" && e[RECOVERABLE] === true;
+
 // ---------------------------------------------------------------- hooks while rendering a component on the server
 
 /** The function component rendering now: its hooks, kept across its re-renders (state set while it renders). */
@@ -191,7 +223,7 @@ function serverHooks(ctx: Ctx) {
     useActionState: (_a: any, init: any) => [init, NOOP, false],
     useOptimistic: (s: any) => [s, NOOP],
     useEffectEvent: (fn: any) => fn,
-    use: (u: any) => (u && u.$$typeof === CONTEXT ? read(u) : readThenable(u)),
+    use: (u: any) => (u && u.$$typeof === CONTEXT ? read(u) : u && u.$$typeof === RECOVERABLE ? browserOnly(u) : readThenable(u)),
   } as any;
 }
 
@@ -674,7 +706,7 @@ export async function prerenderToNodeStream(node: any, _options: any = {}) {
  * the fallback between the boundary's markers. `$SX` gives a boundary up to the client (it renders it itself).
  */
 const RUNTIME_SOURCE =
-  "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m,k){var t=document.getElementById(b);if(!t)return;if(g)t.dataset.dgst=g;if(m)t.dataset.msg=m;if(k)t.dataset.cstck=k;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}};$SM=new Map;$SR=function(n,w,p){function u(q){this._p=null;q()}for(var r=new Map,t=document,h,b,e=t.querySelectorAll(\"link[data-precedence],style[data-precedence]\"),v=[],k=0;b=e[k++];)\"not all\"===b.getAttribute(\"media\")?v.push(b):(\"LINK\"===b.tagName&&$SM.set(b.getAttribute(\"href\"),b),r.set(b.dataset.precedence,h=b));e=0;b=[];var l,a;for(k=!0;;){if(k){var f=p[e++];if(!f){k=!1;e=0;continue}var c=!1,m=0;var d=f[m++];if(a=$SM.get(d)){var g=a._p;c=!0}else{a=t.createElement(\"link\");a.href=d;a.rel=\"stylesheet\";for(a.dataset.precedence=l=f[m++];g=f[m++];)a.setAttribute(g,f[m++]);g=a._p=new Promise(function(q,x){a.onload=u.bind(a,q);a.onerror=u.bind(a,x)});$SM.set(d,a)}d=a.getAttribute(\"media\");!g||d&&!matchMedia(d).matches||b.push(g);if(c)continue}else{a=v[e++];if(!a)break;l=a.getAttribute(\"data-precedence\");a.removeAttribute(\"media\")}c=r.get(l)||h;c===h&&(h=a);r.set(l,a);c?c.parentNode.insertBefore(a,c.nextSibling):(c=t.head,c.insertBefore(a,c.firstChild))}if(p=document.getElementById(n))p.previousSibling.data=\"$~\";Promise.all(b).then($SC.bind(null,n,w),$SX.bind(null,n,\"CSS failed to load\"))};</script>";
+  "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m,k){var t=document.getElementById(b);if(!t)return;if(g!=null)t.dataset.dgst=g;if(m)t.dataset.msg=m;if(k)t.dataset.cstck=k;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}};$SM=new Map;$SR=function(n,w,p){function u(q){this._p=null;q()}for(var r=new Map,t=document,h,b,e=t.querySelectorAll(\"link[data-precedence],style[data-precedence]\"),v=[],k=0;b=e[k++];)\"not all\"===b.getAttribute(\"media\")?v.push(b):(\"LINK\"===b.tagName&&$SM.set(b.getAttribute(\"href\"),b),r.set(b.dataset.precedence,h=b));e=0;b=[];var l,a;for(k=!0;;){if(k){var f=p[e++];if(!f){k=!1;e=0;continue}var c=!1,m=0;var d=f[m++];if(a=$SM.get(d)){var g=a._p;c=!0}else{a=t.createElement(\"link\");a.href=d;a.rel=\"stylesheet\";for(a.dataset.precedence=l=f[m++];g=f[m++];)a.setAttribute(g,f[m++]);g=a._p=new Promise(function(q,x){a.onload=u.bind(a,q);a.onerror=u.bind(a,x)});$SM.set(d,a)}d=a.getAttribute(\"media\");!g||d&&!matchMedia(d).matches||b.push(g);if(c)continue}else{a=v[e++];if(!a)break;l=a.getAttribute(\"data-precedence\");a.removeAttribute(\"media\")}c=r.get(l)||h;c===h&&(h=a);r.set(l,a);c?c.parentNode.insertBefore(a,c.nextSibling):(c=t.head,c.insertBefore(a,c.firstChild))}if(p=document.getElementById(n))p.previousSibling.data=\"$~\";Promise.all(b).then($SC.bind(null,n,w),$SX.bind(null,n,\"CSS failed to load\"))};</script>";
 
 /** A value written into an inline script, as React escapes it (no "<", "&", ">" or line separators raw). */
 const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
@@ -691,10 +723,15 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const nonce: string | undefined = typeof options.nonce === "string" ? options.nonce : options.nonce?.script;
   const scriptOpen = nonce ? `<script nonce="${escape(nonce)}">` : "<script>";
   const RUNTIME = RUNTIME_SOURCE.replace("<script>", scriptOpen);
-  const onError = (e: unknown) => options.onError?.(e, { componentStack: componentStackOf(e) });
+  // A browser() bail-out is told to onBrowserBailout, its digest empty (the client reports nothing).
+  const onError = (e: unknown) => {
+    if (isBrowserOnly(e)) return options.onBrowserBailout?.(e, { componentStack: componentStackOf(e) }), "";
+    const digest = options.onError?.(e, { componentStack: componentStackOf(e) });
+    return digest === "" ? undefined : digest;
+  };
   // The digest and (in development) the message, as script arguments.
   const sxArgs = (digest: unknown, message: string, error?: unknown) =>
-    [typeof digest === "string" ? digest : "", dev() ? message : "", dev() && error ? componentStackOf(error) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
+    [typeof digest === "string" ? digest : null, dev() ? message : "", dev() && error ? componentStackOf(error) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
   const ctxFor = (b?: Boundary): Ctx => ({
     ...fresh(res),
     values: b ? new Map(b.values) : new Map(),
@@ -778,6 +815,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         e.then(again, again);
         return null;
       }
+      if (isBrowserOnly(e)) e = fatalBrowserError(e);
       onError(e);
       options.onShellError?.(e);
       closed = true;
@@ -807,9 +845,10 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     /** Stop waiting: what is still pending is left for the client to render. */
     abort(reason?: unknown) {
       if (closed) return;
+      const browserReason = reason && typeof reason === "object" && (reason as any).$$typeof === RECOVERABLE ? browserError(reason) : null;
       if (!shellDone) {
         // Aborted before the shell: the shell fails with the reason.
-        const why = reason ?? new Error("The render was aborted by the server without a reason.");
+        const why = browserReason ? fatalBrowserError(browserReason) : reason ?? new Error("The render was aborted by the server without a reason.");
         onError(why);
         options.onShellError?.(why);
         closed = true;
@@ -817,7 +856,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         return;
       }
       for (const b of pending) {
-        const why = reason ?? new Error("The render was aborted by the server without a reason.");
+        const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
         const digest = onError(why);
         write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)))})</script>`);
         runtimeSent = true;

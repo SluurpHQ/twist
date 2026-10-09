@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3046 pass, 978 fail, 314 skipped (gated off for stable React 19).
+3059 pass, 965 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -22,7 +22,7 @@
 | react-dom/ReactDOM-test.js | 8 | 8 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 0 | 7 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
-| react-dom/ReactDOMBrowser-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMComponent-test.js | 142 | 22 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 3 | 4 | 0 |  |
@@ -33,7 +33,7 @@
 | react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 70 | 103 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 82 | 91 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 3 | 18 | 0 |  |

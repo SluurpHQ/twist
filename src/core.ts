@@ -18,6 +18,7 @@ type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 const TEXT = 1, HOST = 2, COMP = 3, FRAG = 4, PROVIDER = 5, PORTAL_F = 6, ROOT = 7;
 /** A <title>, <meta> or <link> kept in <head>, or a shared resource (stylesheet, <style>, async script): not in its place. */
 const HOIST = 8;
+const RECOVERABLE = Symbol.for("react.recoverable");
 
 export type Fiber = {
   kind: number;
@@ -567,6 +568,8 @@ function serverGaveUp(f: Fiber, region: { start: Comment }) {
     dev() && data.msg ? data.msg : "The server could not finish this Suspense boundary, likely due to an error during server rendering. Switched to client rendering.",
   );
   error.digest = data.dgst;
+  // Given up on purpose (browser()): rendered here, nothing to report.
+  if (data.dgst === "") return;
   layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: dev() ? data.cstck ?? "" : "" }));
 }
 
@@ -2015,6 +2018,8 @@ export const client = {
   },
   use(usable: any) {
     if (usable && usable.$$typeof === CONTEXT) return readContext(current!, usable);
+    // browser(): in the browser, nothing to wait for.
+    if (usable && usable.$$typeof === RECOVERABLE) return undefined;
     return readThenable(usable);
   },
 };
