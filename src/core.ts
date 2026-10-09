@@ -2428,7 +2428,8 @@ function caught(f: Fiber, e: any) {
     // (Not one rendering its error state now: what fails there goes further up, as React does.)
     if (inst && !p.dead && !(p as any).retrying && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
       lastCaughtByBoundary = e;
-      if (p.type.getDerivedStateFromError) inst.__queue.push(p.type.getDerivedStateFromError(e));
+      // From the commit: asked when the boundary renders again (React's error update), after the other effects.
+      if (p.type.getDerivedStateFromError) inst.__queue.push(committing ? () => p.type.getDerivedStateFromError(e) : p.type.getDerivedStateFromError(e));
       if (inst.componentDidCatch)
         layoutQueue.push(() => {
           if (p.dead) return;
