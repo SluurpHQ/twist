@@ -65,6 +65,71 @@ function attrs(props: any, ctx: Ctx, tag: string) {
 
 const NOOP = () => {};
 
+// ---------------------------------------------------------------- hooks while rendering a component on the server
+
+/** The function component rendering now: its hooks, kept across its re-renders (state set while it renders). */
+type ServerComponent = { hooks: any[]; at: number; again: boolean };
+let rendering: ServerComponent | null = null;
+
+const INVALID_HOOK =
+  "Invalid hook call. Hooks can only be called inside of the body of a function component. This could happen for one of the following reasons:\n1. You might have mismatching versions of React and the renderer (such as React DOM)\n2. You might be breaking the Rules of Hooks\n3. You might have more than one copy of React in the same app\nSee https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.";
+
+function slot<T>(make: () => T): T {
+  const c = rendering;
+  if (!c) throw new Error(INVALID_HOOK);
+  const i = c.at++;
+  if (i >= c.hooks.length) c.hooks.push(make());
+  return c.hooks[i];
+}
+
+const basicState = (s: any, a: any) => (typeof a === "function" ? a(s) : a);
+
+/** useState and useReducer: updates made while rendering are applied on the next pass, with the reducer of that pass. */
+function reducerHook(reducer: any, arg: any, init: any, isState: boolean) {
+  const c = rendering;
+  const h = slot(() => {
+    const box: any = { value: isState ? (typeof arg === "function" ? arg() : arg) : init ? init(arg) : arg, queue: [] };
+    box.dispatch = (action: any) => {
+      // Only while its component renders (the server renders once): a pass more, with this update.
+      if (rendering === c) {
+        box.queue.push(action);
+        c!.again = true;
+      }
+    };
+    return box;
+  });
+  for (const a of h.queue.splice(0)) h.value = reducer(h.value, a);
+  return [h.value, h.dispatch];
+}
+
+function memoHook(fn: () => any, deps?: any[]) {
+  const h = slot(() => ({ deps: undefined as any, value: undefined as any, set: false }));
+  if (!h.set || !deps || !h.deps || deps.length !== h.deps.length || deps.some((d: any, i: number) => !Object.is(d, h.deps[i]))) {
+    h.value = fn();
+    h.deps = deps;
+    h.set = true;
+  }
+  return h.value;
+}
+
+/** A function component rendered on the server: again while it set its own state, as React's server does. */
+function renderFunction(type: any, props: any) {
+  const c: ServerComponent = { hooks: [], at: 0, again: false };
+  const was = rendering;
+  rendering = c;
+  try {
+    for (let pass = 0; ; pass++) {
+      if (pass >= 25) throw new Error("Too many re-renders. React limits the number of renders to prevent an infinite loop.");
+      c.at = 0;
+      c.again = false;
+      const out = type(props);
+      if (!c.again) return out;
+    }
+  } finally {
+    rendering = was;
+  }
+}
+
 function serverHooks(ctx: Ctx) {
   const readThenable = (t: any) => {
     if (t.status === "fulfilled") return t.value;
@@ -78,11 +143,11 @@ function serverHooks(ctx: Ctx) {
   const read = (c: any) => (ctx.values.has(c) ? ctx.values.get(c) : c._defaultValue);
   return {
     ...client,
-    useState: (init: any) => [typeof init === "function" ? init() : init, NOOP],
-    useReducer: (_r: any, a: any, i?: any) => [i ? i(a) : a, NOOP],
-    useRef: (v: any) => ({ current: v }),
-    useMemo: (fn: any) => fn(),
-    useCallback: (fn: any) => fn,
+    useState: (init: any) => reducerHook(basicState, init, undefined, true),
+    useReducer: (r: any, a: any, i?: any) => reducerHook(r, a, i, false),
+    useRef: (v: any) => slot(() => ({ current: v })),
+    useMemo: (fn: any, deps?: any[]) => memoHook(fn, deps),
+    useCallback: (fn: any, deps?: any[]) => memoHook(() => fn, deps),
     useEffect: NOOP,
     useLayoutEffect: NOOP,
     useInsertionEffect: NOOP,
@@ -138,7 +203,7 @@ function render(node: any, ctx: Ctx, hooks: any): string {
       if (type.getDerivedStateFromProps) inst.state = { ...inst.state, ...type.getDerivedStateFromProps(props, inst.state) };
       return render(inst.render(), ctx, hooks);
     }
-    return render(type(props), ctx, hooks);
+    return render(renderFunction(type, props), ctx, hooks);
   }
   switch (type.$$typeof) {
     case CONTEXT: {
@@ -156,7 +221,7 @@ function render(node: any, ctx: Ctx, hooks: any): string {
       return render(props.children(hooks.useContext(type._context)), ctx, hooks);
     case FORWARD_REF: {
       const { ref, ...rest } = props;
-      return render(type.render(rest, ref ?? null), ctx, hooks);
+      return render(renderFunction(() => type.render(rest, ref ?? null), props), ctx, hooks);
     }
     case MEMO:
       return render(createElement(type.type, props), ctx, hooks);
