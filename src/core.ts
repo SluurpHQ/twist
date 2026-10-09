@@ -11,6 +11,7 @@ import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from ".
 import { type Preview, tryTransition } from "./dryrun.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, warn } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
+import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
@@ -130,12 +131,16 @@ function iterated(c: any): any[] | null {
 }
 
 /** What a component or element gives as children, as a list: arrays nest as fragments, text as text. */
+/** A list made of one child that was not an array (no fork in the tree, React's). */
+const LONE = Symbol("lone");
 function toList(children: any): any[] {
   if (children == null || typeof children === "boolean") return [];
   if (Array.isArray(children)) return children;
   const items = iterated(children);
   if (items) return items;
-  return [children];
+  const one: any = [children];
+  one[LONE] = true;
+  return one;
 }
 
 /** A child's key among its siblings, and the fiber kind it makes. */
@@ -260,7 +265,9 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       update(had, c);
       next.push(had);
     } else {
+      if (hydrating && !(list as any)[LONE]) nextTree = pushTree(childBase(parent), list.length, i - 1);
       next.push(mount(c, key, type, parent, host, before));
+      nextTree = null;
     }
   }
   for (const f of byKey.values()) unmount(f, true);
@@ -348,7 +355,24 @@ let committing = false;
 const fresh: Fiber[] = [];
 
 function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
-  return remember({ kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root });
+  const f: Fiber = { kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root };
+  if (nextTree) ((f as any).tree = nextTree), (nextTree = null);
+  return remember(f);
+}
+
+// ---------------------------------------------------------------- tree ids (useId while hydrating)
+
+/** The tree position the next fiber made takes (it is a child of an array): set by reconcile. */
+let nextTree: TreeContext | null = null;
+/** A fiber's tree position: its own if it is forked, else what its parent gives its children. */
+function treeOf(f: Fiber | null): TreeContext {
+  return f ? ((f as any).tree ?? childBase(f.parent)) : ROOT_TREE;
+}
+/** What a fiber gives its children: a fork of its own position when it called useId (React's materialized id). */
+function childBase(f: Fiber | null): TreeContext {
+  if (!f) return ROOT_TREE;
+  const t = treeOf(f);
+  return (f as any).usedId ? pushTree(t, 1, 0) : t;
 }
 const remember = (f: Fiber) => (fresh.push(f), f);
 
@@ -1872,7 +1896,13 @@ export const client = {
   },
   useId() {
     const f = current!;
-    return hook(() => `_r_${(f.root.ids++).toString(32)}_`);
+    // While hydrating, from the tree position (as the server made it); otherwise a counter (React's client ids).
+    return hook(() => {
+      const local = ((f as any).idCalls = ((f as any).idCalls ?? 0) + 1) - 1;
+      (f as any).usedId = true;
+      const prefix = (f.root as any).idPrefix ?? "";
+      return hydrating ? makeId(prefix, "R", treeOf(f), local) : makeId(prefix, "r", f.root.ids++, 0);
+    });
   },
   useSyncExternalStore<T>(subscribe: (cb: () => void) => () => void, getSnapshot: () => T, getServerSnapshot?: () => T): T {
     const h = hook(() => {
@@ -2204,6 +2234,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   rootContainers.add(container);
   let unmounted = false;
   const state: RootState = { ids: 0, container };
+  (state as any).idPrefix = options?.identifierPrefix ?? "";
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
   addContainer(container, state);
   state.top = top;
@@ -2266,7 +2297,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
     rendering = true;
     startRender();
     try {
-      reconcile(top, [children], frag, null);
+      reconcile(top, toList(children), frag, null);
     } catch (e) {
       uncaught(state, e);
     } finally {
@@ -2300,7 +2331,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       // What the root's own elements throw (no component between): uncaught, as React has it.
       const draw = () => {
         try {
-          reconcile(top, [children], container, null);
+          reconcile(top, toList(children), container, null);
         } catch (e) {
           uncaught(state, e);
         }

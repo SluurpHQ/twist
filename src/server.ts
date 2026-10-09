@@ -9,6 +9,7 @@ import { dev } from "./warnings.ts";
 import { styleText } from "./props.ts";
 import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 import { Resources } from "./float-server.ts";
+import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { warn, warnOnce } from "./warnings.ts";
 import { __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Internals } from "./react-dom.ts";
 
@@ -46,6 +47,9 @@ type Ctx = {
   suspendedAt?: string;
   /** What a child suspended on while its siblings rendered on: thrown at the boundary around them. */
   suspended?: PromiseLike<any> | null;
+  /** Where in the tree rendering is (React's tree context, which useId's ids are made of), and the ids' prefix. */
+  tree: TreeContext;
+  idPrefix: string;
   /** Float's resources and hoistables for this render (written into <head>, or before a later chunk). */
   res: Resources;
   /** The enclosing element's tag (null at the top): <html>, <head> and <body> are the document's only at the top. */
@@ -136,7 +140,7 @@ const isBrowserOnly = (e: any) => !!e && typeof e === "object" && e[RECOVERABLE]
 // ---------------------------------------------------------------- hooks while rendering a component on the server
 
 /** The function component rendering now: its hooks, kept across its re-renders (state set while it renders). */
-type ServerComponent = { hooks: any[]; at: number; again: boolean };
+type ServerComponent = { hooks: any[]; at: number; again: boolean; ids: number };
 let rendering: ServerComponent | null = null;
 
 const INVALID_HOOK =
@@ -181,8 +185,22 @@ function memoHook(fn: () => any, deps?: any[]) {
 }
 
 /** A function component rendered on the server: again while it set its own state, as React's server does. */
+/** Whether the function component rendered last called useId (its children are then a fork of its own). */
+let lastUsedId = false;
+/** A function component's output rendered: under a fork of its tree position when it called useId (React's). */
+function renderOutput(out: any, ctx: Ctx, hooks: any) {
+  if (!lastUsedId) return render(out, ctx, hooks);
+  lastUsedId = false;
+  const tree = ctx.tree;
+  ctx.tree = pushTree(tree, 1, 0);
+  try {
+    return render(out, ctx, hooks);
+  } finally {
+    ctx.tree = tree;
+  }
+}
 function renderFunction(type: any, props: any) {
-  const c: ServerComponent = { hooks: [], at: 0, again: false };
+  const c: ServerComponent = { hooks: [], at: 0, again: false, ids: 0 };
   const was = rendering;
   rendering = c;
   try {
@@ -190,8 +208,9 @@ function renderFunction(type: any, props: any) {
       if (pass >= 25) throw new Error("Too many re-renders. React limits the number of renders to prevent an infinite loop.");
       c.at = 0;
       c.again = false;
+      c.ids = 0;
       const out = type(props);
-      if (!c.again) return out;
+      if (!c.again) return (lastUsedId = c.ids > 0), out;
     }
   } finally {
     rendering = was;
@@ -212,7 +231,8 @@ function serverHooks(ctx: Ctx) {
     useInsertionEffect: NOOP,
     useImperativeHandle: NOOP,
     useContext: read,
-    useId: () => `_r_${(ctx.streaming ? ctx.streaming.shared.ids++ : ctx.ids++).toString(32)}_`,
+    // From where it is in the tree (React's), so the client hydrating finds the same id.
+    useId: () => makeId(ctx.idPrefix, "R", ctx.tree, rendering ? rendering.ids++ : 0),
     useSyncExternalStore: (_s: any, get: any, getServer?: any) => (getServer ?? get)(),
     useTransition: () => [false, (fn: any) => fn()],
     useDeferredValue: (v: any, initial?: any) => (initial !== undefined ? initial : v),
@@ -277,7 +297,14 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     ctx.lastText = true;
     return sep + escape(text);
   }
-  if (Array.isArray(node)) return node.map((n) => renderSibling(n, ctx, hooks)).join("");
+  if (Array.isArray(node)) {
+    const tree = ctx.tree;
+    try {
+      return node.map((n, i) => ((ctx.tree = pushTree(tree, node.length, i)), renderSibling(n, ctx, hooks))).join("");
+    } finally {
+      ctx.tree = tree;
+    }
+  }
   if (typeof node === "object" && typeof node[Symbol.iterator] === "function" && !node.$$typeof) {
     const it = node[Symbol.iterator]();
     if (it === node)
@@ -335,7 +362,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         if (e && typeof e.then === "function") {
           if (stream) {
             const id = stream.shared.next++;
-            const b: Boundary = { id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
+            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
             ctx.suspendedAt = undefined;
             stream.shared.boundaries.push(b);
             b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
@@ -380,7 +407,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       }
       return render(inst.render(), ctx, hooks);
     }
-    return render(renderFunction(type, props), ctx, hooks);
+    return renderOutput(renderFunction(type, props), ctx, hooks);
   }
   switch (type.$$typeof) {
     case CONTEXT: {
@@ -398,7 +425,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       return render(props.children(hooks.useContext(type._context)), ctx, hooks);
     case FORWARD_REF: {
       const { ref, ...rest } = props;
-      return render(renderFunction(() => type.render(rest, ref ?? null), props), ctx, hooks);
+      return renderOutput(renderFunction(() => type.render(rest, ref ?? null), props), ctx, hooks);
     }
     case MEMO:
       return render(createElement(type.type, props), ctx, hooks);
@@ -652,6 +679,8 @@ const fresh = (res = new Resources(writeTag)): Ctx => ({
   lastText: false,
   stack: [],
   res,
+  tree: ROOT_TREE,
+  idPrefix: "",
   parent: null,
   noscript: false,
   picture: false,
@@ -740,8 +769,9 @@ const frameName = (type: any): string =>
               ? "Lazy"
               : "";
 
-export function renderToString(node: any, _options?: any) {
+export function renderToString(node: any, options?: any) {
   const ctx = fresh();
+  ctx.idPrefix = options?.identifierPrefix ?? "";
   const html = once(node, ctx);
   return withPreamble(html, ctx.res.preamble("", ""));
 }
@@ -783,7 +813,7 @@ const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c
 /** A boundary as the shell writes it while it waits: its template, then its fallback. */
 const pendingMarkup = (b: Boundary) => `<!--$?--><template id="B:${b.id}"></template>${b.fallback}<!--/$-->`;
 
-type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string };
+type Boundary = { tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string };
 
 /** The hidden element a boundary's late content is sent in: one the parser keeps where the boundary is (React's). */
 function segmentWrap(ctx: Ctx): [string, string] {
@@ -852,6 +882,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     svg: b?.svg ?? false,
     select: b?.select,
     stack: b ? b.stack.slice() : [],
+    tree: b?.tree ?? ROOT_TREE,
+    idPrefix: options.identifierPrefix ?? "",
     streaming: { shared, onError },
   });
   let postamble = "";
