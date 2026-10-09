@@ -10,6 +10,13 @@ import * as ReactAll from "react";
 import { renderToString } from "react-dom/server";
 import { signal } from "../../signals/index.js";
 
+// A hidden tab (the checks run in a background pane) gives no animation frames: timers stand in for them, so what
+// libraries do on a frame (Base UI opening a select) still happens.
+if (document.hidden) {
+  window.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(performance.now()), 16) as unknown as number;
+  window.cancelAnimationFrame = (id: number) => clearTimeout(id);
+}
+
 type Test = { name: string; fn: (box: HTMLElement) => Promise<void> | void };
 const tests: Test[] = [];
 const test = (name: string, fn: Test["fn"]) => tests.push({ name, fn });
@@ -18,6 +25,10 @@ const eq = (a: any, b: any, what = "") => {
 };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const frame = () => new Promise((r) => setTimeout(r, 20));
+/** Until `ok` holds (or 2 s have passed): for what a page does on its own time. */
+const until = async (ok: () => boolean) => {
+  for (let i = 0; i < 100 && !ok(); i++) await frame();
+};
 const mount = (box: HTMLElement, el: any) => {
   const root = createRoot(box);
   // root.render schedules, as in React: drawn now for the checks that read the page right after.
@@ -380,12 +391,12 @@ test("Base UI select opens and picks", async (box) => {
   trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse", button: 0 }));
   trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
   trigger.click();
-  await frame();
-  await frame();
+  // Base UI opens on an animation frame, which a hidden tab holds back: waited for, not timed.
+  await until(() => document.querySelectorAll("[role=option]").length > 0);
   const options = [...document.querySelectorAll("[role=option]")] as HTMLElement[];
   eq(options.map((o) => o.textContent), ["Apple", "Banana"], "options shown");
   options[1]!.click();
-  await frame();
+  await until(() => trigger.textContent === "Banana");
   eq(trigger.textContent, "Banana", "picked");
 });
 
