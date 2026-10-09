@@ -180,7 +180,8 @@ export function merge<T extends object[]>(...sources: T): any {
   const keys = new Set<PropertyKey>();
   // (A function source is read for its object, keys and values alike.)
   const at = (s: any) => (typeof s === "function" ? s() ?? {} : s);
-  for (const s of list) for (const k of Reflect.ownKeys(at(s))) keys.add(k);
+  // Each key where its winning (last) source puts it.
+  for (const s of list) for (const k of Reflect.ownKeys(at(s))) keys.delete(k), keys.add(k);
   for (const k of keys) {
     Object.defineProperty(view, k, {
       enumerable: true,
@@ -197,11 +198,13 @@ export function merge<T extends object[]>(...sources: T): any {
 }
 
 /** A view of `props` without the given keys (read where used). */
-export function omit<T extends object, K extends keyof T>(props: T, ...keys: K[]): Omit<T, K> {
-  const skip = new Set<PropertyKey>(keys);
+export function omit<T extends object, K extends keyof T>(props: T, ...keys: (K | ((k: PropertyKey) => boolean))[]): Omit<T, K> {
+  // Keys, or a rule that names them.
+  const rules = keys.filter((k) => typeof k === "function") as ((k: PropertyKey) => boolean)[];
+  const skip = new Set<PropertyKey>(keys.filter((k) => typeof k !== "function") as PropertyKey[]);
   const view: any = {};
   for (const k of Reflect.ownKeys(props)) {
-    if (skip.has(k)) continue;
+    if (skip.has(k) || rules.some((r) => r(k))) continue;
     Object.defineProperty(view, k, { enumerable: true, configurable: true, get: () => (props as any)[k] });
   }
   return view;

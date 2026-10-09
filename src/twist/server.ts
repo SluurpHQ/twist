@@ -18,7 +18,7 @@ setDescribedNode((v) => (v && v[COMP] ? createComponent(v.fn, componentProps(v.p
 const EL = Symbol("twist.ssr.element");
 const COMP = Symbol("twist.ssr.component");
 
-type Element_ = { [EL]: true; tag: string; props: Record<string, any>; keyed?: boolean };
+type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; skip?: (k: string) => boolean; attrs?: string; sources?: boolean };
 type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string, any> };
 
 export const Fragment = (props: { children?: unknown }) => props.children;
@@ -28,12 +28,23 @@ export function jsx(type: any, props: Record<string, any>): any {
   if (typeof type === "function") return { [COMP]: true, fn: type, props } as Component_;
   return { [EL]: true, tag: type, props } as Element_;
 }
-export { jsx as jsxs, jsx as jsxDEV };
+
+/** Several children written in the JSX: the array is the template's own (no separators between its items). */
+export function jsxs(type: any, props: Record<string, any>): any {
+  if (Array.isArray(props.children)) (props.children as any)[OWN] = true;
+  return jsx(type, props);
+}
+/** The development form: the same, with whether the children are written in the JSX. */
+export function jsxDEV(type: any, props: Record<string, any>, _key?: unknown, staticChildren?: boolean): any {
+  return staticChildren ? jsxs(type, props) : jsx(type, props);
+}
+
+const OWN = Symbol("twist.ssr.own");
 
 /** An element made at run time (a dynamic tag): it always takes a key of its own. */
-export function ssrElement(tag: string, props: any, children?: any, needsId?: boolean) {
-  const p = (typeof props === "function" ? props() : props) ?? {};
-  return { [EL]: true, tag, props: children === undefined ? p : merge(p, { children }), keyed: !!needsId } as Element_;
+export function ssrElement(tag: string, props: any, children?: any, needsId?: boolean, skip?: (k: string) => boolean, attrs?: string) {
+  if (Array.isArray(children)) (children as any)[OWN] = true;
+  return { [EL]: true, tag, props, children, keyed: !!needsId, skip, attrs, sources: true } as Element_;
 }
 
 /**
@@ -134,19 +145,7 @@ export function html(v: any, inTemplate: boolean): string {
   if (v == null || typeof v === "boolean") return "";
   if (typeof v === "string") return escape(v);
   if (typeof v === "number") return String(v);
-  if (Array.isArray(v)) {
-    // Flattened as the client flattens it: text next to text becomes two text nodes there, so a separator marks the
-    // split here (what each item resolves to decides, not its kind).
-    let out = "";
-    let text = false;
-    for (const x of flat(v)) {
-      const isText = typeof x === "string" || typeof x === "number";
-      if (isText && text) out += SEP;
-      out += html(x, inTemplate);
-      text = isText;
-    }
-    return out;
-  }
+  if (Array.isArray(v)) return list(v, !!(v as any)[OWN], inTemplate);
   if (typeof v === "function") return html(v(), false);
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return html(createComponent(v.fn, componentProps(v.props)), false);
@@ -154,7 +153,11 @@ export function html(v: any, inTemplate: boolean): string {
   return escape(String(v));
 }
 
+/** One HTML attribute name (anything else is dropped). */
+const ATTR_NAME = /^[^\s"'>/=<\u0000-\u001f]+$/;
 const NONE_CHOSEN = Symbol("none");
+const RAW_TEXT = new Set(["script", "style"]);
+const rawText = (v: any): string => (v == null || typeof v === "boolean" ? "" : Array.isArray(v) ? v.map(rawText).join("") : typeof v === "function" ? rawText(v()) : typeof v === "object" && typeof v.t === "string" ? v.t : String(v));
 /** The value of the select being rendered: its options compare against it. */
 let selecting: unknown = NONE_CHOSEN;
 
@@ -180,18 +183,38 @@ function flatChildren(v: any[], out: any[] = []): any[] {
 }
 
 function element(el: Element_, keyed: boolean): string {
-  const { tag, props } = el;
+  const { tag } = el;
+  // The key first: what the props read is the element's, after it.
   let out = "<" + tag + (keyed ? ssrHydrationKey() : "");
-  const all = expandSpreads(props);
-  // A select's value is no attribute: the matching option is marked selected.
-  const chosen = tag === "select" && "value" in all ? read(all.value) : NONE_CHOSEN;
-  for (const k of Object.keys(all)) {
-    if (k === "children" || k === "ref" || /^on[A-Z]/.test(k) || (k === "value" && chosen !== NONE_CHOSEN)) continue;
-    if (tag === "textarea" && (k === "value" || k === "defaultValue")) continue;
-    out += ssrAttribute(k, read(all[k]));
+  const all = propsOf(el);
+  let content: string | undefined;
+  let kids: any = NONE_CHOSEN;
+  let chosen: unknown = NONE_CHOSEN;
+  let own: unknown = NONE_CHOSEN;
+  let hasSelected = false;
+  // (Own keys through the proxy's ownKeys alone: no descriptor asked for.)
+  for (const k of Reflect.ownKeys(all)) {
+    if (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k)) continue;
+    // A void element has no children: never read.
+    if (k === "children" && VOID.has(tag)) continue;
+    const v = read(all[k]);
+    if (k === "children") kids = v;
+    else if (k === "ref" || /^on[A-Z]/.test(k)) continue;
+    // Content props: the markup, the text, a textarea's value.
+    else if (k === "innerHTML") content = v == null ? "" : String(v);
+    else if (k === "textContent" || (tag === "textarea" && (k === "value" || (k === "defaultValue" && content === undefined)))) content = escape(String(v ?? ""));
+    // A select's value is no attribute: the matching option is marked selected.
+    else if (tag === "select" && k === "value") chosen = v;
+    else {
+      if (tag === "option" && k === "value") own = v;
+      if (k === "selected") hasSelected = true;
+      out += ssrAttribute(k, v);
+    }
   }
-  if (tag === "option" && selecting !== NONE_CHOSEN && !("selected" in all)) {
-    const v = String(read(all.value) ?? "");
+  // Attribute markup the caller already holds: after the props' own, as is.
+  if (el.attrs) out += el.attrs;
+  if (tag === "option" && selecting !== NONE_CHOSEN && !hasSelected) {
+    const v = String(own === NONE_CHOSEN ? "" : (own ?? ""));
     if (Array.isArray(selecting) ? selecting.map(String).includes(v) : String(selecting ?? "") === v) out += " selected";
   }
   if (VOID.has(tag)) return out + " />";
@@ -199,30 +222,63 @@ function element(el: Element_, keyed: boolean): string {
   const was = selecting;
   if (chosen !== NONE_CHOSEN) selecting = chosen;
   try {
-    // A textarea's value is its text.
-    if (tag === "textarea" && ("value" in all || "defaultValue" in all)) out += escape(String(read("value" in all ? all.value : all.defaultValue) ?? ""));
-    else if ("children" in all) out += children(all.children);
+    if (content !== undefined) out += content;
+    // Script and style text is raw.
+    else if (kids !== NONE_CHOSEN) out += RAW_TEXT.has(tag) ? rawText(kids) : children(kids);
   } finally {
     selecting = was;
   }
   return out + "</" + tag + ">";
 }
 
+/** An element's props: JSX props with their spreads, or ssrElement's sources merged (later ones winning). */
+function propsOf(el: Element_): Record<string, any> {
+  if (!el.sources) return expandSpreads(el.props);
+  let p = typeof el.props === "function" ? el.props() : el.props;
+  // (A function source is resolved once.)
+  if (Array.isArray(p)) p = merge(...p.map((x: any) => (typeof x === "function" ? x() : x)).filter((x: any) => x != null));
+  p ??= {};
+  return el.children === undefined ? p : merge(p, { children: el.children });
+}
+
 /** An element's children: elements written here are in its template; anything else is a hole. */
 function children(c: any): string {
-  if (Array.isArray(c)) {
-    let out = "";
-    let text = false;
-    for (const x of flatChildren(c)) {
-      const isText = typeof x === "string" || typeof x === "number";
-      if (isText && text) out += SEP;
-      out += children(x);
-      text = isText;
-    }
-    return out;
+  return Array.isArray(c) ? list(c, !!(c as any)[OWN], true) : typeof c === "function" ? list([c], true, true) : c && c[EL] ? element(c, c.keyed ?? false) : html(c, false);
+}
+
+type Part = { s: string; text: boolean; split: boolean };
+
+/**
+ * A list as the client flattens it. Text next to text becomes two text nodes there, so a separator marks the split
+ * here: between values a hole yields (what each resolves to decides), never between a template's own items.
+ */
+function list(items: any[], own: boolean, inTemplate: boolean): string {
+  const parts: Part[] = [];
+  collect(items, own, inTemplate, false, parts);
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    const a = parts[i - 1];
+    const b = parts[i]!;
+    if (a && a.text && b.text && a.split && b.split) out += SEP;
+    out += b.s;
   }
-  if (c && c[EL]) return element(c, c.keyed ?? false);
-  return html(c, false);
+  return out;
+}
+
+function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, parts: Part[]) {
+  for (let x of items) {
+    let fn = viaFn;
+    while (typeof x === "function") (x = x()), (fn = true);
+    if (x == null || typeof x === "boolean") continue;
+    // (A function in a template's own list yields more of that list; an array nested in a list is a hole's.)
+    if (Array.isArray(x)) {
+      const stays = (own && fn && !viaFn) || !!(x as any)[OWN];
+      collect(x, stays, inTemplate && own, stays ? false : fn, parts);
+    }
+    else if (typeof x === "string" || typeof x === "number") parts.push({ s: typeof x === "string" ? escape(x) : String(x), text: true, split: !own || fn });
+    else if (x[EL]) parts.push({ s: element(x, x.keyed ?? !(inTemplate && own && !fn)), text: false, split: false });
+    else parts.push({ s: html(x, false), text: false, split: false });
+  }
 }
 
 const read = (v: any) => (isDynamic(v) ? v() : v);
