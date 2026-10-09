@@ -579,6 +579,15 @@ function drawFresh(f: Fiber, host: Node, end: Node | null) {
   } finally {
     hydrating = was;
   }
+  // Drawn while the rest still hydrates: once it has, put where the fibers after it say (React places a client
+  // rendered boundary before its next host sibling, not where the server's markup was).
+  if (was)
+    layoutQueue.push(() => {
+      if (f.dead) return;
+      const parent = domParent(hostParentOf(f));
+      const before = nextDomAfter(f);
+      for (const n of domNodes(f)) if (n.parentNode !== parent || n.nextSibling !== before) parent.insertBefore(n, before);
+    });
 }
 
 /** A dehydrated boundary hydrated again (its data is there, or its content streamed in). */

@@ -42,6 +42,8 @@ type Ctx = {
   lastText: boolean;
   /** The components and elements being rendered, outermost first (React's component stack). */
   stack: string[];
+  /** What a child suspended on while its siblings rendered on: thrown at the boundary around them. */
+  suspended?: PromiseLike<any> | null;
   /** Float's resources and hoistables for this render (written into <head>, or before a later chunk). */
   res: Resources;
   /** The enclosing element's tag (null at the top): <html>, <head> and <body> are the document's only at the top. */
@@ -206,6 +208,33 @@ function render(node: any, ctx: Ctx, hooks: any): string {
   }
 }
 
+/**
+ * A child that suspends does not stop its siblings: they render on (React renders past a suspended child, and
+ * meets their resources), and the boundary around them suspends once they have.
+ */
+function renderSibling(node: any, ctx: Ctx, hooks: any): string {
+  try {
+    return render(node, ctx, hooks);
+  } catch (e: any) {
+    if (!e || typeof e.then !== "function") throw e;
+    ctx.suspended ??= e;
+    ctx.lastText = false;
+    return "";
+  }
+}
+/** What `fn` renders, or what a child of it suspended on, thrown once it is done. */
+function suspendAfter(ctx: Ctx, fn: () => string): string {
+  const outer = ctx.suspended;
+  ctx.suspended = null;
+  try {
+    const out = fn();
+    if (ctx.suspended) throw ctx.suspended;
+    return out;
+  } finally {
+    ctx.suspended = outer;
+  }
+}
+
 function renderFrame(node: any, ctx: Ctx, hooks: any): string {
   // A lazy or a promise as a child: what it resolves to (thrown to the nearest Suspense until then).
   node = unwrapChild(node);
@@ -218,7 +247,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     ctx.lastText = true;
     return sep + escape(text);
   }
-  if (Array.isArray(node)) return node.map((n) => render(n, ctx, hooks)).join("");
+  if (Array.isArray(node)) return node.map((n) => renderSibling(n, ctx, hooks)).join("");
   if (typeof node === "object" && typeof node[Symbol.iterator] === "function" && !node.$$typeof) return render([...node], ctx, hooks);
   if (node.$$typeof === PORTAL) return "";
   if (node.$$typeof !== ELEMENT) throw objectChild(node);
@@ -227,15 +256,25 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
   if (typeof type === "symbol") {
     if (type === SUSPENSE) {
       // Between markers, so the client finds the boundary: complete ($), pending ($?), or left to the client ($!).
+      const queued = ctx.streaming?.shared.boundaries.length ?? 0;
+      // Its own stylesheets and style rules: its parent's if it completes here, its own if it waits.
+      const parentDeps = ctx.res.boundary;
+      const deps = { sheets: new Set<any>(), styles: new Set<any>() };
+      ctx.res.boundary = deps;
       try {
-        return `<!--$-->${render(props.children, ctx, hooks)}<!--/$-->`;
+        const out = suspendAfter(ctx, () => render(props.children, ctx, hooks));
+        if (parentDeps) for (const k of ["sheets", "styles"] as const) for (const x of deps[k]) parentDeps[k].add(x);
+        return `<!--$-->${out}<!--/$-->`;
       } catch (e: any) {
+        ctx.res.boundary = parentDeps;
         ctx.lastText = false;
+        // Boundaries met inside it were never written: they go with this render.
+        if (ctx.streaming) ctx.streaming.shared.boundaries.length = queued;
         const stream = ctx.streaming;
         if (e && typeof e.then === "function") {
           if (stream) {
             const id = stream.shared.next++;
-            stream.shared.boundaries.push({ id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice() });
+            stream.shared.boundaries.push({ id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps });
             return `<!--$?--><template id="B:${id}"></template>${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
           }
           ctx.waiting.push(e);
@@ -245,6 +284,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         // An error inside a boundary: its fallback now, the client renders it again (React's behaviour).
         const digest = stream.onError(e);
         return `<!--$!-->${errorTemplate(digest, errored(e), e)}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
+      } finally {
+        ctx.res.boundary = parentDeps;
       }
     }
     // Activity: a visible one between its markers (React's); a hidden one is left to the client.
@@ -483,7 +524,7 @@ function once(node: any, ctx: Ctx) {
   const was = rendering_;
   rendering_ = ctx.res;
   try {
-    return withHooks(hooks, () => render(node, ctx, hooks));
+    return withHooks(hooks, () => suspendAfter(ctx, () => render(node, ctx, hooks)));
   } finally {
     rendering_ = was;
   }
@@ -680,6 +721,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     // Its stylesheets and style rules, kept across its renders (each retry meets what the last one did).
     const deps = (b.deps ??= { sheets: new Set<any>(), styles: new Set<any>() });
     res.boundary = deps;
+    const queued = shared.boundaries.length;
     try {
       inner = once(b.children, ctx);
     } catch (e: any) {
@@ -688,6 +730,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         // Still waiting on something else: the boundary waits again; what it found so far is preloaded now,
         // as React flushes the resources of the parts that have rendered.
         b.waiting = e;
+        shared.boundaries.length = queued;
         shared.boundaries.push(b);
         const early = res.late();
         if (early) write(early);

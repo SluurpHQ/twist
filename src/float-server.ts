@@ -318,7 +318,16 @@ export class Resources {
       for (const k in s.props) {
         const v = s.props[k];
         if (v == null || k === "href" || k === "rel" || k === "precedence" || k === "data-precedence" || typeof v === "function" || typeof v === "symbol") continue;
-        attrs[k === "className" ? "class" : k.toLowerCase()] = v === true ? "" : String(v);
+        // As React's writeStyleResourceAttributeInJS: no handlers, no React-only props, hidden only when true.
+        if (["innerHTML", "dangerouslySetInnerHTML", "suppressContentEditableWarning", "suppressHydrationWarning", "style", "ref", "children"].includes(k)) continue;
+        if (k === "hidden") {
+          if (v === false) continue;
+          attrs.hidden = "";
+          continue;
+        }
+        if (k !== "className" && ((k.length > 2 && (k[0] === "o" || k[0] === "O") && (k[1] === "n" || k[1] === "N")) || !/^[:A-Z_a-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�][:A-Z_a-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�\-.0-9·̀-ͯ‿-⁀]*$/.test(k)))
+          continue;
+        attrs[k === "className" ? "class" : k.toLowerCase()] = String(v);
       }
       sheets.push([String(s.props.href), String(s.props["data-precedence"]), attrs]);
       s.state = LATE;
