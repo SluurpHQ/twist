@@ -7,6 +7,7 @@ import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, se
 import { addContainer } from "./events.ts";
 import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
+import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
 
@@ -25,6 +26,8 @@ export type Fiber = {
   ns: string | null;
   root: RootState;
   dead?: boolean;
+  // A DOM element (in development): what is open around what goes in it, for HTML's nesting rules.
+  nesting?: Ancestors;
   // A component: how it renders, its hooks, the effect it renders in.
   render?: (f: Fiber, props: any) => any;
   hooks?: any[];
@@ -341,10 +344,30 @@ function dropUnclaimed(host: Node) {
   hydrating.delete(host);
 }
 
+/** What is open where a fiber's children go: its nearest element's, or its root's or portal's container's. */
+function nestingAt(f: Fiber | null): Ancestors | null {
+  for (let p = f; p; p = p.parent) {
+    if (p.kind === HOST) return p.nesting ?? null;
+    if (p.kind === PORTAL_F || p.kind === ROOT) return ((p as any).nesting ??= ancestorsWith(null, containerTag(p.dom)));
+  }
+  return null;
+}
+const containerTag = (n: Node) => (n.nodeType === 9 ? "#document" : n.nodeType === 11 ? "#fragment" : (n as Element).localName ?? "#document");
+
+/** Whether the element `tag` around `f` is further up than its direct parent (a component between them). */
+function behindComponents(f: Fiber, tag: string): boolean {
+  for (let p = f.parent; p; p = p.parent) if (p.kind === HOST && p.type === tag) return p !== f.parent;
+  return false;
+}
+
 function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before: Node | null): Fiber {
   if (type === TEXT_NODE) {
     const f = fiber(TEXT, type, key, c, parent);
     const text = "" + c;
+    if (dev()) {
+      const around = nestingAt(parent);
+      checkTextNesting(text, around?.current?.tag, around?.implicitRoot ?? false);
+    }
     // A server text node holds this one and maybe the next (adjacent text runs together in HTML): split off.
     const had = hydrating && text !== "" ? (claim(host, (n) => n.nodeType === 3 && (n as Text).data.startsWith(text)) as Text | null) : null;
     if (had) {
@@ -383,6 +406,11 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     f.ns = ns;
     checkTagName(type);
     assertValidProps(type, props);
+    if (dev()) {
+      const around = nestingAt(parent);
+      checkNesting(type, around, (tag) => behindComponents(f, tag));
+      f.nesting = ancestorsWith(around, type);
+    }
     const server = hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null;
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.

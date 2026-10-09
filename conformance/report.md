@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2665 pass, 1359 fail, 314 skipped (gated off for stable React 19).
+2681 pass, 1343 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -23,7 +23,7 @@
 | react-dom/ReactDOMActivity-test.js | 0 | 7 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 133 | 31 | 1 |  |
+| react-dom/ReactDOMComponent-test.js | 141 | 23 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
@@ -45,7 +45,7 @@
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
 | react-dom/ReactDOMFloat-test.js | 3 | 137 | 3 |  |
-| react-dom/ReactDOMForm-test.js | 8 | 37 | 0 |  |
+| react-dom/ReactDOMForm-test.js | 9 | 36 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 43 | 46 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 7 | 3 | 0 |  |
 | react-dom/ReactDOMHooks-test.js | 2 | 0 | 2 |  |
@@ -53,7 +53,7 @@
 | react-dom/ReactDOMHydrationDiff-test.js | 0 | 39 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 0 | 10 | 0 |  |
-| react-dom/ReactDOMInput-test.js | 99 | 24 | 1 |  |
+| react-dom/ReactDOMInput-test.js | 102 | 21 | 1 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
@@ -64,7 +64,7 @@
 | react-dom/ReactDOMOption-test.js | 9 | 3 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 13 | 14 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
-| react-dom/ReactDOMSelect-test.js | 28 | 32 | 1 |  |
+| react-dom/ReactDOMSelect-test.js | 30 | 30 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 538 | 12 | 0 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
@@ -99,7 +99,7 @@
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 0 | 2 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
-| react-dom/ReactDOMTextarea-test.js | 38 | 15 | 0 |  |
+| react-dom/ReactDOMTextarea-test.js | 39 | 14 | 0 |  |
 | react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 0 | 12 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 4 | 10 | 12 |  |
@@ -134,7 +134,7 @@
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
 | react-dom/refs-test.js | 9 | 3 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
-| react-dom/validateDOMNesting-test.js | 1 | 2 | 0 |  |
+| react-dom/validateDOMNesting-test.js | 2 | 1 | 0 |  |
 | react/createReactClassIntegration-test.js | 16 | 10 | 2 |  |
 | react/forwardRef-test.internal.js | 0 | 6 | 0 |  |
 | react/forwardRef-test.js | 0 | 19 | 0 |  |
