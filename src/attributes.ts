@@ -41,7 +41,12 @@ const dataOrAria = (n: string) => /^(data|aria)-/i.test(n);
 /** SVG and MathML elements with a hyphen that are not custom elements (React's list). */
 const HYPHENATED_BUILT_IN = new Set(["annotation-xml", "color-profile", "font-face", "font-face-src", "font-face-uri", "font-face-format", "font-face-name", "missing-glyph"]);
 /** A tag that names a custom element (a hyphen, and not one of the built-in hyphenated ones). */
-export const customTag = (tag: string) => tag.includes("-") && !HYPHENATED_BUILT_IN.has(tag);
+const customTags = new Map<string, boolean>();
+export const customTag = (tag: string) => {
+  let got = customTags.get(tag);
+  if (got === undefined) customTags.set(tag, (got = tag.includes("-") && !HYPHENATED_BUILT_IN.has(tag)));
+  return got;
+};
 export const isCustomElement = (tag: string, _props?: any) => customTag(tag);
 
 /**
@@ -129,8 +134,12 @@ export function attributeNameSafe(name: string): boolean {
 }
 
 /** A tag React refuses to write (a name that is not one, or markup smuggled in as one). */
+/** Tags already found valid. */
+const validTags = new Set<string>();
 export function checkTagName(tag: string) {
-  if (!VALID_TAG.test(tag)) throw new Error(`Invalid tag: ${tag}`);
+  if (validTags.has(tag)) return;
+  if (VALID_TAG.test(tag)) validTags.add(tag);
+  else throw new Error(`Invalid tag: ${tag}`);
 }
 
 /** React DOM's assertValidProps: children of void elements, dangerouslySetInnerHTML's shape, style's type. */

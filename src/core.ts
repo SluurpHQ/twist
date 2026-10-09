@@ -498,12 +498,14 @@ const ROOT_NAME = { displayName: "Root" };
 
 function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) {
   const old = parent.children;
-  const byKey = new Map<string, Fiber>();
-  for (const f of old) byKey.set(f.key, f);
+  // (None to look up in a fresh list.)
+  const byKey = old.length ? new Map<string, Fiber>() : null;
+  if (byKey) for (const f of old) byKey.set(f.key, f);
   const next: Fiber[] = [];
   // While hydrating, the children so far: a mismatch's diff prints the siblings before it.
   if (hydrating && dev()) (parent as any).building = next;
-  const seenKeys = new Set<string>();
+  // Duplicate keys only warn: looked for in development.
+  const seenKeys = dev() ? new Set<string>() : null;
   let i = 0;
   const skipAfter = !syncing ? boundaryOf(parent) : null;
   for (let c of list) {
@@ -535,12 +537,14 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       continue;
     }
     const key = keyOf(c, i++);
-    if (key[0] === "k" && seenKeys.has(key)) duplicateKey(key.slice(1));
-    seenKeys.add(key);
+    if (seenKeys) {
+      if (key[0] === "k" && seenKeys.has(key)) duplicateKey(key.slice(1));
+      seenKeys.add(key);
+    }
     const type = typeOf(c);
-    const had = byKey.get(key);
+    const had = byKey?.get(key);
     if (had && (had.type === type || sameFamily(had.type, type)) && !had.dead) {
-      byKey.delete(key);
+      byKey!.delete(key);
       update(had, c);
       next.push(had);
     } else {
@@ -551,7 +555,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       nextOwner = null;
     }
   }
-  for (const f of byKey.values()) unmount(f, true);
+  if (byKey) for (const f of byKey.values()) unmount(f, true);
   parent.children = next;
   if ((parent as any).building) (parent as any).building = undefined;
   // In order, back to front: each node before the one after it, moved only when it is not already there.
@@ -559,6 +563,12 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   if (hydrating) return;
   // All new: each was put in place as it was made.
   if (!old.length && !((parent as any).singleton && host.nodeName === "BODY") && domParent(host) === host) return;
+  // The same children in the same order (most updates): nothing moves.
+  if (next.length === old.length) {
+    let same = true;
+    for (let j = 0; j < next.length; j++) if (next[j] !== old[j]) (same = false), (j = next.length);
+    if (same) return;
+  }
   // What moves (React's lastPlacedIndex): new children, and kept ones now before a child that was after them; the
   // others stay where they are (other nodes may sit between them, as a sibling portal's in the same container).
   const oldIndex = new Map<Fiber, number>();
@@ -2082,13 +2092,13 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
 
 /** The component's effect started, rendering it now into `host` before `before`. */
 function start(f: Fiber, host?: Node, before?: Node | null) {
-  let place: [Node, Node | null] | null = host ? [host, before ?? null] : null;
+  // Placed where asked the first time; after, where it is.
+  let first = !!host;
   f.stop = effect(() => {
     if (f.tick) f.tick();
     if (f.dead) return;
-    const at = place;
-    place = null;
-    draw(f, at);
+    if (first) (first = false), draw(f, host!, before ?? null);
+    else draw(f);
   });
 }
 
@@ -2110,7 +2120,7 @@ const LIMIT = 50;
 /** Whether the hydration under way has found a mismatch (the innermost boundary's, or the root's): React stops it. */
 const hydrationStopped = () => hydrating !== null && (regions.length ? regions[regions.length - 1]!.mismatch : mismatched);
 
-function draw(f: Fiber, place: [Node, Node | null] | null) {
+function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   if (hydrationStopped()) return;
   (f as any).draws = ((f as any).draws ?? 0) + 1;
   if (!drawsReset) {
@@ -2181,7 +2191,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   f.out = out;
   // A component returning an array: its elements are a list, each needing a key (React checks at render).
   if (Array.isArray(out)) checkKeys(out, f.type);
-  const [host, before] = place ?? [hostParentOf(f), nextDomAfter(f)];
+  const host = placeHost ?? hostParentOf(f);
+  const before = placeHost ? placeBefore : nextDomAfter(f);
   drawing.add(f);
   try {
     reconcile(f, toList(out), host, before);
