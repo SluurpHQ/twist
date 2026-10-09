@@ -9,7 +9,7 @@ import { dev } from "./warnings.ts";
 import { styleText } from "./props.ts";
 import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 import { Resources } from "./float-server.ts";
-import { warn } from "./warnings.ts";
+import { warn, warnOnce } from "./warnings.ts";
 import { __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Internals } from "./react-dom.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
@@ -95,6 +95,9 @@ function attrs(props: any, ctx: Ctx, tag: string) {
 }
 
 const NOOP = () => {};
+const effectEventOnServer = () => {
+  throw new Error("A function wrapped in useEffectEvent can't be called during rendering.");
+};
 
 /** browser(): what use() throws on the server, so its boundary is rendered by the client (once per value). */
 const RECOVERABLE = Symbol.for("react.recoverable");
@@ -222,7 +225,8 @@ function serverHooks(ctx: Ctx) {
     useDeferredValue: (v: any, initial?: any) => (initial !== undefined ? initial : v),
     useActionState: (_a: any, init: any) => [init, NOOP, false],
     useOptimistic: (s: any) => [s, NOOP],
-    useEffectEvent: (fn: any) => fn,
+    // On the server an effect event is never called: calling it is an error, as React's.
+    useEffectEvent: () => effectEventOnServer,
     use: (u: any) => (u && u.$$typeof === CONTEXT ? read(u) : u && u.$$typeof === RECOVERABLE ? browserOnly(u) : readThenable(u)),
   } as any;
 }
@@ -280,7 +284,19 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     return sep + escape(text);
   }
   if (Array.isArray(node)) return node.map((n) => renderSibling(n, ctx, hooks)).join("");
-  if (typeof node === "object" && typeof node[Symbol.iterator] === "function" && !node.$$typeof) return render([...node], ctx, hooks);
+  if (typeof node === "object" && typeof node[Symbol.iterator] === "function" && !node.$$typeof) {
+    const it = node[Symbol.iterator]();
+    if (it === node)
+      warnOnce(
+        "Using Iterators as children is unsupported and will likely yield unexpected results because enumerating a generator mutates it. You may convert it to an array with `Array.from()` or the `[...spread]` operator before rendering. You can also use an Iterable that can iterate multiple times over the same items.",
+      );
+    else if (node.entries === node[Symbol.iterator]) warnOnce("Using Maps as children is not supported. Use an array of keyed ReactElements instead.");
+    const items: any[] = [];
+    for (let r = it.next(); !r.done; r = it.next()) items.push(r.value);
+    return render(items, ctx, hooks);
+  }
+  // A context as a child: its value where it is rendered.
+  if (node.$$typeof === CONTEXT) return render(ctx.values.has(node) ? ctx.values.get(node) : node._defaultValue, ctx, hooks);
   if (node.$$typeof === PORTAL) return "";
   if (node.$$typeof !== ELEMENT) throw objectChild(node);
   const { type, props } = node;
@@ -410,8 +426,14 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   }
   let inner: string;
   if (props.dangerouslySetInnerHTML?.__html != null) inner = props.dangerouslySetInnerHTML.__html;
-  else if ((tag === "script" || tag === "style") && !ctx.svg && (typeof props.children === "string" || typeof props.children === "number"))
-    inner = tag === "script" ? scriptSafe(String(props.children)) : styleSafe(String(props.children));
+  else if (tag === "script" && !ctx.svg) {
+    const c = props.children;
+    if (c != null && typeof c !== "string")
+      warn(
+        `A script element was rendered with ${typeof c === "number" ? "a number for children" : Array.isArray(c) ? "an array for children" : "something unexpected for children"}. If script element has children it must be a single string. Consider using dangerouslySetInnerHTML or passing a plain string as children.`,
+      );
+    inner = typeof c === "string" ? scriptSafe(c) : "";
+  } else if (tag === "style" && !ctx.svg && (typeof props.children === "string" || typeof props.children === "number")) inner = styleSafe(String(props.children));
   else if (tag === "textarea") inner = escape(String(props.value ?? props.defaultValue ?? props.children ?? ""));
   else if (tag === "select") {
     const was = ctx.select;
@@ -439,6 +461,27 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   if (tag === "head" && top) inner = HEAD_MARK + inner;
   if (tag === "html" && ctx.parent === null && !inner.includes(HEAD_MARK)) inner = `<head>${HEAD_MARK}</head>` + inner;
   return `${open}${inner}</${tag}>`;
+}
+
+/** React's checks on a <title>'s children: one string-like value (browsers keep a title's content as text). */
+function titleChildren(props: any) {
+  if (!Object.prototype.hasOwnProperty.call(props, "children")) return;
+  const children = props.children;
+  const child = Array.isArray(children) ? (children.length < 2 ? children[0] : null) : children;
+  if (Array.isArray(children) && children.length > 1)
+    warn(
+      `React expects the \`children\` prop of <title> tags to be a string, number, bigint, or object with a novel \`toString\` method but found an Array with length ${children.length} instead. Browsers treat all child Nodes of <title> tags as Text content and React expects to be able to convert \`children\` of <title> tags to a single string value which is why Arrays of length greater than 1 are not supported. When using JSX it can be common to combine text nodes and value nodes. For example: <title>hello {nameOfUser}</title>. While not immediately apparent, \`children\` in this case is an Array with length 2. If your \`children\` prop is using this form try rewriting it using a template string: <title>{\`hello \${nameOfUser}\`}</title>.`,
+    );
+  else if (typeof child === "function" || typeof child === "symbol")
+    warn(
+      `React expect children of <title> tags to be a string, number, bigint, or object with a novel \`toString\` method but found ${typeof child === "function" ? "a Function" : "a Sybmol"} instead. Browsers treat all child Nodes of <title> tags as Text content and React expects to be able to convert children of <title> tags to a single string value.`,
+    );
+  else if (child && child.toString === {}.toString)
+    warn(
+      child.$$typeof != null
+        ? "React expects the `children` prop of <title> tags to be a string, number, bigint, or object with a novel `toString` method but found an object that appears to be a React element which never implements a suitable `toString` method. Browsers treat all child Nodes of <title> tags as Text content and React expects to be able to convert children of <title> tags to a single string value which is why rendering React elements is not supported. If the `children` of <title> is a React Component try moving the <title> tag into that component. If the `children` of <title> is some HTML markup change it to be Text only to be valid HTML."
+        : "React expects the `children` prop of <title> tags to be a string, number, bigint, or object with a novel `toString` method but found an object that does not implement a suitable `toString` method. Browsers treat all child Nodes of <title> tags as Text content and React expects to be able to convert children of <title> tags to a single string value. Using the default `toString` method available on every object is almost certainly an error. Consider whether the `children` of this <title> is an object in error and change it to a string or number value if so. Otherwise implement a `toString` method that React can use to produce a valid <title>.",
+    );
 }
 
 /** Where Float's resources go in a rendered document. */
@@ -472,6 +515,7 @@ function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
   };
   switch (tag) {
     case "title": {
+      titleChildren(props);
       if (inline) return undefined;
       if (!ctx.fallback) {
         const child = single(props.children);
