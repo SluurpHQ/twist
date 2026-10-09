@@ -71,9 +71,11 @@ const wanted = new Set<string>(["input", "change", "click"]);
 /** What maps a native event and phase to the React props it runs: given by props.ts (it knows onChange's rules). */
 let propsFor: (el: Element, type: string, capture: boolean, props: any, native: Event) => string[] = () => [];
 let after: (el: Element, e: Event) => void = () => {};
-export function configure(match: typeof propsFor, done: typeof after) {
+let onSubmit: (e: SubmitEvent) => void = () => {};
+export function configure(match: typeof propsFor, done: typeof after, submitted: typeof onSubmit) {
   propsFor = match;
   after = done;
+  onSubmit = submitted;
 }
 
 /** `container` answers for `root`'s events (a root's own container, or one a portal of it renders into). */
@@ -199,6 +201,8 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   }
   synthetic.__current = null;
   if (!capture && native.type in ENTER_LEAVE) enterLeave(native, roots);
+  // A form's action, after its onSubmit handlers (they may prevent it).
+  if (!capture && native.type === "submit") onSubmit(native as SubmitEvent);
   if (!capture) after((native.target as Element) ?? (container as Element), native);
   return synthetic.isPropagationStopped();
 }

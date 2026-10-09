@@ -103,7 +103,7 @@ function changedOnce(el: Element, native: Event) {
   if (!m.has(el)) m.set(el, valueChanged(el));
   return m.get(el)!;
 }
-configure(propsFor, (el, e) => afterEvent(el, e));
+configure(propsFor, (el, e) => afterEvent(el, e), submitted);
 
 function asReactEvent(e: any, el: Element) {
   if (!("nativeEvent" in e)) {
@@ -159,18 +159,32 @@ function listen(el: Element, prop: string, handler: any) {
 }
 
 /** A form's or button's action as a function: React 19 calls it with the form's data. */
-function setAction(el: Element, name: string, fn: any) {
-  const form = name === "action" ? el : (el as any).form;
-  (el as any)[name === "action" ? "__action" : "__formAction"] = fn;
-  if (!form || (form as any).__submits) return;
-  (form as any).__submits = true;
-  form.addEventListener("submit", (e: any) => {
-    const by = e.submitter;
-    const act = by?.__formAction ?? (form as any).__action;
-    if (typeof act !== "function" || e.defaultPrevented) return;
-    e.preventDefault();
-    submit(form as HTMLFormElement, act, new FormData(form as HTMLFormElement, by ?? undefined), by);
-  });
+/** A function given as action or formAction: run by React's submit dispatch (submitted, below), not written. */
+function setAction(_el: Element, _name: string, _fn: any) {
+  want("submit");
+}
+
+/** React's coerceFormActionProp: a function as it is, nothing for what is no URL, else the text. */
+function formActionOf(v: any): any {
+  if (v == null || typeof v === "symbol" || typeof v === "boolean") return null;
+  return typeof v === "function" ? v : "" + v;
+}
+
+/** A form submitted (after its onSubmit handlers): its action run, as React's form action plugin does. */
+function submitted(e: SubmitEvent) {
+  const form = e.target as HTMLFormElement;
+  const props = (form as any).__props;
+  if (!props || form.localName !== "form") return;
+  let act = props.action;
+  let by: HTMLElement | null = e.submitter ?? null;
+  if (by) {
+    const own = (by as any).__props;
+    const theirs = own ? formActionOf(own.formAction) : by.getAttribute("formAction");
+    if (theirs !== null) (act = theirs), (by = null);
+  }
+  if (e.defaultPrevented || typeof act !== "function") return;
+  e.preventDefault();
+  submit(form, act, new FormData(form, (by ?? undefined) as any), e.submitter);
 }
 
 /** How a form's action runs: given by core (it knows the form's fiber, its status and its boundary). */
