@@ -398,18 +398,23 @@ function nextServerNode(host: Node): Node | null {
 
 /** A Suspense boundary the server drew, between its comments (`$` complete, `$?` pending, `$!` given to the
  * client): hydrated on its own, as React does — what goes wrong inside stays inside. */
-type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspended: PromiseLike<any> | null; mismatch: boolean; made: Node[] };
+type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspended: PromiseLike<any> | null; mismatch: boolean; text: boolean; made: Node[] };
 const regions: Region[] = [];
 const regionIn = (host: Node) => {
   for (let i = regions.length - 1; i >= 0; i--) if (regions[i]!.host === host) return regions[i];
   return undefined;
 };
 /** Markup that differs from the client's: the innermost boundary's to deal with, or the root's. */
-function markMismatch() {
+function markMismatch(text = false) {
   const r = regions[regions.length - 1];
-  if (r) r.mismatch = true;
-  else mismatched = true;
+  if (r) {
+    // After it suspended, nothing of the boundary counts yet: it is hydrated again later.
+    if (!r.suspended && !r.mismatch) (r.mismatch = true), (r.text = text);
+  } else if (!mismatched) (mismatched = true), (mismatchedText = text);
 }
+/** Whether the root's mismatch was text (React says "server rendered text" then). */
+let mismatchedText = false;
+const failedMessage = (text: boolean) => (text ? HYDRATION_FAILED.replace("server rendered HTML", "server rendered text") : HYDRATION_FAILED);
 /** The comment closing the boundary opened by `start`. */
 function boundaryEnd(start: Comment): Comment | null {
   let depth = 0;
@@ -422,6 +427,14 @@ function boundaryEnd(start: Comment): Comment | null {
     } else if (d === "$" || d === "$?" || d === "$!") depth++;
   }
   return null;
+}
+/** The boundary's server markup taken away, its comments too (it is drawn on the client instead): where it was. */
+function removeRegion(r: { start: Comment; end: Comment }): Node | null {
+  const after = r.end.nextSibling;
+  clearRegion(r);
+  r.start.remove();
+  r.end.remove();
+  return after;
 }
 /** The boundary's server nodes between its comments taken away (it is drawn on the client instead). */
 function clearRegion(r: { start: Comment; end: Comment }) {
@@ -459,8 +472,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   }
   if (kind === "$!") {
     serverGaveUp(f, region);
-    clearRegion(region);
-    drawFresh(f, host, end);
+    drawFresh(f, host, removeRegion(region));
     return;
   }
   hydrateRegion(f, host, region, () => start(f, host, before));
@@ -469,7 +481,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
 /** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
  * they do not match. */
 function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comment }, draw: () => void) {
-  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, made: [] };
+  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, text: false, made: [] };
   const was = hydrating!.get(host);
   hydrating!.set(host, region.start.nextSibling);
   regions.push(r);
@@ -481,7 +493,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     regions.pop();
     hydrating!.set(host, was ?? region.end.nextSibling);
   }
-  if (r.suspended) {
+  if (r.suspended && !r.mismatch) {
     // Left as the server drew it, and hydrated again once what it waits for is there.
     for (const c of f.children) unmount(c, false);
     f.children = [];
@@ -494,9 +506,8 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     for (const c of f.children) unmount(c, false);
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
-    clearRegion(region);
-    recoverable(f, HYDRATION_FAILED);
-    drawFresh(f, host, region.end);
+    recoverable(f, failedMessage(r.text));
+    drawFresh(f, host, removeRegion(region));
   }
 }
 
@@ -512,7 +523,7 @@ function serverGaveUp(f: Fiber, region: { start: Comment }) {
 }
 
 /** The boundary drawn on the client, not hydrated, before its closing comment. */
-function drawFresh(f: Fiber, host: Node, end: Node) {
+function drawFresh(f: Fiber, host: Node, end: Node | null) {
   const was = hydrating;
   hydrating = null;
   try {
@@ -532,8 +543,9 @@ function retryBoundary(f: Fiber) {
   if (!host) return;
   if (region.start.data === "$!") {
     serverGaveUp(f, region);
-    clearRegion(region);
-    drawFresh(f, host, region.end);
+    const after = removeRegion(region);
+    (f as any).region = undefined;
+    drawFresh(f, host, after);
     flushSignals();
     return;
   }
@@ -617,7 +629,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
       f.dom = had;
     } else {
-      if (hydrating && text !== "") markMismatch();
+      if (hydrating && text !== "") markMismatch(nextServerNode(host)?.nodeType === 3);
       f.dom = docOf(host).createTextNode(text);
       host.insertBefore(f.dom, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
@@ -1267,7 +1279,8 @@ function caught(f: Fiber, e: any) {
       for (let p = f.parent; p; p = p.parent) {
         if (p.type !== SUSPENSE) continue;
         const r = regions.find((x) => x.fiber === p);
-        if (r) {
+        // A boundary that already does not match is drawn on the client: there it shows its fallback.
+        if (r && !r.mismatch) {
           r.suspended ??= e;
           return;
         }
@@ -2005,7 +2018,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           if (mismatched) {
             mismatched = false;
             const recover = options?.onRecoverableError ?? report;
-            recover(new Error("Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch"), { componentStack: "" });
+            recover(new Error((mismatchedText ? "Hydration failed because the server rendered text didn't match the client." : "Hydration failed because the server rendered HTML didn't match the client.") + " As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch"), { componentStack: "" });
           }
         }
         if (--depth === 0) commit();

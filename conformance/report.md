@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2880 pass, 1144 fail, 314 skipped (gated off for stable React 19).
+2887 pass, 1137 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -33,7 +33,7 @@
 | react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 39 | 134 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 40 | 133 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 3 | 18 | 0 |  |
@@ -88,7 +88,7 @@
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 68 | 9 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 11 | 9 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 3 | 7 | 0 |  |
-| react-dom/ReactDOMServerPartialHydration-test.internal.js | 21 | 36 | 10 |  |
+| react-dom/ReactDOMServerPartialHydration-test.internal.js | 27 | 30 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 9 | 28 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
