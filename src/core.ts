@@ -463,6 +463,60 @@ function tellProfilers(commitTime: number) {
   }
 }
 
+/** StrictMode's check that effects clean up: what it just mounted is unmounted, then mounted again. */
+function doubleInvoke(list: Fiber[]) {
+  const live = list.filter((f) => !f.dead && !(hiddenActivities && insideHidden(f)));
+  const hooksOf = (f: Fiber, phase: string) => (f.kind === COMP ? (f.hooks ?? []).filter((h: any) => h && h.phase === phase) : []);
+  for (const f of live) {
+    for (const h of hooksOf(f, "layout")) if (typeof h.cleanup === "function") lifecycle(f, h.cleanup), (h.cleanup = null);
+    const inst = f.inst;
+    if (inst && (f as any).classRef != null) clearRef(f, (f as any).classRef);
+    if (inst?.componentWillUnmount) lifecycle(f, () => inst.componentWillUnmount());
+    if ((f.kind === HOST || f.kind === HOIST) && f.props?.ref != null) clearRef(f, f.props.ref);
+    if (f.kind === FRAG && (f as any).fragment && f.props?.ref != null) clearRef(f, f.props.ref);
+  }
+  for (const f of live) for (const h of hooksOf(f, "passive")) if (typeof h.cleanup === "function") lifecycle(f, h.cleanup), (h.cleanup = null);
+  const again = (h: any, f: Fiber) => {
+    try {
+      const back = h.create();
+      h.cleanup = typeof back === "function" ? back : null;
+    } catch (e) {
+      caught(f, e);
+    }
+  };
+  for (let i = live.length - 1; i >= 0; i--) {
+    const f = live[i]!;
+    for (const h of hooksOf(f, "layout")) if (typeof h.create === "function") again(h, f);
+    const inst = f.inst;
+    if (inst && (f as any).classRef != null) setRef(f, (f as any).classRef, inst);
+    if (inst?.componentDidMount) lifecycle(f, () => inst.componentDidMount());
+    if ((f.kind === HOST || f.kind === HOIST) && f.props?.ref != null && f.dom) setRef(f, f.props.ref, f.dom);
+    if (f.kind === FRAG && (f as any).fragment && f.props?.ref != null) setRef(f, f.props.ref, (f as any).fragment);
+  }
+  for (let i = live.length - 1; i >= 0; i--) for (const h of hooksOf(live[i]!, "passive")) if (typeof h.create === "function") again(h, live[i]!);
+}
+
+/** In StrictMode (development), `fn` called twice: the first result kept (useMemo, initializers), or the last. */
+function strictTwice<T>(f: Fiber, fn: () => T, last = false): T {
+  const a = fn();
+  if (!(f as any).strict || !dev()) return a;
+  const b = replaying(fn);
+  return last ? b : a;
+}
+/** Told when StrictMode calls something a second time (React tells devtools; its test scheduler logs nothing then). */
+let strictReplay: (on: boolean) => void = () => {};
+export function onStrictReplay(fn: typeof strictReplay) {
+  strictReplay = fn;
+}
+function replaying<T>(fn: () => T): T {
+  strictReplay(true);
+  try {
+    return fn();
+  } finally {
+    strictReplay(false);
+  }
+}
+
 /** Fragment refs in use: while there are some, hosts coming and going tell the ones above them. */
 let fragmentRefs = 0;
 function toldFragmentsAdded(f: Fiber) {
@@ -484,6 +538,7 @@ const fresh: Fiber[] = [];
 function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
   const f: Fiber = { kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root };
   if (nextTree) ((f as any).tree = nextTree), (nextTree = null);
+  if ((parent as any).strict || parent.type === STRICT) (f as any).strict = true;
   return remember(f);
 }
 
@@ -1508,6 +1563,14 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     for (let pass = 0; ; pass++) {
       (f as any).again = false;
       out = f.render!(f, f.props);
+      if (!(f as any).again && (f as any).strict && f.render !== renderClass && typeof f.type === "function" && dev()) {
+        // StrictMode: rendered once more, its hooks as the first render left them (React's double render).
+        hookAt = 0;
+        f.insertion = [];
+        f.layout = [];
+        f.passive = [];
+        out = replaying(() => f.render!(f, f.props));
+      }
       if (!(f as any).again) break;
       if (pass >= 24) throw new Error("Too many re-renders. React limits the number of renders to prevent an infinite loop.");
       // Again, with what this render set: its hooks from the top, the effects it asked for asked again.
@@ -1635,7 +1698,7 @@ function renderClass(f: Fiber, withRef: any) {
     let force = false;
     for (const u of inst.__queue.splice(0)) {
       if (u === FORCE) force = true;
-      else state = { ...state, ...(typeof u === "function" ? u.call(inst, state, nextProps) : u) };
+      else state = { ...state, ...(typeof u === "function" ? strictTwice(f, () => u.call(inst, state, nextProps), true) : u) };
     }
     return [state, force] as const;
   };
@@ -1644,6 +1707,7 @@ function renderClass(f: Fiber, withRef: any) {
   if (!inst || remount) {
     if (remount) inst.__remount = false;
     else {
+      if ((f as any).strict && dev()) new C(props, ctx);
       inst = f.inst = new C(props, ctx);
       inst.props = props;
       inst.context = ctx;
@@ -1651,11 +1715,11 @@ function renderClass(f: Fiber, withRef: any) {
       inst.__f = f;
       inst.__queue = [];
     }
-    if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...C.getDerivedStateFromProps(props, inst.state) };
+    if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...strictTwice(f, () => C.getDerivedStateFromProps(props, inst.state), true) };
     call("componentWillMount");
     // setState in componentWillMount: taken into this first render.
     inst.state = apply(inst.state, props)[0];
-    const out = inst.render();
+    const out = strictTwice(f, () => inst.render(), true);
     if (inst.componentDidMount) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidMount()));
     if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
     (f as any).classRef = ref;
@@ -1676,9 +1740,9 @@ function renderClass(f: Fiber, withRef: any) {
   }
   if (prevProps !== props || prevCtx !== ctx) call("componentWillReceiveProps", props, ctx);
   let [state, force] = apply(prevState, props);
-  if (C.getDerivedStateFromProps) state = { ...state, ...C.getDerivedStateFromProps(props, state) };
+  if (C.getDerivedStateFromProps) state = { ...state, ...strictTwice(f, () => C.getDerivedStateFromProps(props, state), true) };
   if (!force && prevProps === props && state === prevState && prevCtx === ctx) return KEEP;
-  if (!force && inst.shouldComponentUpdate && !untrack(() => inst.shouldComponentUpdate(props, state, ctx))) {
+  if (!force && inst.shouldComponentUpdate && !untrack(() => strictTwice(f, () => inst.shouldComponentUpdate(props, state, ctx), true))) {
     inst.props = props;
     inst.state = state;
     inst.context = ctx;
@@ -1689,7 +1753,7 @@ function renderClass(f: Fiber, withRef: any) {
   inst.state = state;
   inst.context = ctx;
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
-  const out = inst.render();
+  const out = strictTwice(f, () => inst.render(), true);
   if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
   if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
@@ -1862,7 +1926,12 @@ function commit() {
       const commitTime = now();
       for (let i = 0; i < layoutQueue.length; i++) guard(layoutQueue[i]!);
       layoutQueue.length = 0;
-      for (const f of fresh.splice(0)) f.committed = true;
+      const made = fresh.splice(0);
+      for (const f of made) f.committed = true;
+      if (dev()) {
+        const strictMade = made.filter((f) => (f as any).strict && !f.dead);
+        if (strictMade.length) passiveQueue.push(() => doubleInvoke(strictMade));
+      }
       tellProfilers(commitTime);
     });
   } finally {
@@ -2007,9 +2076,9 @@ export const client = {
   useState<T>(init: T | (() => T)): [T, (v: T | ((p: T) => T)) => void] {
     const f = current!;
     const h = hook(() => {
-      const box = state(f, typeof init === "function" ? (init as () => T)() : init);
+      const box = state(f, typeof init === "function" ? strictTwice(f, init as () => T) : init);
       box.set = (v: any) => {
-        const apply = () => box.put(typeof v === "function" ? v(box.v) : v);
+        const apply = () => box.put(typeof v === "function" ? strictTwice(f, () => v(box.v), true) : v);
         const preview = (p: Preview) => {
           const was = p.states.has(box) ? p.states.get(box) : box.v;
           p.states.set(box, typeof v === "function" ? v(was) : v);
@@ -2023,10 +2092,10 @@ export const client = {
   useReducer(reducer: any, arg: any, init?: any) {
     const f = current!;
     const h = hook(() => {
-      const box = state(f, init ? init(arg) : arg);
+      const box = state(f, init ? strictTwice(f, () => init(arg)) : arg);
       box.reducer = reducer;
       box.dispatch = (a: any) => {
-        const apply = () => box.put(box.reducer(box.v, a));
+        const apply = () => box.put(strictTwice(f, () => box.reducer(box.v, a), true));
         const preview = (p: Preview) => p.states.set(box, box.reducer(p.states.has(box) ? p.states.get(box) : box.v, a));
         if (current === f || !inTransition(apply, preview, f)) apply();
       };
@@ -2039,9 +2108,10 @@ export const client = {
     return hook(() => ({ current: init }));
   },
   useMemo<T>(fn: () => T, deps?: any[]): T {
+    const f = current!;
     const h = hook(() => ({ deps: undefined as any, value: undefined as any }));
     if (!deps || depsChanged(h.deps, deps)) {
-      h.value = insideHook(fn);
+      h.value = strictTwice(f, () => insideHook(fn));
       h.deps = deps;
     }
     return h.value;

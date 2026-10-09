@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3233 pass, 791 fail, 314 skipped (gated off for stable React 19).
+3252 pass, 772 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -46,7 +46,7 @@
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
 | react-dom/ReactDOMFloat-test.js | 115 | 25 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 22 | 23 | 0 |  |
-| react-dom/ReactDOMFragmentRefs-test.js | 82 | 7 | 0 |  |
+| react-dom/ReactDOMFragmentRefs-test.js | 83 | 6 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMHooks-test.js | 2 | 0 | 2 |  |
 | react-dom/ReactDOMHostComponentTransitions-test.js | 0 | 2 | 0 |  |
@@ -88,7 +88,7 @@
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 68 | 9 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 11 | 9 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 4 | 6 | 0 |  |
-| react-dom/ReactDOMServerPartialHydration-test.internal.js | 32 | 25 | 10 |  |
+| react-dom/ReactDOMServerPartialHydration-test.internal.js | 33 | 24 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 13 | 24 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
@@ -124,7 +124,7 @@
 | react-dom/ReactRenderDocument-test.js | 8 | 3 | 0 |  |
 | react-dom/ReactServerRendering-test.js | 36 | 9 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactServerRenderingHydration-test.js | 14 | 10 | 0 |  |
+| react-dom/ReactServerRenderingHydration-test.js | 15 | 9 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 9 | 15 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 2 | 3 | 0 |  |
@@ -156,8 +156,8 @@
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
 | react/ReactPureComponent-test.js | 2 | 2 | 0 |  |
 | react/ReactStartTransition-test.js | 0 | 1 | 0 |  |
-| react/ReactStrictMode-test.internal.js | 1 | 4 | 0 |  |
-| react/ReactStrictMode-test.js | 5 | 18 | 3 |  |
+| react/ReactStrictMode-test.internal.js | 3 | 2 | 0 |  |
+| react/ReactStrictMode-test.js | 19 | 4 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
 | redux-tests/components/connect.spec.tsx | 66 | 1 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
