@@ -283,17 +283,26 @@ export function insert(parent: Node, value: any, marker: Node | null = null) {
 function bind(parent: Node, value: () => any, end: Node | null) {
   let current: Node[] = [];
   createRenderEffect(
-    () => {
-      let v = value();
-      while (typeof v === "function" && !isChildren(v)) v = v();
-      return isChildren(v) ? v() : v;
-    },
+    // Every accessor in it read here, tracked (a list of rows that are accessors, say); nodes made in the apply.
+    () => resolveDeep(value()),
     (v: any) => {
       const next = untrack(() => nodesOf(v, [], current));
       reconcile(parent, current, next, end);
       current = next;
     },
   );
+}
+
+/** A value with its accessors called, all the way down (arrays flattened). */
+function resolveDeep(v: any): any {
+  while (typeof v === "function") v = v();
+  if (!Array.isArray(v)) return v;
+  const out: any[] = [];
+  for (const x of v) {
+    const r = resolveDeep(x);
+    Array.isArray(r) ? out.push(...r) : out.push(r);
+  }
+  return out;
 }
 
 function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
