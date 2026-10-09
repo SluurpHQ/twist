@@ -38,6 +38,7 @@ let owner: () => string | null = () => null;
 export function setOwner(fn: () => string | null) {
   owner = fn;
 }
+export const ownerName = () => owner();
 
 // ---------------------------------------------------------------- keys
 

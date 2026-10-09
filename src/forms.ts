@@ -2,7 +2,7 @@
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
 import { setProp } from "./props.ts";
-import { checkControlled, checkControlledSwitch, dev, warn } from "./warnings.ts";
+import { checkControlled, checkControlledSwitch, dev, ownerName, warn } from "./warnings.ts";
 import { validateProps } from "./validate-props.ts";
 import { fieldString } from "./coercion.ts";
 
@@ -42,22 +42,29 @@ function setDefaultValue(node: HTMLInputElement, value: any) {
 
 // ---------------------------------------------------------------- input
 
-function initInput(node: HTMLInputElement, p: any) {
+function initInput(node: HTMLInputElement, p: any, hydrating: boolean) {
   const { value, defaultValue, checked, defaultChecked, type, name } = p;
+  if (dev()) {
+    // Controlled or uncontrolled, not both (React's validateInputProps).
+    const who = ownerName() || "A component";
+    if (checked !== undefined && defaultChecked !== undefined)
+      warn(`${who} contains an input of type ${type} with both checked and defaultChecked props. Input elements must be either controlled or uncontrolled (specify either the checked prop, or the defaultChecked prop, but not both). Decide between using a controlled or uncontrolled input element and remove one of these props. More info: https://react.dev/link/controlled-components`, "input-checked-default");
+    if (value !== undefined && defaultValue !== undefined)
+      warn(`${who} contains an input of type ${type} with both value and defaultValue props. Input elements must be either controlled or uncontrolled (specify either the value prop, or the defaultValue prop, but not both). Decide between using a controlled or uncontrolled input element and remove one of these props. More info: https://react.dev/link/controlled-components`, "input-value-default");
+  }
   if (usable(type)) node.type = type;
   if (value != null || defaultValue != null) {
     const isButton = type === "submit" || type === "reset";
     if (isButton && value == null) return;
     const defaultStr = defaultValue != null ? str(defaultValue) : "";
     const initial = value != null ? str(value) : defaultStr;
-    if (initial !== node.value) node.value = initial;
+    // Taken over from the server: what the field holds now (a person may have typed already) is kept.
+    if (!hydrating && initial !== node.value) node.value = initial;
     node.defaultValue = initial;
   }
   const checkedOrDefault = checked != null ? checked : defaultChecked;
   const initialChecked = typeof checkedOrDefault !== "function" && typeof checkedOrDefault !== "symbol" && !!checkedOrDefault;
-  node.checked = initialChecked;
-  // Toggled twice, as React does, so the attribute is written even when it was already right.
-  node.defaultChecked = !node.defaultChecked;
+  node.checked = hydrating ? node.checked : initialChecked;
   node.defaultChecked = initialChecked;
   if (usable(name)) node.name = name;
 }
@@ -226,12 +233,12 @@ export function valueChanged(el: Element): boolean {
 // ---------------------------------------------------------------- the calls core makes
 
 /** A new field's props set: the ordinary ones first (type, step, min, max before value), then React's own. */
-export function initForm(el: Element, tag: string, props: any, svg: boolean) {
+export function initForm(el: Element, tag: string, props: any, svg: boolean, hydrating = false) {
   const own = OWN[tag]!;
   checkControlled(tag, props);
   validateProps(tag, props, true);
   for (const k in props) if (!own.has(k) && props[k] != null) setProp(el, k, props[k], undefined, svg);
-  if (tag === "input") initInput(el as HTMLInputElement, props);
+  if (tag === "input") initInput(el as HTMLInputElement, props, hydrating);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
   else if (tag === "select") initSelect(el as HTMLSelectElement, props);
   else if (tag === "option" && props.selected != null) (el as HTMLOptionElement).selected = !!props.selected && typeof props.selected !== "function" && typeof props.selected !== "symbol";
@@ -241,8 +248,8 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean) {
 /** A field's props changed from `prev` to `next`. */
 export function updateForm(el: Element, tag: string, next: any, prev: any, svg: boolean) {
   const own = OWN[tag]!;
-  checkControlledSwitch(tag, next, prev);
   validateProps(tag, next, true);
+  checkControlledSwitch(tag, next, prev);
   for (const k in prev) if (!own.has(k) && !(k in next)) setProp(el, k, undefined, prev[k], svg);
   for (const k in next) if (!own.has(k) && next[k] !== prev[k]) setProp(el, k, next[k], prev[k], svg);
   if (tag === "input") updateInput(el as HTMLInputElement, next, prev.defaultValue);

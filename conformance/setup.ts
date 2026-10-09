@@ -34,6 +34,42 @@ GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframe
     }
   } as any;
 }
+// jsdom reflects defaultValue and defaultChecked into their attributes internally; happy-dom calls the element's own
+// setAttribute, which React's tests spy on.
+{
+  const proto: any = HTMLInputElement.prototype;
+  const set = Element.prototype.setAttribute;
+  const remove = Element.prototype.removeAttribute;
+  Object.defineProperty(proto, "defaultValue", {
+    configurable: true,
+    get(this: Element) {
+      return this.attributes.getNamedItem("value")?.value ?? "";
+    },
+    set(this: any, v: string) {
+      set.call(this, "value", String(v));
+    },
+  });
+  Object.defineProperty(proto, "defaultChecked", {
+    configurable: true,
+    get(this: Element) {
+      return this.attributes.getNamedItem("checked") !== null;
+    },
+    set(this: any, v: boolean) {
+      v ? set.call(this, "checked", "") : remove.call(this, "checked");
+    },
+  });
+}
+// A clone keeps a checkbox's or radio's checkedness when it was set (its dirty checked flag), as the HTML spec has it.
+{
+  const PS: any = await import("happy-dom/lib/PropertySymbol.js" as any);
+  const proto: any = HTMLInputElement.prototype;
+  const clone = proto.cloneNode;
+  proto.cloneNode = function (this: any, deep?: boolean) {
+    const copy = clone.call(this, deep);
+    copy[PS.checked] = this[PS.checked];
+    return copy;
+  };
+}
 if (!("nonce" in HTMLElement.prototype)) {
   for (const proto of [HTMLElement.prototype, (globalThis as any).SVGElement?.prototype].filter(Boolean))
     Object.defineProperty(proto, "nonce", {

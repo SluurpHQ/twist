@@ -1306,7 +1306,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
         if (props.size != null && typeof props.size !== "function" && typeof props.size !== "symbol") el.setAttribute("size", String(props.size));
       }
       if (type !== "textarea" && type !== "input") reconcile(f, toList(props.children), el, null);
-      initForm(el, type, props, false);
+      initForm(el, type, props, false, !!server);
     } else {
       setProps(el, props, null, ns === SVG_NS);
       setDefaults(el, props);
