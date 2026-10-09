@@ -13,6 +13,8 @@ import {
   runWithOwner,
   untrack,
   NotReadyError,
+  getNextChildId,
+  sharedConfig,
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 export { isStatic };
@@ -30,10 +32,21 @@ export const Fragment = (props: { children?: unknown }) => props.children;
 
 /** What `<type {...props}>` makes: an element, or what a component returns. */
 export function jsx(type: any, props: Record<string, any>) {
+  // Hydrating: descriptions, claimed from the server's page top-down (in the order the server rendered them).
+  if (hydrating) return type === Fragment ? props.children : typeof type === "function" ? { [COMP]: true, fn: type, props } : { [EL]: true, tag: type, props };
   if (typeof type === "function") return type === Fragment ? childrenOf(props) : createComponent(type, componentProps(props));
   return element(type, props);
 }
-export { jsx as jsxs, jsx as jsxDEV };
+
+/** Several children written in the JSX (while hydrating, the template's own list: no separators between them). */
+export function jsxs(type: any, props: Record<string, any>) {
+  if (hydrating && Array.isArray(props.children)) (props.children as any)[OWN] = true;
+  return jsx(type, props);
+}
+
+export function jsxDEV(type: any, props: Record<string, any>, _key?: unknown, staticChildren?: boolean) {
+  return staticChildren ? jsxs(type, props) : jsx(type, props);
+}
 
 const childrenOf = (props: Record<string, any>) => {
   const c = props.children;
@@ -77,7 +90,8 @@ function set(el: Element, name: string, value: any) {
   if (name === "ref") return applyRef(value, el);
   if (/^on[A-Z]/.test(name)) return addEvent(el, name.slice(2).toLowerCase(), value);
   if (isDynamic(value)) {
-    createRenderEffect(value, (v: any, prev: any) => assign(el, name, v, prev));
+    // (A binding takes no id: the server makes none for it.)
+    createRenderEffect(value, (v: any, prev: any) => assign(el, name, v, prev), BINDING);
     return;
   }
   assign(el, name, value, undefined);
@@ -107,7 +121,9 @@ export function className(el: Element, value: any, prev?: any) {
   if (typeof value === "number") value = String(value);
   if (typeof prev === "number") prev = String(prev);
   const now = classes(value);
-  const before = classes(prev);
+  // What it applied last (an object changed in place is not what it was): the diff is against that.
+  const before: Set<string> = (el as any).$cls ?? classes(prev);
+  (el as any).$cls = now;
   if (typeof value === "string" || value == null || value === false) {
     if (value == null || value === false || value === "") return el.removeAttribute("class");
     return el.setAttribute("class", value);
@@ -141,7 +157,7 @@ export function applyRef(r: any, el: Element) {
 }
 
 /** Props given as a whole: each applied, kept current. */
-export function spread(el: Element, props: any) {
+export function spread(el: Element, props: any, claiming?: boolean) {
   if (!props) return;
   let prev: Record<string, any> = {};
   createRenderEffect(
@@ -158,7 +174,7 @@ export function spread(el: Element, props: any) {
   );
   for (const k of Object.keys(props)) if (/^on[A-Z]/.test(k)) addEvent(el, k.slice(2).toLowerCase(), props[k]);
   if (props.ref) applyRef(props.ref, el);
-  if ("children" in props) insert(el, () => props.children);
+  if ("children" in props) claiming ? claimChildren(props.children, { parent: el, next: el.firstChild }) : insert(el, () => props.children);
 }
 
 // ---------------------------------------------------------------- events, delegated per render root
@@ -253,18 +269,35 @@ export function insert(parent: Node, value: any, marker: Node | null = null) {
 }
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
-function bind(parent: Node, value: () => any, end: Node | null) {
+function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor) {
   let current: Node[] = [];
+  let first: Cursor | undefined = claimed;
   createRenderEffect(
     // Every accessor in it read here, tracked (a list of rows that are accessors, say); nodes made in the apply.
-    () => resolveDeep(value()),
+    () => {
+      const v = resolveDeep(value());
+      // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
+      if (first) {
+        const at = first;
+        first = undefined;
+        current = untrack(() => claimList(Array.isArray(v) ? v : [v], false, false, true, at));
+        end = at.next;
+        return CLAIMED;
+      }
+      return v;
+    },
     (v: any) => {
+      if (v === CLAIMED) return;
       const next = untrack(() => nodesOf(v, [], current));
       reconcile(parent, current, next, end);
       current = next;
     },
+    BINDING,
   );
 }
+
+const BINDING = { transparent: true } as any;
+const CLAIMED = Symbol("claimed");
 
 /** A value with its accessors called, all the way down (arrays flattened). */
 function resolveDeep(v: any): any {
@@ -354,6 +387,135 @@ function componentRaw(props: Record<string, any>) {
     raw[k] = d.get ? __twist_d(d.get) : d.value;
   }
   return raw;
+}
+
+// ---------------------------------------------------------------- hydration
+
+const EL = Symbol("twist.hydrate.element");
+const COMP = Symbol("twist.hydrate.component");
+const OWN = Symbol("twist.hydrate.own");
+
+/** Hydrating: the server's keyed elements by key. */
+let hydrating: { registry: Map<string, Element> } | null = null;
+
+/** Where claiming goes on in a parent: the next node not yet claimed. */
+type Cursor = { parent: Node; next: Node | null };
+
+/** The page the server rendered into `element`, adopted: `code()` claims its nodes and binds to them. */
+export function hydrate(code: () => any, element: Element | Document, options: { renderId?: string } = {}) {
+  roots.add(element);
+  for (const t of delegated) listen(element, t);
+  const registry = new Map<string, Element>();
+  for (const el of (element as Element).querySelectorAll("[_hk]")) registry.set(el.getAttribute("_hk")!, el);
+  const was = hydrating;
+  hydrating = { registry };
+  sharedConfig.hydrating = true;
+  let disposer!: () => void;
+  try {
+    createRoot(
+      (dispose) => {
+        disposer = dispose;
+        claimHtml(code(), false, { parent: element, next: element.firstChild });
+      },
+      { id: options.renderId ?? "" },
+    );
+    flush();
+  } finally {
+    hydrating = was;
+    sharedConfig.hydrating = !!was;
+  }
+  return () => {
+    disposer();
+    roots.delete(element);
+    (element as Element).textContent = "";
+  };
+}
+
+/** A value where the server rendered it (a hole, or the top of the page): mirrors the server's html(). */
+function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
+  if (v == null || typeof v === "boolean") return [];
+  if (Array.isArray(v)) return claimList(v, !!(v as any)[OWN], inTemplate, false, at);
+  if (typeof v === "function") return bindAt(v, at);
+  if (v[COMP]) return claimHtml(createComponent(v.fn, componentProps(v.props)), false, at);
+  if (v[EL]) return [claimElement(v, v.keyed ?? !inTemplate, at)];
+  return claimText(v, at);
+}
+
+/** An element's children: mirrors the server's children(). */
+function claimChildren(c: any, at: Cursor) {
+  if (Array.isArray(c)) claimList(c, !!(c as any)[OWN], true, false, at);
+  else if (typeof c === "function") bindAt(c, at);
+  else if (c && c[EL]) claimElement(c, c.keyed ?? false, at);
+  else claimHtml(c, false, at);
+}
+
+/** A list's items in place: a part that can change bound where it sits, the rest claimed. */
+function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, at: Cursor): Node[] {
+  const out: Node[] = [];
+  for (const x of items) {
+    if (x == null || typeof x === "boolean") continue;
+    if (typeof x === "function") {
+      if (viaFn) out.push(...claimList([resolveDeep(x)].flat(), own, inTemplate, true, at));
+      else out.push(...bindAt(x, at));
+    } else if (Array.isArray(x)) out.push(...claimList(x, !!(x as any)[OWN], inTemplate && own, viaFn, at));
+    else if (x[EL]) out.push(claimElement(x, x.keyed ?? !(inTemplate && own && !viaFn), at));
+    else if (x[COMP]) out.push(...claimHtml(createComponent(x.fn, componentProps(x.props)), false, at));
+    else if ((x as Node).nodeType) out.push(x as Node);
+    else out.push(...claimText(x, at));
+  }
+  return out;
+}
+
+/** A part that can change, bound to the nodes the server rendered for it. */
+function bindAt(fn: () => any, at: Cursor): Node[] {
+  const before = at.next;
+  bind(at.parent, fn, null, at);
+  const out: Node[] = [];
+  for (let n = before; n && n !== at.next; n = n.nextSibling) if (!isSeparator(n)) out.push(n);
+  return out;
+}
+
+const isSeparator = (n: Node | null) => !!n && n.nodeType === 8 && (n as Comment).data === "!$";
+
+/** The next node, separators the server put between two texts passed over. */
+function nextNode(at: Cursor): Node | null {
+  while (isSeparator(at.next)) at.next = at.next!.nextSibling;
+  return at.next;
+}
+
+function claimText(v: any, at: Cursor): Node[] {
+  const text = String(v);
+  if (text === "") return [];
+  const n = nextNode(at);
+  if (n && n.nodeType === 3) {
+    at.next = n.nextSibling;
+    if ((n as Text).data !== text) (n as Text).data = text;
+    return [n];
+  }
+  // Not what the server rendered: made here.
+  const t = document.createTextNode(text);
+  at.parent.insertBefore(t, n);
+  return [t];
+}
+
+function claimElement(d: { tag: string; props: Record<string, any> }, keyed: boolean, at: Cursor): Element {
+  const owner = getOwner() as any;
+  const key = keyed && owner?.id != null ? getNextChildId(owner) : undefined;
+  let el = (key != null && hydrating!.registry.get(key)) || (nextNode(at) as Element | null);
+  if (!el || el.nodeType !== 1) {
+    // Not what the server rendered: made here.
+    el = element(d.tag, {});
+    at.parent.insertBefore(el, at.next);
+  } else if (el === at.next) at.next = el.nextSibling;
+  const props = d.props;
+  for (const k of Object.keys(props)) {
+    if (k === "children") continue;
+    const v = props[k];
+    if (k.startsWith("$spread$")) spread(el, v(), true);
+    else set(el, k, v);
+  }
+  if ("children" in props) claimChildren(props.children, { parent: el, next: el.firstChild });
+  return el;
 }
 
 export { NotReadyError };
