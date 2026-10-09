@@ -309,8 +309,10 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       const parentDeps = ctx.res.boundary;
       const deps = { sheets: new Set<any>(), styles: new Set<any>() };
       ctx.res.boundary = deps;
+      ctx.lastText = false;
       try {
         const out = suspendAfter(ctx, () => render(props.children, ctx, hooks));
+        ctx.lastText = false;
         if (parentDeps) {
           for (const k of ["sheets", "styles"] as const) for (const x of deps[k]) parentDeps[k].add(x);
           if ((deps as any).emitted) ((parentDeps as any).emitted ??= []).push(...(deps as any).emitted);
@@ -325,8 +327,11 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         if (e && typeof e.then === "function") {
           if (stream) {
             const id = stream.shared.next++;
-            stream.shared.boundaries.push({ id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps });
-            return `<!--$?--><template id="B:${id}"></template>${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
+            const b: Boundary = { id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps };
+            stream.shared.boundaries.push(b);
+            b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+            ctx.lastText = false;
+            return pendingMarkup(b);
           }
           ctx.waiting.push(e);
           return `<!--$!-->${errorTemplate(undefined, aborted(RENDER_TO_STRING_SUSPENSE))}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
@@ -764,10 +769,18 @@ const RUNTIME_SOURCE =
 /** A value written into an inline script, as React escapes it (no "<", "&", ">" or line separators raw). */
 const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
 
-type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> } };
+/** A boundary as the shell writes it while it waits: its template, then its fallback. */
+const pendingMarkup = (b: Boundary) => `<!--$?--><template id="B:${b.id}"></template>${b.fallback}<!--/$-->`;
+
+type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string };
 
 /** One streamed render: the shell, then each boundary as it settles, written through `write`. */
-function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void) {
+function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void, flowingAtStart = true) {
+  // Until the stream flows (pipe), nothing is written: the shell waits, and boundaries that complete meanwhile are
+  // written into it in place (React flushes them with the shell, no script).
+  let flowing = flowingAtStart;
+  let held: string | null = null;
+  let endHeld = false;
   const shared = { ids: 0, boundaries: [] as Boundary[], next: 0 };
   const res = new Resources(writeTag, typeof options.nonce === "object" ? options.nonce?.style : undefined);
   const pending = new Set<Boundary>();
@@ -797,9 +810,18 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const close = () => {
     if (closed) return;
     closed = true;
-    if (postamble) write(postamble);
     options.onAllReady?.();
+    if (!flowing) return void (endHeld = true);
+    if (postamble) write(postamble);
     finish();
+  };
+  /** In the held shell: the boundary's pending markup replaced. */
+  const inShell = (b: Boundary, markup: string) => {
+    if (held === null) return false;
+    const at = held.indexOf(pendingMarkup(b));
+    if (at < 0) return false;
+    held = held.slice(0, at) + markup + held.slice(at + pendingMarkup(b).length);
+    return true;
   };
   const watch = () => {
     for (const b of shared.boundaries.splice(0)) {
@@ -831,16 +853,21 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         b.waiting = e;
         shared.boundaries.length = queued;
         shared.boundaries.push(b);
-        const early = res.late() + res.lateStyleTags(deps);
-        if (early) write(early);
+        if (flowing) {
+          const early = res.late() + res.lateStyleTags(deps);
+          if (early) write(early);
+        }
         return watch();
       }
       const digest = onError(e);
+      if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, errored(e), e)}${b.fallback}<!--/$-->`)) return watch();
       write(`${res.late()}${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
       runtimeSent = true;
       return watch();
     }
     res.boundary = res.replay = null;
+    // Done before the first flush: in the shell, its resources with the shell's (text at its end kept apart).
+    if (!flowing && inShell(b, `<!--$-->${inner}${ctx.lastText ? "<!-- -->" : ""}<!--/$-->`)) return watch();
     const late = res.late();
     const { styleTags, sheets } = res.boundaryStyles(deps);
     // With stylesheets (or style rules) of its own, the boundary is revealed once they have loaded ($SR).
@@ -875,26 +902,39 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       return e;
     }
     shellDone = true;
-    writeShell(shell);
+    held = shell;
+    options.onShellReady?.();
+    if (flowing) writeShell();
+    watch();
     return null;
   };
-  const writeShell = (shell: string) => {
+  const writeShell = () => {
+  const shell = held!;
+  held = null;
   // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
   // bootstrap scripts after it, as React writes them.
   const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res)));
   // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
-  const paint = !shared.boundaries.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
+  const paint = !shared.boundaries.length && !pending.size ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
   // The document's closing tags come last, once everything has streamed (React's postamble).
   const end = /(<\/body>)?<\/html>$/.exec(shellWithPreamble);
   postamble = end ? end[0] : "";
   write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
-  options.onShellReady?.();
-  watch();
   };
   const failed = tryShell();
-  if (failed) return { abort() {}, failed };
+  if (failed) return { abort() {}, failed, flow() {} };
   return {
     failed: null,
+    /** The stream flows (piped): the shell and what completed into it written, then the rest as it comes. */
+    flow() {
+      if (flowing) return;
+      flowing = true;
+      if (held !== null) writeShell();
+      if (endHeld) {
+        if (postamble) write(postamble);
+        finish();
+      }
+    },
     /** Stop waiting: what is still pending is left for the client to render. */
     abort(reason?: unknown) {
       if (closed) return;
@@ -911,6 +951,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       for (const b of pending) {
         const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
         const digest = onError(why);
+        if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, aborted((why as any)?.message ?? String(why)))}${b.fallback}<!--/$-->`)) continue;
         write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)))})</script>`);
         runtimeSent = true;
       }
@@ -927,13 +968,14 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   const write = (c: string) => (out ? out.write(c) : chunks.push(c));
   const finish = () => (out ? out.end?.() : (ended = true));
   let run: ReturnType<typeof startStream> | null = null;
-  // Started on the next turn, as React starts its work: the caller has its pipe ready by then.
-  setImmediateOr(() => (run = startStream(node, options, write, finish)));
+  // Started on the next turn, as React starts its work; it flows once piped.
+  setImmediateOr(() => (run = startStream(node, options, write, finish, out !== null)));
   return {
     pipe(w: any) {
       out = w;
       for (const c of chunks.splice(0)) w.write(c);
       if (ended) w.end?.();
+      run?.flow();
       return w;
     },
     abort(reason?: unknown) {
