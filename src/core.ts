@@ -2495,7 +2495,8 @@ function caught(f: Fiber, e: any) {
       hydrationWaits = e;
       return;
     }
-    // No boundary: drawn again when it settles.
+    // No boundary: drawn again when it settles (a root drawn off the page waits for it instead).
+    if (offPage) return void (offPage.waits ??= e);
     e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
     return;
   }
@@ -3307,6 +3308,9 @@ function applyTransitions(): boolean {
   return true;
 }
 
+/** A root drawn off the page (in place of server markup that did not match): what suspends with no boundary holds it. */
+let offPage: { waits: PromiseLike<any> | null } | null = null;
+
 /** A root's first render, done in a transition, committing now (its view transitions animate). */
 let transitionCommit = false;
 
@@ -3465,9 +3469,9 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       rendering = true;
       if (depth === 1) startRender();
       // What the root's own elements throw (no component between): uncaught, as React has it.
-      const draw = () => {
+      const draw = (into: Node = container) => {
         try {
-          reconcile(top, toList(children), container, null);
+          reconcile(top, toList(children), into, null);
         } catch (e) {
           uncaught(state, e);
         }
@@ -3532,12 +3536,53 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
             for (const c of top.children) unmount(c, false);
             top.children = [];
             hydrating = null;
-            clearContainer(container);
-            draw();
-            (state as any).threw = false;
-            for (const tell of caughtThisRender.splice(0)) tell();
             const recover = options?.onRecoverableError ?? report;
-            layoutQueue.push(() => withFiber(at, () => recover(error, { componentStack: "" })));
+            // Drawn off the page first: if it suspends with no boundary, the server's markup stays until it can be
+            // drawn whole (React suspends the root's commit), then the mismatch is told.
+            const clientRender = () => {
+              // A document (or its <html>, <head>, <body>) is drawn in place: its singletons are the document's.
+              if (container.nodeType === 9 || /^(HTML|HEAD|BODY)$/.test(container.nodeName)) {
+                clearContainer(container);
+                draw();
+                (state as any).threw = false;
+                for (const tell of caughtThisRender.splice(0)) tell();
+                layoutQueue.push(() => withFiber(at, () => recover(error, { componentStack: "" })));
+                return;
+              }
+              const frag = docOf(container).createDocumentFragment();
+              const hold = { waits: null as PromiseLike<any> | null };
+              const was = offPage;
+              offPage = hold;
+              top.dom = frag;
+              try {
+                draw(frag);
+              } finally {
+                offPage = was;
+                top.dom = container;
+              }
+              if (hold.waits) {
+                for (const c of top.children) unmount(c, false);
+                top.children = [];
+                caughtThisRender.length = 0;
+                const again = () => {
+                  depth++;
+                  try {
+                    clientRender();
+                  } finally {
+                    if (--depth === 0) commit();
+                  }
+                  flushSignals();
+                };
+                hold.waits.then(again, again);
+                return;
+              }
+              clearContainer(container);
+              container.appendChild(frag);
+              (state as any).threw = false;
+              for (const tell of caughtThisRender.splice(0)) tell();
+              layoutQueue.push(() => withFiber(at, () => recover(error, { componentStack: "" })));
+            };
+            clientRender();
           }
         }
       } finally {
