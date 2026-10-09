@@ -815,7 +815,14 @@ export class Computation<T> extends Node<T> implements Owner {
     const c = this.cleanup;
     this.cleanup = undefined;
     c?.();
-    const done = runWithOwner(null, () => this.apply!(this.value as T, prev));
+    let done: unknown;
+    try {
+      done = runWithOwner(null, () => this.apply!(this.value as T, prev));
+    } catch (e) {
+      // A user effect's own function threw, unhandled: the reactive system stops (A5).
+      if (this.kind === EFFECT && !this.onError) effectFailed = true;
+      throw e;
+    }
     if (done !== undefined && typeof done !== "function") throw new Error("effect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
     this.cleanup = done as (() => void) | undefined;
   }
@@ -898,8 +905,14 @@ function landNow() {
 }
 
 /** An uncaught error stopped the scheduler (flush threw it): let it run again. */
+/** An effect's function threw during this flush, with nothing to handle it. */
+let effectFailed = false;
+/** Stopped by such an error: flush does nothing until resetErrorHalt(). */
+let stopped = false;
+
 export function resetErrorHalt() {
   halted = false;
+  stopped = false;
 }
 
 const byOrder = (a: Computation<any>, b: Computation<any>) => a.height - b.height || a.order - b.order;
@@ -1137,6 +1150,8 @@ const statusDirty = () => false;
 export function flush<T>(fn?: () => T): T {
   if (inSettled) throw new Error("Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there.");
   let result!: T;
+  // Stopped by an effect's uncaught error: nothing runs until resetErrorHalt().
+  if (stopped) return fn ? untrack(fn) : result;
   if (!flushing) flushes++;
   flushing++;
   try {
@@ -1145,6 +1160,13 @@ export function flush<T>(fn?: () => T): T {
     drain();
   } catch (e) {
     halted = true;
+    if (effectFailed) {
+      effectFailed = false;
+      stopped = true;
+      // Said once, and the cause handed to the platform where it takes one.
+      console.error("[REACTIVITY_HALTED] An effect's uncaught error stopped the reactive system; nothing updates until resetErrorHalt().");
+      (globalThis as any).reportError?.(e);
+    }
     writes.splice(0);
     dirty = [];
     staged = [];
