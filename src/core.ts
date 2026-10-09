@@ -190,6 +190,8 @@ function topElements(f: Fiber, out: Element[] = []): Element[] {
 }
 
 function domNodes(f: Fiber, out: Node[] = []): Node[] {
+  // A singleton stays where the document has it: not moved or removed with its parent's nodes.
+  if ((f as any).singleton) return out;
   if (f.kind === HOST || f.kind === TEXT) out.push(f.dom);
   else if (f.kind !== PORTAL_F) for (const c of f.children) domNodes(c, out);
   return out;
@@ -391,7 +393,8 @@ function nextServerNode(host: Node): Node | null {
   if (!hydrating) return null;
   let n = hydrating.has(host) ? hydrating.get(host)! : host.firstChild;
   const limit = regionIn(host)?.end;
-  while (n && n !== limit && n.nodeType === 8) n = n.nextSibling;
+  // Past comments and a doctype: markers and the document's preamble are no fiber's.
+  while (n && n !== limit && (n.nodeType === 8 || n.nodeType === 10)) n = n.nextSibling;
   return n === limit ? null : n;
 }
 
@@ -597,6 +600,20 @@ function serverCursor(host: Node): Node | null {
   hydrating!.set(host, n);
   return n;
 }
+/** The document's own <html>, <head> or <body> for `type` (made if the document has none), or null. */
+function singleton(host: Node, type: string): Element | null {
+  if (type !== "html" && type !== "head" && type !== "body") return null;
+  const doc = docOf(host);
+  const root = doc.documentElement;
+  if (type === "html") return root;
+  if (!root) return null;
+  const existing = type === "head" ? doc.head : doc.body;
+  if (existing) return existing;
+  const made = doc.createElement(type);
+  type === "head" ? root.insertBefore(made, root.firstChild) : root.appendChild(made);
+  return made;
+}
+
 /** Our own fields on a DOM node, kept out of enumeration (snapshot serializers, devtools listing its keys). */
 const hide = (node: any, key: string, value: any) => Object.defineProperty(node, key, { value, writable: true, configurable: true, enumerable: false });
 
@@ -699,7 +716,13 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       checkNesting(type, around, (tag) => behindComponents(f, tag));
       f.nesting = ancestorsWith(around, type);
     }
-    const server = hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null;
+    // <html>, <head> and <body> are the document's own (React's singletons), wherever they are rendered.
+    const single = !ns ? singleton(host, type) : null;
+    if (single) (f as any).singleton = true;
+    // Taken over while hydrating: what follows it in its parent comes next.
+    if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
+    if (single && !hydrating) for (const c of [...single.childNodes]) if (type !== "html") single.removeChild(c);
+    const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null);
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     hide(el, "__fiber", f);
@@ -726,7 +749,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       attrsDiffer = true;
     }
     if (server) {
-      if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el);
+      if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !single && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el);
     } else {
       host.insertBefore(el, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
@@ -910,6 +933,14 @@ function shallowEqual(a: any, b: any) {
 
 function unmount(f: Fiber, removeDom: boolean) {
   if (f.dead) return;
+  // A singleton let go: emptied, its attributes taken off, the element kept (React's releaseSingletonInstance).
+  if ((f as any).singleton && f.dom) {
+    const el = f.dom as Element;
+    for (const c of f.children) unmount(c, false);
+    f.children = [];
+    if (f.type !== "html") el.replaceChildren();
+    for (const a of [...el.attributes]) el.removeAttribute(a.name);
+  }
   // A boundary still as the server drew it: its markup goes with it.
   if (removeDom && (f as any).dehydrated && (f as any).region) {
     removeRegion((f as any).region);

@@ -308,7 +308,7 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
   ctx.lastText = false;
-  let open = `${tag === "html" ? "<!DOCTYPE html>" : ""}<${tag}${attrs(props, ctx, tag)}`;
+  let open = `${tag === "html" && ctx.streaming ? "<!DOCTYPE html>" : ""}<${tag}${attrs(props, ctx, tag)}`;
   if (tag === "option") {
     const chosen = ctx.select;
     const v = props.value ?? (typeof props.children === "string" ? props.children : undefined);
