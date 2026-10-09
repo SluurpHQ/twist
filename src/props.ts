@@ -9,7 +9,7 @@ import { valueChanged } from "./forms.ts";
 import { dev, warn } from "./warnings.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
-const noop = () => {};
+export const noop = () => {};
 export const MATH_NS = "http://www.w3.org/1998/Math/MathML";
 
 const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "suppressHydrationWarning", "suppressContentEditableWarning", "defaultValue", "defaultChecked", "innerHTML"]);

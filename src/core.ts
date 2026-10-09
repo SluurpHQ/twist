@@ -4,7 +4,7 @@
 import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
-import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
+import { MATH_NS, SVG_NS, styleText, eventOf, noop, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
@@ -1687,13 +1687,17 @@ function shallowEqual(a: any, b: any) {
 
 function unmount(f: Fiber, removeDom: boolean) {
   if (f.dead) return;
-  // A singleton let go: emptied, its attributes taken off, the element kept (React's releaseSingletonInstance).
+  // A singleton let go: what React set on it unset, the element kept (React's releaseSingletonInstance): what others
+  // set on it (attributes, styles, an onclick of theirs) stays.
   if ((f as any).singleton && f.dom) {
-    const el = f.dom as Element;
+    const el = f.dom as HTMLElement;
     // Its children's nodes go with them; what others put in it (resources, extensions' nodes) stays.
     for (const c of f.children) unmount(c, true);
     f.children = [];
-    for (const a of [...el.attributes]) el.removeAttribute(a.name);
+    const props = f.props ?? {};
+    setProps(el, {}, props, false);
+    if (props.dangerouslySetInnerHTML != null) el.textContent = "";
+    if (el.onclick === noop) el.onclick = null;
   }
   // A boundary still as the server drew it: its markup goes with it.
   if (removeDom && (f as any).dehydrated && (f as any).region) {
