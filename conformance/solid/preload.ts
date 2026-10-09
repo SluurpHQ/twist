@@ -23,3 +23,11 @@ plugin({
     b.onResolve({ filter: /^vitest$/ }, () => ({ path: join(import.meta.dir, "vitest.ts") }));
   },
 });
+
+// A halt (an uncaught effect error) ends with its test: it does not leak into the next one.
+import { afterEach as eachDone } from "bun:test";
+import { resetErrorHalt } from "../../src/twist/signals.ts";
+// (Only under the test runner: this file also preloads plain bun runs.)
+try {
+  eachDone(() => resetErrorHalt());
+} catch {}

@@ -819,9 +819,9 @@ export class Computation<T> extends Node<T> implements Owner {
     try {
       done = runWithOwner(null, () => this.apply!(this.value as T, prev));
     } catch (e) {
-      // A user effect's own function threw, unhandled: the reactive system stops (A5).
-      if (this.kind === EFFECT && !this.onError) effectFailed = true;
-      throw e;
+      // The effect's own code threw: not its error handler's (that is for its compute) — the nearest boundary, else
+      // the system halts (A5).
+      escalate(this, e);
     }
     if (done !== undefined && typeof done !== "function") throw new Error("effect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
     this.cleanup = done as (() => void) | undefined;
@@ -856,12 +856,34 @@ function sweepUntracked() {
 function handleError(c: Computation<any>, e: unknown) {
   if (c.onError) {
     const handler = c.onError;
-    return void (pendingErrors.push(() => handler(e, () => c.cleanup?.())));
+    // (A handler that throws escalates: the nearest boundary, else the system halts.)
+    return void pendingErrors.push(() => {
+      try {
+        handler(e, () => c.cleanup?.());
+      } catch (e2) {
+        escalate(c, e2);
+      }
+    });
   }
+  // A plain effect's compute failing, with nothing to handle it: logged, the run skipped, the app goes on.
+  if (c.kind === EFFECT && !c.tracked && !boundaryCatches(c, e)) return void console.error(e);
+  if (c.kind === EFFECT && !c.tracked) return;
+  escalate(c, e);
+}
+
+/** The nearest error boundary takes `e`; whether one did. */
+function boundaryCatches(c: Computation<any>, e: unknown): boolean {
   for (let o: Owner | null = c.parent; o; o = o.parent) {
     const catcher = (o as any).catch as ((e: unknown) => boolean) | undefined;
-    if (catcher && catcher(e)) return;
+    if (catcher && catcher(e)) return true;
   }
+  return false;
+}
+
+/** To the nearest boundary, else uncaught: the flush throws it and the system halts. */
+function escalate(c: Computation<any>, e: unknown) {
+  if (boundaryCatches(c, e)) return;
+  effectFailed = true;
   uncaught.push(e);
 }
 
@@ -1140,6 +1162,8 @@ function drain() {
       for (const end of ambientEnds.splice(0)) end();
     }
   }
+  // (An effect's own code that threw in the last round.)
+  if (uncaught.length) throw uncaught.splice(0)[0];
 }
 const statusDirty = () => false;
 
@@ -1164,8 +1188,11 @@ export function flush<T>(fn?: () => T): T {
       effectFailed = false;
       stopped = true;
       // Said once, and the cause handed to the platform where it takes one.
-      console.error("[REACTIVITY_HALTED] An effect's uncaught error stopped the reactive system; nothing updates until resetErrorHalt().");
-      (globalThis as any).reportError?.(e);
+      const msg = "[REACTIVITY_HALTED] An uncaught error stopped the reactive system; nothing updates until resetErrorHalt().";
+      // The cause beside it, or to the platform where it takes one.
+      const report = (globalThis as any).reportError;
+      if (typeof report === "function") console.error(msg), report(e);
+      else console.error(msg, e);
     }
     writes.splice(0);
     dirty = [];

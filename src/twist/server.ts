@@ -67,15 +67,20 @@ export function dynamic<P>(source: () => any, options?: { static?: boolean }): (
 
 /** Its children, or its fallback (given the error and a reset) once rendering them throws. */
 export function Errored(props: { fallback: any; children?: any }) {
-  const parent = getOwner();
-  const boundary = createOwner(parent);
+  // The boundary; its content under a first owner of its own, its fallback under a second (the client claims the same).
+  const boundary = createOwner(getOwner());
+  const content = createOwner(boundary);
   const fallback = (e: unknown) => {
+    // The error goes to the client under the content's id: the fallback hydrates against it.
+    const r = render;
+    const id = (content as any).id;
+    if (r?.serializer && id != null && noHydration === 0 && !r.written.has(id)) r.written.add(id), r.serializer.write(id, e);
     const f = props.fallback;
-    return runWithOwner(parent, () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
+    return runWithOwner(createOwner(boundary), () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
   };
   try {
     const before = holeCount;
-    const t = runWithOwner(boundary, () => html(props.children, false));
+    const t = runWithOwner(content, () => html(props.children, false));
     // Holes in it that wait: it waits with them, and shows its fallback if one of them fails.
     const r = render;
     if (!r || holeCount === before || !/\u0000hole\d+\u0000/.test(t)) return { t };
@@ -298,9 +303,9 @@ function list(items: any[], own: boolean, inTemplate: boolean): string {
 function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, parts: Part[]) {
   for (let x of items) {
     let fn = viaFn;
-    // A hole beside other children: between markers the client claims it by.
-    if (typeof x === "function" && own && !viaFn && items.length > 1 && !(x as any).$esc) {
-      parts.push({ s: "<!--$-->" + list([x], false, inTemplate) + "<!--/-->", text: false, split: false });
+    // A hole or a component beside other children: between markers the client claims it by.
+    if (own && !viaFn && items.length > 1 && ((typeof x === "function" && !(x as any).$esc) || (x && x[COMP]))) {
+      parts.push({ s: "<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, inTemplate)) + "<!--/-->", text: false, split: false });
       continue;
     }
     if (typeof x === "function") {

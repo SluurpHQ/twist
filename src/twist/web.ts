@@ -20,7 +20,7 @@ import {
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic, spreadSource, Loading } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic, spreadSource, Loading, Errored } from "./control.ts";
 
 export * from "./control.ts";
 import { inOrder } from "../shared/in-order.ts";
@@ -480,7 +480,11 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
   if (v == null || typeof v === "boolean") return [];
   if (Array.isArray(v)) return claimList(v, !!(v as any)[OWN], inTemplate, false, at);
   if (typeof v === "function") return bindAt(v, at);
-  if (v[COMP]) return v.fn === Loading ? claimLoading(componentProps(v.props), at) : claimHtml(createComponent(v.fn, componentProps(v.props)), false, at);
+  if (v[COMP]) {
+    if (v.fn === Loading) return claimLoading(componentProps(v.props), at);
+    if (v.fn === Errored) return claimErrored(componentProps(v.props), at);
+    return claimHtml(createComponent(v.fn, componentProps(v.props)), false, at);
+  }
   if (v[EL]) return [claimElement(v, v.keyed ?? !inTemplate, at)];
   return claimText(v, at);
 }
@@ -527,6 +531,40 @@ function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): No
   return fallback;
 }
 
+/**
+ * An Errored boundary the server rendered: its owner takes the server's id. Its content is claimed; if that throws (as
+ * it did on the server, which then rendered the fallback), the fallback is claimed from the same place instead.
+ */
+function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): Node[] {
+  // As the server made it: the boundary, its content under a first owner, its fallback under a second.
+  const boundary = createOwner(getOwner()) as any;
+  const content = createOwner(boundary) as any;
+  const start = at.next;
+  const fallback = (e: unknown) => {
+    at.next = start;
+    const f = props.fallback;
+    return runWithOwner(createOwner(boundary), () => claimHtml(typeof f === "function" ? f(() => e, () => {}) : f, false, at));
+  };
+  // The server caught an error here: it sent it under the content's id, and rendered the fallback.
+  const sent = (globalThis as any)._$HY?.r;
+  if (sent && content.id != null && content.id in sent) {
+    const v = sent[content.id];
+    return fallback(v && typeof v === "object" && "s" in v && "v" in v ? v.v : v);
+  }
+  // (An error something under it reports while it is claimed comes back here.)
+  content.catch = (e: unknown) => {
+    throw e;
+  };
+  try {
+    return runWithOwner(content, () => claimHtml(props.children, false, at));
+  } catch (e) {
+    if (e instanceof NotReadyError) throw e;
+    return fallback(e);
+  } finally {
+    content.catch = undefined;
+  }
+}
+
 const noopFn = () => {};
 
 /** An element's children: mirrors the server's children(). */
@@ -547,7 +585,7 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
       else out.push(...bindAt(x, at));
     } else if (Array.isArray(x)) out.push(...claimList(x, !!(x as any)[OWN], inTemplate && own, viaFn, at));
     else if (x[EL]) out.push(claimElement(x, x.keyed ?? !(inTemplate && own && !viaFn), at));
-    else if (x[COMP]) out.push(...claimHtml(x, false, at));
+    else if (x[COMP]) out.push(...marked(at, () => claimHtml(x, false, at)));
     else if ((x as Node).nodeType) out.push(x as Node);
     else out.push(...claimText(x, at));
   }
@@ -564,6 +602,22 @@ function bindAt(fn: () => any, at: Cursor): Node[] {
 }
 
 const isSeparator = (n: Node | null) => !!n && n.nodeType === 8 && (n as Comment).data === "!$";
+const isComment = (n: Node | null, data: string) => !!n && n.nodeType === 8 && (n as Comment).data === data;
+
+/** What the server put between <!--$--> and <!--/--> claimed: the markers passed over, anything left between gone. */
+function marked(at: Cursor, claim: () => Node[]): Node[] {
+  if (!isComment(at.next, "$")) return claim();
+  at.next = at.next!.nextSibling;
+  const out = claim();
+  let n = at.next;
+  while (n && !isComment(n, "/")) {
+    const x = n.nextSibling;
+    if (!out.includes(n)) n.parentNode!.removeChild(n);
+    n = x;
+  }
+  at.next = n ? n.nextSibling : null;
+  return out;
+}
 
 /** The next node, separators the server put between two texts passed over. */
 function nextNode(at: Cursor): Node | null {
