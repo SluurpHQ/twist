@@ -32,6 +32,40 @@ const SETUP_ONLY: [RegExp, string][] = [
   [/(['"])(?:\.\.\/)+scripts\/jest\//g, "$1../scripts/jest/"],
 ];
 
+/**
+ * Jest calls a function given to expect(…).rejects/.resolves; Bun's expect wants the promise (and test files get
+ * Bun's own expect, so no global can stand in). Such calls rewritten to call the function: expect((fn)()).rejects.
+ */
+function promiseExpectations(code: string): string {
+  let out = "";
+  let at = 0;
+  for (let i = code.indexOf("expect(", 0); i >= 0; i = code.indexOf("expect(", i + 1)) {
+    if (/[\w$.]/.test(code[i - 1] ?? "")) continue;
+    const open = i + "expect".length;
+    // The matching parenthesis, past strings, templates and comments.
+    let depth = 0, j = open, quote = "";
+    for (; j < code.length; j++) {
+      const c = code[j]!;
+      if (quote) {
+        if (c === "\\") j++;
+        else if (c === quote) quote = "";
+        continue;
+      }
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      else if (c === "/" && code[j + 1] === "/") j = code.indexOf("\n", j);
+      else if (c === "(") depth++;
+      else if (c === ")" && --depth === 0) break;
+    }
+    if (j >= code.length) break;
+    const arg = code.slice(open + 1, j);
+    if (/^\s*\.\s*(rejects|resolves)\b/.test(code.slice(j + 1)) && /^\s*(async\b|function\b|\([^)]*\)\s*=>|\w+\s*=>)/.test(arg)) {
+      out += code.slice(at, open + 1) + "(" + arg + ")()";
+      at = j;
+    }
+  }
+  return out + code.slice(at);
+}
+
 // React's sources are Flow-typed: the types taken out, as React's own build does.
 const flowRemoveTypes = (await import("flow-remove-types")).default;
 const unflow = (code: string) => flowRemoveTypes(code, { all: true }).toString();
@@ -42,7 +76,7 @@ function copy(from: string, to: string) {
     const a = join(from, f), b = join(to, f);
     if (statSync(a).isDirectory()) copy(a, b);
     else if (/-test(\.internal)?\.js$/.test(f)) {
-      let code = unflow(gateSource(readFileSync(a, "utf8")));
+      let code = promiseExpectations(unflow(gateSource(readFileSync(a, "utf8"))));
       for (const [re, to] of SETUP_ONLY) code = code.replace(re, to);
       writeFileSync(b, code);
     } else if (f.endsWith(".js")) writeFileSync(b, unflow(readFileSync(a, "utf8")));

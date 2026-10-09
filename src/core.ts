@@ -523,7 +523,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   }
   loops.add(f);
   if ((f as any).draws > LIMIT) {
-    if ((f as any).draws === LIMIT + 1) report(new Error(`Maximum update depth exceeded in <${nameOf(f.type)}> (inside ${path(f)}): it updates state on every render.`));
+    // Handled as a render error would be: the nearest boundary, else the root goes down and the error is told.
+    if ((f as any).draws === LIMIT + 1) caught(f, new Error(`Maximum update depth exceeded. This can happen when a component calls setState on every render: <${nameOf(f.type)}> (inside ${path(f)}).`));
     return;
   }
   if (depth++ === 0) runPassive(false);
@@ -977,8 +978,18 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   state.onUncaughtError = options?.onUncaughtError;
   state.onCaughtError = options?.onCaughtError;
   let first = true;
+  // Renders of this root started while it is already rendering or committing (componentDidMount rendering the
+  // root again): past React's limit it is a loop, thrown as React throws it.
+  let nested = 0;
   return {
     render(children: any) {
+      if (depth > 0) {
+        if (++nested > LIMIT) {
+          nested = 0;
+          throw new Error("Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops.");
+        }
+        if (nested === 1) queueMicrotask(() => (nested = 0));
+      }
       const hydrate = first && options?.hydrate;
       if (first) {
         first = false;
@@ -993,7 +1004,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         if (hydrate) hydrating = null;
         if (--depth === 0) commit();
       }
-      flushSignals();
+      // Called from inside a render or commit (a root made in componentDidMount): flushed when that one ends.
+      if (depth === 0) flushSignals();
     },
     unmount() {
       for (const c of top.children) unmount(c, true);

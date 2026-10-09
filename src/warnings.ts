@@ -4,12 +4,18 @@
 const dev = () => (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
 const seen = new Set<string>();
 
-/** A development warning, once per `once` key (the message itself by default). */
-export function warn(message: string, once: string = message) {
-  if (!dev() || seen.has(once)) return;
-  seen.add(once);
+/** A development warning: every time, or once per `once` key where React keeps a flag for it. */
+export function warn(message: string, once?: string) {
+  if (!dev()) return;
+  if (once !== undefined) {
+    if (seen.has(once)) return;
+    seen.add(once);
+  }
   console.error(message);
 }
+
+/** A warning React gives once (it remembers having given it). */
+export const warnOnce = (message: string) => warn(message, message);
 
 /** Forget what was warned (React's tests load React afresh for each test). */
 export function resetWarnings() {
@@ -69,28 +75,28 @@ export function checkPropName(tag: string, name: string, value: any) {
   const lower = name.toLowerCase();
   if (name.startsWith("on") && name.length > 2) {
     if (name === "onFocusIn" || name === "onFocusOut") {
-      warn("React uses onFocus and onBlur instead of onFocusIn and onFocusOut. All React events are normalized to bubble, so onFocusIn and onFocusOut are not needed/supported by React.");
+      warnOnce("React uses onFocus and onBlur instead of onFocusIn and onFocusOut. All React events are normalized to bubble, so onFocusIn and onFocusOut are not needed/supported by React.");
       return;
     }
     const rest = name.slice(2).replace(/Capture$/, "");
     if (name[2] === name[2]!.toUpperCase() && !KNOWN_EVENTS.has(rest)) {
-      warn(`Unknown event handler property \`${name}\`. It will be ignored.`);
+      warnOnce(`Unknown event handler property \`${name}\`. It will be ignored.`);
       return;
     }
   }
   if (/^aria[A-Z]/.test(name) || (lower.startsWith("aria") && !lower.startsWith("aria-") && name !== "aria")) {
-    warn(`Invalid ARIA attribute \`${name}\`. ARIA attributes follow the pattern aria-* and must be lowercase.`);
+    warnOnce(`Invalid ARIA attribute \`${name}\`. ARIA attributes follow the pattern aria-* and must be lowercase.`);
     return;
   }
   const standard = STANDARD[name] ?? (STANDARD[lower] !== name ? STANDARD[lower] : undefined);
-  if (standard && standard !== name && value !== undefined) warn(`Invalid DOM property \`${name}\`. Did you mean \`${standard}\`?`);
+  if (standard && standard !== name && value !== undefined) warnOnce(`Invalid DOM property \`${name}\`. Did you mean \`${standard}\`?`);
 }
 
 /** An element whose tag the browser does not know (a component written in lowercase, say). */
 export function checkTag(el: Element, tag: string) {
   if (!dev() || tag.includes("-") || el.namespaceURI !== "http://www.w3.org/1999/xhtml") return;
   if (typeof HTMLUnknownElement !== "undefined" && el instanceof HTMLUnknownElement) {
-    warn(`The tag <${tag}> is unrecognized in this browser. If you meant to render a React component, start its name with an uppercase letter.`);
+    warnOnce(`The tag <${tag}> is unrecognized in this browser. If you meant to render a React component, start its name with an uppercase letter.`);
   }
 }
 
@@ -104,24 +110,24 @@ export function checkControlled(tag: string, props: any) {
   const handled = props.onChange || props.readOnly || props.disabled;
   if (tag === "input" || tag === "textarea" || tag === "select") {
     if (props.value != null && !(tag === "input" && READ_ONLY_TYPES.has(props.type)) && !handled && !props.onInput) {
-      warn(
+      warnOnce(
         tag === "select"
           ? "You provided a `value` prop to a form field without an `onChange` handler. This will render a read-only field. If the field should be mutable use `defaultValue`. Otherwise, set `onChange`."
           : "You provided a `value` prop to a form field without an `onChange` handler. This will render a read-only field. If the field should be mutable use `defaultValue`. Otherwise, set either `onChange` or `readOnly`.",
       );
     }
     if (tag === "input" && props.checked != null && !handled && !props.onClick) {
-      warn("You provided a `checked` prop to a form field without an `onChange` handler. This will render a read-only field. If the field should be mutable use `defaultChecked`. Otherwise, set either `onChange` or `readOnly`.");
+      warnOnce("You provided a `checked` prop to a form field without an `onChange` handler. This will render a read-only field. If the field should be mutable use `defaultChecked`. Otherwise, set either `onChange` or `readOnly`.");
     }
   }
   if ((tag === "input" || tag === "textarea" || tag === "select") && props.value === null && "value" in props) {
-    warn(
+    warnOnce(
       tag === "select"
         ? "`value` prop on `select` should not be null. Consider using an empty string to clear the component or `undefined` for uncontrolled components."
         : `\`value\` prop on \`${tag}\` should not be null. Consider using an empty string to clear the component or \`undefined\` for uncontrolled components.`,
     );
   }
-  if (tag === "textarea" && props.children != null && props.value == null) warn("Use the `defaultValue` or `value` props instead of setting children on <textarea>.");
+  if (tag === "textarea" && props.children != null && props.value == null) warnOnce("Use the `defaultValue` or `value` props instead of setting children on <textarea>.");
 }
 
 /** A field switching between controlled and uncontrolled across an update. */
@@ -131,11 +137,11 @@ export function checkControlledSwitch(tag: string, next: any, prev: any) {
   const was = isCheck ? prev.checked != null : prev.value != null;
   const is = isCheck ? next.checked != null : next.value != null;
   if (was && !is) {
-    warn(
+    warnOnce(
       "A component is changing a controlled input to be uncontrolled. This is likely caused by the value changing from a defined to undefined, which should not happen. Decide between using a controlled or uncontrolled input element for the lifetime of the component. More info: https://react.dev/link/controlled-components",
     );
   } else if (!was && is) {
-    warn(
+    warnOnce(
       "A component is changing an uncontrolled input to be controlled. This is likely caused by the value changing from undefined to a defined value, which should not happen. Decide between using a controlled or uncontrolled input element for the lifetime of the component. More info: https://react.dev/link/controlled-components",
     );
   }

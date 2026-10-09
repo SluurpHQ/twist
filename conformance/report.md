@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2067 pass, 1813 fail, 313 skipped (gated off for stable React 19).
+2090 pass, 1790 fail, 313 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -15,7 +15,7 @@
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 5 | 14 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 10 | 16 | 0 |  |
-| react-dom/ReactCompositeComponent-test.js | 19 | 21 | 0 |  |
+| react-dom/ReactCompositeComponent-test.js | 20 | 20 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 2 | 6 | 1 |  |
@@ -23,13 +23,13 @@
 | react-dom/ReactDOMActivity-test.js | 0 | 7 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 7 | 6 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 80 | 84 | 1 |  |
+| react-dom/ReactDOMComponent-test.js | 92 | 72 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
 | react-dom/ReactDOMEventListener-test.js | 14 | 9 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 47 | 45 | 0 |  |
-| react-dom/ReactDOMFiber-test.js | 21 | 15 | 1 |  |
+| react-dom/ReactDOMFiber-test.js | 22 | 14 | 1 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
@@ -104,7 +104,7 @@
 | react-dom/ReactDOMUseId-test.js | 1 | 11 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 0 | 14 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 20 | 4 | 0 |  |
-| react-dom/ReactErrorBoundaries-test.internal.js | 10 | 39 | 1 |  |
+| react-dom/ReactErrorBoundaries-test.internal.js | 13 | 36 | 1 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
@@ -129,7 +129,7 @@
 | react-dom/ReactTestUtilsAct-test.js | 1 | 23 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 0 | 5 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
-| react-dom/ReactUpdates-test.js | 22 | 20 | 3 |  |
+| react-dom/ReactUpdates-test.js | 28 | 14 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
 | react-dom/refs-test.js | 9 | 3 | 0 |  |
