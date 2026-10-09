@@ -446,6 +446,8 @@ export class Computation<T> extends Node<T> implements Owner {
   settles: Promise<void> | null = null;
   /** Its answers come from an async iterator: shown as they land, never revealed as one. */
   streaming = false;
+  /** It had an error and now has a value again (a change, whatever the value). */
+  recovered = false;
   /** Serving its loading value until its first answer lands. */
   loadingWindow = false;
   /** Told each value it takes (a derived store reconciles an async answer into itself). */
@@ -631,7 +633,8 @@ export class Computation<T> extends Node<T> implements Owner {
       if (this.kind !== MEMO) handleError(this, threw);
       return;
     }
-    this.error = NONE;
+    // Recovered from an error: a value again is a change, even the one it had before.
+    if (this.error !== NONE) (this.error = NONE), (this.recovered = true);
     boundaryOf(this)?.ready(this);
     // An async answer: in flight, its old value kept meanwhile.
     if (next! && typeof (next as any).then === "function") return this.fly(next as any);
@@ -654,7 +657,8 @@ export class Computation<T> extends Node<T> implements Owner {
     const first = !this.ready;
     this.ready = true;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
-    const changed = first || this.equals === false || !this.equals(now, next);
+    const changed = first || this.recovered || this.equals === false || !this.equals(now, next);
+    this.recovered = false;
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
       if (changed || this.applied === NONE || this.equals === Object.is) {
@@ -1563,7 +1567,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _opt
 /** `fn`'s value, or `fallback(error, reset)` once something under it throws. */
 export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
   const failed = new Signal<unknown>(NONE, { ownedWrite: true, equals: false });
-  const reset = () => ((failed.value = NONE), (view = null), failed.bump());
+  const reset = () => ((failed.value = NONE), (view = null), (caughtBelow = false), failed.bump());
+  let caughtBelow = false;
   // What the fallback shows: built once per error under the boundary, kept current with what it reads.
   let view: Computation<F> | null = null;
   let viewFor: unknown = NONE;
@@ -1579,18 +1584,22 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
     (m as any).catch = (e: unknown) => {
       if (failed.value !== NONE) return false;
       failed.value = e;
+      caughtBelow = true;
       failed.bump();
       reportCaught(e, m);
       return true;
     };
-    const err = failed.read();
-    if (err !== NONE) return showFallback();
+    failed.read();
+    // An error something under it threw (an effect): shown until reset.
+    if (failed.value !== NONE && caughtBelow) return showFallback();
+    // Otherwise the content is tried, failed or not (tracked through what it reads): once what failed recovers, it shows.
     try {
-      return resolveChildren(fn());
+      const v = resolveChildren(fn());
+      if (failed.value !== NONE) (failed.value = NONE), (view = null);
+      return v;
     } catch (e) {
       if (e instanceof NotReadyError) throw e;
-      failed.value = e;
-      reportCaught(e, m);
+      if (failed.value !== e) (failed.value = e), reportCaught(e, m);
       return showFallback();
     }
   });
