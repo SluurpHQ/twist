@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3740 pass, 245 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3743 pass, 242 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -14,7 +14,7 @@
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 18 | 1 | 2 |  |
-| react-dom/ReactComponentLifeCycle-test.js | 23 | 3 | 0 |  |
+| react-dom/ReactComponentLifeCycle-test.js | 25 | 1 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 39 | 1 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
@@ -152,7 +152,7 @@
 | react/ReactJSXTransformIntegration-test.js | 18 | 1 | 0 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
 | react/ReactProfiler-test.internal.js | 25 | 8 | 1 |  |
-| react/ReactProfilerComponent-test.internal.js | 6 | 1 | 0 |  |
+| react/ReactProfilerComponent-test.internal.js | 7 | 0 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
 | react/ReactPureComponent-test.js | 4 | 0 | 0 |  |
 | react/ReactStartTransition-test.js | 0 | 1 | 0 |  |

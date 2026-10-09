@@ -1673,6 +1673,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
     const f = fiber(FRAG, type, key, props, parent);
     if (type === PROFILER) (profilersMounted = true), profilerBegins(f);
+    if (type === PROFILER && dev() && typeof f.props?.id !== "string") console.error(`Profiler must specify an "id" of type \`string\` as a prop. Received the type \`${typeof f.props?.id}\` instead.`);
     if (type === ACTIVITY && props.mode !== "hidden" && hydrating) hydrateBoundary(f, host, before);
     else if (type === ACTIVITY && props.mode === "hidden") {
       // Hidden: its children drawn (their state kept for when it is shown), out of sight, their effects not run.
@@ -2373,9 +2374,10 @@ function renderClass(f: Fiber, withRef: any) {
   inst.props = props;
   inst.state = state;
   inst.context = ctx;
+  const out = strictTwice(f, () => classRender(inst), true);
+  // After its render, before its output changes the page (React calls it at commit, before the mutations).
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
   if (inst.getSnapshotBeforeUpdate) checkSnapshot(C, snapshot);
-  const out = strictTwice(f, () => classRender(inst), true);
   propsReassigned(C, inst, props);
   if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
