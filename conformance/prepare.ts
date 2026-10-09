@@ -56,5 +56,14 @@ copy(join(clone, "packages/react-dom/src/test-utils"), join(out, "test-utils"));
 copy(join(clone, "packages/internal-test-utils"), join(out, "internal-test-utils"));
 copy(join(clone, "scripts/jest"), join(out, "scripts", "jest"));
 copy(join(clone, "packages/shared"), join(out, "shared"));
+// Tests set flags on this module (Jest's CommonJS allows it; an ES module's exports are read-only): CommonJS here.
+const flagsFile = join(out, "shared", "ReactFeatureFlags.js");
+writeFileSync(
+  flagsFile,
+  readFileSync(flagsFile, "utf8")
+    .replace(/^import[^\n]*\n/gm, "")
+    .replace(/^export const (\w+)\s*=/gm, "const $1 = exports.$1 =")
+    .replace(/^export (type|opaque)[^\n]*\n/gm, ""),
+);
 writeFileSync(join(out, "REF"), at + "\n");
 console.log(`React's tests at ${at} in react-tests/`);

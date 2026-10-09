@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-2042 pass, 1838 fail, 313 skipped (gated off for stable React 19).
+2054 pass, 1826 fail, 313 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 9 | 6 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 24 | 25 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 23 | 26 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
@@ -30,7 +30,7 @@
 | react-dom/ReactDOMEventListener-test.js | 14 | 9 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 47 | 45 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 21 | 15 | 1 |  |
-| react-dom/ReactDOMFiberAsync-test.js | 8 | 10 | 1 |  |
+| react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServer-test.js | 0 | 173 | 11 |  |
@@ -44,7 +44,7 @@
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 0 | 12 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
-| react-dom/ReactDOMFloat-test.js | 0 | 140 | 3 |  |
+| react-dom/ReactDOMFloat-test.js | 3 | 137 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 4 | 41 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 0 | 89 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 0 | 10 | 0 |  |
@@ -53,7 +53,7 @@
 | react-dom/ReactDOMHydrationDiff-test.js | 0 | 39 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 0 | 10 | 0 |  |
-| react-dom/ReactDOMInput-test.js | 98 | 25 | 1 |  |
+| react-dom/ReactDOMInput-test.js | 100 | 23 | 1 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 3 | 4 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
@@ -75,7 +75,7 @@
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 81 | 60 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 28 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 0 | 10 | 0 |  |
+| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 3 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 17 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 45 | 6 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 4 | 6 | 0 |  |
@@ -126,7 +126,7 @@
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 11 | 13 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
-| react-dom/ReactTestUtilsAct-test.js | 3 | 21 | 0 |  |
+| react-dom/ReactTestUtilsAct-test.js | 1 | 23 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 0 | 5 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
 | react-dom/ReactUpdates-test.js | 22 | 20 | 3 |  |
@@ -152,7 +152,7 @@
 | react/ReactJSXTransformIntegration-test.js | 12 | 7 | 0 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
 | react/ReactProfiler-test.internal.js | 0 | 33 | 1 |  |
-| react/ReactProfilerComponent-test.internal.js | 0 | 7 | 0 |  |
+| react/ReactProfilerComponent-test.internal.js | 6 | 1 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
 | react/ReactPureComponent-test.js | 2 | 2 | 0 |  |
 | react/ReactStartTransition-test.js | 0 | 1 | 0 |  |

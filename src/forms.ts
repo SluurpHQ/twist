@@ -156,6 +156,24 @@ function updateSelect(node: HTMLSelectElement, p: any, wasMultiple: any) {
   }
 }
 
+// ---------------------------------------------------------------- value tracking
+
+/** What a field holds now, as React's inputValueTracking compares it. */
+const currentOf = (el: any) => (el.type === "checkbox" || el.type === "radio" ? String(el.checked) : String(el.value));
+
+/** The field's value noted as known: set by us, so no change to report. */
+export function track(el: Element) {
+  (el as any).__tracked = currentOf(el);
+}
+
+/** Whether the field's value differs from the last one known (and note it): onChange fires only then, as in React. */
+export function valueChanged(el: Element): boolean {
+  const now = currentOf(el);
+  if ((el as any).__tracked === now) return false;
+  (el as any).__tracked = now;
+  return true;
+}
+
 // ---------------------------------------------------------------- the calls core makes
 
 /** A new field's props set: the ordinary ones first (type, step, min, max before value), then React's own. */
@@ -168,6 +186,7 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean) {
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
   else if (tag === "select") initSelect(el as HTMLSelectElement, props);
   else if (tag === "option" && props.selected != null) (el as HTMLOptionElement).selected = !!props.selected && typeof props.selected !== "function" && typeof props.selected !== "symbol";
+  if (tag !== "option") track(el);
 }
 
 /** A field's props changed from `prev` to `next`. */
@@ -180,6 +199,7 @@ export function updateForm(el: Element, tag: string, next: any, prev: any, svg: 
   else if (tag === "textarea") updateTextarea(el as HTMLTextAreaElement, next);
   else if (tag === "select") updateSelect(el as HTMLSelectElement, next, prev.multiple);
   else if (tag === "option" && next.selected !== prev.selected && next.selected != null) (el as HTMLOptionElement).selected = !!next.selected;
+  if (tag !== "option") track(el);
 }
 
 /** After a field's change event: put back what its props say (React's restoreControlledState), radio groups too. */
@@ -201,4 +221,5 @@ export function restoreForm(el: Element) {
     }
   } else if (tag === "textarea") updateTextarea(el as HTMLTextAreaElement, props);
   else if (tag === "select" && props.value != null) updateOptions(el as HTMLSelectElement, !!props.multiple, props.value, false);
+  track(el);
 }

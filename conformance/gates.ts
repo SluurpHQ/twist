@@ -12,7 +12,7 @@ g.__TEST__ = true;
 // React's flags file is Flow; each flag is a plain `export const name: type = value;`, read and evaluated here.
 const feature: Record<string, any> = {};
 const text = await Bun.file(join(import.meta.dir, "react-tests", "shared", "ReactFeatureFlags.js")).text().catch(() => "");
-for (const m of text.matchAll(/export const (\w+)(?:\s*:\s*[^=]+)?\s*=\s*([^;]+);/g)) {
+for (const m of text.matchAll(/(?:export const |exports\.)(\w+)(?:\s*:\s*[^=]+)?\s*=\s*([^;]+);/g)) {
   try {
     feature[m[1]!] = new Function("__EXPERIMENTAL__", "__DEV__", "__PROFILE__", "__VARIANT__", `return (${m[2]});`)(false, true, false, false);
   } catch {

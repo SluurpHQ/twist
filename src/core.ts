@@ -511,8 +511,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   (f as any).draws = ((f as any).draws ?? 0) + 1;
   if (!drawsReset) {
     drawsReset = true;
-    // After this task (a message, which a test's fake timers leave alone).
-    afterPaint(() => {
+    // Once this synchronous run ends: a loop renders without ever yielding, so it is still caught.
+    queueMicrotask(() => {
       drawsReset = false;
       loops.clear();
     });

@@ -16,7 +16,7 @@ const containers = new Map<EventTarget, { roots: Set<object>; types: Set<string>
 const wanted = new Set<string>(["input", "change", "click"]);
 
 /** What maps a native event and phase to the React props it runs: given by props.ts (it knows onChange's rules). */
-let propsFor: (el: Element, type: string, capture: boolean, props: any) => string[] = () => [];
+let propsFor: (el: Element, type: string, capture: boolean, props: any, native: Event) => string[] = () => [];
 let after: (el: Element, e: Event) => void = () => {};
 export function configure(match: typeof propsFor, done: typeof after) {
   propsFor = match;
@@ -77,7 +77,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   const path: [Element, string[]][] = [];
   for (let f: FiberLike | null = from; f; f = f.parent) {
     if (f.kind !== HOST) continue;
-    const names = propsFor(f.dom, native.type, capture, f.props);
+    const names = propsFor(f.dom, native.type, capture, f.props, native);
     if (names.length) path.push([f.dom, names]);
   }
   if (capture) path.reverse();

@@ -10,6 +10,13 @@ GlobalRegistrator.register({ url: "http://localhost/" });
 
 const g = globalThis as any;
 g.__realSetTimeout = setTimeout;
+// Some tests put their own jsdom in place (global.window = …): these must be writable, as they are under Jest.
+for (const k of ["window", "document", "navigator", "location", "self"]) {
+  const v = g[k];
+  try {
+    Object.defineProperty(globalThis, k, { value: v, writable: true, configurable: true, enumerable: true });
+  } catch {}
+}
 // Modules stay loaded between tests (Bun has no registry reset); each test still gets its own container and root.
 const bunJest: any = (await import("bun:test")).jest;
 // Jest's expect takes a function for .rejects/.resolves and calls it; Bun's wants the promise.
@@ -27,6 +34,12 @@ g.expect = expectLikeJest;
 // React's tests load React afresh for each test, so a warning given once is given again: our dedupe reset likewise.
 const { resetWarnings } = await import("../src/warnings.ts");
 (await import("bun:test")).beforeEach(() => resetWarnings());
+// React's jest config fakes timers in every test (fakeTimers.enableGlobally).
+{
+  const t = await import("bun:test");
+  t.beforeEach(() => t.jest.useFakeTimers());
+  t.afterEach(() => t.jest.useRealTimers());
+}
 
 // As React's setupTests has them, for development.
 const spyOn = (obj: any, key: string) => bunJest.spyOn(obj, key);

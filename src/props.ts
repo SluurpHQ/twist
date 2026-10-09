@@ -4,6 +4,7 @@
 import { XLINK_NS, XML_NS, attribute } from "./attributes.ts";
 import { configure, delegated, want } from "./events.ts";
 import { checkPropName } from "./warnings.ts";
+import { valueChanged } from "./forms.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const MATH_NS = "http://www.w3.org/1998/Math/MathML";
@@ -62,14 +63,28 @@ export function onAfterEvent(fn: typeof afterEvent) {
 }
 
 /** The props of `el` that a native `type` event, in this phase, runs. */
-function propsFor(el: Element, type: string, capture: boolean, props: any): string[] {
+function propsFor(el: Element, type: string, capture: boolean, props: any, native: Event): string[] {
   const out: string[] = [];
   for (const k in props) {
     if (k[0] !== "o" || k[1] !== "n" || k.length < 3 || k[2] !== k[2]!.toUpperCase() || typeof props[k] !== "function") continue;
     const [t, c] = eventOf(el, k);
-    if (t === type && c === capture) out.push(k);
+    if (t !== type || c !== capture) continue;
+    // A field's onChange only when its value really changed (React's value tracking): an event dispatched again
+    // from inside its own handler does not call it again.
+    if ((k === "onChange" || k === "onChangeCapture") && FIELDS.has(el.localName) && !changedOnce(el, native)) continue;
+    out.push(k);
   }
   return out;
+}
+
+const FIELDS = new Set(["input", "textarea", "select"]);
+/** Whether this event changed the field: asked once per event (both phases get the same answer). */
+const answered = new WeakMap<Event, Map<Element, boolean>>();
+function changedOnce(el: Element, native: Event) {
+  let m = answered.get(native);
+  if (!m) answered.set(native, (m = new Map()));
+  if (!m.has(el)) m.set(el, valueChanged(el));
+  return m.get(el)!;
 }
 configure(propsFor, (el, e) => afterEvent(el, e));
 

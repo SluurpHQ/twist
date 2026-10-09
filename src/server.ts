@@ -172,7 +172,8 @@ function render(node: any, ctx: Ctx, hooks: any): string {
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   const svg = ctx.svg;
   if (tag === "svg") ctx.svg = true;
-  let open = `<${tag}${attrs(props, ctx, tag)}`;
+  // A whole document: React writes its doctype first.
+  let open = `${tag === "html" ? "<!DOCTYPE html>" : ""}<${tag}${attrs(props, ctx, tag)}`;
   if (tag === "option") {
     const chosen = ctx.select;
     const v = props.value ?? (typeof props.children === "string" ? props.children : undefined);
