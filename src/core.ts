@@ -73,6 +73,8 @@ export function onUncaught(fn: typeof uncaughtListener) {
   return () => (uncaughtListener = was);
 }
 
+/** The last error an error boundary caught (a hydration error caught again on the client is the boundary's). */
+let lastCaughtByBoundary: unknown = null;
 /** An error nothing caught: the root is taken down (React unmounts it), and the error told. */
 /**
  * React's component stack for what happened at `f`: a frame for it and each component and element above it
@@ -1032,17 +1034,22 @@ function serverGaveUp(f: Fiber, region: { start: Comment }) {
   error.digest = data.dgst;
   // Given up on purpose (browser()): rendered here, nothing to report.
   if (data.dgst === "") return;
-  layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: dev() ? data.cstck ?? "" : "" }));
+  // (Not when its client render failed too and an error boundary took that: the boundary handles it.)
+  layoutQueue.push(() => !(f as any).caughtInClient && ((f.root as any).onRecoverable ?? report)(error, { componentStack: dev() ? data.cstck ?? "" : "" }));
 }
 
 /** The boundary drawn on the client, not hydrated, before its closing comment. */
 function drawFresh(f: Fiber, host: Node, end: Node | null) {
   const was = hydrating;
   hydrating = null;
+  const wasCaught = lastCaughtByBoundary;
+  lastCaughtByBoundary = null;
   try {
     drawBoundary(f, host, end);
   } finally {
     hydrating = was;
+    (f as any).caughtInClient = lastCaughtByBoundary !== null;
+    lastCaughtByBoundary = wasCaught;
   }
   // Drawn while the rest still hydrates: once it has, put where the fibers after it say (React places a client
   // rendered boundary before its next host sibling, not where the server's markup was).
@@ -2376,6 +2383,7 @@ function caught(f: Fiber, e: any) {
     const inst = p.inst;
     // (Not one rendering its error state now: what fails there goes further up, as React does.)
     if (inst && !p.dead && !(p as any).retrying && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
+      lastCaughtByBoundary = e;
       if (p.type.getDerivedStateFromError) inst.__queue.push(p.type.getDerivedStateFromError(e));
       if (inst.componentDidCatch)
         layoutQueue.push(() => {
@@ -3297,10 +3305,13 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           error.cause = cause;
           // Told only if the root then renders without an error of its own (React reports it with the commit).
           (state as any).failed = false;
+          lastCaughtByBoundary = null;
           draw();
           (state as any).threw = false;
           for (const tell of caughtThisRender.splice(0)) tell();
-          if (!(state as any).failed) layoutQueue.push(() => (options?.onRecoverableError ?? report)(error, { componentStack: "" }));
+          // (Caught by an error boundary on the client: that boundary handles it, as React has it; nothing to recover.)
+          const handled = lastCaughtByBoundary !== null;
+          if (!(state as any).failed && !handled) layoutQueue.push(() => (options?.onRecoverableError ?? report)(error, { componentStack: "" }));
         } else if (hydrate && hydrationWaits) {
           // Suspended with no boundary: nothing of this attempt is kept, the server's markup stays as it was.
           const waits = hydrationWaits;
