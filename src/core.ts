@@ -1151,6 +1151,31 @@ function serverCursor(host: Node): Node | null {
 /** Where React hydrates loosely (skipping what does not match): a root's container, or <html>, <head>, <body>. */
 const rootContainers = new WeakSet<Node>();
 const rootOrSingleton = (host: Node) => rootContainers.has(host) || !!(host as any).__fiber?.singleton || host.nodeType === 9;
+/**
+ * In a root or singleton, whether a server element of the right tag is this one: hoisted tags and what scripts or
+ * extensions inject are told apart by their telling attributes (React's canHydrateInstance).
+ */
+function looseMatch(el: Element, type: string, props: any): boolean {
+  const attr = (v: any) => (v == null ? null : "" + v);
+  switch (type) {
+    case "meta":
+      return el.hasAttribute("itemprop");
+    case "link": {
+      const rel = el.getAttribute("rel");
+      if (rel === "stylesheet" && el.hasAttribute("data-precedence")) return false;
+      return rel === props.rel && el.getAttribute("href") === (props.href == null || props.href === "" ? null : props.href) && el.getAttribute("crossorigin") === attr(props.crossOrigin) && el.getAttribute("title") === attr(props.title);
+    }
+    case "style":
+      return !el.hasAttribute("data-precedence");
+    case "script": {
+      const src = el.getAttribute("src");
+      const differs = src !== attr(props.src) || el.getAttribute("type") !== attr(props.type) || el.getAttribute("crossorigin") !== attr(props.crossOrigin);
+      return !(differs && src && el.hasAttribute("async") && !el.hasAttribute("itemprop"));
+    }
+  }
+  return true;
+}
+
 /** A server node Float owns (a resource or a node Float made), never a fiber's. */
 function isResourceNode(n: Node) {
   if (n.nodeType !== 1) return false;
@@ -1165,6 +1190,14 @@ function isResourceNode(n: Node) {
   return false;
 }
 /** A document's containers emptied as React's clearContainerSparingly does: scripts, styles and stylesheets stay. */
+/** A <script> as React makes one: parsed (so the browser never runs it), and told about once in development. */
+function inertScript(doc: Document): Element {
+  warn("Encountered a script tag while rendering React component. Scripts inside React components are never executed when rendering on the client. Consider using template tag instead (https://developer.mozilla.org/en-US/docs/Web/HTML/Element/template).", "script-tag");
+  const div = doc.createElement("div");
+  div.innerHTML = "<script></" + "script>";
+  return div.removeChild(div.firstChild!) as Element;
+}
+
 /** A root's container emptied before it is drawn: the document and its <html>, <head>, <body> keep their scripts,
  * styles and stylesheets (React's clearContainer). */
 function clearContainer(container: Node) {
@@ -1492,9 +1525,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (single && !hydrating && type !== "html") clearSparingly(single);
     // Taken over on a fresh render: its attributes go too (React's acquireSingletonInstance), the props set after.
     if (single && !hydrating) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
-    const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name)))) as Element | null) : null);
+    const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
     // A customized built-in (is="…") is made as one.
-    const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : typeof props.is === "string" ? docOf(host).createElement(type, { is: props.is }) : docOf(host).createElement(type)));
+    const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : type === "script" ? inertScript(docOf(host)) : typeof props.is === "string" ? docOf(host).createElement(type, { is: props.is }) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     hide(el, "__fiber", f);
     hide(el, "__props", null);

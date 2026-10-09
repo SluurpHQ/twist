@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3682 pass, 342 fail, 314 skipped (gated off for stable React 19).
+3688 pass, 336 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -44,7 +44,7 @@
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 11 | 1 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
-| react-dom/ReactDOMFloat-test.js | 115 | 25 | 3 |  |
+| react-dom/ReactDOMFloat-test.js | 119 | 21 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 37 | 8 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 83 | 6 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 10 | 0 | 0 |  |
@@ -103,7 +103,7 @@
 | react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 10 | 2 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 4 | 10 | 12 |  |
-| react-dom/ReactEmptyComponent-test.js | 22 | 2 | 0 |  |
+| react-dom/ReactEmptyComponent-test.js | 24 | 0 | 0 |  |
 | react-dom/ReactErrorBoundaries-test.internal.js | 38 | 11 | 1 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 1 | 0 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
