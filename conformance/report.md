@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2681 pass, 1343 fail, 314 skipped (gated off for stable React 19).
+2700 pass, 1324 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -136,8 +136,8 @@
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 2 | 1 | 0 |  |
 | react/createReactClassIntegration-test.js | 16 | 10 | 2 |  |
-| react/forwardRef-test.internal.js | 0 | 6 | 0 |  |
-| react/forwardRef-test.js | 0 | 19 | 0 |  |
+| react/forwardRef-test.internal.js | 5 | 1 | 0 |  |
+| react/forwardRef-test.js | 14 | 5 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
 | react/ReactChildren-test.js | 38 | 4 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |

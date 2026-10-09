@@ -1,4 +1,4 @@
-import { checkKeys } from "./warnings.ts";
+import { checkKeys, warn } from "./warnings.ts";
 
 // Elements as React 19 makes them: what JSX and createElement return, and what libraries inspect
 // (`$$typeof`, `type`, `key`, `props`, the ref among the props).
@@ -113,6 +113,17 @@ export function createRef<T = any>(): { current: T | null } {
 }
 
 export function forwardRef(render: (props: any, ref: any) => any) {
+  // React's checks of what is given, in development.
+  if ((render as any)?.$$typeof === MEMO) {
+    warn("forwardRef requires a render function but received a `memo` component. Instead of forwardRef(memo(...)), use memo(forwardRef(...)).");
+  } else if (typeof render !== "function") {
+    warn(`forwardRef requires a render function but was given ${render === null ? "null" : typeof render}.`);
+  } else if (render.length !== 0 && render.length !== 2) {
+    warn(`forwardRef render functions accept exactly two parameters: props and ref. ${render.length === 1 ? "Did you forget to use the ref parameter?" : "Any additional parameter will be undefined."}`);
+  }
+  if (typeof render === "function" && (render as any).defaultProps != null) {
+    warn("forwardRef render functions do not support defaultProps. Did you accidentally pass a React component?");
+  }
   return { $$typeof: FORWARD_REF, render };
 }
 

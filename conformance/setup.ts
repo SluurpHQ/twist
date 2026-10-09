@@ -72,6 +72,15 @@ if (!process.argv.some((a) => a.includes("redux-tests"))) {
   for (const fn of [t.it, t.test]) fn.for = forCases(fn);
 }
 
+// React's toMatchRenderedOutput: a noop root (or the noop renderer) drawn as the JSX expected.
+(await import("bun:test")).expect.extend({
+  toMatchRenderedOutput(root: any, expected: any) {
+    const actual = root.getChildrenAsJSX();
+    const pass = (this as any).equals(actual, expected);
+    return { pass, message: () => `expected rendered output ${JSON.stringify(actual)} to ${pass ? "not " : ""}equal ${JSON.stringify(expected)}` };
+  },
+});
+
 // As React's setupTests has them, for development.
 const spyOn = (obj: any, key: string) => bunJest.spyOn(obj, key);
 g.spyOn = spyOn;
@@ -104,12 +113,13 @@ const ours: Record<string, string> = {
   scheduler: join(shim, "scheduler.ts"),
   "scheduler/unstable_mock": join(shim, "scheduler.ts"),
   "internal-test-utils": join(shim, "test-utils.ts"),
+  "react-noop-renderer": join(shim, "noop.ts"),
 };
 
 plugin({
   name: "sluurp-dom-conformance",
   setup(b) {
-    b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils)(\/.*)?$/ }, (a) => {
+    b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils|react-noop-renderer)(\/.*)?$/ }, (a) => {
       const to = ours[a.path];
       return to ? { path: to } : undefined;
     });
