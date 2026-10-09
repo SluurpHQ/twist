@@ -5,7 +5,8 @@
 import { computed, signal } from "../../signals/index.js";
 import { createElement, forwardRef as forwardRefOf } from "./element.ts";
 import { createContext } from "./element.ts";
-import { useContext, useLayoutEffect, useMemo, useRef } from "./hooks.ts";
+import { rendersOnServer, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "./hooks.ts";
+import { isHydrating } from "./core.ts";
 
 type Store = { getState(): any; dispatch(action: any): any; subscribe(fn: () => void): () => void };
 type Equality = (a: any, b: any) => boolean;
@@ -20,7 +21,16 @@ function heldOf(store: Store): Held {
   if (!h) states.set(store, (h = { state: signal(store.getState()) as any, holders: 0, off: null }));
   return h;
 }
-const stateOf = (store: Store) => heldOf(store).state;
+/** Tracked through the signal; read from the store while nothing subscribes yet (reducers injected during render). */
+function stateOf(store: Store) {
+  const h = heldOf(store);
+  const read = () => {
+    const v = h.state();
+    return h.off ? v : store.getState();
+  };
+  read.peek = () => (h.off ? h.state.peek() : store.getState());
+  return read;
+}
 
 /** Subscribed while held: the first holder subscribes, the last one to let go unsubscribes. */
 function hold(store: Store) {
@@ -60,7 +70,7 @@ function subscriptionOf(store: Store) {
 
 export function Provider({ store, context, children, serverState, stabilityCheck = "once", identityFunctionCheck = "once" }: { store: Store; context?: any; children?: any; serverState?: any; stabilityCheck?: string; identityFunctionCheck?: string }) {
   const value = useMemo(
-    () => ({ store, subscription: subscriptionOf(store), getServerState: serverState ? () => serverState : undefined, stabilityCheck, identityFunctionCheck }),
+    () => ({ store, subscription: subscriptionOf(store), getServerState: serverState !== undefined && serverState !== null ? () => serverState : undefined, stabilityCheck, identityFunctionCheck }),
     [store, serverState, stabilityCheck, identityFunctionCheck],
   );
   // Subscribed to the store while mounted (before its children's effects run; let go when it unmounts).
@@ -98,6 +108,15 @@ export function createSelectorHook(context: any = ReactReduxContext) {
       if (typeof equals !== "function") throw new Error("You must pass a function as an equality function to useSelector");
     }
     const ctx: any = useContextHere();
+    // Taking over server markup: the server's state for this render, then the store's (as React's store hook does).
+    const [, rerender] = useReducer((n: number) => n + 1, 0);
+    const hydratedWith = useRef<{ value: any } | null>(null);
+    useEffect(() => {
+      const was = hydratedWith.current;
+      if (!was) return;
+      hydratedWith.current = null;
+      if (!equals(was.value, selector(ctx.store.getState()))) rerender();
+    });
     const store: Store = ctx.store;
     const firstRun = useRef(true);
     // react-redux's development checks: a selector that answers differently twice, or returns the whole state.
@@ -149,6 +168,14 @@ export function createSelectorHook(context: any = ReactReduxContext) {
       return b;
     }, [store, equals]);
     box.wake();
+    // On the server: the Provider's serverState when it has one (react-redux's getServerState), else the store's.
+    if (rendersOnServer()) return checked(ctx.getServerState ? ctx.getServerState() : store.getState());
+    if (isHydrating() && ctx.getServerState) {
+      const value = checked(ctx.getServerState());
+      hydratedWith.current = { value };
+      useLayoutEffect(() => ctx.subscription?.track?.(), [ctx.subscription]);
+      return value;
+    }
     // What it renders: reused while the state and the selector are the ones it was taken with.
     const now = box.state.peek();
     let out: T;
@@ -377,8 +404,18 @@ export function connect(mapStateToProps?: any, mapDispatchToProps?: any, mergePr
         }, { equals: (a: any, b: any) => a.props !== undefined && a.props === b.props });
       }, [store, select]);
       const result: any = box();
+      // On the server, or taking over its markup: the Provider's serverState, then the store's after hydrating.
+      const [, rerender] = useReducer((n: number) => n + 1, 0);
+      const fromServer = !fromProps && ctx?.getServerState && (rendersOnServer() || isHydrating());
+      const hydratedWith = useRef(false);
+      if (fromServer) hydratedWith.current = true;
+      useEffect(() => {
+        if (!hydratedWith.current) return;
+        hydratedWith.current = false;
+        rerender();
+      });
       // Own props changed since: the selector decides with them (it keeps the same object when nothing changed).
-      const merged = result.error ? null : select(stateOf(store).peek(), wrapperProps);
+      const merged = result.error ? null : select(fromServer ? ctx.getServerState() : stateOf(store).peek(), wrapperProps);
       if (result.error) throw result.error;
       return createElement(Wrapped, forwardRef ? { ...merged, ref: reactReduxForwardedRef } : merged);
     }

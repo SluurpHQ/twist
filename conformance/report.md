@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2347 pass, 1663 fail, 314 skipped (gated off for stable React 19).
+2368 pass, 1656 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -33,15 +33,15 @@
 | react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 26 | 147 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 17 | 156 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 3 | 18 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 1 | 11 | 0 |  |
-| react-dom/ReactDOMFizzStatic-test.js | 0 | 6 | 0 |  |
+| react-dom/ReactDOMFizzStatic-test.js | 1 | 5 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 3 | 14 | 0 |  |
-| react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 0 | 12 | 0 |  |
+| react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 3 | 9 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
 | react-dom/ReactDOMFloat-test.js | 3 | 137 | 3 |  |
@@ -67,27 +67,27 @@
 | react-dom/ReactDOMSelect-test.js | 28 | 32 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 472 | 78 | 0 |  |
-| react-dom/ReactDOMServerIntegrationBasic-test.js | 44 | 11 | 0 |  |
+| react-dom/ReactDOMServerIntegrationBasic-test.js | 45 | 10 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 24 | 6 | 0 |  |
-| react-dom/ReactDOMServerIntegrationClassContextType-test.js | 32 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 278 | 58 | 0 |  |
-| react-dom/ReactDOMServerIntegrationFragment-test.js | 17 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 104 | 37 | 0 |  |
+| react-dom/ReactDOMServerIntegrationClassContextType-test.js | 33 | 2 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 282 | 54 | 0 |  |
+| react-dom/ReactDOMServerIntegrationFragment-test.js | 19 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 106 | 35 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 28 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 3 | 7 | 0 |  |
-| react-dom/ReactDOMServerIntegrationModes-test.js | 17 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationNewContext-test.js | 45 | 6 | 0 |  |
+| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 4 | 6 | 0 |  |
+| react-dom/ReactDOMServerIntegrationModes-test.js | 19 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationNewContext-test.js | 48 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 4 | 6 | 0 |  |
 | react-dom/ReactDOMserverIntegrationProgress-test.js | 2 | 3 | 0 |  |
-| react-dom/ReactDOMServerIntegrationReconnecting-test.js | 54 | 0 | 0 |  |
+| react-dom/ReactDOMServerIntegrationReconnecting-test.js | 51 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSelect-test.js | 50 | 21 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 26 | 4 | 0 |  |
-| react-dom/ReactDOMServerIntegrationTextarea-test.js | 31 | 9 | 0 |  |
+| react-dom/ReactDOMServerIntegrationTextarea-test.js | 27 | 13 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 54 | 23 | 0 |  |
-| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 8 | 12 | 7 |  |
-| react-dom/ReactDOMServerLifecycles-test.js | 2 | 8 | 0 |  |
+| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 7 | 13 | 7 |  |
+| react-dom/ReactDOMServerLifecycles-test.js | 3 | 7 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 0 | 57 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 0 | 37 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
@@ -100,8 +100,8 @@
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
 | react-dom/ReactDOMTextarea-test.js | 37 | 16 | 0 |  |
-| react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
-| react-dom/ReactDOMUseId-test.js | 1 | 11 | 5 |  |
+| react-dom/ReactDOMTextComponent-test.js | 3 | 1 | 5 |  |
+| react-dom/ReactDOMUseId-test.js | 0 | 12 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 0 | 14 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 20 | 4 | 0 |  |
 | react-dom/ReactErrorBoundaries-test.internal.js | 14 | 35 | 1 |  |
@@ -122,9 +122,9 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 2 | 2 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 2 | 9 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 19 | 26 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 23 | 22 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactServerRenderingHydration-test.js | 10 | 14 | 0 |  |
+| react-dom/ReactServerRenderingHydration-test.js | 9 | 15 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 8 | 16 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 2 | 3 | 0 |  |
@@ -159,16 +159,16 @@
 | react/ReactStrictMode-test.internal.js | 1 | 4 | 0 |  |
 | react/ReactStrictMode-test.js | 3 | 20 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
-| redux-tests/components/connect.spec.tsx | 53 | 6 | 0 |  |
+| redux-tests/components/connect.spec.tsx | 59 | 8 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
 | redux-tests/components/Provider.spec.tsx | 8 | 0 | 0 |  |
 | redux-tests/connect/wrapMapToProps.spec.ts | 0 | 1 | 0 |  |
 | redux-tests/hooks/useDispatch.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useReduxContext.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useSelector.spec.tsx | 27 | 2 | 0 |  |
-| redux-tests/integration/dynamic-reducers.spec.tsx | 0 | 2 | 0 |  |
-| redux-tests/integration/server-rendering.spec.tsx | 3 | 2 | 0 |  |
-| redux-tests/integration/ssr.spec.tsx | 0 | 0 | 0 | TypeError: it.for is not a function. (In 'it.for([0, !1, ""])', 'it.for' is undefined) |
+| redux-tests/integration/dynamic-reducers.spec.tsx | 2 | 0 | 0 |  |
+| redux-tests/integration/server-rendering.spec.tsx | 5 | 0 | 0 |  |
+| redux-tests/integration/ssr.spec.tsx | 6 | 0 | 0 |  |
 | use-sync-external-store/useSyncExternalStoreNative-test.js | 0 | 2 | 0 |  |
 | use-sync-external-store/useSyncExternalStoreShared-test.js | 9 | 9 | 1 |  |
 | use-sync-external-store/useSyncExternalStoreShimServer-test.js | 0 | 1 | 0 |  |

@@ -223,6 +223,14 @@ function render(node: any, ctx: Ctx, hooks: any): string {
       inst.props = props;
       inst.context = c;
       if (type.getDerivedStateFromProps) inst.state = { ...inst.state, ...type.getDerivedStateFromProps(props, inst.state) };
+      // As React's server does: componentWillMount runs (without getDerivedStateFromProps), its setState applied at once.
+      else if (inst.UNSAFE_componentWillMount || inst.componentWillMount) {
+        inst.setState = (s: any, cb?: () => void) => {
+          inst.state = { ...inst.state, ...(typeof s === "function" ? s(inst.state, inst.props) : s) };
+          cb?.();
+        };
+        (inst.UNSAFE_componentWillMount ?? inst.componentWillMount).call(inst);
+      }
       return render(inst.render(), ctx, hooks);
     }
     return render(renderFunction(type, props), ctx, hooks);

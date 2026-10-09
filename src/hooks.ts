@@ -32,3 +32,6 @@ export const useActionState: Hooks["useActionState"] = (a, i) => d.useActionStat
 export const useOptimistic: Hooks["useOptimistic"] = (s, f) => d.useOptimistic(s, f);
 export const useEffectEvent: Hooks["useEffectEvent"] = (fn) => d.useEffectEvent(fn);
 export const use: Hooks["use"] = (u) => d.use(u);
+
+/** Whether the component rendering now is rendered on the server (renderToString or a stream). */
+export const rendersOnServer = () => d !== client;

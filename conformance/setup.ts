@@ -47,6 +47,15 @@ if (!process.argv.some((a) => a.includes("redux-tests"))) {
   (await import("bun:test")).expect.extend(matchers as any);
 }
 
+// vitest's it.for / test.for on the global it and test (react-redux's tests use vitest's globals).
+{
+  const t: any = await import("bun:test");
+  for (const fn of [t.it, t.test]) {
+    fn.for ??= (cases: any[]) => (name: string, body: (c: any) => any) =>
+      cases.forEach((c, i) => fn(name.replace(/%[sdiojO]|\$\w+/, () => (typeof c === "object" ? JSON.stringify(c) : String(c))) + (name.includes("%") ? "" : ` [${i}]`), () => body(c)));
+  }
+}
+
 // As React's setupTests has them, for development.
 const spyOn = (obj: any, key: string) => bunJest.spyOn(obj, key);
 g.spyOn = spyOn;

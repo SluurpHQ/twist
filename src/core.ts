@@ -205,12 +205,14 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   for (const f of byKey.values()) unmount(f, true);
   parent.children = next;
   // In order, back to front: each node before the one after it, moved only when it is not already there.
+  // Taking over server markup, nodes are claimed or made in place: nothing to move.
+  if (hydrating) return;
   let cursor = before;
   for (let j = next.length - 1; j >= 0; j--) {
     const nodes = domNodes(next[j]!);
     for (let k = nodes.length - 1; k >= 0; k--) {
       const n = nodes[k]!;
-      if (n.parentNode !== host || n.nextSibling !== cursor) host.insertBefore(n, cursor);
+      if (n.parentNode !== host || pastComments(n.nextSibling) !== cursor) host.insertBefore(n, cursor);
       cursor = n;
     }
   }
@@ -235,6 +237,14 @@ function childNs(host: Fiber): string | null {
 
 /** While a root takes over what the server drew: for each parent, the next of its server nodes to claim. */
 let hydrating: Map<Node, Node | null> | null = null;
+/** Whether this hydration found markup that differs from the client's, reported once to onRecoverableError. */
+let mismatched = false;
+
+/** Past comments (the server's separators and markers, left in place). */
+const pastComments = (n: Node | null) => {
+  while (n && n.nodeType === 8) n = n.nextSibling;
+  return n;
+};
 
 /** The next server node in `host`, past comments (React's separators and markers). */
 function nextServerNode(host: Node): Node | null {
@@ -258,7 +268,10 @@ function dropUnclaimed(host: Node) {
   let n = nextServerNode(host);
   while (n) {
     const next = n.nextSibling;
-    if (n.nodeType !== 8) host.removeChild(n);
+    if (n.nodeType !== 8) {
+      host.removeChild(n);
+      mismatched = true;
+    }
     n = next;
   }
   hydrating.delete(host);
@@ -274,8 +287,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
       f.dom = had;
     } else {
+      if (hydrating && text !== "") mismatched = true;
       f.dom = document.createTextNode(text);
-      host.insertBefore(f.dom, before);
+      host.insertBefore(f.dom, hydrating ? nextServerNode(host) : before);
     }
     return f;
   }
@@ -309,7 +323,10 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const el = (f.dom = server ?? (ns ? document.createElementNS(ns, type) : document.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     (el as any).__fiber = f;
-    if (!server) checkTag(el, type);
+    if (!server) {
+      if (hydrating) mismatched = true;
+      checkTag(el, type);
+    }
     (el as any).__props = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
@@ -322,7 +339,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     }
     if (server) {
       if (props.dangerouslySetInnerHTML == null) dropUnclaimed(el);
-    } else host.insertBefore(el, before);
+    } else host.insertBefore(el, hydrating ? nextServerNode(host) : before);
     if (props.ref != null) layoutQueue.push(() => setRef(f, props.ref, el));
     return f;
   }
@@ -1126,12 +1143,19 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         if (!hydrate) (container as Element).replaceChildren?.();
       }
       depth++;
-      if (hydrate) hydrating = new Map();
+      if (hydrate) (hydrating = new Map()), (mismatched = false);
       try {
         reconcile(top, [children], container, null);
         if (hydrate) dropUnclaimed(container);
       } finally {
-        if (hydrate) hydrating = null;
+        if (hydrate) {
+          hydrating = null;
+          if (mismatched) {
+            mismatched = false;
+            const report = options?.onRecoverableError ?? globalThis.reportError;
+            report?.(new Error("Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch"), { componentStack: "" });
+          }
+        }
         if (--depth === 0) commit();
       }
       // Called from inside a render or commit (a root made in componentDidMount): flushed when that one ends.
@@ -1224,3 +1248,6 @@ setOwner(() => (current ? nameOf(current.type) : null));
 
 // A form's action runs through submitForm (its status, its reset, its boundary).
 onSubmitAction(submitForm);
+
+/** Whether the root rendering now is taking over server markup (hydrateRoot's first render). */
+export const isHydrating = () => hydrating !== null;
