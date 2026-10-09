@@ -58,6 +58,12 @@ for (const r of rows) if (r.note && /Export named 'Dynamic'/.test(r.note)) r.not
 // Solid's server functions (its RPC) and frames (its server components): Sluurp has its own RPC and server components.
 const OWN_LAYER = /server-functions|(^|\/)frames?[-/]|frame-sink|frames\/src/;
 for (const r of rows) if (OWN_LAYER.test(r.file) || (r.note && OWN_LAYER.test(r.note))) r.note = "not ours: Solid's server functions / frames (Sluurp has its own RPC and server components)";
+// Files that run Solid's built packages (or its repo's scripts) in a child process, or walk its graph's own fields.
+for (const r of rows) {
+  const src = readFileSync(join(here, "solid-tests", r.file), "utf8");
+  if (/\bexecFileSync\(/.test(src)) r.note = "not ours: runs Solid's built packages in a child process";
+  else if (!r.pass && /\._nextSub\b|\._subs\b/.test(src)) r.note = "not ours: reads Solid's graph fields";
+}
 const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
 const sum = (k: "pass" | "fail") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + r[k], 0);
 const unloaded = rows.filter((r) => r.note && !r.note.startsWith("not ours"));
