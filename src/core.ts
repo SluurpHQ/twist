@@ -26,6 +26,8 @@ export type Fiber = {
   ns: string | null;
   root: RootState;
   dead?: boolean;
+  // Committed once: before that, taken away without lifecycles (a render that was thrown away).
+  committed?: boolean;
   // A DOM element (in development): what is open around what goes in it, for HTML's nesting rules.
   nesting?: Ancestors;
   // A component: how it renders, its hooks, the effect it renders in.
@@ -255,9 +257,18 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   }
 }
 
+/** Unmount lifecycles of what a render took away, run first in the commit. */
+const deletions: (() => void)[] = [];
+/** A commit running: what it takes away goes at once. */
+let committing = false;
+
+/** Fibers made since the last commit: committed by it. */
+const fresh: Fiber[] = [];
+
 function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
-  return { kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root };
+  return remember({ kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root });
 }
+const remember = (f: Fiber) => (fresh.push(f), f);
 
 /** The namespace what goes into `node` is made in: SVG inside an SVG element (a portal into a <g>), else HTML. */
 function nsOf(node: Node): string | null {
@@ -438,7 +449,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (server) {
       if (props.dangerouslySetInnerHTML == null) dropUnclaimed(el);
     } else host.insertBefore(el, hydrating ? serverCursor(host) : before);
-    if (props.ref != null) layoutQueue.push(() => setRef(f, props.ref, el));
+    if (props.ref != null) layoutQueue.push(() => !f.dead && setRef(f, props.ref, el));
     return f;
   }
   if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
@@ -550,16 +561,26 @@ function unmount(f: Fiber, removeDom: boolean) {
   if (f.dead) return;
   if (removeDom) for (const n of domNodes(f)) n.parentNode?.removeChild(n);
   f.dead = true;
+  if (!f.committed) {
+    // Never committed: nothing ran for it, nothing to undo.
+    f.stop?.();
+    for (const c of f.children) unmount(c, false);
+    return;
+  }
+  // Its unmount lifecycles run in the commit, as React's do, when this is a render; now otherwise.
+  const later = depth > 0 && !committing ? (fn: () => void) => deletions.push(fn) : (fn: () => void) => fn();
   if (f.kind === COMP) {
     f.stop?.();
     const inst = f.inst;
-    if (inst && (f as any).classRef != null) clearRef(f, (f as any).classRef);
-    if (inst?.componentWillUnmount) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
-    for (const h of f.hooks!) if (h && h.cleanup) untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
+    later(() => {
+      if (inst && (f as any).classRef != null) clearRef(f, (f as any).classRef);
+      if (inst?.componentWillUnmount) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
+      for (const h of f.hooks!) if (h && h.cleanup) untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
+    });
   } else if (f.kind === HOST && f.props.ref != null) {
-    clearRef(f, f.props.ref);
+    later(() => clearRef(f, f.props.ref));
   } else if (f.kind === FRAG && (f as any).fragment && f.props?.ref != null) {
-    clearRef(f, f.props.ref);
+    later(() => clearRef(f, f.props.ref));
   }
   for (const c of f.children) unmount(c, f.kind === PORTAL_F);
 }
@@ -723,16 +744,53 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   // A component returning an array: its elements are a list, each needing a key (React checks at render).
   if (Array.isArray(out)) checkKeys(out, f.type);
   const [host, before] = place ?? [hostParentOf(f), nextDomAfter(f)];
+  drawing.add(f);
   try {
     reconcile(f, toList(out), host, before);
   } catch (e) {
     caught(f, e);
   }
+  // A boundary that caught while mounting: its children dropped, and mounted again in its error state.
+  for (let tries = 0; (f as any).redo && tries < 3; tries++) {
+    (f as any).redo = false;
+    for (const c of f.children) unmount(c, true);
+    f.children = [];
+    f.insertion = [];
+    f.layout = [];
+    f.passive = [];
+    // Mounting: mounted again; updating: updated again, with the error's state.
+    if (!f.committed) f.inst.__remount = true;
+    current = f;
+    hookAt = 0;
+    try {
+      out = f.render!(f, f.props);
+    } catch (e) {
+      out = null;
+      caught(f, e);
+    } finally {
+      current = prevCurrent;
+      hookAt = prevAt;
+    }
+    f.out = out;
+    try {
+      reconcile(f, toList(out), host, before);
+    } catch (e) {
+      caught(f, e);
+    }
+  }
+  drawing.delete(f);
   insertionQueue.push(...f.insertion);
   layoutQueue.push(...f.layout);
   passiveQueue.push(...f.passive);
   if (--depth === 0) commit();
 }
+
+/** A root's render in progress (not an update drawn later): errors caught in it are told after any retry. */
+let rendering = false;
+const caughtThisRender: (() => void)[] = [];
+
+/** Components whose draw is running: a boundary among them that catches redoes its mount in the same draw. */
+const drawing = new Set<Fiber>();
 
 const loops = {
   seen: new Set<Fiber>(),
@@ -774,20 +832,24 @@ function renderClass(f: Fiber, withRef: any) {
     return [state, force] as const;
   };
   let inst = f.inst;
-  if (!inst) {
-    inst = f.inst = new C(props, ctx);
-    inst.props = props;
-    inst.context = ctx;
-    if (inst.state === undefined) inst.state = null;
-    inst.__f = f;
-    inst.__queue = [];
+  const remount = inst?.__remount;
+  if (!inst || remount) {
+    if (remount) inst.__remount = false;
+    else {
+      inst = f.inst = new C(props, ctx);
+      inst.props = props;
+      inst.context = ctx;
+      if (inst.state === undefined) inst.state = null;
+      inst.__f = f;
+      inst.__queue = [];
+    }
     if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...C.getDerivedStateFromProps(props, inst.state) };
     call("componentWillMount");
     // setState in componentWillMount: taken into this first render.
     inst.state = apply(inst.state, props)[0];
     const out = inst.render();
-    if (inst.componentDidMount) f.layout!.push(() => lifecycle(f, () => inst.componentDidMount()));
-    if (ref != null) f.layout!.push(() => setRef(f, ref, inst));
+    if (inst.componentDidMount) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidMount()));
+    if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
     (f as any).classRef = ref;
     const done = inst.__done?.splice(0);
     if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
@@ -820,7 +882,7 @@ function renderClass(f: Fiber, withRef: any) {
   inst.context = ctx;
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
   const out = inst.render();
-  if (inst.componentDidUpdate) f.layout!.push(() => lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
+  if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
   if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
   return out;
@@ -893,9 +955,13 @@ function caught(f: Fiber, e: any) {
     const inst = p.inst;
     if (inst && !p.dead && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
       if (p.type.getDerivedStateFromError) inst.__queue.push(p.type.getDerivedStateFromError(e));
-      if (inst.componentDidCatch) layoutQueue.push(() => guard(() => inst.componentDidCatch(e, { componentStack: "" })));
-      p.root.onCaughtError?.(e, { componentStack: "", errorBoundary: inst });
-      p.tick!.set(p.tick!.peek() + 1);
+      if (inst.componentDidCatch) layoutQueue.push(() => !p.dead && guard(() => inst.componentDidCatch(e, { componentStack: "" })));
+      if (rendering) (p.root as any).threw = true;
+      else p.root.onCaughtError?.(e, { componentStack: "", errorBoundary: inst });
+      if (rendering) caughtThisRender.push(() => !p.dead && p.root.onCaughtError?.(e, { componentStack: "", errorBoundary: inst }));
+      // Rendering now (its draw under way): it renders again when its own render is done, in its error state.
+      if (drawing.has(p)) (p as any).redo = true;
+      else p.tick!.set(p.tick!.peek() + 1);
       return;
     }
   }
@@ -907,14 +973,21 @@ function caught(f: Fiber, e: any) {
 // Counted as rendering while it runs: an event it fires (a focus() in a layout effect) does not flush from inside.
 function commit() {
   depth++;
+  const wasCommitting = committing;
+  committing = true;
   try {
     untrack(() => {
+      // What was taken away first (componentWillUnmount, effect cleanups, refs let go), then what was made.
+      for (let i = 0; i < deletions.length; i++) guard(deletions[i]!);
+      deletions.length = 0;
       for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
       insertionQueue.length = 0;
       for (let i = 0; i < layoutQueue.length; i++) guard(layoutQueue[i]!);
       layoutQueue.length = 0;
+      for (const f of fresh.splice(0)) f.committed = true;
     });
   } finally {
+    committing = wasCommitting;
     depth--;
   }
   if (passiveQueue.length && !passiveBooked) {
@@ -1291,10 +1364,24 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       }
       depth++;
       if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false);
+      const wasRendering = rendering;
+      rendering = true;
       try {
         reconcile(top, [children], container, null);
+        // An error thrown while rendering, caught by a boundary: React renders once more before committing (the
+        // render may have raced with something that has settled). Here on a first render, where nothing committed.
+        if ((state as any).threw && !hydrate && top.children.every((c) => !c.committed)) {
+          (state as any).threw = false;
+          caughtThisRender.length = 0;
+          for (const c of top.children) unmount(c, true);
+          top.children = [];
+          reconcile(top, [children], container, null);
+        }
+        (state as any).threw = false;
+        for (const tell of caughtThisRender.splice(0)) tell();
         if (hydrate) dropUnclaimed(container);
       } finally {
+        rendering = wasRendering;
         if (hydrate) {
           hydrating = null;
           // Attributes are told only where the markup matched: a mismatch draws the whole root anew.
