@@ -15,6 +15,9 @@ GlobalRegistrator.register({ url: "http://localhost/" });
   const target = vm.default ?? vm;
   const run = target.runInContext;
   target.runInContext = (code: string, context: any, options?: any) => {
+    // jsdom's global proxy: Bun's differs from the window jsdom set up (its events then refuse the window), so the
+    // window itself, as Node gives for a DONT_CONTEXTIFY context.
+    if (code === "this") return context;
     try {
       return run.call(target, code, context, options);
     } catch (e: any) {
