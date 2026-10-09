@@ -50,6 +50,8 @@ for (const r of rows) if (r.note && INTERNAL.test(r.note)) r.note = "not ours: "
 // Files that test only what Twist leaves out on purpose (Solid 1 compat helpers).
 const LEFT_OUT = /store\/storePath\.test\.ts$/;
 for (const r of rows) if (LEFT_OUT.test(r.file)) r.note = "not ours: a Solid 1 compat helper";
+// The deprecated <Dynamic> wrapper (kept in 2.0 for Solid 1 code): left out of Twist, dynamic() replaces it.
+for (const r of rows) if (r.note && /Export named 'Dynamic'/.test(r.note)) r.note = "not ours: <Dynamic> (deprecated; dynamic() replaces it)";
 const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
 const sum = (k: "pass" | "fail") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + r[k], 0);
 const unloaded = rows.filter((r) => r.note && !r.note.startsWith("not ours"));

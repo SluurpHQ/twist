@@ -204,3 +204,9 @@ export function omit<T extends object, K extends keyof T>(props: T, ...keys: K[]
   }
   return view;
 }
+
+/** Whether a prop is a plain value (not a getter that follows something): a source read once, then. */
+export function isStatic(props: object, key: PropertyKey): boolean {
+  const d = Object.getOwnPropertyDescriptor(props, key);
+  return !d || !d.get;
+}

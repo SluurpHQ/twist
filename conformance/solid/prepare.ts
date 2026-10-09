@@ -54,6 +54,9 @@ for (const [pkg, file] of Object.entries(SRC)) {
 // storePath (a Solid 1 compat helper) is not in Twist: its tests count as not ours, the rest of their files still run.
 const notOurs = `export const storePath = () => { throw new Error("NOT OURS: storePath is a Solid 1 compat helper"); };\n`;
 for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n` + notOurs);
+// <Dynamic> (deprecated, kept in 2.0 for Solid 1 code): not in Twist; its tests count as not ours.
+const noDynamic = `export const Dynamic = () => { throw new Error("NOT OURS: <Dynamic> is deprecated; dynamic() replaces it"); };\n`;
+await Bun.write(join(out, "web", "src", "index.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n` + noDynamic);
 // The signals package's core entry is its public core too.
 mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
 await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);

@@ -14,7 +14,8 @@ import {
   untrack,
   NotReadyError,
 } from "./signals.ts";
-import { merge, omit } from "./flow.ts";
+import { merge, omit, isStatic } from "./flow.ts";
+export { isStatic };
 import { __twist_c, __twist_d, __twist_ref, createComponent, isChildren, isDynamic } from "./control.ts";
 
 export * from "./control.ts";
@@ -368,8 +369,9 @@ export function Portal(props: { mount?: Node; children?: any }) {
 }
 
 /** A component whose identity (a component, or a tag name) follows `source`. */
-export function dynamic<P>(source: () => any): (props: P) => any {
-  const which = createMemo(source);
+export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
+  // Static: the source read once (it cannot change).
+  const which = options?.static ? (() => { const v = untrack(source); return () => v; })() : createMemo(source);
   return (props: P) =>
     createMemo(() => {
       const c = which();
