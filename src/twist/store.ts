@@ -299,10 +299,13 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
   const set: StoreSetter<T> = (fn) => {
     guardStoreWrite();
     const d = draftOf(target);
+    const before = (fn as any)?.[RECONCILE] ? new Set(dirtyRecords) : null;
     if (typeof fn === "function") {
       const r = (fn as (d: T) => T | void)(d as T);
-      if (r !== undefined) replaceInto(target, r);
+      if (r !== undefined && r !== d) replaceInto(target, r);
     } else replaceInto(target, { ...untrack(() => ({ ...d })), ...(fn as object) });
+    // A reconcile given to the setter: its diff visible at once.
+    if (before) promoteWrites(before);
   };
   return [wrap(target) as T, set];
 }
@@ -325,7 +328,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     ++runs;
     // An async derive's answer is reconciled when it lands (onTake, below): the memo flies on the derive's own promise.
     if (r && typeof (r as any).then === "function") return r;
-    if (r !== undefined) reconcile(r, key)(d);
+    if (r !== undefined) reconcileInto(target, unwrap(r) as Raw, key);
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
     return runs;
@@ -333,7 +336,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   onTake(m, (v) => {
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
-    reconcile(v, key)(draftOf(target));
+    reconcileInto(target, unwrap(v) as Raw, key);
     promoteWrites(before);
   });
   const proxy = new Proxy(target, {
@@ -376,12 +379,24 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
 
 /** New data diffed into a store's draft (or a part of it), keeping identity for entries with the same key. */
 export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = "id") {
-  return (draft: any) => {
+  const apply = (draft: any) => {
     if (draft == null) return;
-    reconcileInto(unwrap(draft), unwrap(value) as any, key);
+    const target = unwrap(draft) as Raw;
+    const next = unwrap(value) as any;
+    // The same record, or none: a different key at the top is not a diff of this one.
+    if (key != null && isWrappable(target) && isWrappable(next) && !Array.isArray(target) && !Array.isArray(next) && keyOf(key, target) !== keyOf(key, next))
+      throw new Error("reconcile: the value's key differs from the target's");
+    const before = new Set(dirtyRecords);
+    reconcileInto(target, next, key);
+    // A reconcile's diff is visible as it returns.
+    promoteWrites(before);
     return draft;
   };
+  (apply as any)[RECONCILE] = true;
+  return apply;
 }
+/** Marks a reconcile function: given to a setter, its diff is visible as the setter returns. */
+const RECONCILE = Symbol("reconcile");
 
 const keyOf = (key: string | ((v: any) => any) | null, v: any) => (key == null || v == null || typeof v !== "object" ? v : typeof key === "function" ? key(v) : v[key]);
 
@@ -415,6 +430,8 @@ const snapshots = new WeakMap<object, { at: number; value: any }>();
 
 /** A plain copy of a store's committed state, untracked (the same copy while nothing in it changed). */
 export function snapshot<T>(v: T): T {
+  // Nothing optimistic shown: the committed objects themselves (unchanged data keeps its identity).
+  if (!liveOverlays) return unwrap(v);
   return untrack(() => plain(unwrap(v), new Map())) as T;
 }
 
@@ -468,12 +485,16 @@ function guessStage(target: Raw, key: PropertyKey, v: any) {
   if (first) queueGuess((tx) => install(r, tx));
 }
 
+/** Records with an optimistic overlay shown. */
+let liveOverlays = 0;
+
 /** A record's guesses installed: each shown over the truth until its transaction ends (its readers told). */
 function install(r: Record_, tx: Transaction | null) {
   const g = r.guessing;
   r.guessing = null;
   // A guess with no transaction to be optimistic over is void (lane contract 2): nobody sees it.
   if (!g || !tx) return;
+  if (!r.overlay?.size) liveOverlays++;
   const t = r.target;
   const lenBefore = Array.isArray(t) ? viewGet(t, "length") : 0;
   let shape = false;
@@ -510,7 +531,7 @@ function revert(r: Record_, keys: PropertyKey[], tx: Transaction | null) {
     if (had !== viewHas(t, key)) shape = true;
     if (!Object.is(before, now) || had !== viewHas(t, key)) r.nodes.get(key)?.bump();
   }
-  if (!o.size) r.overlay = null;
+  if (!o.size) (r.overlay = null), liveOverlays--;
   if (Array.isArray(t) && viewGet(t, "length") !== lenBefore) shape = true;
   if (shape) r.keys.bump();
 }
