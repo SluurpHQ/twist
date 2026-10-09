@@ -242,6 +242,7 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean) {
 export function updateForm(el: Element, tag: string, next: any, prev: any, svg: boolean) {
   const own = OWN[tag]!;
   checkControlledSwitch(tag, next, prev);
+  validateProps(tag, next, true);
   for (const k in prev) if (!own.has(k) && !(k in next)) setProp(el, k, undefined, prev[k], svg);
   for (const k in next) if (!own.has(k) && next[k] !== prev[k]) setProp(el, k, next[k], prev[k], svg);
   if (tag === "input") updateInput(el as HTMLInputElement, next, prev.defaultValue);

@@ -38,7 +38,11 @@ export { warn };
 const dataOrAria = (n: string) => /^(data|aria)-/i.test(n);
 
 /** A custom element (a tag with a dash, or a built-in one given `is`): React writes its props as they are. */
-export const isCustomElement = (tag: string, props: any) => tag.includes("-") || (props != null && props.is != null);
+/** SVG and MathML elements with a hyphen that are not custom elements (React's list). */
+const HYPHENATED_BUILT_IN = new Set(["annotation-xml", "color-profile", "font-face", "font-face-src", "font-face-uri", "font-face-format", "font-face-name", "missing-glyph"]);
+/** A tag that names a custom element (a hyphen, and not one of the built-in hyphenated ones). */
+export const customTag = (tag: string) => tag.includes("-") && !HYPHENATED_BUILT_IN.has(tag);
+export const isCustomElement = (tag: string, _props?: any) => customTag(tag);
 
 /**
  * A custom element's attribute, as React 19 writes it: className as class (and htmlFor as for, on an `is` element),
@@ -47,6 +51,7 @@ export const isCustomElement = (tag: string, props: any) => tag.includes("-") ||
 export function customAttribute(tag: string, name: string, value: any): [string, string | null] | null {
   const t = typeof value;
   if (t === "function" || t === "symbol") return null;
+  if (!attributeNameSafe(name)) return null;
   const attr = name === "className" ? "class" : name === "htmlFor" && !tag.includes("-") ? "for" : name;
   if (value == null || value === false) return [attr, null];
   return [attr, value === true ? "" : attributeString(value, name)];
@@ -58,6 +63,8 @@ export function customAttribute(tag: string, name: string, value: any): [string,
  */
 export function attribute(tag: string, name: string, value: any, svg: boolean): [string, string | null] | null {
   const t = typeof value;
+  // Anything named on… is never written (an event handler, or a string posing as one).
+  if (name.length > 2 && (name[0] === "o" || name[0] === "O") && (name[1] === "n" || name[1] === "N")) return null;
   if (BOOLEAN.has(name)) {
     return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
   }
@@ -115,13 +122,10 @@ const safeNames = new Map<string, boolean>();
 
 /** Whether `name` may be an attribute; one that may not is warned about once and left out. */
 export function attributeNameSafe(name: string): boolean {
-  let ok = safeNames.get(name);
-  if (ok === undefined) {
-    ok = ATTRIBUTE_NAME.test(name);
-    safeNames.set(name, ok);
-    if (!ok) warn(`Invalid attribute name: \`${name}\``);
-  }
-  return ok;
+  if (safeNames.has(name)) return true;
+  if (ATTRIBUTE_NAME.test(name)) return safeNames.set(name, true), true;
+  warn(`Invalid attribute name: \`${name}\``, "attribute-name:" + name);
+  return false;
 }
 
 /** A tag React refuses to write (a name that is not one, or markup smuggled in as one). */
@@ -130,16 +134,18 @@ export function checkTagName(tag: string) {
 }
 
 /** React DOM's assertValidProps: children of void elements, dangerouslySetInnerHTML's shape, style's type. */
-export function assertValidProps(tag: string, props: any) {
+export function assertValidProps(tag: string, props: any, client = false) {
   if (!props) return;
   if (VOID_TAGS.has(tag) && (props.children != null || props.dangerouslySetInnerHTML != null)) {
     throw new Error(`${tag} is a void element tag and must neither have \`children\` nor use \`dangerouslySetInnerHTML\`.`);
   }
   if (props.dangerouslySetInnerHTML != null) {
-    if (props.children != null) throw new Error("Can only set one of `children` or `props.dangerouslySetInnerHTML`.");
-    if (typeof props.dangerouslySetInnerHTML !== "object" || !("__html" in props.dangerouslySetInnerHTML)) {
-      throw new Error("`props.dangerouslySetInnerHTML` must be in the form `{__html: ...}`. Please visit https://react.dev/link/dangerously-set-inner-html for more information.");
-    }
+    // The client checks the form first, and children only beside some HTML; the server children first.
+    const inner = props.dangerouslySetInnerHTML;
+    const badForm = typeof inner !== "object" || !("__html" in inner);
+    if (!client && props.children != null) throw new Error("Can only set one of `children` or `props.dangerouslySetInnerHTML`.");
+    if (badForm) throw new Error("`props.dangerouslySetInnerHTML` must be in the form `{__html: ...}`. Please visit https://react.dev/link/dangerously-set-inner-html for more information.");
+    if (client && props.children != null && inner.__html != null) throw new Error("Can only set one of `children` or `props.dangerouslySetInnerHTML`.");
   }
   if (props.style != null && typeof props.style !== "object") {
     throw new Error("The `style` prop expects a mapping from style properties to values, not a string. For example, style={{marginRight: spacing + 'em'}} when using JSX.");

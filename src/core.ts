@@ -1250,6 +1250,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const f = fiber(PORTAL_F, type, key, c, parent);
     f.dom = c.containerInfo;
     f.ns = nsOf(f.dom);
+    // iOS Safari sends clicks only to elements it thinks clickable: React gives a portal's container a no-op onclick.
+    if (f.dom.nodeType === 1 && f.dom.onclick == null) f.dom.onclick = () => {};
     addContainer(f.dom, f.root);
     reconcile(f, toList(c.children), f.dom, null);
     return f;
@@ -1260,7 +1262,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const ns = type === "svg" ? SVG_NS : type === "math" ? MATH_NS : f.ns;
     f.ns = ns;
     checkTagName(type);
-    assertValidProps(type, props);
+    assertValidProps(type, props, true);
     const hoisted = ns !== MATH_NS && isHoistable(type, props, ns === SVG_NS, inContainer(parent), warn);
     if (dev()) {
       const around = nestingAt(parent);
@@ -1279,7 +1281,10 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
     if (single && !hydrating && type !== "html") clearSparingly(single);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name)))) as Element | null) : null);
-    const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
+    // A customized built-in (is="…") is made as one; an `is` that is not a string is warned about, as React does.
+    if (dev() && !server && !ns && props.is != null && typeof props.is !== "string")
+      warn(`Received a \`${typeof props.is}\` for a string attribute \`is\`. If this is expected, cast the value to a string.`);
+    const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : typeof props.is === "string" ? docOf(host).createElement(type, { is: props.is }) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     hide(el, "__fiber", f);
     hide(el, "__props", null);
@@ -1457,7 +1462,7 @@ function update(f: Fiber, c: any) {
   if (f.kind === HOST) {
     const prev = f.props;
     if (prev === props) return;
-    assertValidProps(f.type, props);
+    assertValidProps(f.type, props, true);
     f.props = props;
     const el = f.dom as Element;
     (el as any).__props = props;

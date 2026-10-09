@@ -1,7 +1,7 @@
 // Props on DOM elements, as React sets them: attributes or properties, styles, and events listened to on the
 // element itself (no delegation), each event given what React's handlers expect of it.
 
-import { XLINK_NS, XML_NS, attribute, customAttribute, isCustomElement } from "./attributes.ts";
+import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
 import { configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
@@ -41,6 +41,8 @@ function styleValue(name: string, value: any) {
 const cssName = (n: string) => (n.startsWith("--") ? n : n.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()).replace(/^ms-/, "-ms-"));
 
 function setStyle(el: HTMLElement, next: any, prev: any) {
+  // Read-only in development, as React makes it: a style object changed after render is a bug.
+  if (dev() && next && typeof next === "object" && !Object.isFrozen(next)) Object.freeze(next);
   const s = el.style;
   if (typeof next === "string") {
     s.cssText = next;
@@ -240,7 +242,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   if (SKIP.has(name)) return;
   if (name === "style") return setStyle(el as HTMLElement, next, prev);
   // A custom element's own events (any on* React does not know): listened to on it, the name as written.
-  if (name[0] === "o" && name[1] === "n" && name.length > 2 && el.localName.includes("-") && !REACT_EVENTS.has(name.endsWith("Capture") ? name.slice(0, -7) : name)) {
+  if (name[0] === "o" && name[1] === "n" && name.length > 2 && customTag(el.localName) && !REACT_EVENTS.has(name.endsWith("Capture") ? name.slice(0, -7) : name)) {
     const capture = name.endsWith("Capture");
     const type = name.slice(2, capture ? name.length - 7 : undefined);
     if (typeof prev === "function") el.removeEventListener(type, prev, capture);
@@ -273,9 +275,10 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   const tag = el.localName;
   // A custom element (React 19's setPropOnCustomElement): what it has as a property is set as one, whatever its
   // type; anything else an attribute; innerText and textContent are not props.
-  if (tag.includes("-")) {
+  if (customTag(tag)) {
     if (name === "innerText" || name === "textContent" || name === "innerHTML") return;
     if (name in el) return void ((el as any)[name] = next === undefined ? null : next);
+    if (!attributeNameSafe(name)) return;
     if (next === true) return el.setAttribute(name, "");
     if (next == null || next === false || typeof next === "function" || typeof next === "symbol") return el.removeAttribute(name);
     return el.setAttribute(name === "className" ? "class" : name, String(next));
@@ -297,7 +300,8 @@ export function setProps(el: Element, next: any, prev: any, svg: boolean) {
   for (const k in next) {
     if (k === "type") continue;
     const v = next[k];
-    if (!prev || prev[k] !== v || k === "value" || k === "checked") setProp(el, k, v, prev ? prev[k] : undefined, svg);
+    // A field's value and checked are set again even when unchanged (a person may have changed them); else only what changed.
+    if (!prev || prev[k] !== v || ((k === "value" || k === "checked") && /^(INPUT|TEXTAREA|SELECT)$/.test(el.nodeName))) setProp(el, k, v, prev ? prev[k] : undefined, svg);
   }
   const html = next.dangerouslySetInnerHTML?.__html;
   if (html !== (prev?.dangerouslySetInnerHTML?.__html)) (el as HTMLElement).innerHTML = html ?? "";

@@ -70,6 +70,7 @@ export function duplicateKey(key: string) {
 /** An element whose tag the browser does not know (a component written in lowercase, say). */
 export function checkTag(el: Element, tag: string) {
   if (!dev() || tag.includes("-") || el.namespaceURI !== "http://www.w3.org/1999/xhtml") return;
+  if (tag !== tag.toLowerCase()) warnOnce(`<${tag} /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.`);
   if (typeof HTMLUnknownElement !== "undefined" && el instanceof HTMLUnknownElement) {
     warnOnce(`The tag <${tag}> is unrecognized in this browser. If you meant to render a React component, start its name with an uppercase letter.`);
   }
