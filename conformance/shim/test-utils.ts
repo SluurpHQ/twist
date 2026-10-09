@@ -8,6 +8,8 @@ setTransitionScheduler(() => {});
 // A concurrent render waits for the test too: act and the waits run it, waitFor only until its log is there.
 setWorkScheduler(() => {});
 import { logLength, unstable_clearLog } from "./scheduler.ts";
+import { jest as bunJest } from "bun:test";
+import { streamsStarting } from "../../src/server.ts";
 
 /**
  * Until nothing more happens: updates and effects flushed, between turns of microtasks (promises settling). No
@@ -35,6 +37,11 @@ export async function act<T>(fn: () => T | Promise<T>): Promise<T> {
   try {
     out = await fn();
     await drain();
+    // A server render starts on setImmediate (Jest fakes it and act runs it; Bun does not fake it): one real turn.
+    if (streamsStarting()) {
+      await new Promise((r) => setImmediate(r));
+      await drain();
+    }
   } finally {
     off();
   }
@@ -42,7 +49,27 @@ export async function act<T>(fn: () => T | Promise<T>): Promise<T> {
   if (errors.length > 1) throw new AggregateError(errors);
   return out;
 }
-export const serverAct = act;
+/** React's serverAct: the scope run after a tick, then pending (fake) timers run until none are left, as the
+ * server's work is scheduled on setImmediate. */
+export async function serverAct<T>(fn: () => T | Promise<T>): Promise<T> {
+  const j: any = bunJest;
+  const timers = async () => {
+    for (let i = 0; i < 100; i++) {
+      // Bun does not fake setImmediate (the server's start): a real turn for it.
+      await new Promise((r) => setImmediate(r));
+      await Promise.resolve();
+      if (!(j?.getTimerCount?.() > 0)) break;
+      j.runOnlyPendingTimers();
+    }
+  };
+  await Promise.resolve();
+  const p: any = fn();
+  if (p && typeof p.catch === "function") p.catch(() => {});
+  await timers();
+  const out = await p;
+  await timers();
+  return out;
+}
 
 function same(a: unknown, b: unknown) {
   return JSON.stringify(a) === JSON.stringify(b);

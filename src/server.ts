@@ -1077,7 +1077,14 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
   });
 }
 
-const setImmediateOr = (fn: () => void) => ((globalThis as any).setImmediate ? (globalThis as any).setImmediate(fn) : setTimeout(fn, 0));
+/** Renders scheduled to start and not started yet (a test's act waits for them). */
+let starting = 0;
+export const streamsStarting = () => starting;
+const setImmediateOr = (fn: () => void) => {
+  starting++;
+  const run = () => (starting--, fn());
+  return (globalThis as any).setImmediate ? (globalThis as any).setImmediate(run) : setTimeout(run, 0);
+};
 
 export const version = "19.3.0";
 
