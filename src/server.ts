@@ -27,7 +27,7 @@ function errorTemplate(digest: unknown, message: string, error?: unknown, at?: s
   return `<template${dgst}${dev() ? ` data-msg="${escape(message)}"` : ""}${stack ? ` data-cstck="${escape(stack)}"` : ""}></template>`;
 }
 
-const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#39" }[c]};`);
+const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#x27" }[c]};`);
 
 function style(s: any) {
   if (s && typeof s === "object") for (const k in s) validateStyle(k, s[k]);
@@ -462,11 +462,12 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
     const v = props.value ?? (typeof props.children === "string" ? props.children : undefined);
     if (chosen !== undefined && (Array.isArray(chosen) ? chosen.map(String).includes(String(v)) : String(chosen) === String(v))) open += " selected";
   }
-  open += ">";
+  // A void element closes itself, as React writes it.
   if (VOID.has(tag) && tag !== "menuitem") {
     ctx.svg = svg;
-    return open;
+    return open + "/>";
   }
+  open += ">";
   let inner: string;
   if (props.dangerouslySetInnerHTML?.__html != null) inner = props.dangerouslySetInnerHTML.__html;
   else if (tag === "script" && !ctx.svg) {

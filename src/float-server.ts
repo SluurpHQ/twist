@@ -456,4 +456,4 @@ function preloadHeader(href: string, as: string, params?: any) {
   for (const k in params ?? {}) if (typeof params[k] === "string") out += `; ${k.toLowerCase()}="${headerParam(params[k])}"`;
   return out;
 }
-const escapeAttr = (s: string) => String(s).replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#39" }[c]};`);
+const escapeAttr = (s: string) => String(s).replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#x27" }[c]};`);

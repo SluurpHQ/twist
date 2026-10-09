@@ -1,15 +1,15 @@
 # React's tests on @sluurp/dom
 
-3202 pass, 822 fail, 314 skipped (gated off for stable React 19).
+3215 pass, 809 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 15 | 0 | 0 |  |
 | react-dom/DOMPropertyOperations-test.js | 40 | 9 | 0 |  |
-| react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
+| react-dom/escapeTextForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
-| react-dom/quoteAttributeValueForBrowser-test.js | 0 | 8 | 0 |  |
+| react-dom/quoteAttributeValueForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 4 | 1 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
@@ -23,7 +23,7 @@
 | react-dom/ReactDOMActivity-test.js | 3 | 4 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 143 | 21 | 1 |  |
+| react-dom/ReactDOMComponent-test.js | 144 | 20 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 3 | 4 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 3 | 1 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 8 | 3 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 28 | 17 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 29 | 16 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 14 | 10 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
