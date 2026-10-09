@@ -872,7 +872,8 @@ function settleRound() {
     hold(n, t);
     held.add(n);
     for (const c of below) {
-      if (c.staged !== NONE || c.due) hold(c, t);
+      // (An effect that read only overrides shows them: a guess is not held.)
+      if ((c.staged !== NONE || c.due) && (c.kind === MEMO || !c.sources.every((s) => s.override !== NONE))) hold(c, t);
       if (c.flight) t.flights.add(c);
     }
   }
@@ -1147,8 +1148,9 @@ export function isPending(fn: () => unknown): boolean {
   try {
     fn();
   } catch (e) {
-    // Never loaded: nothing stale is shown, so not pending.
-    if (!(e instanceof NotReadyError)) throw e;
+    // Never loaded: nothing stale is shown, so not pending; a tracked reader waits for the first load like any.
+    // Untracked, it never throws.
+    if (outer) throw e;
   } finally {
     listener = outer;
     verdictReading--;
@@ -1489,7 +1491,15 @@ export function onGuessEnd(end: () => void) {
 }
 
 function installGuesses() {
-  for (const [n, v, tx] of guesses.splice(0)) {
+  for (let [n, v, tx] of guesses.splice(0)) {
+    // Outside an action: over the hold already on the node, or over its own refetch (shown until that answer lands).
+    if (!tx || tx.done) {
+      tx = n.tx && !n.tx.done ? n.tx.root : null;
+      if (!tx && n instanceof Computation && (n.flight || n.state === DIRTY)) {
+        if (n.state === DIRTY) n.update();
+        if (n.flight) (tx = newTransaction()).flights.add(n);
+      }
+    }
     // No transaction to be optimistic over: void (lane contract 2).
     if (!tx || tx.done) continue;
     const was = n.override;
