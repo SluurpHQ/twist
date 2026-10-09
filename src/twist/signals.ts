@@ -772,6 +772,12 @@ function hold(n: Node, t: Transaction) {
   }
 }
 
+/** Whether a transaction is ready to commit (nothing in flight, no action still running in it). */
+function committable() {
+  for (const t of transactions) if (!t.merged && !t.open && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight)) return true;
+  return false;
+}
+
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
 function commitTransactions() {
   for (const t of [...transactions]) {
@@ -794,11 +800,12 @@ function commitTransactions() {
 
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; writes.length || landings.length || guesses.length || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
+  for (let rounds = 0; writes.length || landings.length || guesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (writes.length) for (const s of writes.splice(0)) s.commit();
     if (landings.length) for (const [c, v] of landings.splice(0)) if (!c.disposed) c.take(v);
     if (guesses.length) installGuesses();
+    if (guessWork.length) for (const [install, tx] of guessWork.splice(0)) install(tx && !tx.done ? tx : null);
     while (dirty.length) {
       const now = dirty.sort(byOrder);
       dirty = [];
@@ -1083,8 +1090,13 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
       const it = gen(...args);
       const end = (f: () => void) => {
         tx.open--;
+        settleStep();
         f();
-        schedule();
+      };
+      // Each step of the body ends with a flush (what it wrote shows, or reverts, as it returns).
+      const settleStep = () => {
+        if (!flushing && !halted) flush();
+        else schedule();
       };
       const step = (method: "next" | "throw", input?: unknown) => {
         let r: IteratorResult<any, R> | Promise<IteratorResult<any, R>>;
@@ -1097,6 +1109,7 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
           return end(() => fail(e));
         }
         acting = was;
+        if (r && !(r as any).done && typeof (r as any).then !== "function") settleStep();
         if (r && typeof (r as any).then === "function" && !("done" in (r as any))) {
           return void (r as Promise<IteratorResult<any, R>>).then(after, (e) => end(() => fail(e)));
         }
@@ -1250,6 +1263,8 @@ export function onGuessEnd(end: () => void) {
 
 function installGuesses() {
   for (const [n, v, tx] of guesses.splice(0)) {
+    // No transaction to be optimistic over: void (lane contract 2).
+    if (!tx || tx.done) continue;
     const was = n.override;
     n.override = v as any;
     if (tx && !tx.done) {
@@ -1389,3 +1404,18 @@ export function createReaction(onChange: () => void) {
 export const sharedConfig: { hydrating: boolean; context: unknown } = { hydrating: false, context: null };
 export const isHydrating = () => sharedConfig.hydrating;
 export function enableHydration() {}
+
+/** Optimistic store work waiting for the next flush, with the transaction of the action that made it. */
+const guessWork: [(tx: Transaction | null) => void, Transaction | null][] = [];
+
+/** `install` run at the next flush with the transaction the optimistic write belongs to (null outside an action). */
+export function queueGuess(install: (tx: Transaction | null) => void) {
+  guessWork.push([install, acting?.tx ?? null]);
+  schedule();
+}
+
+/** `end` run when `tx` commits, or (outside an action) at the end of the flush. */
+export function endWith(tx: Transaction | null, end: () => void) {
+  if (tx && !tx.done) tx.ends.push(end);
+  else ambientEnds.push(end), schedule();
+}

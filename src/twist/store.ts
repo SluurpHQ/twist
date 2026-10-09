@@ -1,7 +1,7 @@
 // Twist's stores: objects and arrays read property by property (each a node of its own), changed through a draft.
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
-import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, onGuessEnd } from "./signals.ts";
+import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, NotReadyError, type Transaction } from "./signals.ts";
 
 export const $TARGET = Symbol("store-target");
 export const $PROXY = Symbol("store-proxy");
@@ -20,6 +20,10 @@ class Record_ {
   draft: any;
   /** Writes since the last flush, by key (DELETE for a removal). */
   pending: Map<PropertyKey, any> | null = null;
+  /** Optimistic values shown over the truth, by key, each with the transaction it lives as long as. */
+  overlay: Map<PropertyKey, { v: any; tx: Transaction | null }> | null = null;
+  /** Optimistic writes waiting for the next flush. */
+  guessing: Map<PropertyKey, any> | null = null;
   constructor(public target: Raw) {
     this.keys = new KeyNode(this, $TRACK);
   }
@@ -66,7 +70,7 @@ const readHandler: ProxyHandler<Raw> = {
     // Getters run against the proxy, so what they read is tracked.
     if (desc?.get) return desc.get.call(receiver);
     if (isTracking()) node(target, key).read();
-    const v = target[key];
+    const v = viewGet(target, key);
     if (Array.isArray(target) && key === "length") return v;
     // A method of an array (or anything inherited) is not a property of the state.
     if (!desc && typeof v === "function") return v;
@@ -75,13 +79,15 @@ const readHandler: ProxyHandler<Raw> = {
   has(target, key) {
     if (key === $PROXY || key === $TARGET) return true;
     if (isTracking()) node(target, key).read();
-    return key in target;
+    return viewHas(target, key);
   },
   ownKeys(target) {
     if (isTracking()) recordOf(target).keys.read();
-    return Reflect.ownKeys(target);
+    return viewKeys(target);
   },
   getOwnPropertyDescriptor(target, key) {
+    const o = records.get(target)?.overlay?.get(key);
+    if (o) return o.v === DELETE ? undefined : { value: wrap(o.v), writable: true, enumerable: true, configurable: true };
     const desc = Reflect.getOwnPropertyDescriptor(target, key);
     if (!desc || desc.get || !desc.configurable) return desc;
     return { ...desc, value: wrap(desc.value) };
@@ -98,6 +104,29 @@ function frozen(target: Raw, key: PropertyKey, value?: unknown): boolean {
   const d = Object.getOwnPropertyDescriptor(target, key);
   if (!d || d.configurable) return false;
   return arguments.length < 3 || (!d.writable && !Object.is(d.value, value));
+}
+
+/** What a key shows: its optimistic value if one is installed, else the committed value. */
+function viewGet(target: Raw, key: PropertyKey): any {
+  const o = records.get(target)?.overlay?.get(key);
+  if (o) return o.v === DELETE ? undefined : o.v;
+  return target[key];
+}
+function viewHas(target: Raw, key: PropertyKey): boolean {
+  const o = records.get(target)?.overlay?.get(key);
+  if (o) return o.v !== DELETE;
+  return key in target;
+}
+function viewKeys(target: Raw): (string | symbol)[] {
+  const overlay = records.get(target)?.overlay;
+  if (!overlay?.size) return Reflect.ownKeys(target);
+  const keys = new Set<string | symbol>(Reflect.ownKeys(target));
+  for (const [k, o] of overlay) o.v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+  if (Array.isArray(target)) {
+    const len = viewGet(target, "length");
+    for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+  }
+  return [...keys];
 }
 
 function node(target: Raw, key: PropertyKey): KeyNode {
@@ -299,8 +328,16 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   const proxy = new Proxy(target, {
     ...readHandler,
     get(t, k, receiver) {
-      // Every read brings the derive up to date first.
-      m();
+      // Every read brings the derive up to date first (a key with an optimistic value shows it even before the
+      // derive's first answer).
+      if (k === $TARGET || k === $PROXY) return readHandler.get!(t, k, receiver);
+      if (records.get(t)?.overlay?.has(k)) {
+        try {
+          m();
+        } catch (e) {
+          if (!(e instanceof NotReadyError)) throw e;
+        }
+      } else m();
       return readHandler.get!(t, k, receiver);
     },
     ownKeys(t) {
@@ -375,10 +412,10 @@ function plain(v: any, seen: Map<any, any>): any {
   if (seen.has(v)) return seen.get(v);
   const out: any = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
   seen.set(v, out);
-  for (const k of Reflect.ownKeys(v)) {
-    const desc = Object.getOwnPropertyDescriptor(v, k)!;
-    if (desc.get) Object.defineProperty(out, k, desc);
-    else out[k] = plain(unwrap(desc.value), seen);
+  for (const k of viewKeys(v)) {
+    const desc = Object.getOwnPropertyDescriptor(v, k);
+    if (desc?.get) Object.defineProperty(out, k, desc);
+    else out[k] = plain(unwrap(viewGet(v, k)), seen);
   }
   return out;
 }
@@ -395,28 +432,144 @@ export function deep<T>(v: T): T {
 }
 
 
+// ---------------------------------------------------------------- optimistic stores
+
+/** What an optimistic draft reads: this tick's guesses, then the view (the overlay over the truth). */
+function guessGet(target: Raw, key: PropertyKey): any {
+  const g = records.get(target)?.guessing;
+  if (g && g.has(key)) {
+    const v = g.get(key);
+    return v === DELETE ? undefined : v;
+  }
+  return viewGet(target, key);
+}
+function guessHas(target: Raw, key: PropertyKey): boolean {
+  const g = records.get(target)?.guessing;
+  if (g && g.has(key)) return g.get(key) !== DELETE;
+  return viewHas(target, key);
+}
+
+/** A guess for the next flush: installed then over the truth, for as long as its action's transaction lives. */
+function guessStage(target: Raw, key: PropertyKey, v: any) {
+  const r = recordOf(target);
+  const first = !r.guessing;
+  (r.guessing ??= new Map()).set(key, v);
+  if (first) queueGuess((tx) => install(r, tx));
+}
+
+/** A record's guesses installed: each shown over the truth until its transaction ends (its readers told). */
+function install(r: Record_, tx: Transaction | null) {
+  const g = r.guessing;
+  r.guessing = null;
+  // A guess with no transaction to be optimistic over is void (lane contract 2): nobody sees it.
+  if (!g || !tx) return;
+  const t = r.target;
+  const lenBefore = Array.isArray(t) ? viewGet(t, "length") : 0;
+  let shape = false;
+  const mine: PropertyKey[] = [];
+  for (const [key, v] of g) {
+    const before = viewGet(t, key);
+    const had = viewHas(t, key);
+    (r.overlay ??= new Map()).set(key, { v, tx });
+    mine.push(key);
+    if (v === DELETE ? had : !had || !Object.is(before, v)) {
+      if (v === DELETE || !had) shape = true;
+      r.nodes.get(key)?.bump();
+    }
+  }
+  if (Array.isArray(t) && viewGet(t, "length") !== lenBefore) shape = true;
+  if (shape) r.keys.bump();
+  endWith(tx, () => revert(r, mine, tx));
+}
+
+/** A transaction's guesses taken off again: the truth shown (readers told where the view changes). */
+function revert(r: Record_, keys: PropertyKey[], tx: Transaction | null) {
+  const o = r.overlay;
+  if (!o) return;
+  const t = r.target;
+  const lenBefore = Array.isArray(t) ? viewGet(t, "length") : 0;
+  let shape = false;
+  for (const key of keys) {
+    const e = o.get(key);
+    if (!e || e.tx !== tx) continue;
+    const before = viewGet(t, key);
+    const had = viewHas(t, key);
+    o.delete(key);
+    const now = viewGet(t, key);
+    if (had !== viewHas(t, key)) shape = true;
+    if (!Object.is(before, now) || had !== viewHas(t, key)) r.nodes.get(key)?.bump();
+  }
+  if (!o.size) r.overlay = null;
+  if (Array.isArray(t) && viewGet(t, "length") !== lenBefore) shape = true;
+  if (shape) r.keys.bump();
+}
+
+const guessHandler: ProxyHandler<Raw> = {
+  get(target, key, receiver) {
+    if (key === $TARGET) return target;
+    if (key === $PROXY) return receiver;
+    const v = guessGet(target, key);
+    if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(target, key)) return v;
+    return guessDraftOf(v);
+  },
+  has: (target, key) => guessHas(target, key),
+  ownKeys(target) {
+    const keys = new Set<string | symbol>(viewKeys(target));
+    const g = records.get(target)?.guessing;
+    if (g) for (const [k, v] of g) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+    if (Array.isArray(target)) {
+      const len = guessGet(target, "length");
+      for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+    }
+    return [...keys];
+  },
+  getOwnPropertyDescriptor(target, key) {
+    if (!guessHas(target, key)) return undefined;
+    return { value: guessGet(target, key), writable: true, enumerable: true, configurable: true };
+  },
+  set(target, key, value) {
+    const raw = unwrap(value);
+    if (Array.isArray(target) && key === "length") {
+      const before = guessGet(target, "length");
+      for (let i = raw; i < before; i++) guessStage(target, String(i), DELETE);
+      guessStage(target, "length", raw);
+      return true;
+    }
+    guessStage(target, key, raw);
+    if (Array.isArray(target) && typeof key === "string" && /^\d+$/.test(key) && +key >= guessGet(target, "length")) guessStage(target, "length", +key + 1);
+    return true;
+  },
+  deleteProperty(target, key) {
+    if (guessHas(target, key)) guessStage(target, key, DELETE);
+    return true;
+  },
+};
+
+const guessDrafts = new WeakMap<object, any>();
+function guessDraftOf<T>(v: T): T {
+  if (!isWrappable(v)) return v;
+  let d = guessDrafts.get(v as object);
+  if (!d) guessDrafts.set(v as object, (d = new Proxy(v as Raw, guessHandler)));
+  return d;
+}
+
 /**
- * A store whose setter's writes are optimistic: shown from the next flush, then undone when the action that made them
- * ends (or, outside an action, at the end of the flush), the truth (derived, if given a function) shown again.
+ * A store whose setter's writes are optimistic: shown from the next flush over the truth (derived, when given a
+ * function), until the action that made them ends (or, outside an action, the flush does).
  */
 export function createOptimisticStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: { key?: string | ((v: any) => any) }): [T, StoreSetter<T>] {
   const [store] = typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true) : createStore(init as T);
   const target = unwrap(store) as Raw;
-  let saved: any = null;
   const set: StoreSetter<T> = (fn) => {
-    if (!saved) {
-      saved = snapshot(store);
-      onGuessEnd(() => {
-        const truth = saved;
-        saved = null;
-        reconcile(truth, null)(draftOf(target));
-      });
-    }
-    const d = draftOf(target);
+    const d = guessDraftOf(target);
     if (typeof fn === "function") {
       const r = (fn as (d: T) => T | void)(d as T);
-      if (r !== undefined) replaceInto(target, r);
-    } else replaceInto(target, { ...(fn as object) });
+      if (r !== undefined && r !== d) {
+        const raw = unwrap(r) as Raw;
+        for (const k of Reflect.ownKeys(d)) if (!(k in raw)) delete (d as any)[k];
+        for (const k of Reflect.ownKeys(raw)) (d as any)[k] = raw[k as any];
+      }
+    } else for (const k of Reflect.ownKeys(fn as object)) (d as any)[k] = (fn as any)[k];
   };
   return [store, set];
 }

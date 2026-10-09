@@ -47,6 +47,9 @@ for (const [pkg, file] of Object.entries(SRC)) {
   mkdirSync(join(out, pkg, "src"), { recursive: true });
   await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist(file))};\n`);
 }
+// storePath (a Solid 1 compat helper) is not in Twist: its tests count as not ours, the rest of their files still run.
+const notOurs = `export const storePath = () => { throw new Error("NOT OURS: storePath is a Solid 1 compat helper"); };\n`;
+for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n` + notOurs);
 // The signals package's core entry is its public core too.
 mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
 await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
