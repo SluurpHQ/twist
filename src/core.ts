@@ -1165,6 +1165,13 @@ function isResourceNode(n: Node) {
   return false;
 }
 /** A document's containers emptied as React's clearContainerSparingly does: scripts, styles and stylesheets stay. */
+/** A root's container emptied before it is drawn: the document and its <html>, <head>, <body> keep their scripts,
+ * styles and stylesheets (React's clearContainer). */
+function clearContainer(container: Node) {
+  if (container.nodeType === 9 || /^(HTML|HEAD|BODY)$/.test(container.nodeName)) clearSparingly(container);
+  else (container as Element).replaceChildren?.();
+}
+
 function clearSparingly(container: Node) {
   let n = container.firstChild;
   if (n && n.nodeType === 10) n = n.nextSibling;
@@ -1483,6 +1490,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // Taken over while hydrating: what follows it in its parent comes next.
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
     if (single && !hydrating && type !== "html") clearSparingly(single);
+    // Taken over on a fresh render: its attributes go too (React's acquireSingletonInstance), the props set after.
+    if (single && !hydrating) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name)))) as Element | null) : null);
     // A customized built-in (is="…") is made as one.
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : typeof props.is === "string" ? docOf(host).createElement(type, { is: props.is }) : docOf(host).createElement(type)));
@@ -3331,7 +3340,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
     const finish = () => {
       const go = () => {
         top.dom = container;
-        (container as Element).replaceChildren?.();
+        clearContainer(container);
         container.appendChild(frag);
         commit();
         flushSignals();
@@ -3369,8 +3378,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       if (first) {
         first = false;
         if (!hydrate) {
-          if (container.nodeType === 9 || (container as Element).localName === "html") clearSparingly(container);
-          else (container as Element).replaceChildren?.();
+          clearContainer(container);
         }
       }
       depth++;
@@ -3408,7 +3416,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           for (const c of top.children) unmount(c, false);
           top.children = [];
           hydrating = null;
-          (container as Element).replaceChildren?.();
+          clearContainer(container);
           const error: any = new Error("There was an error while hydrating but React was able to recover by instead client rendering the entire root.");
           error.cause = cause;
           // Told only if the root then renders without an error of its own (React reports it with the commit).
@@ -3446,8 +3454,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
             for (const c of top.children) unmount(c, false);
             top.children = [];
             hydrating = null;
-            if (container.nodeType === 9 || (container as Element).localName === "html") clearSparingly(container);
-            else (container as Element).replaceChildren?.();
+            clearContainer(container);
             draw();
             (state as any).threw = false;
             for (const tell of caughtThisRender.splice(0)) tell();
