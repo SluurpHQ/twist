@@ -214,7 +214,9 @@ abstract class Node<T = any> {
   /** The value in the world being read: an optimistic override, else staged while a pass runs, else committed. */
   current(): T {
     if (this.override !== NONE) return this.override as T;
-    return inPass && this.staged !== NONE ? (this.staged as T) : this.value;
+    if (!inPass || this.staged === NONE) return this.value;
+    // A tracked effect sees the committed frame: what a transaction holds is never shown to it.
+    return this.tx && listener?.tracked ? this.value : (this.staged as T);
   }
   /** A new value staged: committed at the flush's end, or held by a transaction. */
   stage(next: T) {
@@ -536,7 +538,12 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** A value it computed or that landed: staged (or committed outside a flush), its readers told if it changed. */
   take(next: T) {
-    this.loadingWindow = false;
+    // A loading window's first answer is a first load: committed on arrival, whatever holds what re-asked it.
+    if (this.loadingWindow) {
+      this.loadingWindow = false;
+      (this as any).revealNow = true;
+      if (this.tx) this.tx.nodes.delete(this), (this.tx = null);
+    }
     if (this.onTake) this.onTake(next);
     const first = !this.ready;
     this.ready = true;
@@ -825,6 +832,10 @@ function settleRound() {
   let tx: Transaction | null = null;
   const held = new Set<Node>();
   for (const n of now) {
+    if ((n as any).revealNow) {
+      (n as any).revealNow = false;
+      continue;
+    }
     if (n.tx || held.has(n)) continue;
     const below = downstream(n);
     let holds = false;
