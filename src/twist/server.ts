@@ -95,6 +95,38 @@ export function Errored(props: { fallback: any; children?: any }) {
   }
 }
 
+/** Style text from (name:, value) pairs: entries with no value left out, the rest joined by ";". */
+export function ssrStyleProperties(...entries: any[]): string {
+  let out = "";
+  for (let i = 0; i < entries.length; i += 2) {
+    const v = entries[i + 1];
+    if (v == null || v === false || v === "") continue;
+    out += (out ? ";" : "") + entries[i] + v;
+  }
+  return out;
+}
+
+export const ssrStyleProperty = (name: string, value: any) => ssrStyleProperties(name, value);
+
+/** A template with holes: the strings with each hole rendered between them (finished HTML). */
+export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {
+  if (typeof template === "string") return { t: template };
+  let out = template[0] ?? "";
+  for (let i = 1; i < template.length; i++) out += html(nodes[i - 1], false) + template[i];
+  return { t: out };
+}
+
+/** What sets up `_$HY` in the page before the server's data and the client's hydration (written for Twist). */
+export function generateHydrationScript(options: { nonce?: string; eventNames?: string[] } = {}) {
+  const events = JSON.stringify(options.eventNames ?? ["click", "input"]);
+  const nonce = options.nonce ? ` nonce="${escape(options.nonce, true)}"` : "";
+  return `<script${nonce}>window._$HY||(_$HY={events:[],completed:new WeakSet(),r:{},fe(){}},${events}.forEach(function(t){document.addEventListener(t,function(e){_$HY.events.push([e.target,e])})}))</script>`;
+}
+
+export function HydrationScript(props: { nonce?: string; eventNames?: string[] }) {
+  return { t: generateHydrationScript(props) };
+}
+
 /** On the server a client-only component is its fallback. */
 export function clientOnly<P extends object>(_load: () => Promise<any>, _options?: { lazy?: boolean; export?: string }) {
   return (props: P & { fallback?: any }) => props.fallback;

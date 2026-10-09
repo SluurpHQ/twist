@@ -19,6 +19,7 @@ import {
   createOwner,
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
+import { $TARGET } from "./store.ts";
 export { isStatic };
 import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic, spreadSource, Loading, Errored } from "./control.ts";
 
@@ -117,7 +118,8 @@ function set(el: Element, name: string, value: any) {
     // nothing written (what the user typed, styles the page has, stay).
     let adopt = !!hydrating;
     createRenderEffect(
-      value,
+      // (A style or class object is read whole: one changed in place applies again.)
+      name === "style" || name === "class" ? () => readShallow(value()) : value,
       (v: any, prev: any) => {
         if (adopt) {
           adopt = false;
@@ -181,11 +183,17 @@ function classes(v: any, out = new Set<string>()): Set<string> {
 
 /** A style: a string, or an object of CSS property → value. */
 export function style(el: HTMLElement, value: any, prev?: any) {
-  if (value == null || value === false || value === "") return el.removeAttribute("style");
-  if (typeof value === "string") return void (el.style.cssText = value);
+  // What it applied last (an object changed in place is not what it was): the diff is against that.
+  const applied = (el as any).$$style;
+  if (value == null || value === false || value === "") return void ((el as any).$$style = undefined), el.removeAttribute("style");
+  if (typeof value === "string") return void ((el as any).$$style = undefined), void (el.style.cssText = value);
+  prev = applied ?? prev;
   if (typeof prev !== "object" || prev == null) (el.style.cssText = ""), (prev = {});
-  for (const k of Object.keys(prev)) if (value[k] == null) el.style.removeProperty(k);
-  for (const k of Object.keys(value)) if (value[k] != null && value[k] !== prev[k]) el.style.setProperty(k, String(value[k]));
+  const now: Record<string, any> = {};
+  for (const k of Object.keys(value)) now[k] = value[k];
+  for (const k of Object.keys(prev)) if (now[k] == null) el.style.removeProperty(k);
+  for (const k of Object.keys(now)) if (now[k] != null && now[k] !== prev[k]) el.style.setProperty(k, String(now[k]));
+  (el as any).$$style = now;
 }
 
 /** `ref`: a function called with the element, or a list of them (nested). */
@@ -220,7 +228,7 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
   createRenderEffect(
     () => {
       const next: Record<string, any> = {};
-      for (const k of Object.keys(props)) if (k !== "children" && k !== "ref") next[k] = props[k];
+      for (const k of Object.keys(props)) if (k !== "children" && k !== "ref") next[k] = k === "style" || k === "class" ? readShallow(props[k]) : props[k];
       return next;
     },
     (next: Record<string, any>) => {
@@ -704,6 +712,24 @@ function claimElement(d: { tag: string; props: Record<string, any> }, keyed: boo
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) claimChildren(props.children, { parent: el, next: el.firstChild });
   return el;
+}
+
+/** A render effect, as compiled code makes one (its options' name is for development tools). */
+export function effect<T>(compute: (prev?: T) => T, apply: (v: T, prev?: T) => void, options?: { name?: string }) {
+  createRenderEffect(compute, apply, BINDING);
+}
+
+/**
+ * A value read whole: a store object copied into a plain one (its keys and values tracked, so an in-place change
+ * applies again), an array re-mapped when an item is a store; anything else as is.
+ */
+export function readShallow<T>(v: T): T {
+  if (!v || typeof v !== "object") return v;
+  if (Array.isArray(v)) return (v.some((x) => x && typeof x === "object" && (x as any)[$TARGET]) ? v.map(readShallow) : v) as T;
+  if (!(v as any)[$TARGET]) return v;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(v)) out[k] = (v as any)[k];
+  return out as T;
 }
 
 // ---------------------------------------------------------------- head
