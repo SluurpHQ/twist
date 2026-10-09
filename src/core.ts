@@ -864,7 +864,10 @@ const regionIn = (host: Node) => {
   return undefined;
 };
 /** Markup that differs from the client's: the innermost boundary's to deal with, or the root's. */
+/** A recoverable error (a mismatch) met in the render under way: no pre-warming after it. */
+let recoveredThisRender = false;
 function markMismatch(text = false) {
+  recoveredThisRender = true;
   const r = regions[regions.length - 1];
   if (r) {
     // After it suspended, nothing of the boundary counts yet: it is hydrated again later.
@@ -1788,9 +1791,10 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       if (last && last.waiting === waiting && last.props === props && waiting) return last.out;
       // Shown once its children are committed without waiting: children that suspend before that are dropped
       // (React keeps nothing of a first mount that suspends), not kept hidden.
-      if (!waiting) ((fb as any).warmed = false), layoutQueue.push(() => !fb.dead && fb.pending!.peek() === 0 && (shown = true));
+      if (!waiting) ((fb as any).warmed = false), layoutQueue.push(() => !fb.dead && fb.pending!.peek() === 0 && !(fb as any).dehydrated && (shown = true));
       // Its fallback committed: its children are pre-warmed once after the commit.
-      else if (!(fb as any).warmed && !prewarming) ((fb as any).warmed = true), layoutQueue.push(() => prewarms.push(fb));
+      // (Not in a sync render, nor one that met a recoverable error: React renders those again synchronously.)
+      else if (!(fb as any).warmed && !prewarming && !syncing) ((fb as any).warmed = true), layoutQueue.push(() => !recoveredThisRender && prewarms.push(fb));
       layoutQueue.push(() => {
         const kept = fb.children.find((c) => c.key === "kc");
         if (kept) hideNodes(kept, waiting);
@@ -2385,6 +2389,7 @@ function commit() {
     committing = wasCommitting;
     depth--;
   }
+  if (depth === 0) recoveredThisRender = false;
   if (prewarms.length && depth === 0) prewarm();
   if ((passiveQueue.length || passiveUnmounts.length) && !passiveBooked) {
     passiveBooked = true;
