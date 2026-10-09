@@ -1,15 +1,17 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
-import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, setServerRender, sharedConfig, untrack } from "./signals.ts";
+import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, setServerAnswers, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
-import { componentProps, createComponent, isChildren, isDynamic } from "./control.ts";
+import { componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 export * from "./server-solid.ts";
 export * from "./control.ts";
 export { merge, omit, isStatic, merge as mergeProps };
 export const isServer = true;
 setServerRender(true);
+// Where control flow needs a component's value (a Switch reading its Matches): the component run.
+setDescribedNode((v) => (v && v[COMP] ? createComponent(v.fn, componentProps(v.props)) : v));
 
 // ---------------------------------------------------------------- descriptions
 
@@ -29,10 +31,9 @@ export function jsx(type: any, props: Record<string, any>): any {
 export { jsx as jsxs, jsx as jsxDEV };
 
 /** An element made at run time (a dynamic tag): it always takes a key of its own. */
-export function ssrElement(tag: string, props: any, children?: any, _needsId?: boolean) {
-  const p = typeof props === "function" ? props() : { ...props };
-  if (children !== undefined) p.children = children;
-  return { [EL]: true, tag, props: p, keyed: true } as Element_;
+export function ssrElement(tag: string, props: any, children?: any, needsId?: boolean) {
+  const p = (typeof props === "function" ? props() : props) ?? {};
+  return { [EL]: true, tag, props: children === undefined ? p : merge(p, { children }), keyed: !!needsId } as Element_;
 }
 
 /**
@@ -40,9 +41,16 @@ export function ssrElement(tag: string, props: any, children?: any, _needsId?: b
  * memo path renders it under a memo of its own (as the client does), the static path under the caller.
  */
 export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
-  const which = options?.static ? ((v) => () => v)(untrack(source)) : createMemo(source);
-  const make = (w: any, props: any) => (typeof w === "string" ? ssrElement(w, props) : typeof w === "function" ? createComponent(w, props) : undefined);
-  return (props: any) => (options?.static ? make(which(), props) : createMemo(() => ({ t: html(make(which(), props), false) })));
+  const make = (w: any, props: any) => (typeof w === "string" ? ssrElement(w, props, undefined, true) : typeof w === "function" ? createComponent(w, props) : undefined);
+  if (options?.static) {
+    const w = untrack(source);
+    if (w && typeof w.then === "function") throw new Error("dynamic(): a static source must resolve synchronously");
+    return (props: any) => make(w, props);
+  }
+  return (props: any) => {
+    const which = createMemo(source);
+    return createMemo(() => ({ t: html(make(which(), props), false) }));
+  };
 }
 
 // ---------------------------------------------------------------- hydration keys
@@ -91,11 +99,19 @@ const ATTR = /[&"]/;
 export function escape(s: any, attr?: boolean): any {
   if (typeof s !== "string") {
     if (attr) return s == null || typeof s === "boolean" || typeof s === "number" ? s : escape(String(s), true);
-    if (Array.isArray(s)) return s.map((x) => escape(x));
+    if (Array.isArray(s)) {
+      const out: any = s.map((x) => escape(x));
+      if ((s as any).$slot) out.$slot = true;
+      return out;
+    }
     if (typeof s === "function") {
-      const w = () => escape(s());
-      (w as any).$esc = true;
-      return s.$esc ? s : w;
+      if (s.$esc) return s;
+      const w: any = () => escape(s());
+      w.$esc = true;
+      // (Tags other layers key on ride along.)
+      if (s.$lhSkip) w.$lhSkip = true;
+      if (s.$lhSuppress) w.$lhSuppress = true;
+      return w;
     }
     return s;
   }
@@ -132,7 +148,7 @@ export function html(v: any, inTemplate: boolean): string {
     return out;
   }
   if (typeof v === "function") return html(v(), false);
-  if (v[EL]) return element(v, !inTemplate || v.keyed);
+  if (v[EL]) return element(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return html(createComponent(v.fn, componentProps(v.props)), false);
   if (typeof v.t === "string") return v.t;
   return escape(String(v));
@@ -171,18 +187,21 @@ function element(el: Element_, keyed: boolean): string {
   const chosen = tag === "select" && "value" in all ? read(all.value) : NONE_CHOSEN;
   for (const k of Object.keys(all)) {
     if (k === "children" || k === "ref" || /^on[A-Z]/.test(k) || (k === "value" && chosen !== NONE_CHOSEN)) continue;
+    if (tag === "textarea" && (k === "value" || k === "defaultValue")) continue;
     out += ssrAttribute(k, read(all[k]));
   }
   if (tag === "option" && selecting !== NONE_CHOSEN && !("selected" in all)) {
     const v = String(read(all.value) ?? "");
     if (Array.isArray(selecting) ? selecting.map(String).includes(v) : String(selecting ?? "") === v) out += " selected";
   }
-  if (VOID.has(tag)) return out + "/>";
+  if (VOID.has(tag)) return out + " />";
   out += ">";
   const was = selecting;
   if (chosen !== NONE_CHOSEN) selecting = chosen;
   try {
-    if ("children" in all) out += children(all.children);
+    // A textarea's value is its text.
+    if (tag === "textarea" && ("value" in all || "defaultValue" in all)) out += escape(String(read("value" in all ? all.value : all.defaultValue) ?? ""));
+    else if ("children" in all) out += children(all.children);
   } finally {
     selecting = was;
   }
@@ -202,7 +221,7 @@ function children(c: any): string {
     }
     return out;
   }
-  if (c && c[EL]) return element(c, !!c.keyed);
+  if (c && c[EL]) return element(c, c.keyed ?? false);
   return html(c, false);
 }
 
@@ -224,6 +243,7 @@ export function ssrAttribute(name: string, value: any): string {
   if (name === "class") value = ssrClassName(value);
   else if (name === "style") value = ssrStyle(value);
   if (value == null || value === false) return "";
+  if (value === "" && (name === "class" || name === "style")) return "";
   if (value === true) return " " + name;
   if (value === "" && name !== "class" && name !== "style") return " " + name;
   if (BOOLEAN.has(name.toLowerCase())) return value ? " " + name : "";
@@ -260,6 +280,9 @@ type Render = {
   chunks: string[];
   wake: (() => void) | null;
   revealScript: boolean;
+  /** What async nodes answered, by id: a retry takes the same answer instead of asking again. */
+  answers: Map<string, [boolean, unknown]>;
+  options: { renderId?: string; noHydrate?: boolean };
 };
 let render: Render | null = null;
 
@@ -285,7 +308,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
         r.waiting.delete(p);
         resetOwner(boundary);
         try {
-          const content = runWithOwner(boundary, () => html(props.children, false));
+          const content = rendering(r, r.options, () => runWithOwner(boundary, () => html(props.children, false)));
           r.chunks.push(`<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
@@ -316,11 +339,13 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   const wasRender = render;
   sharedConfig.context = options.noHydrate ? null : { id: options.renderId ?? "" };
   render = r;
+  setServerAnswers(r?.answers ?? null);
   try {
     return fn();
   } finally {
     sharedConfig.context = was;
     render = wasRender;
+    setServerAnswers(wasRender?.answers ?? null);
   }
 }
 
@@ -343,7 +368,7 @@ type Writable = { write(chunk: string): void; end(): void };
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: { renderId?: string; noHydrate?: boolean; onCompleteShell?: () => void; onCompleteAll?: () => void } = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options };
   let dispose!: () => void;
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.

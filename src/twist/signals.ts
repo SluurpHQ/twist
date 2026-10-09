@@ -186,6 +186,9 @@ const noop = () => {};
 let serverRender = false;
 const answered = new WeakMap<object, [boolean, unknown]>();
 export const setServerRender = (on: boolean) => void (serverRender = on);
+/** The render under way on a server: what its async nodes answered, by id (a retry's node of the same id takes it). */
+let serverAnswers: Map<string, [boolean, unknown]> | null = null;
+export const setServerAnswers = (m: Map<string, [boolean, unknown]> | null) => void (serverAnswers = m);
 
 /** What a not-ready read waits on: the flight of the node it read, upstream of it, or nothing known. */
 export function settlesOf(e: NotReadyError): Promise<void> | null {
@@ -628,12 +631,17 @@ export class Computation<T> extends Node<T> implements Owner {
    */
   fly(p: PromiseLike<T>) {
     // On a server, a promise already settled answers at once (a render tried again reads what landed).
-    const known = serverRender ? answered.get(p as object) : undefined;
+    const answers = serverAnswers;
+    const id = (this as any).id as string | undefined;
+    const known = serverRender ? answered.get(p as object) ?? (answers && id != null ? answers.get(id) : undefined) : undefined;
     if (known) return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
     const flight = {};
     this.streaming = false;
     this.settles = serverRender
-      ? Promise.resolve(p).then((v) => void answered.set(p as object, [true, v]), (e) => void answered.set(p as object, [false, e]))
+      ? Promise.resolve(p).then(
+          (v) => void (answered.set(p as object, [true, v]), answers && id != null && answers.set(id, [true, v])),
+          (e) => void (answered.set(p as object, [false, e]), answers && id != null && answers.set(id, [false, e])),
+        )
       : Promise.resolve(p).then(noop, noop);
     let sync = true;
     let early: [boolean, unknown] | null = null;

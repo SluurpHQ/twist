@@ -178,14 +178,16 @@ export function merge<T extends object[]>(...sources: T): any {
   const list = sources.filter((s) => s != null);
   const view: any = {};
   const keys = new Set<PropertyKey>();
-  for (const s of list) for (const k of Reflect.ownKeys(s)) keys.add(k);
+  // (A function source is read for its object, keys and values alike.)
+  const at = (s: any) => (typeof s === "function" ? s() ?? {} : s);
+  for (const s of list) for (const k of Reflect.ownKeys(at(s))) keys.add(k);
   for (const k of keys) {
     Object.defineProperty(view, k, {
       enumerable: true,
       configurable: true,
       get() {
         for (let i = list.length - 1; i >= 0; i--) {
-          const s = list[i] as any;
+          const s = at(list[i]);
           if (k in s) return s[k];
         }
       },

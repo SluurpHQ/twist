@@ -88,6 +88,10 @@ export function Show<T>(props: { when: T | undefined | null | false; keyed?: boo
 type MatchProps<T> = { when: T | undefined | null | false; keyed?: boolean; children: any };
 const MATCH = Symbol("match");
 
+/** A renderer whose JSX describes components (the server) resolves one here, where its value is needed. */
+let describedNode = (v: any) => v;
+export const setDescribedNode = (fn: (v: any) => any) => void (describedNode = fn);
+
 /** One branch of a Switch. */
 export function Match<T>(props: MatchProps<T>) {
   return { [MATCH]: true, props } as any;
@@ -97,7 +101,7 @@ export function Match<T>(props: MatchProps<T>) {
 export function Switch(props: { fallback?: any; children: any }) {
   const matches = createMemo(() => {
     const list = flatten(typeof props.children === "function" ? props.children() : props.children);
-    return (Array.isArray(list) ? list : [list]).filter((m: any) => m && m[MATCH]).map((m: any) => m.props as MatchProps<unknown>);
+    return (Array.isArray(list) ? list : [list]).map((m: any) => describedNode(m)).filter((m: any) => m && m[MATCH]).map((m: any) => m.props as MatchProps<unknown>);
   });
   // Each Match's condition read once per change (later ones only while earlier ones fail); the branch is which matches
   // (and its value, when keyed).
