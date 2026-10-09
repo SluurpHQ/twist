@@ -1,11 +1,13 @@
 // React's internal-test-utils, for a runtime that renders synchronously on microtasks: `act` and the waits drain
 // everything pending (updates, effects after paint, settled promises), then the log is checked as React's tests do.
-import { flushPassiveEffects, flushSync, flushTransitions, onUncaught, setTransitionScheduler } from "../../src/core.ts";
+import { flushPassiveEffects, flushScheduled, flushSync, flushTransitions, onUncaught, performWork, setTransitionScheduler, setWorkScheduler } from "../../src/core.ts";
 
 // Transitions wait for the test to flush them (act and waitForAll do; waitForPaint stops before them), as with
 // React's mock scheduler.
 setTransitionScheduler(() => {});
-import { unstable_clearLog } from "./scheduler.ts";
+// A concurrent render waits for the test too: act and the waits run it, waitFor only until its log is there.
+setWorkScheduler(() => {});
+import { logLength, unstable_clearLog } from "./scheduler.ts";
 
 /**
  * Until nothing more happens: updates and effects flushed, between turns of microtasks (promises settling). No
@@ -59,7 +61,10 @@ export async function waitForPaint(expected: unknown[]) {
 }
 export const waitForDiscrete = waitForAll;
 export async function waitFor(expected: unknown[]) {
-  await drain();
+  // What is scheduled started, then the work loop run until what is expected has been logged (React's waitFor
+  // stops the scheduler there); without a concurrent render, everything pending.
+  flushScheduled();
+  if (!performWork(() => logLength() >= expected.length)) await drain();
   const actual = unstable_clearLog();
   if (!same(actual.slice(0, expected.length), expected)) throw new Error(`Expected log to start ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }

@@ -543,8 +543,50 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   const f = fiber(COMP, type, key, props, parent);
   f.render = renderer(type, f);
   f.hooks = [];
+  // In a render that can stop between components: drawn when the work loop reaches it, where it is then.
+  if (work && work.deferring) {
+    work.units.splice(work.at++, 0, () => !f.dead && start(f, hostParentOf(f), nextDomAfter(f)));
+    return f;
+  }
   start(f, host, before);
   return f;
+}
+
+// ---------------------------------------------------------------- work loop
+
+/**
+ * A root's first render done as React's concurrent render is: component by component, off the page (in a
+ * fragment), able to stop between two components and go on later; committed, and put on the page, once all are
+ * drawn. In the browser it runs to the end at once; a test's scheduler steps through it (waitFor).
+ */
+type Work = { units: (() => void)[]; at: number; deferring: boolean; finish: () => void };
+let work: Work | null = null;
+/** When the work loop runs: at once by default; a test's scheduler can take it over. */
+let scheduleWork: (run: () => void) => void = (run) => run();
+/** What is scheduled now started (a root's render begun), without finishing a concurrent render: for a test. */
+export const flushScheduled = () => flushSignals();
+export function setWorkScheduler(fn: typeof scheduleWork) {
+  scheduleWork = fn;
+}
+
+/** The work loop: units drawn until none are left (then the render is committed) or `shouldYield` says stop. */
+export function performWork(shouldYield: () => boolean = () => false): boolean {
+  if (!work) return false;
+  const w = work;
+  while (w.units.length) {
+    if (shouldYield()) return true;
+    const unit = w.units.shift()!;
+    w.at = 0;
+    w.deferring = true;
+    try {
+      unit();
+    } finally {
+      w.deferring = false;
+    }
+  }
+  work = null;
+  w.finish();
+  return true;
 }
 
 function update(f: Fiber, c: any) {
@@ -787,7 +829,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     if ((f as any).draws === LIMIT + 1) caught(f, new Error("Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops."));
     return;
   }
-  if (depth++ === 0) {
+  // A unit of a concurrent render is part of that render: its passive effects come after its commit.
+  if (depth++ === 0 && !work) {
     runPassive(false);
     startRender();
   }
@@ -1118,6 +1161,8 @@ function caught(f: Fiber, e: any) {
 
 // Counted as rendering while it runs: an event it fires (a focus() in a layout effect) does not flush from inside.
 function commit() {
+  // A concurrent render under way: committed when it is done.
+  if (work) return;
   depth++;
   const wasCommitting = committing;
   committing = true;
@@ -1158,6 +1203,7 @@ const afterPaint: (fn: () => void) => void =
 function settleAll() {
   for (let i = 0; i < 50; i++) {
     flushSignals();
+    performWork();
     if (passiveQueue.length) runPassive(true);
     else if (!flushTransitions()) return;
   }
@@ -1671,6 +1717,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   // microtask, or at once in flushSync and act), so render() schedules work as React's root.render does.
   const NONE = {};
   let pending: any = NONE;
+  let pendingInTransition = false;
   // What render() was given last: what a hydration that waited tries again with.
   let latest: any = NONE;
   const asked = signal(0);
@@ -1678,6 +1725,12 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   let hydrateFirst: any = NONE;
   effect(() => {
     asked();
+    if (pending !== NONE && pendingInTransition && hydrateFirst === NONE && first && !hydrating_ && !top.children.length && !work && depth === 0 && !syncing) {
+      const children = pending;
+      pending = NONE;
+      untrack(() => runWithOwner(null, () => renderConcurrently(children)));
+      return;
+    }
     if (hydrateFirst !== NONE) {
       const children = hydrateFirst;
       hydrateFirst = NONE;
@@ -1688,6 +1741,33 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
     pending = NONE;
     untrack(() => runWithOwner(null, () => renderNow(children)));
   });
+  /** The first render, off the page and able to stop between components (see the work loop). */
+  function renderConcurrently(children: any) {
+    first = false;
+    const frag = docOf(container).createDocumentFragment();
+    const finish = () => {
+      top.dom = container;
+      (container as Element).replaceChildren?.();
+      container.appendChild(frag);
+      commit();
+      flushSignals();
+    };
+    work = { units: [], at: 0, deferring: true, finish };
+    top.dom = frag;
+    depth++;
+    rendering = true;
+    startRender();
+    try {
+      reconcile(top, [children], frag, null);
+    } catch (e) {
+      uncaught(state, e);
+    } finally {
+      rendering = false;
+      depth--;
+      if (work) work.deferring = false;
+    }
+    scheduleWork(() => performWork());
+  }
   function renderNow(children: any) {
       if (depth > 0) {
         if (++nested > LIMIT) {
@@ -1767,6 +1847,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       }
       // Inside a render or a commit (a root made in componentDidMount): drawn with it, as before.
       latest = children;
+      // Given in a transition: a first render that can stop between components (the work loop).
+      pendingInTransition = transitioning > 0;
       if (depth > 0) return renderNow(children);
       if (first && hydrating_ && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
       else pending = children;
@@ -1844,10 +1926,19 @@ export function useFormStatus() {
   return IDLE_FORM;
 }
 
+/** Inside flushSync: a root's render is drawn at once, not as a concurrent render. */
+let syncing = false;
 export function flushSync<T>(fn?: () => T): T {
-  const r = fn ? fn() : (undefined as T);
-  if (depth === 0) flushSignals();
-  return r;
+  const was = syncing;
+  syncing = true;
+  try {
+    const r = fn ? fn() : (undefined as T);
+    if (depth === 0) flushSignals();
+    performWork();
+    return r;
+  } finally {
+    syncing = was;
+  }
 }
 
 // After a handler: what it changed drawn now (React draws a discrete event's updates before the next one), and a

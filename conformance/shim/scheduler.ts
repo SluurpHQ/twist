@@ -17,6 +17,8 @@ export function logValue(v: unknown) {
   log.push(v);
 }
 export { logValue as log };
+/** How much is logged now, for a test's waitFor to stop the work loop there. */
+export const logLength = () => log.length;
 export function unstable_clearLog() {
   const out = log;
   log = [];

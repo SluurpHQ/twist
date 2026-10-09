@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2843 pass, 1181 fail, 314 skipped (gated off for stable React 19).
+2845 pass, 1179 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -52,7 +52,7 @@
 | react-dom/ReactDOMHostComponentTransitions-test.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMHydrationDiff-test.js | 0 | 39 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMImageLoad-test.internal.js | 0 | 10 | 0 |  |
+| react-dom/ReactDOMImageLoad-test.internal.js | 1 | 9 | 0 |  |
 | react-dom/ReactDOMInput-test.js | 107 | 16 | 1 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
@@ -151,7 +151,7 @@
 | react/ReactJSXRuntime-test.js | 8 | 7 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 12 | 7 | 0 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
-| react/ReactProfiler-test.internal.js | 9 | 24 | 1 |  |
+| react/ReactProfiler-test.internal.js | 10 | 23 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 6 | 1 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
 | react/ReactPureComponent-test.js | 2 | 2 | 0 |  |
