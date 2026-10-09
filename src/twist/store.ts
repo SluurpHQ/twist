@@ -312,7 +312,7 @@ export function createProjection<T extends object>(fn: (draft: T) => T | void | 
   return derivedStore(fn, seed, options, false)[0];
 }
 
-function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: { key?: string | ((v: any) => any) } | undefined, writable: boolean): [T, StoreSetter<T>] {
+function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: { key?: string | ((v: any) => any); seedLoadingValue?: boolean } | undefined, writable: boolean): [T, StoreSetter<T>] {
   const target = unwrap(seed) as Raw;
   const key = options?.key ?? "id";
   // The derive: run as a memo, its draft writes staged like a setter's (owned writes are allowed here).
@@ -332,7 +332,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
     return run;
-  });
+  }, options?.seedLoadingValue ? { loadingValue: 0 } : undefined);
   const proxy = new Proxy(target, {
     ...readHandler,
     get(t, k, receiver) {

@@ -170,7 +170,7 @@ const DIRTY = 2;
 let clock = 0;
 let ids = 0;
 
-export type SignalOptions<T> = { equals?: Equals<T>; unobserved?: () => void; ownedWrite?: boolean; name?: string; lazy?: boolean; defer?: boolean; schedule?: boolean; transparent?: boolean };
+export type SignalOptions<T> = { equals?: Equals<T>; unobserved?: () => void; ownedWrite?: boolean; name?: string; lazy?: boolean; defer?: boolean; schedule?: boolean; transparent?: boolean; loadingValue?: T };
 
 /** Thrown by a read of a value that has never been ready (an async memo's first load): Loading catches it. */
 export class NotReadyError extends Error {
@@ -359,7 +359,15 @@ export class Computation<T> extends Node<T> implements Owner {
     this.equals = options?.equals ?? Object.is;
     this.lazy = !!options?.lazy;
     this.unobserved = options?.unobserved;
+    // A declared first paint: born committed with it; its first flight is quiet (never pending, never held).
+    if (options && "loadingValue" in options) {
+      this.value = options.loadingValue as T;
+      this.ready = true;
+      this.loadingWindow = true;
+    }
   }
+  /** Serving its loading value until its first answer lands. */
+  loadingWindow = false;
   /**
    * Autodisposed: a memo nothing owns, or a lazy one that lost its last reader. Read with nothing subscribed, it is
    * worked out again from scratch once anything has changed since it ran.
@@ -494,6 +502,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** A value it computed or that landed: staged (or committed outside a flush), its readers told if it changed. */
   take(next: T) {
+    this.loadingWindow = false;
     const first = !this.ready;
     this.ready = true;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
@@ -704,7 +713,7 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (n.tx && n.staged !== NONE) return true;
   if ((n as any).affected) return true;
   if (n instanceof Computation) {
-    if (n.flight && n.ready && !n.quiet) return true;
+    if (n.flight && n.ready && !n.quiet && !n.loadingWindow) return true;
     for (const s of n.sources) if (waiting(s, seen)) return true;
   }
   return false;
@@ -748,7 +757,7 @@ function settleRound() {
     let joins: Transaction | null = null;
     for (const c of below) {
       if (c.tx) joins = c.tx.root;
-      if (c.flight && c.ready && (c.kind !== MEMO || rendered(c))) holds = true;
+      if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO || rendered(c))) holds = true;
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
     if (n instanceof Computation) for (const s of n.sources) if (s.tx && !n.verdict?.has(s)) joins = s.tx.root;
