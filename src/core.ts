@@ -1445,6 +1445,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // Its fiber, for tools that look from the page into the tree.
     hide(el, "__fiber", f);
     hide(el, "__props", null);
+    (f as any).placed = false;
     listenOnElement(el, type);
     if (!server) {
       if (hydrating) markMismatch(), diffMissing(f, nextServerNode(host));
@@ -1492,6 +1493,14 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     toldFragmentsAdded(f);
     // A new top-level node in a hidden Activity (or a portal's in one) is hidden as it comes.
     if (hiddenActivities) for (let k = topInHidden(f); k > 0; k--) hideNode(el, true);
+    // An image loaded again once committed: a load it fired before then reached no handler (React's commitMount).
+    if (type === "img" && !ns && !server && (props.src || props.srcSet)) {
+      insertionQueue.push(() => {
+        if (f.dead) return;
+        if (props.src) (el as any).src = props.src;
+        else (el as any).srcset = props.srcSet;
+      });
+    }
     if (props.ref != null) layoutQueue.push(() => !f.dead && !(hiddenActivities && insideHidden(f)) && setRef(f, props.ref, el));
     return f;
   }
@@ -2431,6 +2440,8 @@ function commit() {
       deletions.length = 0;
       for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
       insertionQueue.length = 0;
+      // In the page from now on: events reach their handlers (before, React finds no mounted fiber).
+      for (const f of fresh) (f as any).placed = true;
       inEffects++;
       try {
         for (let i = 0; i < layoutQueue.length; i++) timed(layoutQueue[i]!, effectTime);
@@ -2440,7 +2451,7 @@ function commit() {
       }
       layoutQueue.length = 0;
       const made = fresh.splice(0);
-      for (const f of made) f.committed = true;
+      for (const f of made) (f.committed = true), ((f as any).placed = true);
       if (dev()) {
         const strictMade = made.filter((f) => (f as any).strict && !f.dead);
         if (strictMade.length) passiveQueue.push(() => doubleInvoke(strictMade));

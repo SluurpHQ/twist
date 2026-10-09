@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3614 pass, 410 fail, 314 skipped (gated off for stable React 19).
+3626 pass, 398 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -52,7 +52,7 @@
 | react-dom/ReactDOMHostComponentTransitions-test.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMHydrationDiff-test.js | 39 | 0 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMImageLoad-test.internal.js | 1 | 9 | 0 |  |
+| react-dom/ReactDOMImageLoad-test.internal.js | 8 | 2 | 0 |  |
 | react-dom/ReactDOMInput-test.js | 118 | 5 | 1 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
@@ -88,13 +88,13 @@
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 73 | 4 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 18 | 2 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 10 | 0 | 0 |  |
-| react-dom/ReactDOMServerPartialHydration-test.internal.js | 42 | 15 | 10 |  |
-| react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 15 | 22 | 3 |  |
+| react-dom/ReactDOMServerPartialHydration-test.internal.js | 44 | 13 | 10 |  |
+| react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 17 | 20 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 6 | 3 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMSingletonComponents-test.js | 8 | 5 | 9 |  |
+| react-dom/ReactDOMSingletonComponents-test.js | 9 | 4 | 9 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 2 | 0 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |

@@ -198,7 +198,8 @@ const idOf = (o: object) => {
 /** Runs the handlers for one phase; true when one of them stopped propagation. */
 function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean): boolean {
   const from = nearest(native.target as Node, roots);
-  if (!from) return false;
+  // Not committed yet: no handler hears it (React's getNearestMountedFiber).
+  if (!from || (from as any).placed === false || (from as any).dead) return false;
   // A non-bubbling event bubbles only in the root that drew its target: an outer root hears its capture phase alone.
   if (!capture && NOT_BUBBLING.has(native.type)) {
     const owner = nearestAny(native.target as Node);
