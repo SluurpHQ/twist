@@ -688,7 +688,7 @@ function nextServerNode(host: Node, scripts = false): Node | null {
   const limit = regionIn(host)?.end;
   // Past comments and a doctype: markers and the document's preamble are no fiber's; past the server's own
   // scripts (bootstrap, runtime) too, unless a <script> is what is being claimed; past empty text (no parser makes it).
-  while (n && n !== limit && (n.nodeType === 8 || n.nodeType === 10 || (n.nodeType === 3 && (n as Text).data === "") || (!scripts && (n as Element).localName === "script"))) n = n.nextSibling;
+  while (n && n !== limit && ((n.nodeType === 8 && !boundaryStart(n)) || n.nodeType === 10 || (n.nodeType === 3 && (n as Text).data === "") || (!scripts && (n as Element).localName === "script"))) n = n.nextSibling;
   return n === limit ? null : n;
 }
 
@@ -1049,10 +1049,11 @@ function placeHoistable(root: Document | ShadowRoot, type: string, props: any): 
   return el;
 }
 
-/** A <title>'s text: its one child as a string (React keeps a title to text). */
+/** A <title>'s text, as React's client sets it: a string or number child; anything else leaves the text as it is
+ * (the server wrote it). */
 function titleText(el: Element, children: any) {
-  const c = Array.isArray(children) ? (children.length < 2 ? children[0] : null) : children;
-  const text = typeof c === "string" || typeof c === "number" || typeof c === "bigint" ? String(c) : c && typeof c === "object" && c.toString !== Object.prototype.toString ? String(c) : "";
+  if (typeof children !== "string" && typeof children !== "number" && typeof children !== "bigint") return;
+  const text = String(children);
   if (el.textContent !== text) el.textContent = text;
 }
 
@@ -1124,17 +1125,46 @@ function claim(host: Node, match: (n: Node) => boolean): Node | null {
   if (n && (!match(n) || isResourceNode(n)) && rootOrSingleton(host)) {
     const limit = regionIn(host)?.end;
     let m: Node | null = n.nextSibling;
-    while (m && m !== limit && (m.nodeType === 8 || !match(m) || isResourceNode(m))) m = m.nextSibling;
+    while (m && m !== limit && ((m.nodeType === 8 && !boundaryStart(m)) || (m.nodeType === 1 && (!match(m) || isResourceNode(m))))) m = m.nextSibling;
+    if (m && m !== limit && !match(m)) m = null;
     n = m === limit ? null : m;
   }
+  // Elsewhere, hidden inputs the server added (a form action's) are passed over, as React does.
+  while (n && !match(n) && hiddenInput(n) && !rootOrSingleton(host)) n = nextAfter(host, n);
   if (!n || !match(n)) return null;
   hydrating!.set(host, n.nextSibling);
   return n;
+}
+const hiddenInput = (n: Node) => n.nodeType === 1 && (n as Element).localName === "input" && (n as HTMLInputElement).type === "hidden";
+/** The next server node in `host` after `n`. */
+function nextAfter(host: Node, n: Node): Node | null {
+  const was = hydrating!.get(host);
+  hydrating!.set(host, n.nextSibling);
+  const next = nextServerNode(host);
+  hydrating!.set(host, was as any);
+  return next;
+}
+
+/** A server boundary's opening comment (Suspense or Activity): a node hydration claims, as React counts it. */
+function boundaryStart(n: Node) {
+  const d = (n as Comment).data;
+  return d === "$" || d === "$?" || d === "$!" || d === "$~" || d === "&";
+}
+
+/** Elements whose leftovers React does not check: <form> and <button> (a form action's hidden inputs), and those
+ * that set their own text (React's shouldSetTextContent). */
+function noTailCheck(f: Fiber) {
+  if (f.kind !== HOST) return false;
+  const t = f.type;
+  const c = f.props?.children;
+  return t === "form" || t === "button" || t === "textarea" || t === "noscript" || typeof c === "string" || typeof c === "number" || typeof c === "bigint" || f.props?.dangerouslySetInnerHTML?.__html != null;
 }
 
 /** What the server drew in `host` and the client did not claim: taken away, as React does on a mismatch. */
 function dropUnclaimed(host: Node, f: Fiber) {
   if (!hydrating) return;
+  // A root's container and <html>, <head>, <body> keep what else is in them (React checks no tail there).
+  if (rootOrSingleton(host) || noTailCheck(f)) return void hydrating.delete(host);
   const limit = regionIn(host)?.end;
   let n = nextServerNode(host);
   if (n && n !== limit) {
@@ -1248,7 +1278,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // Taken over while hydrating: what follows it in its parent comes next.
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
     if (single && !hydrating && type !== "html") clearSparingly(single);
-    const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null);
+    const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name)))) as Element | null) : null);
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     hide(el, "__fiber", f);
@@ -1258,6 +1288,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (hydrating) markMismatch(), diffMissing(f, nextServerNode(host));
       checkTag(el, type);
     }
+    // Hydration stops at a mismatch: the root or boundary is drawn on the client instead.
+    if (!server && hydrationStopped()) return f;
     // As the server drew it, to compare once the props are applied (and have warned as they do).
     const had = server && dev() && !props.suppressHydrationWarning ? attrsOf(server) : null;
     (el as any).__props = props;
@@ -1669,7 +1701,11 @@ export const nameOf = (t: any): string =>
 let drawsReset = false;
 const LIMIT = 50;
 
+/** Whether the hydration under way has found a mismatch (the innermost boundary's, or the root's): React stops it. */
+const hydrationStopped = () => hydrating !== null && (regions.length ? regions[regions.length - 1]!.mismatch : mismatched);
+
 function draw(f: Fiber, place: [Node, Node | null] | null) {
+  if (hydrationStopped()) return;
   (f as any).draws = ((f as any).draws ?? 0) + 1;
   if (!drawsReset) {
     drawsReset = true;
@@ -2971,7 +3007,29 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           first = true;
           const again = () => ((hydrateFirst = latest), (pending = NONE), asked.set(asked.peek() + 1), flushSignals());
           waits.then(again, again);
-        } else if (hydrate) dropUnclaimed(container, top);
+        } else if (hydrate) {
+          dropUnclaimed(container, top);
+          // (Unless an error no boundary caught already took the root down.)
+          if (mismatched && !(state as any).failed) {
+            // Markup that does not match: React throws away what it hydrated and draws the root on the client.
+            const scope = rootDiff;
+            const error = mismatchError(scope, mismatchedText);
+            const at = scope?.at as Fiber | null;
+            rootDiff = null;
+            mismatched = false;
+            attrsDiffer = false;
+            for (const c of top.children) unmount(c, false);
+            top.children = [];
+            hydrating = null;
+            if (container.nodeType === 9 || (container as Element).localName === "html") clearSparingly(container);
+            else (container as Element).replaceChildren?.();
+            draw();
+            (state as any).threw = false;
+            for (const tell of caughtThisRender.splice(0)) tell();
+            const recover = options?.onRecoverableError ?? report;
+            layoutQueue.push(() => withFiber(at, () => recover(error, { componentStack: "" })));
+          }
+        }
       } finally {
         rendering = wasRendering;
         if (hydrate) {
@@ -2983,12 +3041,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
             const diff = describeDiff(scope);
             withFiber(firstDiffFiber(scope) as Fiber | null, () => console.error(HYDRATION_ATTRS_FORMAT, "https://react.dev/link/hydration-mismatch", diff));
           } else if (attrsDiffer && !mismatched) console.error(HYDRATION_ATTRS);
-          if (mismatched) {
-            mismatched = false;
-            const recover = options?.onRecoverableError ?? report;
-            const error = mismatchError(scope, mismatchedText);
-            withFiber(scope?.at as Fiber | null, () => recover(error, { componentStack: "" }));
-          }
+          mismatched = false;
         }
         if (--depth === 0) commit();
       }

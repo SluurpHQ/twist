@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3399 pass, 625 fail, 314 skipped (gated off for stable React 19).
+3416 pass, 608 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -33,7 +33,7 @@
 | react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 110 | 63 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 113 | 60 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 9 | 12 | 0 |  |
@@ -70,9 +70,9 @@
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 28 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 313 | 23 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 317 | 19 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 20 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 127 | 14 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 129 | 12 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 33 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 7 | 3 | 0 |  |
@@ -84,11 +84,11 @@
 | react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSelect-test.js | 64 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 30 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationTextarea-test.js | 33 | 7 | 0 |  |
+| react-dom/ReactDOMServerIntegrationTextarea-test.js | 38 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 72 | 5 | 0 |  |
-| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 11 | 9 | 7 |  |
+| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 12 | 8 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 4 | 6 | 0 |  |
-| react-dom/ReactDOMServerPartialHydration-test.internal.js | 33 | 24 | 10 |  |
+| react-dom/ReactDOMServerPartialHydration-test.internal.js | 34 | 23 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 13 | 24 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
@@ -121,7 +121,7 @@
 | react-dom/ReactMultiChild-test.js | 11 | 3 | 0 |  |
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 3 | 1 | 0 |  |
-| react-dom/ReactRenderDocument-test.js | 8 | 3 | 0 |  |
+| react-dom/ReactRenderDocument-test.js | 9 | 2 | 0 |  |
 | react-dom/ReactServerRendering-test.js | 36 | 9 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 15 | 9 | 0 |  |
