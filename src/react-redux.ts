@@ -185,40 +185,212 @@ export function shallowEqual(a: any, b: any): boolean {
 /** Updates in a batch: signals already batch to the next microtask, so this only runs `fn`. */
 export const batch = (fn: () => void) => fn();
 
-/** The older connect() API: mapState and mapDispatch become props, recomputed as useSelector is. */
-export function connect(mapState?: any, mapDispatch?: any, mergeProps?: any, options: any = {}) {
-  const context = options.context ?? ReactReduxContext;
-  const useStoreHere = createStoreHook(context);
-  const useSelectorHere = createSelectorHook(context);
-  return (Component: any) => {
-    function Connected(props: any) {
-      const store = useStoreHere();
-      const own = props;
-      const ownSeen = useRef<any>(null);
-      if (!ownSeen.current || !shallowEqual(ownSeen.current, own)) ownSeen.current = own;
-      const ownStable = ownSeen.current;
-      const select = useMemo(
-        () => (state: any) => (mapState ? (mapState.length !== 1 ? mapState(state, ownStable) : mapState(state)) : {}),
-        [ownStable],
-      );
-      const stateProps = useSelectorHere(
-        select,
-        // connect's mapState returns a new object each call (compared shallowly): no useSelector checks on it.
-        { equalityFn: options.areStatePropsEqual ?? shallowEqual, devModeChecks: { stabilityCheck: "never", identityFunctionCheck: "never" } },
-      );
-      const dispatchProps = useMemo(() => {
-        if (!mapDispatch) return { dispatch: store.dispatch };
-        if (typeof mapDispatch === "function") return mapDispatch(store.dispatch, own);
-        const bound: any = {};
-        for (const k in mapDispatch) bound[k] = (...a: any[]) => store.dispatch(mapDispatch[k](...a));
-        return bound;
-      }, [store, mapDispatch, typeof mapDispatch === "function" && mapDispatch.length > 1 ? own : null]);
-      const merged = mergeProps ? mergeProps(stateProps, dispatchProps, own) : { ...own, ...stateProps, ...dispatchProps };
-      return createElement(Component, merged);
+// ---------------------------------------------------------------- connect
+
+const strictEqual = (a: any, b: any) => a === b;
+const isPlainObject = (v: any) => {
+  if (typeof v !== "object" || v === null) return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === null || proto === Object.prototype || Object.getPrototypeOf(proto) === null;
+};
+const reduxWarning = (message: string) => {
+  if ((globalThis as any).process?.env?.NODE_ENV !== "production") console.error(message);
+};
+
+type MapFn = ((a: any, own?: any) => any) & { dependsOnOwnProps?: boolean };
+const dependsOnOwn = (f: MapFn) => (f.dependsOnOwnProps != null ? !!f.dependsOnOwnProps : f.length !== 1);
+
+/** A constant mapping (an object of action creators, or none): never depends on own props. */
+function constantMap(get: (dispatch: any) => any) {
+  return (dispatch: any) => {
+    const value = get(dispatch);
+    const f: MapFn = () => value;
+    f.dependsOnOwnProps = false;
+    return f;
+  };
+}
+
+/** A mapping function, maybe a factory (it returns the real mapping on its first call), its result checked. */
+function functionMap(map: MapFn, name: string) {
+  return (_dispatch: any, displayName: string) => {
+    const proxy: any = (a: any, own: any) => (proxy.dependsOnOwnProps ? proxy.map(a, own) : proxy.map(a, undefined));
+    proxy.dependsOnOwnProps = true;
+    proxy.map = (a: any, own: any) => {
+      proxy.map = map;
+      proxy.dependsOnOwnProps = dependsOnOwn(map);
+      let props = proxy(a, own);
+      if (typeof props === "function") {
+        proxy.map = props;
+        proxy.dependsOnOwnProps = dependsOnOwn(props);
+        props = proxy(a, own);
+      }
+      if (!isPlainObject(props)) reduxWarning(`${name}() in ${displayName} must return a plain object. Instead received ${props}.`);
+      return props;
+    };
+    return proxy as MapFn;
+  };
+}
+
+const invalidArg = (arg: any, name: string) => (_d: any, _n: string, wrapped: string) => {
+  throw new Error(`Invalid value of type ${typeof arg} for ${name} argument when connecting component ${wrapped}.`);
+};
+
+function bindActionCreators(creators: any, dispatch: any) {
+  const bound: any = {};
+  for (const k in creators) if (typeof creators[k] === "function") bound[k] = (...a: any[]) => dispatch(creators[k](...a));
+  return bound;
+}
+
+/** Per instance: state props, dispatch props and merged props, each recomputed only when what it depends on changed. */
+function propsSelector(dispatch: any, init: any, cmp: any) {
+  const mapState: MapFn = init.state(dispatch, cmp.displayName, cmp.wrappedName);
+  const mapDispatch: MapFn = init.dispatch(dispatch, cmp.displayName, cmp.wrappedName);
+  const merge: any = init.merge(dispatch, cmp.displayName, cmp.wrappedName);
+  let ran = false;
+  let state: any, own: any, stateProps: any, dispatchProps: any, merged: any;
+  return (nextState: any, nextOwn: any) => {
+    if (!ran) {
+      ran = true;
+      state = nextState;
+      own = nextOwn;
+      stateProps = mapState(state, own);
+      dispatchProps = mapDispatch(dispatch, own);
+      return (merged = merge(stateProps, dispatchProps, own));
     }
-    Connected.displayName = `Connect(${Component.displayName ?? Component.name ?? "Component"})`;
-    (Connected as any).WrappedComponent = Component;
-    return options.forwardRef ? forwardRefOf((p: any, ref: any) => createElement(Connected, { ...p, ref })) : Connected;
+    const propsChanged = !cmp.areOwnPropsEqual(nextOwn, own);
+    const stateChanged = !cmp.areStatesEqual(nextState, state, nextOwn, own);
+    state = nextState;
+    own = nextOwn;
+    if (propsChanged && stateChanged) {
+      stateProps = mapState(state, own);
+      if (mapDispatch.dependsOnOwnProps) dispatchProps = mapDispatch(dispatch, own);
+      return (merged = merge(stateProps, dispatchProps, own));
+    }
+    if (propsChanged) {
+      if (mapState.dependsOnOwnProps) stateProps = mapState(state, own);
+      if (mapDispatch.dependsOnOwnProps) dispatchProps = mapDispatch(dispatch, own);
+      return (merged = merge(stateProps, dispatchProps, own));
+    }
+    if (stateChanged) {
+      const next = mapState(state, own);
+      const changed = !cmp.areStatePropsEqual(next, stateProps);
+      stateProps = next;
+      if (changed) merged = merge(stateProps, dispatchProps, own);
+    }
+    return merged;
+  };
+}
+
+const REACT_STATICS = new Set("childContextTypes contextType contextTypes defaultProps displayName getDefaultProps getDerivedStateFromError getDerivedStateFromProps mixins propTypes type".split(" "));
+const KNOWN_STATICS = new Set("name length prototype caller callee arguments arity".split(" "));
+function hoistStatics(target: any, source: any) {
+  if (typeof source === "string") return target;
+  for (const key of [...Object.getOwnPropertyNames(source), ...Object.getOwnPropertySymbols(source)]) {
+    if (REACT_STATICS.has(key as string) || KNOWN_STATICS.has(key as string) || (source.$$typeof && (key === "$$typeof" || key === "render" || key === "type" || key === "compare"))) continue;
+    const d = Object.getOwnPropertyDescriptor(source, key);
+    try {
+      if (d) Object.defineProperty(target, key, d);
+    } catch {}
+  }
+  return target;
+}
+
+const isElementType = (t: any) =>
+  typeof t === "string" || typeof t === "function" || (typeof t === "object" && t !== null && typeof t.$$typeof === "symbol");
+let warnedPure = false;
+
+/** The older connect() API, as react-redux defines it, on signals: an instance re-renders when its merged props change. */
+export function connect(mapStateToProps?: any, mapDispatchToProps?: any, mergeProps?: any, options: any = {}) {
+  const {
+    pure,
+    areStatesEqual = strictEqual,
+    areOwnPropsEqual = shallowEqual,
+    areStatePropsEqual = shallowEqual,
+    areMergedPropsEqual = shallowEqual,
+    forwardRef = false,
+    context = ReactReduxContext,
+  } = options;
+  if (pure !== undefined && !warnedPure) {
+    warnedPure = true;
+    reduxWarning('The `pure` option has been removed. `connect` is now always a "pure/memoized" component');
+  }
+  const init = {
+    state: !mapStateToProps ? constantMap(() => ({})) : typeof mapStateToProps === "function" ? functionMap(mapStateToProps, "mapStateToProps") : invalidArg(mapStateToProps, "mapStateToProps"),
+    dispatch:
+      mapDispatchToProps && typeof mapDispatchToProps === "object"
+        ? constantMap((d) => bindActionCreators(mapDispatchToProps, d))
+        : !mapDispatchToProps
+          ? constantMap((d) => ({ dispatch: d }))
+          : typeof mapDispatchToProps === "function"
+            ? functionMap(mapDispatchToProps, "mapDispatchToProps")
+            : invalidArg(mapDispatchToProps, "mapDispatchToProps"),
+    merge: !mergeProps
+      ? () => (s: any, d: any, o: any) => ({ ...o, ...s, ...d })
+      : typeof mergeProps === "function"
+        ? (_d: any, displayName: string) => {
+            let ran = false;
+            let merged: any;
+            return (s: any, d: any, o: any) => {
+              const next = mergeProps(s, d, o);
+              if (!ran) {
+                ran = true;
+                merged = next;
+                if (!isPlainObject(merged)) reduxWarning(`mergeProps() in ${displayName} must return a plain object. Instead received ${merged}.`);
+              } else if (!areMergedPropsEqual(next, merged)) merged = next;
+              return merged;
+            };
+          }
+        : invalidArg(mergeProps, "mergeProps"),
+  };
+  return (Wrapped: any) => {
+    if ((globalThis as any).process?.env?.NODE_ENV !== "production" && !isElementType(Wrapped)) {
+      throw new Error(`You must pass a component to the function returned by connect. Instead received ${typeof Wrapped === "object" ? JSON.stringify(Wrapped) : String(Wrapped)}`);
+    }
+    const wrappedName = Wrapped.displayName || Wrapped.name || "Component";
+    const displayName = `Connect(${wrappedName})`;
+    const cmp = { displayName, wrappedName, areStatesEqual, areOwnPropsEqual, areStatePropsEqual };
+    function Connect(all: any) {
+      const { reactReduxForwardedRef, context: propsContext, ...wrapperProps } = all;
+      const ctx: any = useContext(propsContext?.Consumer ? propsContext : context);
+      const fromProps = !!(wrapperProps.store && wrapperProps.store.getState && wrapperProps.store.dispatch);
+      if (!fromProps && !ctx?.store) {
+        throw new Error(
+          `Could not find "store" in the context of "${displayName}". Either wrap the root component in a <Provider>, or pass a custom React context provider to <Provider> and the corresponding React context consumer to ${displayName} in connect options.`,
+        );
+      }
+      const store: Store = fromProps ? wrapperProps.store : ctx.store;
+      // A store given as a prop is held (subscribed) by this component; one from context, by its Provider.
+      useLayoutEffect(() => (fromProps ? hold(store) : undefined), [store, fromProps]);
+      const select = useMemo(() => propsSelector(store.dispatch, init, cmp), [store]);
+      const own = useRef(wrapperProps);
+      own.current = wrapperProps;
+      const box = useMemo(() => {
+        const state = stateOf(store);
+        // The merged props for the current state: a new object only when they changed, which re-renders this.
+        return computed(() => {
+          try {
+            return { props: select(state(), own.current) };
+          } catch (e) {
+            reduxWarning(`An error occurred in \`mapStateToProps\` (or a selector) of the \`connect()\`-ed component "${displayName}". See https://github.com/reduxjs/react-redux/issues/1942 for details.`);
+            return { error: e };
+          }
+        }, { equals: (a: any, b: any) => a.props !== undefined && a.props === b.props });
+      }, [store, select]);
+      const result: any = box();
+      // Own props changed since: the selector decides with them (it keeps the same object when nothing changed).
+      const merged = result.error ? null : select(stateOf(store).peek(), wrapperProps);
+      if (result.error) throw result.error;
+      return createElement(Wrapped, forwardRef ? { ...merged, ref: reactReduxForwardedRef } : merged);
+    }
+    Connect.displayName = displayName;
+    (Connect as any).WrappedComponent = Wrapped;
+    if (forwardRef) {
+      const forwarded: any = forwardRefOf((props: any, ref: any) => createElement(Connect, { ...props, reactReduxForwardedRef: ref }));
+      forwarded.displayName = displayName;
+      forwarded.WrappedComponent = Wrapped;
+      return hoistStatics(forwarded, Wrapped);
+    }
+    return hoistStatics(Connect, Wrapped);
   };
 }
 

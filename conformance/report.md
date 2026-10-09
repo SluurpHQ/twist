@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2336 pass, 1674 fail, 314 skipped (gated off for stable React 19).
+2347 pass, 1663 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -159,9 +159,9 @@
 | react/ReactStrictMode-test.internal.js | 1 | 4 | 0 |  |
 | react/ReactStrictMode-test.js | 3 | 20 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
-| redux-tests/components/connect.spec.tsx | 43 | 16 | 0 |  |
+| redux-tests/components/connect.spec.tsx | 53 | 6 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
-| redux-tests/components/Provider.spec.tsx | 7 | 1 | 0 |  |
+| redux-tests/components/Provider.spec.tsx | 8 | 0 | 0 |  |
 | redux-tests/connect/wrapMapToProps.spec.ts | 0 | 1 | 0 |  |
 | redux-tests/hooks/useDispatch.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useReduxContext.spec.tsx | 2 | 0 | 0 |  |
