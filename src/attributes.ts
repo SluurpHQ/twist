@@ -2,7 +2,7 @@
 // so both write the same markup. In development, the mistakes React warns about are warned about here too.
 
 const BOOLEAN = new Set(
-  "allowFullScreen async autoPlay controls default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden inert loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope credentialless".split(" "),
+  "allowFullScreen async autoPlay controls default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden inert loop multiple noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope credentialless".split(" "),
 );
 const OVERLOADED_BOOLEAN = new Set(["capture", "download"]);
 // Written as the strings "true" and "false".

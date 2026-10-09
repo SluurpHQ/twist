@@ -91,7 +91,7 @@ function attrs(props: any, ctx: Ctx, tag: string) {
       if (tag !== "textarea" && tag !== "select" && v != null && typeof v !== "function" && typeof v !== "symbol") put("value", fieldString(v));
       continue;
     }
-    if (k === "checked" || k === "selected" || k === "muted") {
+    if (k === "checked" || k === "selected" || k === "muted" || k === "multiple") {
       if (v && typeof v !== "function" && typeof v !== "symbol") put(k, "");
       continue;
     }

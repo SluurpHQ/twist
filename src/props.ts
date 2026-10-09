@@ -6,7 +6,7 @@ import { configure, delegated, enterLeaveSources, listenAt, want } from "./event
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
 import { valueChanged } from "./forms.ts";
-import { dev, warn } from "./warnings.ts";
+import { dev, shown, warn } from "./warnings.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const noop = () => {};
@@ -248,6 +248,8 @@ const REACT_EVENTS = new Set(
     .map((e) => "on" + e[0]!.toUpperCase() + e.slice(1)),
 );
 
+let toldPopoverTarget = false;
+
 /** One prop set on `el`, from `prev` to `next`. */
 export function setProp(el: Element, name: string, next: any, prev: any, svg: boolean) {
   if (SKIP.has(name)) return;
@@ -280,6 +282,10 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   }
   // A popover fires toggle events React bubbles: listened to on it, as React does.
   if (name === "popover" && next != null) listenAt(el, "toggle"), listenAt(el, "beforetoggle");
+  if (name === "popoverTarget" && dev() && typeof next === "object" && next !== null && !toldPopoverTarget) {
+    toldPopoverTarget = true;
+    warn(`The \`popoverTarget\` prop expects the ID of an Element as a string. Received ${shown(next)} instead.`);
+  }
   if (name === "muted") return void ((el as any).muted = !!next);
   // React focuses it when it is made; there is no attribute.
   if (name === "autoFocus") return;
