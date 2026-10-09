@@ -132,6 +132,8 @@ let depth = 0;
 const insertionQueue: (() => void)[] = [];
 const layoutQueue: (() => void)[] = [];
 const passiveQueue: (() => void)[] = [];
+/** Passive cleanups of what was taken away: run before any passive effect, as React runs them. */
+const passiveUnmounts: (() => void)[] = [];
 let passiveBooked = false;
 
 /** An error told as a browser's reportError tells it: an `error` event on the window, then the console unless a
@@ -476,8 +478,38 @@ function baseOf(f: Fiber): number {
   return sum;
 }
 
-/** Each Profiler that rendered told, innermost first, as React calls onRender in its commit. */
+/** Whether any Profiler has been rendered: only then are effects timed. */
+let profilersMounted = false;
+/** Time a commit's layout effects (and lifecycles, refs, cleanups) took, and its passive effects, per Profiler. */
+const effectTime = new Map<Fiber, number>();
+const passiveTime = new Map<Fiber, number>();
+/** Profilers whose onPostCommit is due once the commit's passive effects have run. */
+const postCommits = new Set<Fiber>();
+/** A queued effect run, its time added to every Profiler above the fiber it belongs to. */
+function timed(fn: () => void, into: Map<Fiber, number>) {
+  const owner: Fiber | undefined = profilersMounted ? (fn as any).owner : undefined;
+  if (!owner) return guard(fn);
+  const began = now();
+  guard(fn);
+  const took = now() - began;
+  for (let p = owner.kind === COMP && owner.type === PROFILER ? owner : owner.parent; p; p = p.parent) if (p.type === PROFILER) into.set(p, (into.get(p) ?? 0) + took);
+}
+/** onPostCommit, after a commit's passive effects: the time they took, with that commit's phase and time. */
+function tellPostCommit() {
+  if (!postCommits.size) return;
+  const list = [...postCommits];
+  postCommits.clear();
+  for (const p of list) {
+    const last = (p as any).lastCommit;
+    const onPostCommit = p.props?.onPostCommit;
+    if (!p.dead && last && typeof onPostCommit === "function") lifecycle(p, () => onPostCommit(p.props.id, last.phase, passiveTime.get(p) ?? 0, last.commitTime));
+  }
+  passiveTime.clear();
+}
+
+/** Each Profiler that rendered told, innermost first, as React calls onRender (and onCommit) in its commit. */
 function tellProfilers(commitTime: number) {
+  for (const p of effectTime.keys()) if (!profiled.has(p)) profiled.set(p, 0);
   if (!profiled.size) return;
   const depthOf = (f: Fiber) => {
     let d = 0;
@@ -494,7 +526,12 @@ function tellProfilers(commitTime: number) {
     const start = (p as any).beganIn === renderSerial ? (p as any).began : renderStart;
     // What it throws goes to the nearest boundary, as an error in the commit does.
     if (typeof onRender === "function") lifecycle(p, () => onRender(p.props.id, phase, actual, baseOf(p), start, commitTime));
+    const onCommit = p.props?.onCommit;
+    if (typeof onCommit === "function") lifecycle(p, () => onCommit(p.props.id, phase, effectTime.get(p) ?? 0, commitTime));
+    (p as any).lastCommit = { phase, commitTime };
+    if (typeof p.props?.onPostCommit === "function") postCommits.add(p);
   }
+  effectTime.clear();
 }
 
 /** StrictMode's check that effects clean up: what it just mounted is unmounted, then mounted again. */
@@ -1332,7 +1369,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   }
   if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
     const f = fiber(FRAG, type, key, props, parent);
-    if (type === PROFILER) profilerBegins(f);
+    if (type === PROFILER) (profilersMounted = true), profilerBegins(f);
     if (type === ACTIVITY && props.mode !== "hidden" && hydrating) hydrateBoundary(f, host, before);
     else if (type === ACTIVITY && props.mode === "hidden") {
       // Hidden: its children drawn (their state kept for when it is shown), out of sight, their effects not run.
@@ -1564,15 +1601,23 @@ function unmount(f: Fiber, removeDom: boolean) {
     return;
   }
   // Its unmount lifecycles run in the commit, as React's do, when this is a render; now otherwise.
-  const later = depth > 0 && !committing ? (fn: () => void) => deletions.push(fn) : (fn: () => void) => fn();
+  const inRender = depth > 0 && !committing;
+  // (Tagged with the fiber, for the time a Profiler above it is told.)
+  const later = (fn: () => void) => (inRender ? (profilersMounted && ((fn as any).owner = f), deletions.push(fn)) : fn());
   if (f.kind === COMP) {
     f.stop?.();
     const inst = f.inst;
     later(() => {
       if (inst && (f as any).classRef != null) clearRef(f, (f as any).classRef);
       if (inst?.componentWillUnmount && !(f as any).gone) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
-      for (const h of f.hooks!) if (h && h.cleanup) untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
+      for (const h of f.hooks!) if (h && h.cleanup && h.phase !== "passive") untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
     });
+    // Passive cleanups with the passive effects, after the commit, as React runs them.
+    const passive = () => {
+      for (const h of f.hooks!) if (h && h.cleanup && h.phase === "passive") untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
+    };
+    if (inRender) (profilersMounted && ((passive as any).owner = f), passiveUnmounts.push(passive));
+    else passive();
   } else if (f.kind === HOST && f.props.ref != null) {
     later(() => clearRef(f, f.props.ref));
   } else if (f.kind === HOIST) {
@@ -1828,6 +1873,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   insertionQueue.push(...f.insertion);
   if (hiddenActivities && insideHidden(f)) (f as any).waitsToAppear = true;
   else {
+    if (profilersMounted) for (const fn of f.layout) (fn as any).owner = f;
+    if (profilersMounted) for (const fn of f.passive) (fn as any).owner = f;
     layoutQueue.push(...f.layout);
     passiveQueue.push(...f.passive);
   }
@@ -2167,12 +2214,13 @@ function commit() {
   try {
     untrack(() => {
       // What was taken away first (componentWillUnmount, effect cleanups, refs let go), then what was made.
-      for (let i = 0; i < deletions.length; i++) guard(deletions[i]!);
+      // The commit's time is its start's, before anything changes (React's commitStartTime).
+      const commitTime = now();
+      for (let i = 0; i < deletions.length; i++) timed(deletions[i]!, effectTime);
       deletions.length = 0;
       for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
       insertionQueue.length = 0;
-      const commitTime = now();
-      for (let i = 0; i < layoutQueue.length; i++) guard(layoutQueue[i]!);
+      for (let i = 0; i < layoutQueue.length; i++) timed(layoutQueue[i]!, effectTime);
       layoutQueue.length = 0;
       const made = fresh.splice(0);
       for (const f of made) f.committed = true;
@@ -2187,7 +2235,7 @@ function commit() {
     depth--;
   }
   if (prewarms.length && depth === 0) prewarm();
-  if (passiveQueue.length && !passiveBooked) {
+  if ((passiveQueue.length || passiveUnmounts.length) && !passiveBooked) {
     passiveBooked = true;
     afterPaint(() => runPassive(true));
   }
@@ -2267,7 +2315,7 @@ function settleAll() {
   for (let i = 0; i < 50; i++) {
     flushSignals();
     performWork();
-    if (passiveQueue.length) runPassive(true);
+    if (passiveQueue.length || passiveUnmounts.length) runPassive(true);
     else if (!flushTransitions()) return;
   }
 }
@@ -2347,7 +2395,7 @@ async function drainAct() {
 }
 
 /** Whether updates, effects or transitions are still waiting to be drawn. */
-const somethingPending = () => passiveQueue.length > 0 || transitionWork.length > 0;
+const somethingPending = () => passiveQueue.length > 0 || passiveUnmounts.length > 0 || transitionWork.length > 0;
 
 /** Effects waiting for after paint, run now (React's act does this): for tests and tools. */
 export function flushPassiveEffects() {
@@ -2356,9 +2404,12 @@ export function flushPassiveEffects() {
 
 function runPassive(drawAfter: boolean) {
   passiveBooked = false;
-  if (!passiveQueue.length) return;
-  const run = passiveQueue.splice(0);
-  untrack(() => run.forEach(guard));
+  if (!passiveQueue.length && !passiveUnmounts.length) return;
+  const run = [...passiveUnmounts.splice(0), ...passiveQueue.splice(0)];
+  untrack(() => {
+    for (const fn of run) timed(fn, passiveTime);
+    tellPostCommit();
+  });
   if (drawAfter) flushSignals();
 }
 
