@@ -89,6 +89,11 @@ export function Errored(props: { fallback: any; children?: any }) {
   }
 }
 
+/** On the server a client-only component is its fallback. */
+export function clientOnly<P extends object>(_load: () => Promise<any>, _options?: { lazy?: boolean; export?: string }) {
+  return (props: P & { fallback?: any }) => props.fallback;
+}
+
 // ---------------------------------------------------------------- hydration keys
 
 /** The next hydration key, while a hydratable render runs (none under NoHydration). */
@@ -293,7 +298,21 @@ function list(items: any[], own: boolean, inTemplate: boolean): string {
 function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, parts: Part[]) {
   for (let x of items) {
     let fn = viaFn;
-    while (typeof x === "function") (x = x()), (fn = true);
+    if (typeof x === "function") {
+      const f = x;
+      const rr = render;
+      const o = getOwner() as any;
+      const at = o?.childCount ?? 0;
+      try {
+        while (typeof x === "function") (x = x()), (fn = true);
+      } catch (e) {
+        // A part of the shell not ready yet waits on its own, like any hole.
+        const waits = e instanceof NotReadyError && rr?.async && boundaries === 0 && settlesOf(e);
+        if (!waits) throw e;
+        parts.push({ s: later(rr!, () => list([f], own, inTemplate), waits, o, at), text: false, split: false });
+        continue;
+      }
+    }
     if (x == null || typeof x === "boolean") continue;
     // (A function in a template's own list yields more of that list; an array nested in a list is a hole's.)
     if (Array.isArray(x)) {
@@ -467,6 +486,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
       r.waiting.add(p);
       p.then(() => {
         r.waiting.delete(p);
+        // A boundary rendered again since (or thrown away): this retry is not its any more.
+        if ((boundary as any).disposed) return r.wake?.();
         resetOwner(boundary);
         try {
           boundaries++;

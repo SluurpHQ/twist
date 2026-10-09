@@ -15,6 +15,7 @@ import {
   NotReadyError,
   getNextChildId,
   sharedConfig,
+  createSignal,
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 export { isStatic };
@@ -516,6 +517,39 @@ function claimElement(d: { tag: string; props: Record<string, any> }, keyed: boo
   }
   if ("children" in props) claimChildren(props.children, { parent: el, next: el.firstChild });
   return el;
+}
+
+// ---------------------------------------------------------------- client-only components
+
+type ClientOnlyOptions = { lazy?: boolean; export?: string };
+
+/**
+ * A component that only ever renders in the browser: its fallback until its module has loaded (on the server, and
+ * while hydrating, the fallback alone), then the component, without the fallback prop.
+ */
+export function clientOnly<P extends object>(load: () => Promise<any>, options: ClientOnlyOptions = {}) {
+  const [loaded, setLoaded] = createSignal<((props: any) => any) | null>(null);
+  let loading: Promise<unknown> | null = null;
+  const start = () => (loading ??= load().then((m) => setLoaded(() => m[options.export ?? "default"])));
+  if (!options.lazy) start();
+  return (props: P & { fallback?: any }) => {
+    start();
+    const rest = omit(props, "fallback" as any);
+    return createMemo(() => {
+      const C = loaded();
+      return C ? untrack(() => C(rest)) : props.fallback;
+    });
+  };
+}
+
+/** Its children are not hydrated: what the server rendered stays as it is. */
+export function NoHydration(props: { children?: any }) {
+  return hydrating ? undefined : props.children;
+}
+
+/** Its children hydrate again (inside NoHydration). */
+export function Hydration(props: { children?: any }) {
+  return props.children;
 }
 
 export { NotReadyError };

@@ -212,7 +212,8 @@ export function settlesOf(e: NotReadyError): Promise<void> | null {
     }
     return null;
   };
-  return find(e.source);
+  // (Nothing found along what it read: the next of the flights in progress to settle.)
+  return find(e.source) ?? (flights.size ? Promise.race([...flights].map((f) => f.settles ?? new Promise<void>(noop))) : null);
 }
 
 /** Whether what a not-ready read waits on holds a stream's shell (a module loading, data marked deferStream). */

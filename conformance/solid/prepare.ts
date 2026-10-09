@@ -25,6 +25,10 @@ const out = join(here, "solid-tests");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 for (const [from, to] of Object.entries(PARTS)) cpSync(join(clone, from), join(out, to), { recursive: true });
+// The shared harness, a second time for the server tests (Solid runs those with every import its server build's):
+// beside them, so it takes the server rewrite below.
+const harness = join(out, "web", "test", "harness");
+if (existsSync(harness)) cpSync(harness, join(out, "web", "test", "server", "_harness"), { recursive: true });
 // Chai-style `expect(x).to.toBe(…)` (Vitest allows the `.to`; Bun's expect has none): the same assertion without it.
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((f) => (f.isDirectory() ? walk(join(d, f.name)) : [join(d, f.name)]));
 for (const f of walk(out)) {
@@ -44,7 +48,13 @@ for (const f of walk(out)) {
   // JSX files through Twist's pass (Bun's JSX transform runs after, when the test loads).
   if (f.endsWith(".tsx")) t = compile(t, f);
   // Server tests: the web runtime and Solid itself in their server builds.
-  if (/[\\/]web[\\/]test[\\/]server[\\/]/.test(f)) t = t.replace(/(["'])@solidjs\/web\1/g, '"@twist/web-server"').replace(/(@jsxImportSource\s+)@solidjs\/web\b/g, "$1@twist/web-server").replace(/(["'])solid-js\1/g, '"@twist/solid-server"');
+  if (/[\\/]web[\\/]test[\\/]server[\\/]/.test(f))
+    t = t
+      .replace(/(["'])@solidjs\/web\1/g, '"@twist/web-server"')
+      .replace(/(@jsxImportSource\s+)@solidjs\/web\b/g, "$1@twist/web-server")
+      .replace(/(["'])solid-js\1/g, '"@twist/solid-server"')
+      .replace(/(["'])\.\.\/harness\//g, "$1./_harness/")
+      .replace(/(["'])\.\.\/\.\.\/src\/server\.js\1/g, '"@twist/web-server"');
   if (t !== s) writeFileSync(f, t);
 }
 // Where the tests reach for their package itself (../src/index.js): Twist's module for it.
