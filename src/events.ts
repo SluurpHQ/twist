@@ -212,13 +212,28 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   if (seen.has(key)) return false;
   seen.add(key);
   const path: [Element, string[]][] = [];
+  // React's polyfilled events (onChange, onBeforeInput, onSelect, composition) run both their phases from the
+  // root's bubbling listener: their capture handlers first, root by root.
+  if (!capture) {
+    const early: [Element, string[]][] = [];
+    for (let f: FiberLike | null = from; f; f = f.parent) {
+      if (f.kind !== HOST) continue;
+      const names = propsFor(f.dom, native.type, true, f.dom.__props ?? f.props, native).filter((n) => polyfilled(n) && (from.dom === native.target || !OWN_TARGET.test(n)));
+      if (names.length) early.push([f.dom, names]);
+    }
+    path.push(...early.reverse());
+  }
   for (let f: FiberLike | null = from; f; f = f.parent) {
     if (f.kind !== HOST) continue;
     if (!capture && TARGET_ONLY.has(native.type) && f.dom !== native.target) continue;
-    const names = propsFor(f.dom, native.type, capture, f.dom.__props ?? f.props, native);
-    if (names.length) path.push([f.dom, names]);
+    let names = propsFor(f.dom, native.type, capture, f.dom.__props ?? f.props, native);
+    if (capture) names = names.filter((n) => !polyfilled(n));
+    // A change or select is the root's that drew its target: an outer root does not hear an inner root's input.
+    if (from.dom !== native.target) names = names.filter((n) => !OWN_TARGET.test(n));
+    if (names.length) (capture ? path : bubbling).push([f.dom, names]);
   }
   if (capture) path.reverse();
+  else path.push(...bubbling.splice(0));
   const synthetic = wrap(native);
   const transitionsBefore = !capture && native.type === "submit" ? transitionsStarted() : 0;
   for (const [el, names] of path) {
@@ -226,6 +241,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
     synthetic.__current = el;
     for (const n of names) {
       const fn = (el as any).__props?.[n];
+      synthetic.__type = POLYFILLED[n.endsWith("Capture") ? n.slice(0, -7) : n];
       if (typeof fn === "function") fn.call(el, synthetic);
     }
   }
@@ -238,6 +254,12 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
 }
 
 const SYNTHETIC_TYPE: Record<string, string> = { focusin: "focus", focusout: "blur" };
+
+/** React's polyfilled events, and the type their synthetic event has (whatever native event made them). */
+const POLYFILLED: Record<string, string | undefined> = { onChange: "change", onBeforeInput: "beforeinput", onSelect: "select", onCompositionStart: undefined, onCompositionEnd: undefined, onCompositionUpdate: undefined };
+const polyfilled = (n: string) => (n.endsWith("Capture") ? n.slice(0, -7) : n) in POLYFILLED;
+const bubbling: [Element, string[]][] = [];
+const OWN_TARGET = /^on(Change|Select)(Capture)?$/;
 
 /** React's synthetic event: the native one, with React's currentTarget, nativeEvent and propagation flags. */
 function wrap(native: Event): any {
@@ -256,7 +278,7 @@ function wrap(native: Event): any {
   return new Proxy(native, {
     get(t, k) {
       if (k === "currentTarget") return own.__current;
-      if (k === "type") return own.type ?? SYNTHETIC_TYPE[t.type] ?? t.type;
+      if (k === "type") return own.__type ?? own.type ?? SYNTHETIC_TYPE[t.type] ?? t.type;
       if ((k === "target" || k === "relatedTarget") && k in own) return own[k];
       // A text node's event targets its element (React's getEventTarget).
       if (k === "target") {
