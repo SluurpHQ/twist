@@ -484,7 +484,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   (f as any).region = region;
   if (kind === "$?") {
     // Still streaming: the server's fallback stays until its content arrives (the stream's script says so).
-    (raw as any)._reactRetry = () => retryBoundary(f);
+    (raw as any)._reactRetry = () => deferTransition(() => retryBoundary(f));
     (f as any).dehydrated = true;
     return;
   }
@@ -517,7 +517,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
     (f as any).dehydrated = true;
-    const again = () => retryBoundary(f);
+    const again = () => deferTransition(() => retryBoundary(f));
     r.suspended.then(again, again);
     return;
   }
@@ -539,7 +539,7 @@ function serverGaveUp(f: Fiber, region: { start: Comment }) {
     dev() && data.msg ? data.msg : "The server could not finish this Suspense boundary, likely due to an error during server rendering. Switched to client rendering.",
   );
   error.digest = data.dgst;
-  layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" }));
+  layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: dev() ? data.cstck ?? "" : "" }));
 }
 
 /** The boundary drawn on the client, not hydrated, before its closing comment. */

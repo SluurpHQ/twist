@@ -17,9 +17,10 @@ const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "supp
 const RENDER_TO_STRING_SUSPENSE = 'The server used "renderToString" which does not support Suspense. If you intended for this Suspense boundary to render the fallback content on the server consider throwing an Error somewhere within the Suspense boundary. If you intended to have the server wait for the suspended component please switch to "renderToPipeableStream" which supports Suspense on the server';
 const errored = (e: any) => "Switched to client rendering because the server rendering errored:\n\n" + (e?.message ?? String(e));
 const aborted = (reason: string) => "Switched to client rendering because the server rendering aborted due to:\n\n" + reason;
-function errorTemplate(digest: unknown, message: string) {
+function errorTemplate(digest: unknown, message: string, error?: unknown) {
   const dgst = typeof digest === "string" ? ` data-dgst="${escape(digest)}"` : "";
-  return `<template${dgst}${dev() ? ` data-msg="${escape(message)}"` : ""}></template>`;
+  const stack = dev() && error ? componentStackOf(error) : "";
+  return `<template${dgst}${dev() ? ` data-msg="${escape(message)}"` : ""}${stack ? ` data-cstck="${escape(stack)}"` : ""}></template>`;
 }
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#39" }[c]};`);
@@ -36,6 +37,8 @@ type Ctx = {
   svg: boolean;
   select: any;
   lastText: boolean;
+  /** The components and elements being rendered, outermost first (React's component stack). */
+  stack: string[];
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
   streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number }; onError: (e: unknown) => any };
 };
@@ -180,6 +183,19 @@ function serverHooks(ctx: Ctx) {
 }
 
 function render(node: any, ctx: Ctx, hooks: any): string {
+  const name = node && typeof node === "object" && node.$$typeof === ELEMENT ? frameName(node.type) : "";
+  if (name) ctx.stack.push(name);
+  try {
+    return renderFrame(node, ctx, hooks);
+  } catch (e) {
+    if (e && typeof e === "object" && typeof (e as any).then !== "function" && !stacks.has(e)) stacks.set(e, stackText(ctx.stack));
+    throw e;
+  } finally {
+    if (name) ctx.stack.pop();
+  }
+}
+
+function renderFrame(node: any, ctx: Ctx, hooks: any): string {
   // A lazy or a promise as a child: what it resolves to (thrown to the nearest Suspense until then).
   node = unwrapChild(node);
   if (node == null || typeof node === "boolean") return "";
@@ -208,16 +224,16 @@ function render(node: any, ctx: Ctx, hooks: any): string {
         if (e && typeof e.then === "function") {
           if (stream) {
             const id = stream.shared.next++;
-            stream.shared.boundaries.push({ id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e });
-            return `<!--$?--><template id="B:${id}"></template>${render(props.fallback, ctx, hooks)}<!--/$-->`;
+            stream.shared.boundaries.push({ id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice() });
+            return `<!--$?--><template id="B:${id}"></template>${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
           }
           ctx.waiting.push(e);
-          return `<!--$!-->${errorTemplate(undefined, aborted(RENDER_TO_STRING_SUSPENSE))}${render(props.fallback, ctx, hooks)}<!--/$-->`;
+          return `<!--$!-->${errorTemplate(undefined, aborted(RENDER_TO_STRING_SUSPENSE))}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
         }
         if (!stream) throw e;
         // An error inside a boundary: its fallback now, the client renders it again (React's behaviour).
         const digest = stream.onError(e);
-        return `<!--$!-->${errorTemplate(digest, errored(e))}${render(props.fallback, ctx, hooks)}<!--/$-->`;
+        return `<!--$!-->${errorTemplate(digest, errored(e), e)}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
       }
     }
     // Activity: a visible one between its markers (React's); a hidden one is left to the client.
@@ -325,7 +341,39 @@ function once(node: any, ctx: Ctx) {
   return withHooks(hooks, () => render(node, ctx, hooks));
 }
 
-const fresh = (): Ctx => ({ values: new Map(), ids: 0, waiting: [], svg: false, select: undefined, lastText: false });
+const fresh = (): Ctx => ({ values: new Map(), ids: 0, waiting: [], svg: false, select: undefined, lastText: false, stack: [] });
+
+/** A boundary's fallback rendered under React's "Suspense Fallback" frame (in place of "Suspense"). */
+function fallbackFrame(ctx: Ctx, fn: () => string): string {
+  const i = ctx.stack.length - 1;
+  const was = ctx.stack[i];
+  if (was === "Suspense") ctx.stack[i] = "Suspense Fallback";
+  try {
+    return fn();
+  } finally {
+    if (was === "Suspense") ctx.stack[i] = was;
+  }
+}
+
+/** Where an error was thrown: React's component stack, innermost first, kept for onError and the client. */
+const stacks = new WeakMap<object, string>();
+export const componentStackOf = (e: unknown) => (e && typeof e === "object" ? stacks.get(e) ?? "" : "");
+const stackText = (frames: string[]) => frames.slice().reverse().map((n) => `\n    in ${n} (at **)`).join("");
+/** A frame's name, as React names components in its stacks. */
+const frameName = (type: any): string =>
+  typeof type === "string"
+    ? type
+    : type === SUSPENSE
+      ? "Suspense"
+      : typeof type === "function"
+        ? type.displayName || type.name || "Anonymous"
+        : type?.$$typeof === FORWARD_REF
+          ? type.displayName || frameName(type.render)
+          : type?.$$typeof === MEMO
+            ? type.displayName || frameName(type.type)
+            : type?.$$typeof === LAZY
+              ? "Lazy"
+              : "";
 
 export function renderToString(node: any, _options?: any) {
   return once(node, fresh());
@@ -360,9 +408,9 @@ export async function prerenderToNodeStream(node: any, _options: any = {}) {
  * the fallback between the boundary's markers. `$SX` gives a boundary up to the client (it renders it itself).
  */
 const RUNTIME =
-  "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m){var t=document.getElementById(b);if(!t)return;if(g)t.dataset.dgst=g;if(m)t.dataset.msg=m;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}}</script>";
+  "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m,k){var t=document.getElementById(b);if(!t)return;if(g)t.dataset.dgst=g;if(m)t.dataset.msg=m;if(k)t.dataset.cstck=k;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}}</script>";
 
-type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any> };
+type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[] };
 
 /** One streamed render: the shell, then each boundary as it settles, written through `write`. */
 function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void) {
@@ -370,14 +418,16 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const pending = new Set<Boundary>();
   let runtimeSent = false;
   let closed = false;
-  const onError = (e: unknown) => options.onError?.(e, { componentStack: "" });
+  const onError = (e: unknown) => options.onError?.(e, { componentStack: componentStackOf(e) });
   // The digest and (in development) the message, as script arguments.
-  const sxArgs = (digest: unknown, message: string) => `,${JSON.stringify(typeof digest === "string" ? digest : "").replace(/</g, "\\u003c")},${JSON.stringify(dev() ? message : "").replace(/</g, "\\u003c")}`;
+  const sxArgs = (digest: unknown, message: string, error?: unknown) =>
+    [typeof digest === "string" ? digest : "", dev() ? message : "", dev() && error ? componentStackOf(error) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
   const ctxFor = (b?: Boundary): Ctx => ({
     ...fresh(),
     values: b ? new Map(b.values) : new Map(),
     svg: b?.svg ?? false,
     select: b?.select,
+    stack: b ? b.stack.slice() : [],
     streaming: { shared, onError },
   });
   const close = () => {
@@ -408,7 +458,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         return watch();
       }
       const digest = onError(e);
-      write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}"${sxArgs(digest, errored(e))})</script>`);
+      write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
       runtimeSent = true;
       return watch();
     }
