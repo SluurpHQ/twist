@@ -20,9 +20,9 @@ const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "supp
 const RENDER_TO_STRING_SUSPENSE = 'The server used "renderToString" which does not support Suspense. If you intended for this Suspense boundary to render the fallback content on the server consider throwing an Error somewhere within the Suspense boundary. If you intended to have the server wait for the suspended component please switch to "renderToPipeableStream" which supports Suspense on the server';
 const errored = (e: any) => "Switched to client rendering because the server rendering errored:\n\n" + (e?.message ?? String(e));
 const aborted = (reason: string) => "Switched to client rendering because the server rendering aborted due to:\n\n" + reason;
-function errorTemplate(digest: unknown, message: string, error?: unknown) {
+function errorTemplate(digest: unknown, message: string, error?: unknown, at?: string) {
   const dgst = typeof digest === "string" ? ` data-dgst="${escape(digest)}"` : "";
-  const stack = dev() && error ? componentStackOf(error) : "";
+  const stack = dev() ? (at ?? (error ? componentStackOf(error) : "")) : "";
   return `<template${dgst}${dev() ? ` data-msg="${escape(message)}"` : ""}${stack ? ` data-cstck="${escape(stack)}"` : ""}></template>`;
 }
 
@@ -823,8 +823,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     return digest === "" ? undefined : digest;
   };
   // The digest and (in development) the message, as script arguments.
-  const sxArgs = (digest: unknown, message: string, error?: unknown) =>
-    [typeof digest === "string" ? digest : null, dev() ? message : "", dev() && error ? componentStackOf(error) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
+  const sxArgs = (digest: unknown, message: string, error?: unknown, at?: string) =>
+    [typeof digest === "string" ? digest : null, dev() ? message : "", dev() ? (at ?? (error ? componentStackOf(error) : "")) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
   const ctxFor = (b?: Boundary): Ctx => ({
     ...fresh(res),
     values: b ? new Map(b.values) : new Map(),
@@ -979,8 +979,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       for (const b of pending) {
         const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
         const digest = onError(why, b.suspendedAt);
-        if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, aborted((why as any)?.message ?? String(why)))}${b.fallback}<!--/$-->`)) continue;
-        write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)))})</script>`);
+        if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, aborted((why as any)?.message ?? String(why)), undefined, b.suspendedAt)}${b.fallback}<!--/$-->`)) continue;
+        write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)), undefined, b.suspendedAt)})</script>`);
         runtimeSent = true;
       }
       pending.clear();
