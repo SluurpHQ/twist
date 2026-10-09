@@ -1,6 +1,6 @@
 // What react-redux's tests take from vitest, on bun:test: the same functions, and `vi` as Bun's jest object with
 // the few vitest-only helpers they use.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it as bunIt, jest, test as bunTest } from "bun:test";
 
 const stubbed = new Map<string, string | undefined>();
 export const vi: any = Object.assign(Object.create(jest), {
@@ -20,5 +20,16 @@ export const vi: any = Object.assign(Object.create(jest), {
     stubbed.clear();
   },
 });
+
+/** vitest's it.for / test.for: one test per case, the case passed as the argument. */
+const withFor = (t: any) => {
+  const f: any = (...a: any[]) => t(...a);
+  Object.assign(f, t);
+  f.for = (cases: any[]) => (name: string, fn: (c: any) => any) =>
+    cases.forEach((c, i) => t(name.replace(/%[sdiojO]|\$\w+/, () => (typeof c === "object" ? JSON.stringify(c) : String(c))) + (name.includes("%") ? "" : ` [${i}]`), () => fn(c)));
+  return f;
+};
+const it = withFor(bunIt);
+const test = withFor(bunTest);
 
 export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test };

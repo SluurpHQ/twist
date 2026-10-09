@@ -33,7 +33,8 @@ const base: Record<string, any> = {
   enableLegacyHidden: false,
   enableSuspendingDuringWorkLoop: false,
   shouldUseFizzExternalRuntime: false,
-  enableUseSyncExternalStoreShim: true,
+  // The shim tested against React 17 would load React 17: the built-in variant applies to us.
+  enableUseSyncExternalStoreShim: false,
   ...feature,
   __DEV__: true,
   build: "development",

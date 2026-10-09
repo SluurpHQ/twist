@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2277 pass, 1732 fail, 313 skipped (gated off for stable React 19).
+2326 pass, 1682 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -126,8 +126,8 @@
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 10 | 14 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
-| react-dom/ReactTestUtilsAct-test.js | 1 | 23 | 0 |  |
-| react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 0 | 5 | 0 |  |
+| react-dom/ReactTestUtilsAct-test.js | 8 | 16 | 0 |  |
+| react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 2 | 3 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 5 | 6 | 0 |  |
 | react-dom/ReactUpdates-test.js | 28 | 14 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
@@ -159,16 +159,16 @@
 | react/ReactStrictMode-test.internal.js | 1 | 4 | 0 |  |
 | react/ReactStrictMode-test.js | 3 | 20 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
-| redux-tests/components/connect.spec.tsx | 24 | 35 | 0 |  |
+| redux-tests/components/connect.spec.tsx | 43 | 16 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
-| redux-tests/components/Provider.spec.tsx | 4 | 4 | 0 |  |
+| redux-tests/components/Provider.spec.tsx | 7 | 1 | 0 |  |
 | redux-tests/connect/wrapMapToProps.spec.ts | 0 | 1 | 0 |  |
-| redux-tests/hooks/useDispatch.spec.tsx | 0 | 2 | 0 |  |
+| redux-tests/hooks/useDispatch.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useReduxContext.spec.tsx | 0 | 1 | 0 |  |
-| redux-tests/hooks/useSelector.spec.tsx | 12 | 17 | 0 |  |
+| redux-tests/hooks/useSelector.spec.tsx | 19 | 10 | 0 |  |
 | redux-tests/integration/dynamic-reducers.spec.tsx | 0 | 1 | 0 |  |
 | redux-tests/integration/server-rendering.spec.tsx | 3 | 2 | 0 |  |
 | redux-tests/integration/ssr.spec.tsx | 0 | 0 | 0 | TypeError: it.for is not a function. (In 'it.for([0, !1, ""])', 'it.for' is undefined) |
 | use-sync-external-store/useSyncExternalStoreNative-test.js | 0 | 2 | 0 |  |
-| use-sync-external-store/useSyncExternalStoreShared-test.js | 0 | 19 | 0 |  |
+| use-sync-external-store/useSyncExternalStoreShared-test.js | 9 | 9 | 1 |  |
 | use-sync-external-store/useSyncExternalStoreShimServer-test.js | 0 | 1 | 0 |  |

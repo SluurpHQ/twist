@@ -3,7 +3,7 @@ export * from "./element.ts";
 export * from "./hooks.ts";
 export { Component, PureComponent, startTransition, version } from "./core.ts";
 export const unstable_batchedUpdates = (fn: () => any) => fn();
-export const act = async (fn: () => any) => fn();
+export { act } from "./core.ts";
 export const cache = <T extends (...a: any[]) => any>(fn: T): T => fn;
 export const unstable_useCacheRefresh = () => () => {};
 export const captureOwnerStack = () => null;

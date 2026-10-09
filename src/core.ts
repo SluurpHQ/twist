@@ -809,6 +809,31 @@ const afterPaint: (fn: () => void) => void =
     : (fn) => setTimeout(fn, 0);
 
 /** Passive effects run; `drawAfter` when called on its own (not from inside a render), so what they set is drawn. */
+/** Updates and effects run until nothing more is pending. */
+function settleAll() {
+  for (let i = 0; i < 50; i++) {
+    flushSignals();
+    if (!passiveQueue.length) return;
+    runPassive(true);
+  }
+}
+
+/**
+ * React's act: runs `fn`, then everything it set off (updates, effects after paint), so a test sees the result.
+ * Returns a thenable either way, as React's does; for an async `fn`, settled once it has.
+ */
+export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
+  const r = fn();
+  if (r && typeof (r as any).then === "function") {
+    return (r as Promise<T>).then((v) => {
+      settleAll();
+      return v;
+    });
+  }
+  settleAll();
+  return { then: (ok?: any, no?: any) => Promise.resolve(r as T).then(ok, no) };
+}
+
 /** Effects waiting for after paint, run now (React's act does this): for tests and tools. */
 export function flushPassiveEffects() {
   if (depth === 0) runPassive(true);
