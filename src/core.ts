@@ -9,7 +9,7 @@ import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
-import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner } from "./warnings.ts";
+import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, warn } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
@@ -66,6 +66,7 @@ export function onUncaught(fn: typeof uncaughtListener) {
 
 /** An error nothing caught: the root is taken down (React unmounts it), and the error told. */
 function uncaught(root: RootState, e: unknown) {
+  (root as any).failed = true;
   layoutQueue.push(() => {
     const top = root.top;
     if (top) {
@@ -398,7 +399,7 @@ function nextServerNode(host: Node): Node | null {
 
 /** A Suspense boundary the server drew, between its comments (`$` complete, `$?` pending, `$!` given to the
  * client): hydrated on its own, as React does — what goes wrong inside stays inside. */
-type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspended: PromiseLike<any> | null; mismatch: boolean; text: boolean; made: Node[] };
+type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspended: PromiseLike<any> | null; mismatch: boolean; text: boolean; made: Node[]; errored?: { error: unknown } };
 const regions: Region[] = [];
 const regionIn = (host: Node) => {
   for (let i = regions.length - 1; i >= 0; i--) if (regions[i]!.host === host) return regions[i];
@@ -499,7 +500,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
 /** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
  * they do not match. */
 function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comment }, draw: () => void) {
-  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, text: false, made: [] };
+  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, text: false, made: [], errored: undefined };
   const was = hydrating!.get(host);
   hydrating!.set(host, region.start.nextSibling);
   regions.push(r);
@@ -510,6 +511,17 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
   } finally {
     regions.pop();
     hydrating!.set(host, was ?? region.end.nextSibling);
+  }
+  if (r.errored) {
+    for (const c of f.children) unmount(c, false);
+    f.children = [];
+    for (const n of r.made) n.parentNode?.removeChild(n);
+    const error: any = new Error("There was an error while hydrating but React was able to recover by instead client rendering from the nearest Suspense boundary.");
+    error.cause = r.errored.error;
+    layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" }));
+    (f as any).dehydrated = false;
+    drawFresh(f, host, removeRegion(region));
+    return;
   }
   if (r.suspended && !r.mismatch) {
     // Left as the server drew it, and hydrated again once what it waits for is there.
@@ -590,6 +602,8 @@ const hide = (node: any, key: string, value: any) => Object.defineProperty(node,
 
 /** What this hydration inserted (not the server's): removed if it is given up. */
 let madeWhileHydrating: Node[] = [];
+/** An error thrown while hydrating outside any boundary: the whole root is drawn on the client instead. */
+let hydrationError: { error: unknown } | null = null;
 /** What this hydration waits for (a component suspended with no boundary around it): tried again when it settles. */
 let hydrationWaits: PromiseLike<any> | null = null;
 
@@ -705,13 +719,14 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     } else {
       setProps(el, props, null, ns === SVG_NS);
       setDefaults(el, props);
-      if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
+      // A noscript's children are not drawn on the client (React leaves them to the server).
+      if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), el, null);
     }
     if (had && !attrsDiffer && serverAttrsDiffer(el, had, type, ns, props)) {
       attrsDiffer = true;
     }
     if (server) {
-      if (props.dangerouslySetInnerHTML == null && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el);
+      if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el);
     } else {
       host.insertBefore(el, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
@@ -833,7 +848,7 @@ function update(f: Fiber, c: any) {
       updateForm(el, f.type, props, prev, false);
     } else {
       setProps(el, props, prev, f.ns === SVG_NS);
-      if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
+      if (props.dangerouslySetInnerHTML == null && f.type !== "noscript") reconcile(f, toList(props.children), el, null);
       else if (f.children.length) {
         for (const n of f.children) unmount(n, false);
         f.children = [];
@@ -1373,6 +1388,17 @@ function caught(f: Fiber, e: any) {
     e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
     return;
   }
+  if (hydrating) {
+    const r = regions[regions.length - 1];
+    if (r && !r.errored && !r.suspended) {
+      r.errored = { error: e };
+      return;
+    }
+    if (!r) {
+      hydrationError ??= { error: e };
+      return;
+    }
+  }
   for (let p = f.parent; p; p = p.parent) {
     const inst = p.inst;
     if (inst && !p.dead && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
@@ -1521,12 +1547,30 @@ function state(f: Fiber, initial: any) {
   return box;
 }
 
+/** Inside a hook's own function (a useState initializer, a useMemo calculation): a hook called there is warned about
+ * and given a value of its own, leaving the component's list of hooks as it is. */
+let inHook = 0;
+const INVALID_HOOK_CALL = "Invalid hook call. Hooks can only be called inside of the body of a function component. This could happen for one of the following reasons:\n1. You might have mismatching versions of React and the renderer (such as React DOM)\n2. You might be breaking the Rules of Hooks\n3. You might have more than one copy of React in the same app\nSee https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.";
+export function insideHook<T>(fn: () => T): T {
+  inHook++;
+  try {
+    return fn();
+  } finally {
+    inHook--;
+  }
+}
+
 function hook<T>(make: () => T): T {
   const f = current;
-  if (!f) throw new Error("Invalid hook call. Hooks can only be called inside of the body of a function component.");
+  // Outside a function component's render (none, or a class's): React's error.
+  if (!f || f.inst) throw new Error(INVALID_HOOK_CALL);
+  if (inHook) {
+    warn("Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks");
+    return make();
+  }
   const hooks = f.hooks!;
   const i = hookAt++;
-  if (i >= hooks.length) hooks.push(make());
+  if (i >= hooks.length) hooks.push(insideHook(make));
   return hooks[i];
 }
 
@@ -1571,7 +1615,7 @@ export const client = {
   useMemo<T>(fn: () => T, deps?: any[]): T {
     const h = hook(() => ({ deps: undefined as any, value: undefined as any }));
     if (!deps || depsChanged(h.deps, deps)) {
-      h.value = fn();
+      h.value = insideHook(fn);
       h.deps = deps;
     }
     return h.value;
@@ -2017,7 +2061,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         if (!hydrate) (container as Element).replaceChildren?.();
       }
       depth++;
-      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null);
+      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null), (hydrationError = null);
       const wasRendering = rendering;
       rendering = true;
       if (depth === 1) startRender();
@@ -2042,7 +2086,23 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         }
         (state as any).threw = false;
         for (const tell of caughtThisRender.splice(0)) tell();
-        if (hydrate && hydrationWaits) {
+        if (hydrate && hydrationError) {
+          // Thrown while hydrating, outside any boundary: the root drawn on the client, the error its cause.
+          const cause = hydrationError.error;
+          hydrationError = null;
+          mismatched = false;
+          attrsDiffer = false;
+          for (const c of top.children) unmount(c, false);
+          top.children = [];
+          hydrating = null;
+          (container as Element).replaceChildren?.();
+          const error: any = new Error("There was an error while hydrating but React was able to recover by instead client rendering the entire root.");
+          error.cause = cause;
+          // Told only if the root then renders without an error of its own (React reports it with the commit).
+          (state as any).failed = false;
+          draw();
+          if (!(state as any).failed) layoutQueue.push(() => (options?.onRecoverableError ?? report)(error, { componentStack: "" }));
+        } else if (hydrate && hydrationWaits) {
           // Suspended with no boundary: nothing of this attempt is kept, the server's markup stays as it was.
           const waits = hydrationWaits;
           hydrationWaits = null;
