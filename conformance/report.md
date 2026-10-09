@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2923 pass, 1101 fail, 314 skipped (gated off for stable React 19).
+2966 pass, 1058 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -33,7 +33,7 @@
 | react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 61 | 112 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 66 | 107 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 3 | 18 | 0 |  |
@@ -44,7 +44,7 @@
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 7 | 5 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
-| react-dom/ReactDOMFloat-test.js | 5 | 135 | 3 |  |
+| react-dom/ReactDOMFloat-test.js | 42 | 98 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 17 | 28 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 43 | 46 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 7 | 3 | 0 |  |
@@ -58,7 +58,7 @@
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
 | react-dom/ReactDOMLegacyFiber-test.js | 0 | 1 | 42 |  |
-| react-dom/ReactDOMLegacyFloat-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMLegacyFloat-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMNativeEventHeuristic-test.js | 5 | 3 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMOption-test.js | 9 | 3 | 0 |  |

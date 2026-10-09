@@ -8,6 +8,9 @@ import { fieldString } from "./coercion.ts";
 import { dev } from "./warnings.ts";
 import { styleText } from "./props.ts";
 import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
+import { Resources } from "./float-server.ts";
+import { warn } from "./warnings.ts";
+import { __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Internals } from "./react-dom.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
 const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "suppressHydrationWarning", "suppressContentEditableWarning", "innerHTML"]);
@@ -39,6 +42,14 @@ type Ctx = {
   lastText: boolean;
   /** The components and elements being rendered, outermost first (React's component stack). */
   stack: string[];
+  /** Float's resources and hoistables for this render (written into <head>, or before a later chunk). */
+  res: Resources;
+  /** The enclosing element's tag (null at the top): <html>, <head> and <body> are the document's only at the top. */
+  parent: string | null;
+  /** Inside a <noscript>, a <picture>, a Suspense fallback: where React renders hoistables in place or drops them. */
+  noscript: boolean;
+  picture: boolean;
+  fallback: boolean;
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
   streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number }; onError: (e: unknown) => any };
 };
@@ -304,6 +315,8 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   checkTagName(tag);
   assertValidProps(tag, props);
   validateProps(tag, props, false);
+  const hoisted = hoist(tag, props, ctx);
+  if (hoisted !== undefined) return hoisted;
   const svg = ctx.svg;
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
@@ -329,19 +342,183 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
     ctx.select = was;
   } else {
     if (tag === "foreignObject") ctx.svg = false;
-    inner = render(props.children, ctx, hooks);
+    const { parent, noscript, picture } = ctx;
+    ctx.parent = tag;
+    if (tag === "noscript") ctx.noscript = true;
+    if (tag === "picture") ctx.picture = true;
+    try {
+      inner = render(props.children, ctx, hooks);
+    } finally {
+      ctx.parent = parent;
+      ctx.noscript = noscript;
+      ctx.picture = picture;
+    }
   }
   ctx.svg = svg;
   ctx.lastText = false;
+  // The document's <head> holds Float's resources (written in at the end); an <html> without one gets one.
+  const top = !svg && (ctx.parent === null || ctx.parent === "html");
+  if (tag === "head" && top) inner = HEAD_MARK + inner;
+  if (tag === "html" && ctx.parent === null && !inner.includes(HEAD_MARK)) inner = `<head>${HEAD_MARK}</head>` + inner;
   return `${open}${inner}</${tag}>`;
+}
+
+/** Where Float's resources go in a rendered document. */
+const HEAD_MARK = "\u0000head\u0000";
+/** The shell with Float's resources in its <head>, or before it if it has none. */
+function withPreamble(shell: string, resources: string) {
+  const at = shell.indexOf(HEAD_MARK);
+  return at < 0 ? resources + shell : shell.slice(0, at) + resources + shell.slice(at + HEAD_MARK.length);
+}
+
+/** An element written outside its place (into <head>), as React writes it: void ones self-closed. */
+const writeTag = (tag: string, props: any, inner?: string) => {
+  const a = attrs(props, { svg: false } as Ctx, tag);
+  return VOID.has(tag) ? `<${tag}${a}/>` : `<${tag}${a}>${inner ?? ""}</${tag}>`;
+};
+const single = (children: any) => (Array.isArray(children) ? (children.length < 2 ? children[0] : null) : children);
+const styleSafe = (css: string) => css.replace(/(<\/|<)(s)(tyle)/gi, (_m, a, b, c) => a + (b === "s" ? "\\73 " : "\\53 ") + c);
+
+/**
+ * React's Float on the server: a <title>, <meta> or <link> rendered anywhere goes to <head>; a stylesheet or
+ * <style> with a precedence and an async script become shared resources; an <img> is preloaded. Returns what stays
+ * in place (nothing, or a text separator), or undefined to render the element where it is.
+ */
+function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
+  const r = ctx.res;
+  const inline = ctx.svg || ctx.noscript || props.itemProp != null;
+  const separator = () => {
+    const sep = ctx.lastText ? "<!-- -->" : "";
+    ctx.lastText = false;
+    return sep;
+  };
+  switch (tag) {
+    case "title": {
+      if (inline) return undefined;
+      if (!ctx.fallback) {
+        const child = single(props.children);
+        const text = child == null || typeof child === "function" || typeof child === "symbol" || typeof child === "boolean" ? "" : escape(String(child));
+        r.hoistables.push(writeTag("title", { ...props, children: undefined }, props.dangerouslySetInnerHTML?.__html ?? text));
+      }
+      return "";
+    }
+    case "link": {
+      const { rel, href, precedence } = props;
+      if (inline || typeof rel !== "string" || typeof href !== "string" || href === "") {
+        if (rel === "stylesheet" && typeof precedence === "string" && !(typeof href === "string" && href))
+          warn(
+            `React encountered a \`<link rel="stylesheet" .../>\` with a \`precedence\` prop and expected the \`href\` prop to be a non-empty string but ecountered ${href === null ? "\`null\`" : href === undefined ? "\`undefined\`" : href === "" ? "an empty string" : `something with type "${typeof href}"`} instead. If your intent was to have React hoist and deduplciate this stylesheet using the \`precedence\` prop ensure there is a non-empty string \`href\` prop as well, otherwise remove the \`precedence\` prop.`,
+          );
+        return undefined;
+      }
+      if (rel === "stylesheet") {
+        if (typeof precedence !== "string" || props.disabled != null || props.onLoad || props.onError) {
+          if (typeof precedence === "string") {
+            if (props.disabled != null)
+              warn(
+                'React encountered a `<link rel="stylesheet" .../>` with a `precedence` prop and a `disabled` prop. The presence of the `disabled` prop indicates an intent to manage the stylesheet active state from your from your Component code and React will not hoist or deduplicate this stylesheet. If your intent was to have React hoist and deduplciate this stylesheet using the `precedence` prop remove the `disabled` prop, otherwise remove the `precedence` prop.',
+              );
+            else {
+              const d = props.onLoad && props.onError ? "`onLoad` and `onError` props" : props.onLoad ? "`onLoad` prop" : "`onError` prop";
+              warn(
+                `React encountered a \`<link rel="stylesheet" .../>\` with a \`precedence\` prop and ${d}. The presence of loading and error handlers indicates an intent to manage the stylesheet loading state from your from your Component code and React will not hoist or deduplicate this stylesheet. If your intent was to have React hoist and deduplciate this stylesheet using the \`precedence\` prop remove the ${d}, otherwise remove the \`precedence\` prop.`,
+              );
+            }
+          }
+          return undefined;
+        }
+        r.stylesheet(props);
+        return separator();
+      }
+      if (props.onLoad || props.onError) return undefined;
+      const sep = separator();
+      if (!ctx.fallback) r.hoistables.push(writeTag("link", props));
+      return sep;
+    }
+    case "script": {
+      const a = props.async;
+      if (typeof props.src !== "string" || !props.src || !a || typeof a === "function" || typeof a === "symbol" || props.onLoad || props.onError || inline) return undefined;
+      r.asyncScript(props);
+      return separator();
+    }
+    case "style": {
+      const { precedence, href } = props;
+      if (inline || typeof precedence !== "string" || typeof href !== "string" || href === "") return undefined;
+      if (href.includes(" "))
+        warn(
+          `React expected the \`href\` prop for a <style> tag opting into hoisting semantics using the \`precedence\` prop to not have any spaces but ecountered spaces instead. using spaces in this prop will cause hydration of this style to fail on the client. The href for the <style> where this ocurred is "${href}".`,
+        );
+      const child = single(props.children);
+      let text = child == null || typeof child === "function" || typeof child === "symbol" ? "" : styleSafe(String(child));
+      if (props.dangerouslySetInnerHTML?.__html != null) text += props.dangerouslySetInnerHTML.__html;
+      r.styleTag(props, text, warn);
+      return separator();
+    }
+    case "meta": {
+      if (inline) return undefined;
+      const sep = separator();
+      if (!ctx.fallback) {
+        const html = writeTag("meta", props);
+        (typeof props.charSet === "string" ? r.charset : props.name === "viewport" ? r.viewport : r.hoistables).push(html);
+      }
+      return sep;
+    }
+    case "img": {
+      const { src, srcSet } = props;
+      const data = (v: any) => typeof v === "string" && v[4] === ":" && v.slice(0, 4).toLowerCase() === "data";
+      if (
+        !(props.loading === "lazy" || (!src && !srcSet) || (typeof src !== "string" && src != null) || (typeof srcSet !== "string" && srcSet != null) || props.fetchPriority === "low" || ctx.picture || ctx.noscript) &&
+        !data(src) &&
+        !data(srcSet)
+      )
+        r.image_(props);
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 function once(node: any, ctx: Ctx) {
   const hooks = serverHooks(ctx);
-  return withHooks(hooks, () => render(node, ctx, hooks));
+  const was = rendering_;
+  rendering_ = ctx.res;
+  try {
+    return withHooks(hooks, () => render(node, ctx, hooks));
+  } finally {
+    rendering_ = was;
+  }
 }
 
-const fresh = (): Ctx => ({ values: new Map(), ids: 0, waiting: [], svg: false, select: undefined, lastText: false, stack: [] });
+/** The render whose resources ReactDOM.preload and its siblings feed (the client's dispatcher otherwise). */
+let rendering_: Resources | null = null;
+{
+  const d: any = Internals.d;
+  const prev = { ...d };
+  const via = (name: string, call: (r: Resources, ...a: any[]) => void) =>
+    (d[name] = (...a: any[]) => (rendering_ ? call(rendering_, ...a) : prev[name](...a)));
+  via("D", (r, href) => r.prefetchDNS(href));
+  via("C", (r, href, co) => r.preconnect(href, co));
+  via("L", (r, href, as, o) => r.preload(href, as, o));
+  via("m", (r, href, o) => r.preloadModule(href, o));
+  via("X", (r, src, o) => r.preinitScript(src, o));
+  via("S", (r, href, p, o) => r.preinitStyle(href, p, o));
+  via("M", (r, src, o) => r.preinitModuleScript(src, o));
+}
+
+const fresh = (res = new Resources(writeTag)): Ctx => ({
+  values: new Map(),
+  ids: 0,
+  waiting: [],
+  svg: false,
+  select: undefined,
+  lastText: false,
+  stack: [],
+  res,
+  parent: null,
+  noscript: false,
+  picture: false,
+  fallback: false,
+});
 
 /** Inline script content made safe as React makes it: the "s" of any "<script" or "</script" escaped. */
 const scriptSafe = (code: string) => code.replace(/(<\/|<)(s)(cript)/gi, (_m, a, b, c) => a + (b === "s" ? "\\u0073" : "\\u0053") + c);
@@ -354,12 +531,21 @@ function scriptAttrs(s: any, nonce?: string) {
   if (nonce) out += ` nonce="${escape(nonce)}"`;
   return out;
 }
-/** The import map and the preloads of the bootstrap scripts and modules (React's preamble resources). */
-function preamble(options: any, nonce?: string) {
+const importMap = (options: any) => (options.importMap ? `<script type="importmap">${scriptSafe(JSON.stringify(options.importMap))}</script>` : "");
+/** The preloads of the bootstrap scripts and modules (written with the preamble; never preloaded again). */
+function bootstrapPreloads(options: any, nonce: string | undefined, res: Resources) {
   let out = "";
-  if (options.importMap) out += `<script type="importmap">${scriptSafe(JSON.stringify(options.importMap))}</script>`;
-  for (const s of options.bootstrapScripts ?? []) out += `<link rel="preload" as="script" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
-  for (const s of options.bootstrapModules ?? []) out += `<link rel="modulepreload" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+  const src = (s: any) => (typeof s === "string" ? s : s.src);
+  for (const s of options.bootstrapScripts ?? []) {
+    res.script.set(src(s), null);
+    res.module.set(src(s), null);
+    out += `<link rel="preload" as="script" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+  }
+  for (const s of options.bootstrapModules ?? []) {
+    res.script.set(src(s), null);
+    res.module.set(src(s), null);
+    out += `<link rel="modulepreload" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+  }
   return out;
 }
 /** The bootstrap: its inline content, then its scripts and modules, each async. */
@@ -375,11 +561,14 @@ function bootstrap(options: any, nonce?: string) {
 function fallbackFrame(ctx: Ctx, fn: () => string): string {
   const i = ctx.stack.length - 1;
   const was = ctx.stack[i];
+  const fallback = ctx.fallback;
   if (was === "Suspense") ctx.stack[i] = "Suspense Fallback";
+  ctx.fallback = true;
   try {
     return fn();
   } finally {
     if (was === "Suspense") ctx.stack[i] = was;
+    ctx.fallback = fallback;
   }
 }
 
@@ -404,7 +593,9 @@ const frameName = (type: any): string =>
               : "";
 
 export function renderToString(node: any, _options?: any) {
-  return once(node, fresh());
+  const ctx = fresh();
+  const html = once(node, ctx);
+  return withPreamble(html, ctx.res.preamble("", ""));
 }
 export const renderToStaticMarkup = renderToString;
 
@@ -413,7 +604,7 @@ async function complete(node: any) {
   for (let round = 0; ; round++) {
     const ctx = fresh();
     const html = once(node, ctx);
-    if (!ctx.waiting.length || round > 50) return html;
+    if (!ctx.waiting.length || round > 50) return withPreamble(html, ctx.res.preamble("", ""));
     await Promise.allSettled(ctx.waiting);
   }
 }
@@ -443,6 +634,7 @@ type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean
 /** One streamed render: the shell, then each boundary as it settles, written through `write`. */
 function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void) {
   const shared = { ids: 0, boundaries: [] as Boundary[], next: 0 };
+  const res = new Resources(writeTag, typeof options.nonce === "object" ? options.nonce?.style : undefined);
   const pending = new Set<Boundary>();
   let runtimeSent = false;
   let closed = false;
@@ -454,7 +646,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const sxArgs = (digest: unknown, message: string, error?: unknown) =>
     [typeof digest === "string" ? digest : "", dev() ? message : "", dev() && error ? componentStackOf(error) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
   const ctxFor = (b?: Boundary): Ctx => ({
-    ...fresh(),
+    ...fresh(res),
     values: b ? new Map(b.values) : new Map(),
     svg: b?.svg ?? false,
     select: b?.select,
@@ -489,11 +681,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         return watch();
       }
       const digest = onError(e);
-      write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
+      write(`${res.late()}${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
       runtimeSent = true;
       return watch();
     }
-    write(`${runtimeSent ? "" : RUNTIME}<div hidden id="S:${b.id}">${inner}</div>${scriptOpen}$SC("B:${b.id}","S:${b.id}")</script>`);
+    write(`${res.late()}${runtimeSent ? "" : RUNTIME}<div hidden id="S:${b.id}">${inner}</div>${scriptOpen}$SC("B:${b.id}","S:${b.id}")</script>`);
     runtimeSent = true;
     watch();
   };
@@ -508,9 +700,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   }
   // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
   // bootstrap scripts after it, as React writes them.
-  const headAt = /<head(?:\s[^>]*)?>/.exec(shell);
-  const pre = preamble(options, nonce);
-  const shellWithPreamble = headAt ? shell.slice(0, headAt.index + headAt[0].length) + pre + shell.slice(headAt.index + headAt[0].length) : pre + shell;
+  const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options), bootstrapPreloads(options, nonce, res)));
   // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
   const paint = !shared.boundaries.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
   write(shellWithPreamble + paint + bootstrap(options, nonce));
