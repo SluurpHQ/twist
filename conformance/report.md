@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3588 pass, 436 fail, 314 skipped (gated off for stable React 19).
+3591 pass, 433 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -14,11 +14,11 @@
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 17 | 2 | 2 |  |
-| react-dom/ReactComponentLifeCycle-test.js | 22 | 4 | 0 |  |
+| react-dom/ReactComponentLifeCycle-test.js | 23 | 3 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 36 | 4 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactCompositeComponentState-test.js | 3 | 5 | 1 |  |
+| react-dom/ReactCompositeComponentState-test.js | 4 | 4 | 1 |  |
 | react-dom/ReactDOM-test.js | 8 | 8 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 3 | 4 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
@@ -135,7 +135,7 @@
 | react-dom/refs-test.js | 12 | 0 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 3 | 0 | 0 |  |
-| react/createReactClassIntegration-test.js | 24 | 2 | 2 |  |
+| react/createReactClassIntegration-test.js | 25 | 1 | 2 |  |
 | react/forwardRef-test.internal.js | 6 | 0 | 0 |  |
 | react/forwardRef-test.js | 16 | 3 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |

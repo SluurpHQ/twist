@@ -130,6 +130,8 @@ function callCallback(cb: any, inst: any) {
   if (typeof cb !== "function") throw new Error("Invalid argument passed as callback. Expected a function. Instead received: " + cb);
   cb.call(inst);
 }
+/** An update that replaces a class's state (this.state assigned where React makes it a replaceState). */
+const REPLACE = Symbol("replace state");
 /** A class's context when it has no (valid) contextType, as React gives it. */
 const EMPTY_CONTEXT = Object.freeze({});
 /** The component that rendered the element being made now (a form field's warnings name it). */
@@ -2075,9 +2077,17 @@ function renderClass(f: Fiber, withRef: any) {
   const ctx = validCt ? readContext(f, ct) : EMPTY_CONTEXT;
   // React calls the legacy will-lifecycles only for a class that does not use the newer static ones.
   const legacy = !C.getDerivedStateFromProps && !f.inst?.getSnapshotBeforeUpdate && !C.prototype.getSnapshotBeforeUpdate;
+  // Both names when both are there, as React calls them; this.state assigned in one is React's replaceState,
+  // with its warning.
   const call = (name: string, ...args: any[]) => {
-    const fn = inst[name] ?? inst["UNSAFE_" + name];
-    if (legacy && typeof fn === "function") untrack(() => fn.apply(inst, args));
+    if (!legacy) return;
+    const before = inst.state;
+    for (const fn of [inst[name], inst["UNSAFE_" + name]]) if (typeof fn === "function") untrack(() => fn.apply(inst, args));
+    if (inst.state !== before) {
+      if (dev()) warn(`${nameOf(C)}.${name}(): Assigning directly to this.state is deprecated (except inside a component's constructor). Use setState instead.`, "assign-state:" + name + nameOf(C));
+      inst.__queue.push({ [REPLACE]: inst.state });
+      inst.state = before;
+    }
   };
   /** setState calls queued so far, applied to `state`. */
   const apply = (state: any, nextProps: any) => {
@@ -2085,6 +2095,11 @@ function renderClass(f: Fiber, withRef: any) {
     for (const u of inst.__queue.splice(0)) {
       if (u === FORCE) force = true;
       else {
+        // this.state assigned in a will-lifecycle: the state replaced (React's replaceState).
+        if (u && typeof u === "object" && REPLACE in u) {
+          state = u[REPLACE];
+          continue;
+        }
         // Nothing (null or undefined) from an update: the state as it was, the same object (no render for it).
         const part = typeof u === "function" ? strictTwice(f, () => u.call(inst, state, nextProps), true) : u;
         if (part != null) state = { ...state, ...part };
@@ -2111,7 +2126,7 @@ function renderClass(f: Fiber, withRef: any) {
     call("componentWillMount");
     // setState in componentWillMount: taken into this first render.
     inst.state = apply(inst.state, props)[0];
-    const out = strictTwice(f, () => inst.render(), true);
+    const out = strictTwice(f, () => classRender(inst), true);
     propsReassigned(C, inst, props);
     if (inst.componentDidMount) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidMount()));
     if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
@@ -2147,7 +2162,7 @@ function renderClass(f: Fiber, withRef: any) {
   inst.context = ctx;
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
   if (inst.getSnapshotBeforeUpdate) checkSnapshot(C, snapshot);
-  const out = strictTwice(f, () => inst.render(), true);
+  const out = strictTwice(f, () => classRender(inst), true);
   propsReassigned(C, inst, props);
   if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
@@ -2181,11 +2196,24 @@ function updateOutsideAct(target: Fiber) {
   );
 }
 
+/** A class's render method running now. */
+let inClassRender = false;
+function classRender(inst: any) {
+  const was = inClassRender;
+  inClassRender = true;
+  try {
+    return inst.render();
+  } finally {
+    inClassRender = was;
+  }
+}
+
 function updateWhileRendering(target: Fiber) {
   updateOutsideAct(target);
   if (!current || !dev()) return;
   if (target.inst) {
-    warn("Cannot update during an existing state transition (such as within `render`). Render methods should be a pure function of props and state.", "update-in-render");
+    // Only from a render method (React's isRendering): a will-lifecycle may set state.
+    if (inClassRender) warn("Cannot update during an existing state transition (such as within `render`). Render methods should be a pure function of props and state.", "update-in-render");
     return;
   }
   if (current === target) return;
