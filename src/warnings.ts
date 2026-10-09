@@ -1,7 +1,7 @@
 // React's development warnings, in React's words (its tests and its users know them), each once per message as
 // React dedupes them. Nothing in production.
 
-const dev = () => (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
+export const dev = () => (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
 const seen = new Set<string>();
 
 /** A development warning: every time, or once per `once` key where React keeps a flag for it. */

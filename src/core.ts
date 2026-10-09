@@ -7,7 +7,7 @@ import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, se
 import { addContainer } from "./events.ts";
 import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
-import { checkKeys, checkTag, duplicateKey, setOwner } from "./warnings.ts";
+import { checkKeys, checkTag, dev, duplicateKey, setOwner } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
@@ -607,7 +607,7 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   loops.add(f);
   if ((f as any).draws > LIMIT) {
     // Handled as a render error would be: the nearest boundary, else the root goes down and the error is told.
-    if ((f as any).draws === LIMIT + 1) caught(f, new Error(`Maximum update depth exceeded. This can happen when a component calls setState on every render: <${nameOf(f.type)}> (inside ${path(f)}).`));
+    if ((f as any).draws === LIMIT + 1) caught(f, new Error("Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops."));
     return;
   }
   if (depth++ === 0) runPassive(false);
@@ -666,13 +666,6 @@ const loops = {
     this.seen.clear();
   },
 };
-
-/** Where a fiber is, by its components' names: for messages. */
-function path(f: Fiber) {
-  const names: string[] = [];
-  for (let p = f.parent; p && names.length < 6; p = p.parent) if (p.kind === COMP) names.push(nameOf(p.type));
-  return names.join(" < ") || "the root";
-}
 
 /** A class component's render, its lifecycle around it. */
 const KEEP = Symbol("keep");
@@ -1028,26 +1021,37 @@ export const client = {
     const f = current!;
     return hook(() => `_r_${(f.root.ids++).toString(32)}_`);
   },
-  useSyncExternalStore<T>(subscribe: (cb: () => void) => () => void, getSnapshot: () => T): T {
-    const h = hook(() => ({ v: signal(0) as Sig<number>, get: getSnapshot, value: undefined as any }));
+  useSyncExternalStore<T>(subscribe: (cb: () => void) => () => void, getSnapshot: () => T, getServerSnapshot?: () => T): T {
+    const h = hook(() => {
+      const box = { v: signal(0) as Sig<number>, get: getSnapshot, value: undefined as any, warned: false, check: () => {} };
+      // A store whose snapshot differs from what was shown (or whose getSnapshot throws): drawn again, where the
+      // error, if any, reaches the boundary.
+      box.check = () => {
+        let same = false;
+        try {
+          same = Object.is(box.get(), box.value);
+        } catch {}
+        if (!same) box.v.set(box.v.peek() + 1);
+      };
+      return box;
+    });
     h.v();
-    const value = getSnapshot();
+    // Taking over server markup: the server's snapshot first, the client's after (as React does).
+    if (isHydrating() && !getServerSnapshot) {
+      throw new Error("Missing getServerSnapshot, which is required for server-rendered content. Will revert to client rendering.");
+    }
+    const value = isHydrating() ? getServerSnapshot!() : getSnapshot();
+    if (dev() && !h.warned && !isHydrating() && !Object.is(value, getSnapshot())) {
+      h.warned = true;
+      console.error("The result of getSnapshot should be cached to avoid an infinite loop");
+    }
     // The newest getSnapshot and what this render showed: a change in the store re-renders only when what this
     // component reads from it is different (a store updated for others leaves it alone).
     h.get = getSnapshot;
     h.value = value;
-    effectHook(
-      () => {
-        const check = () => {
-          if (!Object.is(h.get(), h.value)) h.v.set(h.v.peek() + 1);
-        };
-        const off = subscribe(check);
-        check();
-        return off;
-      },
-      [subscribe],
-      "layout",
-    );
+    effectHook(() => subscribe(h.check), [subscribe], "layout");
+    // After each commit: changed between render and commit (or never stable), drawn again.
+    effectHook(() => h.check(), undefined, "layout");
     return value;
   },
   useTransition(): [boolean, (fn: () => any) => void] {
@@ -1148,11 +1152,12 @@ export const client = {
 function effectHook(create: () => any, deps: any[] | undefined, phase: "insertion" | "layout" | "passive") {
   const f = current!;
   const h = hook(() => ({ deps: undefined as any, cleanup: null as any, first: true }));
+  // Compared with the deps of the effect that ran: a render that never committed (a render-phase pass) sets none.
   if (!h.first && deps && !depsChanged(h.deps, deps)) return;
-  h.first = false;
-  h.deps = deps;
   f[phase]!.push(() => {
     if (f.dead) return;
+    h.first = false;
+    h.deps = deps;
     try {
       if (typeof h.cleanup === "function") h.cleanup();
       const back = create();

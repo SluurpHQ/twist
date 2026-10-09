@@ -24,7 +24,7 @@ export const useInsertionEffect: Hooks["useInsertionEffect"] = (fn, deps) => d.u
 export const useImperativeHandle: Hooks["useImperativeHandle"] = (r, fn, deps) => d.useImperativeHandle(r, fn, deps);
 export const useContext: Hooks["useContext"] = (c) => d.useContext(c);
 export const useId: Hooks["useId"] = () => d.useId();
-export const useSyncExternalStore = (sub: any, get: any, getServer?: any) => (d === client ? d.useSyncExternalStore(sub, get) : (d as any).useSyncExternalStore(sub, get, getServer));
+export const useSyncExternalStore = (sub: any, get: any, getServer?: any) => (d as any).useSyncExternalStore(sub, get, getServer);
 export const useTransition: Hooks["useTransition"] = () => d.useTransition();
 export const useDeferredValue: Hooks["useDeferredValue"] = (v, i) => d.useDeferredValue(v, i);
 export const useDebugValue = (_v?: any, _f?: any) => {};
