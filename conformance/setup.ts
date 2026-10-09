@@ -110,7 +110,8 @@ const { resetWarnings } = await import("../src/warnings.ts");
 {
   const { resetLog } = await import("./shim/scheduler.ts");
   const { resetConsole } = await import("./shim/test-utils.ts");
-  (await import("bun:test")).beforeEach(() => (resetLog(), resetConsole()));
+  const { resetAct } = await import("../src/core.ts");
+  (await import("bun:test")).beforeEach(() => (resetLog(), resetConsole(), resetAct()));
 }
 // React's jest config fakes timers in every test (fakeTimers.enableGlobally); react-redux's vitest does not.
 if (!process.argv.some((a) => a.includes("redux-tests"))) {

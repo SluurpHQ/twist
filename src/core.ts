@@ -2028,6 +2028,8 @@ function settleAll() {
 /** Inside React.act: updates wait (events included) and are drawn when the outermost act ends. */
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
+/** No act open (a test that hung inside one leaves none behind: React reloads its modules for each test). */
+export const resetAct = () => void (actDepth = 0);
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -2053,14 +2055,7 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
         try {
           // What it set off, then what that sets off (promises settling, effects updating), until nothing is left
           // (still inside act while it does).
-          if (actDepth === 1)
-            for (let i = 0; i < 20; i++) {
-              const before = renderSerial;
-              settleAll();
-              for (let k = 0; k < 5; k++) await Promise.resolve();
-              if (renderSerial === before && !somethingPending()) break;
-            }
-          if (actDepth === 1) settleAll();
+          if (actDepth === 1) await drainAct();
         } finally {
           actDepth--;
           done();
@@ -2080,7 +2075,24 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
     actDepth--;
     done();
   }
-  return { then: (ok?: any, no?: any) => Promise.resolve(r as T).then(ok, no) };
+  // Awaited: what promises set off meanwhile is drawn before it resolves, as React's act does then.
+  return { then: (ok?: any, no?: any) => drainAct().then(() => r as T).then(ok, no) };
+}
+
+/** Act's last turns: promises settling and the updates they make, drawn until nothing more comes (inside act). */
+async function drainAct() {
+  actDepth++;
+  try {
+    for (let i = 0; i < 20; i++) {
+      const before = renderSerial;
+      settleAll();
+      for (let k = 0; k < 5; k++) await Promise.resolve();
+      if (renderSerial === before && !somethingPending()) break;
+    }
+    settleAll();
+  } finally {
+    actDepth--;
+  }
 }
 
 /** Whether updates, effects or transitions are still waiting to be drawn. */
