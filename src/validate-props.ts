@@ -52,6 +52,8 @@ function validProp(tag: string, name: string, value: any, client: boolean): bool
     return once(`React does not recognize the \`${name}\` prop on a DOM element. If you intentionally want it to appear in the DOM as a custom attribute, spell it as lowercase \`${lower}\` instead. If you accidentally passed it from a parent component, remove it from the DOM element.`);
   }
   if (RESERVED.has(name)) return true;
+  // A select's value chooses among its options: not an attribute to check.
+  if (name === "value" && tag === "select") return true;
   switch (typeof value) {
     case "boolean": {
       if (BOOLEANS.has(name)) return true;

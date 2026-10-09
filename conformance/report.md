@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3575 pass, 449 fail, 314 skipped (gated off for stable React 19).
+3588 pass, 436 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -64,7 +64,7 @@
 | react-dom/ReactDOMOption-test.js | 10 | 2 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 24 | 3 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
-| react-dom/ReactDOMSelect-test.js | 54 | 6 | 1 |  |
+| react-dom/ReactDOMSelect-test.js | 57 | 3 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 546 | 4 | 0 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
@@ -87,7 +87,7 @@
 | react-dom/ReactDOMServerIntegrationTextarea-test.js | 40 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 72 | 5 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 18 | 2 | 7 |  |
-| react-dom/ReactDOMServerLifecycles-test.js | 4 | 6 | 0 |  |
+| react-dom/ReactDOMServerLifecycles-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 42 | 15 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 15 | 22 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
@@ -122,9 +122,9 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 3 | 1 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 9 | 2 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 39 | 6 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 42 | 3 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactServerRenderingHydration-test.js | 16 | 8 | 0 |  |
+| react-dom/ReactServerRenderingHydration-test.js | 17 | 7 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 19 | 5 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 4 | 1 | 0 |  |

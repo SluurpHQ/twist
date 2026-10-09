@@ -11,6 +11,7 @@ import { assertValidProps, attribute, checkTagName, customAttribute, isCustomEle
 import { Resources } from "./float-server.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { warn, warnOnce } from "./warnings.ts";
+import { checkClassInstance, checkDerivedState } from "./class-checks.ts";
 import { __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Internals } from "./react-dom.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
@@ -96,6 +97,8 @@ function attrs(props: any, ctx: Ctx, tag: string) {
     }
     if (k === "autoFocus") continue;
     if ((k === "action" || k === "formAction") && typeof v === "function") continue;
+    // A custom element's object and array props are properties the client sets, not attributes (React's Fizz).
+    if (isCustomElement(tag, props) && v !== null && typeof v === "object") continue;
     const a = isCustomElement(tag, props) ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg);
     if (a) put(a[0], a[1]);
   }
@@ -447,29 +450,55 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     if (type.prototype?.isReactComponent) {
       const ct = type.contextType;
       const validCt = ct != null && ct.$$typeof === CONTEXT;
-      if (dev() && ct !== undefined && !validCt && ct !== null)
-        warn(
-          `${type.displayName || type.name || "Component"} defines an invalid contextType. contextType should point to the Context object returned by React.createContext(). ${ct?.$$typeof === CONSUMER ? "Did you accidentally pass the Context.Consumer instead?" : typeof ct !== "object" ? `However, it is set to a ${typeof ct}.` : `However, it is set to an object with keys {${Object.keys(ct).join(", ")}}.`}`,
-        );
+      const name = type.displayName || type.name || "Component";
+      if (dev() && "contextType" in type && ct !== null && !validCt) {
+        const why =
+          ct === undefined
+            ? " However, it is set to undefined. This can be caused by a typo or by mixing up named and default imports. This can also happen due to a circular dependency, so try moving the createContext() call to a separate file."
+            : typeof ct !== "object"
+              ? ` However, it is set to a ${typeof ct}.`
+              : ct.$$typeof === CONSUMER
+                ? " Did you accidentally pass the Context.Consumer instead?"
+                : ` However, it is set to an object with keys {${Object.keys(ct).join(", ")}}.`;
+        warn(`${name} defines an invalid contextType. contextType should point to the Context object returned by React.createContext().${why}`, "invalid-context-type:" + name);
+      }
       // No context type: an empty context object, as React gives.
       const c = validCt ? contextValue(ctx, ct) : {};
       const inst = new type(props, c);
+      checkClassInstance(type, inst, props);
       inst.props = props;
       inst.context = c;
-      if (type.getDerivedStateFromProps) inst.state = { ...inst.state, ...type.getDerivedStateFromProps(props, inst.state) };
-      // As React's server does: componentWillMount runs (without getDerivedStateFromProps), its setState applied at once.
-      else if (inst.UNSAFE_componentWillMount || inst.componentWillMount) {
+      if (typeof type.getDerivedStateFromProps === "function") {
+        const partial = type.getDerivedStateFromProps(props, inst.state);
+        checkDerivedState(type, partial);
+        if (partial != null) inst.state = { ...inst.state, ...partial };
+      } else if (typeof inst.getSnapshotBeforeUpdate !== "function" && (inst.UNSAFE_componentWillMount || inst.componentWillMount)) {
+        // As React's server does: componentWillMount runs (not beside the newer lifecycles), its setState applied at once.
+        const queue: any[] = [];
         inst.setState = (s: any, cb?: () => void) => {
-          inst.state = { ...inst.state, ...(typeof s === "function" ? s(inst.state, inst.props) : s) };
+          queue.push(s);
           cb?.();
         };
         // forceUpdate while mounting: nothing to do (it renders right after).
         inst.forceUpdate = (cb?: () => void) => cb?.();
-        (inst.UNSAFE_componentWillMount ?? inst.componentWillMount).call(inst);
+        const before = inst.state;
+        if (typeof inst.componentWillMount === "function") {
+          if (dev() && inst.componentWillMount.__suppressDeprecationWarning !== true)
+            console.warn(
+              `componentWillMount has been renamed, and is not recommended for use. See https://react.dev/link/unsafe-component-lifecycles for details.\n\n* Move code from componentWillMount to componentDidMount (preferred in most cases) or the constructor.\n\nPlease update the following components: ${name}`,
+            );
+          inst.componentWillMount();
+        }
+        if (typeof inst.UNSAFE_componentWillMount === "function") inst.UNSAFE_componentWillMount();
+        if (dev() && before !== inst.state)
+          warn(`${name}.componentWillMount(): Assigning directly to this.state is deprecated (except inside a component's constructor). Use setState instead.`);
+        for (const u of queue) {
+          const part = typeof u === "function" ? u(inst.state, inst.props) : u;
+          if (part != null) inst.state = { ...inst.state, ...part };
+        }
       }
       const out = inst.render();
       // Rendered once on the server: an update asked later does nothing (React says so).
-      const name = type.displayName || type.name || "Component";
       const noop = (what: string) => () =>
         warn(`Can only update a mounting component. This usually means you called ${what}() outside componentWillMount() on the server. This is a no-op.\n\nPlease check the code for the ${name} component.`);
       inst.setState = noop("setState");

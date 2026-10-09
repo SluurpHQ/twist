@@ -246,6 +246,7 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean, hyd
   if (tag === "input") initInput(el as HTMLInputElement, props, hydrating);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
   else if (tag === "select") initSelect(el as HTMLSelectElement, props);
+  if (tag === "option" && props.selected != null && dev()) warn("Use the `defaultValue` or `value` props on <select> instead of setting `selected` on <option>.", "option-selected");
   else if (tag === "option" && props.selected != null) (el as HTMLOptionElement).selected = !!props.selected && typeof props.selected !== "function" && typeof props.selected !== "symbol";
   if (tag !== "option") track(el);
 }
