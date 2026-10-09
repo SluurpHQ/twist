@@ -85,6 +85,8 @@ function copy(from: string, to: string) {
     else if (/-test(\.internal)?\.js$/.test(f)) {
       let code = promiseExpectations(unflow(gateSource(readFileSync(a, "utf8"))));
       for (const [re, to] of SETUP_ONLY) code = code.replace(re, to);
+      // A promise's .resolves.not.toThrow(): Jest passes once it resolves; Bun checks the value as a function.
+      code = code.replace(/\.resolves\.not\.toThrow\(\)/g, ".resolves.toSatisfy(() => true)");
       writeFileSync(b, code);
     } else if (f.endsWith(".js")) writeFileSync(b, unflow(readFileSync(a, "utf8")));
     else writeFileSync(b, readFileSync(a));

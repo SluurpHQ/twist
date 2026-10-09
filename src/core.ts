@@ -943,6 +943,11 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     (el as any).__props = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
+      // A select's multiple and size before its options: they decide whether the browser picks the first one.
+      if (type === "select" && !server) {
+        if (props.multiple) (el as HTMLSelectElement).multiple = true;
+        if (props.size != null && typeof props.size !== "function" && typeof props.size !== "symbol") el.setAttribute("size", String(props.size));
+      }
       if (type !== "textarea" && type !== "input") reconcile(f, toList(props.children), el, null);
       initForm(el, type, props, false);
     } else {
