@@ -2,7 +2,8 @@
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
-import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
+import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
+import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer, listenOnElement } from "./events.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
@@ -97,7 +98,34 @@ function uncaught(root: RootState, e: unknown) {
 }
 
 let current: Fiber | null = null;
+setOwnerSource(() => current);
 let hookAt = 0;
+
+/** The fiber an error or warning is told for (React's runWithFiberInDEV): captureOwnerStack starts from it. */
+let toldFor: Fiber | null = null;
+export function withFiber<T>(f: Fiber | null, fn: () => T): T {
+  const was = toldFor;
+  toldFor = f;
+  try {
+    return fn();
+  } finally {
+    toldFor = was;
+  }
+}
+const BUILT_IN = new Set<any>([SUSPENSE, SUSPENSE_LIST, ACTIVITY]);
+/** React.captureOwnerStack: the fiber told for (or rendering), then the components that rendered it, one frame each. */
+export function captureOwnerStack(): string | null {
+  if (!dev()) return null;
+  let f = toldFor ?? current;
+  if (!f) return null;
+  if (f.kind === TEXT && f.parent) f = f.parent;
+  const frame = (name: string) => "\n    at " + name + " (<anonymous>)";
+  let out = "";
+  if (f.kind === HOST || f.kind === HOIST) out += frame(f.type);
+  else if (BUILT_IN.has(f.type)) out += frame(f.type === SUSPENSE ? "Suspense" : f.type === ACTIVITY ? "Activity" : "SuspenseList");
+  for (let o = (f as any).owner as Fiber | null; o; o = (o as any).owner) out += frame(nameOf(o.type));
+  return out;
+}
 let depth = 0;
 // Phases, as React's commit has them: insertion effects first (before any ref or layout effect: a ref may call
 // what one set up), then refs and layout effects, then passive effects after paint.
@@ -346,6 +374,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   const byKey = new Map<string, Fiber>();
   for (const f of old) byKey.set(f.key, f);
   const next: Fiber[] = [];
+  // While hydrating, the children so far: a mismatch's diff prints the siblings before it.
+  if (hydrating && dev()) (parent as any).building = next;
   const seenKeys = new Set<string>();
   let i = 0;
   for (let c of list) {
@@ -372,12 +402,15 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       next.push(had);
     } else {
       if (hydrating && !(list as any)[LONE]) nextTree = pushTree(childBase(parent), list.length, i - 1);
+      nextOwner = c?._owner ?? null;
       next.push(mount(c, key, type, parent, host, before));
       nextTree = null;
+      nextOwner = null;
     }
   }
   for (const f of byKey.values()) unmount(f, true);
   parent.children = next;
+  if ((parent as any).building) (parent as any).building = undefined;
   // In order, back to front: each node before the one after it, moved only when it is not already there.
   // Taking over server markup, nodes are claimed or made in place: nothing to move.
   if (hydrating) return;
@@ -539,12 +572,15 @@ const fresh: Fiber[] = [];
 function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
   const f: Fiber = { kind, type, key, props, parent, children: [], dom: null, ns: parent.kind === HOST ? childNs(parent) : parent.ns, root: parent.root };
   if (nextTree) ((f as any).tree = nextTree), (nextTree = null);
+  if (nextOwner) Object.defineProperty(f, "owner", { value: nextOwner, enumerable: false }), (nextOwner = null);
   if ((parent as any).strict || parent.type === STRICT) (f as any).strict = true;
   return remember(f);
 }
 
 // ---------------------------------------------------------------- tree ids (useId while hydrating)
 
+/** The owner of the next fiber made (its element's, in development): set by reconcile. */
+let nextOwner: Fiber | null = null;
 /** The tree position the next fiber made takes (it is a child of an array): set by reconcile. */
 let nextTree: TreeContext | null = null;
 /** A fiber's tree position: its own if it is forked, else what its parent gives its children. */
@@ -576,11 +612,46 @@ function childNs(host: Fiber): string | null {
 let hydrating: Map<Node, Node | null> | null = null;
 /** Whether this hydration found attributes that differ from the client's props: told once, as React does. */
 let attrsDiffer = false;
+const HYDRATION_ATTRS_FORMAT = "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\n%s%s";
 const HYDRATION_ATTRS = "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch";
 
 /** The server's attributes against those the props draw (on a scratch element): whether any differs. */
-type Attrs = { names: Map<string, string>; css: string };
-const attrsOf = (el: Element): Attrs => ({ names: new Map(el.getAttributeNames().map((n) => [n, el.getAttribute(n)!])), css: (el as HTMLElement).style?.cssText ?? "" });
+type Attrs = { names: Map<string, string>; css: string; html: string; style: Record<string, string> };
+const attrsOf = (el: Element): Attrs => ({
+  names: new Map(el.getAttributeNames().map((n) => [n, el.getAttribute(n)!])),
+  css: (el as HTMLElement).style?.cssText ?? "",
+  html: el.innerHTML,
+  style: styleObject(el),
+});
+/** What the server's element differs by from the client's props, keyed by prop as React's diff shows it. */
+function serverDifferences(server: Element, had: Attrs, type: string, ns: string | null, props: any): Record<string, any> | null {
+  const doc = server.ownerDocument;
+  const probe = ns ? doc.createElementNS(ns, type) : doc.createElement(type);
+  const { children: _c, dangerouslySetInnerHTML: inner, ...rest } = props;
+  try {
+    muteWarnings(() => setProps(probe, rest, null, ns === SVG_NS));
+  } catch {
+    return null;
+  }
+  const out: Record<string, any> = {};
+  let any = false;
+  const keyFor = (attr: string) => {
+    for (const k in props) if (k.toLowerCase() === attr || (attr === "class" && k === "className") || (attr === "for" && k === "htmlFor")) return k;
+    return propName(attr);
+  };
+  const skip = new Set(["value", "checked", "selected", "style"]);
+  const names = new Set([...had.names.keys(), ...probe.getAttributeNames()]);
+  for (const n of names) if (!skip.has(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
+  const want = props.style == null ? null : styleText(props.style) || null;
+  if ((had.names.get("style") ?? null) !== want) (out.style = had.names.has("style") ? had.style : null), (any = true);
+  if (inner?.__html != null) {
+    // The client's HTML as the parser leaves it, as React normalizes it before comparing.
+    const parsed = probe.cloneNode() as Element;
+    parsed.innerHTML = String(inner.__html);
+    if (had.html !== parsed.innerHTML) (out.dangerouslySetInnerHTML = { __html: had.html }), (any = true);
+  }
+  return any ? out : null;
+}
 function serverAttrsDiffer(server: Element, had: Attrs, type: string, ns: string | null, props: any): boolean {
   const doc = server.ownerDocument;
   const probe = ns ? doc.createElementNS(ns, type) : doc.createElement(type);
@@ -613,8 +684,8 @@ function nextServerNode(host: Node, scripts = false): Node | null {
   let n = hydrating.has(host) ? hydrating.get(host)! : host.firstChild;
   const limit = regionIn(host)?.end;
   // Past comments and a doctype: markers and the document's preamble are no fiber's; past the server's own
-  // scripts (bootstrap, runtime) too, unless a <script> is what is being claimed.
-  while (n && n !== limit && (n.nodeType === 8 || n.nodeType === 10 || (!scripts && (n as Element).localName === "script"))) n = n.nextSibling;
+  // scripts (bootstrap, runtime) too, unless a <script> is what is being claimed; past empty text (no parser makes it).
+  while (n && n !== limit && (n.nodeType === 8 || n.nodeType === 10 || (n.nodeType === 3 && (n as Text).data === "") || (!scripts && (n as Element).localName === "script"))) n = n.nextSibling;
   return n === limit ? null : n;
 }
 
@@ -622,7 +693,42 @@ function nextServerNode(host: Node, scripts = false): Node | null {
 
 /** A Suspense boundary the server drew, between its comments (`$` complete, `$?` pending, `$!` given to the
  * client): hydrated on its own, as React does — what goes wrong inside stays inside. */
-type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspended: PromiseLike<any> | null; mismatch: boolean; text: boolean; made: Node[]; errored?: { error: unknown } };
+type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspended: PromiseLike<any> | null; mismatch: boolean; text: boolean; made: Node[]; errored?: { error: unknown }; diff: DiffScope };
+/** The root hydration's differences (in development), for its error's diff. */
+let rootDiff: DiffScope | null = null;
+/** Where a difference found now is recorded: the innermost boundary's, or the root's; none in production. */
+function diffScope(): DiffScope | null {
+  if (!dev()) return null;
+  const r = regions[regions.length - 1];
+  if (r) return r.suspended ? null : r.diff;
+  return rootDiff;
+}
+/** The server nodes left from `n` on, as the diff lists them (a boundary as one). */
+function serverTail(n: Node | null, limit?: Node | null): ReturnType<typeof describeServerNode>[] {
+  const out: ReturnType<typeof describeServerNode>[] = [];
+  while (n && n !== limit) {
+    if (n.nodeType === 8) {
+      const d = (n as Comment).data;
+      if (d === "$" || d === "$?" || d === "$!" || d === "$~" || d === "&") {
+        out.push(describeServerNode(n));
+        n = boundaryEnd(n as Comment) ?? n;
+      }
+    } else if (!(n.nodeType === 3 && (n as Text).data === "")) out.push(describeServerNode(n));
+    n = n.nextSibling;
+  }
+  return out;
+}
+/** A client fiber with no server node for it: the rejected candidate, if any, on its tail. */
+function diffMissing(f: Fiber, candidate: Node | null) {
+  const e = diffScope()?.stop(f);
+  if (!e) return;
+  e.serverProps = null;
+  if (candidate) e.tail.push(describeServerNode(candidate));
+}
+/** The diff's text, then the error told for the fiber where hydration stopped. */
+function mismatchError(scope: DiffScope | null, text: boolean): Error {
+  return new Error(failedMessage(text) + (scope ? describeDiff(scope) : ""));
+}
 const regions: Region[] = [];
 const regionIn = (host: Node) => {
   for (let i = regions.length - 1; i >= 0; i--) if (regions[i]!.host === host) return regions[i];
@@ -698,6 +804,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   const expected = f.type === ACTIVITY ? kind === "&" : kind === "$" || kind === "$?" || kind === "$!" || kind === "$~";
   const end = expected ? boundaryEnd(raw as Comment) : null;
   if (!end) {
+    diffMissing(f, raw);
     // Not the server's boundary here: drawn as any other (a mismatch, found by what it holds).
     if (f.type === ACTIVITY) reconcile(f, toList(f.props?.children), host, before);
     else start(f, host, before);
@@ -724,14 +831,19 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
 /** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
  * they do not match. */
 function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comment }, draw: () => void) {
-  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, text: false, made: [], errored: undefined };
+  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, text: false, made: [], errored: undefined, diff: new DiffScope() };
   const was = hydrating!.get(host);
   hydrating!.set(host, region.start.nextSibling);
   regions.push(r);
   try {
     draw();
     // What the server drew there and nothing claimed: a mismatch of the boundary's.
-    if (!r.suspended && nextServerNode(host)) r.mismatch = true;
+    const left = !r.suspended ? nextServerNode(host) : null;
+    if (left) {
+      r.mismatch = true;
+      const e = r.diff.stop(f);
+      if (e) e.tail.push(...serverTail(left, region.end));
+    }
   } finally {
     regions.pop();
     hydrating!.set(host, was ?? region.end.nextSibling);
@@ -759,10 +871,12 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
   }
   (f as any).dehydrated = false;
   if (r.mismatch) {
+    const error = mismatchError(dev() ? r.diff : null, r.text);
+    const at = r.diff.at ?? f;
     for (const c of f.children) unmount(c, false);
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
-    recoverable(f, failedMessage(r.text));
+    layoutQueue.push(() => withFiber(at, () => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" })));
     drawFresh(f, host, removeRegion(region));
   }
 }
@@ -963,11 +1077,10 @@ function updateHoist(f: Fiber, props: any) {
       if (f.type === "title") titleText(f.dom as Element, props.children);
     });
   }
-  if (prev.ref !== props.ref)
-    layoutQueue.push(() => {
-      if (prev.ref != null) clearRef(f, prev.ref);
-      if (props.ref != null && !f.dead) setRef(f, props.ref, f.dom);
-    });
+  if (prev.ref !== props.ref) {
+    if (prev.ref != null) deletions.push(() => clearRef(f, prev.ref));
+    if (props.ref != null) layoutQueue.push(() => !f.dead && setRef(f, props.ref, f.dom));
+  }
 }
 
 /** A hoistable taken out of <head>; a resource kept (it may be shared), one user fewer. */
@@ -1017,10 +1130,14 @@ function claim(host: Node, match: (n: Node) => boolean): Node | null {
 }
 
 /** What the server drew in `host` and the client did not claim: taken away, as React does on a mismatch. */
-function dropUnclaimed(host: Node) {
+function dropUnclaimed(host: Node, f: Fiber) {
   if (!hydrating) return;
   const limit = regionIn(host)?.end;
   let n = nextServerNode(host);
+  if (n && n !== limit) {
+    const e = diffScope()?.stop(f);
+    if (e) e.tail.push(...serverTail(hydrating.has(host) ? hydrating.get(host)! : host.firstChild, limit));
+  }
   while (n && n !== limit) {
     const next = n.nextSibling;
     if (n.nodeType !== 8) {
@@ -1062,7 +1179,20 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
       f.dom = had;
     } else {
-      if (hydrating && text !== "") markMismatch(nextServerNode(host)?.nodeType === 3);
+      if (hydrating && text !== "") {
+        const next = nextServerNode(host);
+        // An element's only text (React sets it as its text content): the element's difference.
+        const content = parent.kind === HOST && /^(string|number|bigint)$/.test(typeof parent.props?.children);
+        markMismatch(content || next?.nodeType === 3);
+        const scope = diffScope();
+        if (content) {
+          const e = scope?.stop(parent);
+          if (e) e.serverProps = { ...(e.serverProps as any), children: host.textContent ?? "" };
+        } else if (next?.nodeType === 3) {
+          const e = scope?.stop(f);
+          if (e) e.serverProps = (next as Text).data;
+        } else diffMissing(f, next);
+      }
       f.dom = docOf(host).createTextNode(text);
       (hydrating ? host : domParent(host)).insertBefore(f.dom, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
@@ -1122,11 +1252,11 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     hide(el, "__props", null);
     listenOnElement(el, type);
     if (!server) {
-      if (hydrating) markMismatch();
+      if (hydrating) markMismatch(), diffMissing(f, nextServerNode(host));
       checkTag(el, type);
     }
     // As the server drew it, to compare once the props are applied (and have warned as they do).
-    const had = server && dev() && !attrsDiffer && !props.suppressHydrationWarning ? attrsOf(server) : null;
+    const had = server && dev() && !props.suppressHydrationWarning ? attrsOf(server) : null;
     (el as any).__props = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
@@ -1143,11 +1273,13 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       // A noscript's children are not drawn on the client (React leaves them to the server).
       if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), el, null);
     }
-    if (had && !attrsDiffer && serverAttrsDiffer(el, had, type, ns, props)) {
-      attrsDiffer = true;
+    const differences = had ? serverDifferences(el, had, type, ns, props) : null;
+    if (differences) {
+      const e = diffScope()?.entry(f);
+      if (e) (e.serverProps = { ...(e.serverProps as any), ...differences }), (attrsDiffer = true);
     }
     if (server) {
-      if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !single && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el);
+      if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !single && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el, f);
     } else {
       (hydrating ? host : domParent(host)).insertBefore(el, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
@@ -1267,10 +1399,8 @@ function update(f: Fiber, c: any) {
     const inst = (f as any).fragment as FragmentInstance | undefined;
     if (inst) {
       if (prev?.ref !== c.props?.ref) {
-        layoutQueue.push(() => {
-          if (prev?.ref != null) clearRef(f, prev.ref);
-          if (c.props?.ref != null) setRef(f, c.props.ref, inst);
-        });
+        if (prev?.ref != null) deletions.push(() => clearRef(f, prev.ref));
+        if (c.props?.ref != null) layoutQueue.push(() => setRef(f, c.props.ref, inst));
       }
     }
     return;
@@ -1308,10 +1438,10 @@ function update(f: Fiber, c: any) {
       }
     }
     if (prev.ref !== props.ref) {
-      layoutQueue.push(() => {
-        clearRef(f, prev.ref);
-        if (props.ref != null) setRef(f, props.ref, el);
-      });
+      // Every old ref let go before any new one is set (React's mutation, then layout): a ref moving between
+      // elements ends on its new one.
+      if (prev.ref != null) deletions.push(() => clearRef(f, prev.ref));
+      if (props.ref != null) layoutQueue.push(() => setRef(f, props.ref, el));
     }
     return;
   }
@@ -1439,6 +1569,8 @@ function setRef(f: Fiber, ref: any, value: any) {
     const back = ref(value);
     f.refCleanup = typeof back === "function" ? back : null;
   } else if (ref && typeof ref === "object") ref.current = value;
+  // Thrown in the commit, as React does: to the nearest boundary, or uncaught.
+  else if (ref != null) caught(f, new Error("Expected ref to be a function, an object returned by React.createRef(), or undefined/null."));
 }
 
 function clearRef(f: Fiber, ref: any) {
@@ -1741,10 +1873,8 @@ function renderClass(f: Fiber, withRef: any) {
   const prevRef = (f as any).classRef;
   if (prevRef !== ref) {
     (f as any).classRef = ref;
-    f.layout!.push(() => {
-      if (prevRef != null) clearRef(f, prevRef);
-      if (ref != null) setRef(f, ref, inst);
-    });
+    if (prevRef != null) deletions.push(() => clearRef(f, prevRef));
+    if (ref != null) f.layout!.push(() => setRef(f, ref, inst));
   }
   if (prevProps !== props || prevCtx !== ctx) call("componentWillReceiveProps", props, ctx);
   let [state, force] = apply(prevState, props);
@@ -2224,8 +2354,8 @@ export const client = {
     effectHook(
       () => {
         if (typeof ref === "function") {
-          ref(create());
-          return () => ref(null);
+          const cleanup = ref(create());
+          return () => (typeof cleanup === "function" ? cleanup() : ref(null));
         }
         if (ref) {
           ref.current = create();
@@ -2697,7 +2827,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         }
       }
       depth++;
-      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null), (hydrationError = null);
+      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null), (hydrationError = null), (rootDiff = dev() ? new DiffScope() : null);
       const wasRendering = rendering;
       rendering = true;
       if (depth === 1) startRender();
@@ -2750,17 +2880,23 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           first = true;
           const again = () => ((hydrateFirst = latest), (pending = NONE), asked.set(asked.peek() + 1), flushSignals());
           waits.then(again, again);
-        } else if (hydrate) dropUnclaimed(container);
+        } else if (hydrate) dropUnclaimed(container, top);
       } finally {
         rendering = wasRendering;
         if (hydrate) {
           hydrating = null;
           // Attributes are told only where the markup matched: a mismatch draws the whole root anew.
-          if (attrsDiffer && !mismatched) console.error(HYDRATION_ATTRS);
+          const scope = rootDiff;
+          rootDiff = null;
+          if (attrsDiffer && !mismatched && scope) {
+            const diff = describeDiff(scope);
+            withFiber(firstDiffFiber(scope) as Fiber | null, () => console.error(HYDRATION_ATTRS_FORMAT, "https://react.dev/link/hydration-mismatch", diff));
+          } else if (attrsDiffer && !mismatched) console.error(HYDRATION_ATTRS);
           if (mismatched) {
             mismatched = false;
             const recover = options?.onRecoverableError ?? report;
-            recover(new Error((mismatchedText ? "Hydration failed because the server rendered text didn't match the client." : "Hydration failed because the server rendered HTML didn't match the client.") + " As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch"), { componentStack: "" });
+            const error = mismatchError(scope, mismatchedText);
+            withFiber(scope?.at as Fiber | null, () => recover(error, { componentStack: "" }));
           }
         }
         if (--depth === 0) commit();

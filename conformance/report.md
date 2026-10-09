@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3342 pass, 682 fail, 314 skipped (gated off for stable React 19).
+3384 pass, 640 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -50,7 +50,7 @@
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMHooks-test.js | 2 | 0 | 2 |  |
 | react-dom/ReactDOMHostComponentTransitions-test.js | 0 | 2 | 0 |  |
-| react-dom/ReactDOMHydrationDiff-test.js | 0 | 39 | 0 |  |
+| react-dom/ReactDOMHydrationDiff-test.js | 39 | 0 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 1 | 9 | 0 |  |
 | react-dom/ReactDOMInput-test.js | 107 | 16 | 1 |  |
@@ -132,7 +132,7 @@
 | react-dom/ReactUpdates-test.js | 34 | 8 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
-| react-dom/refs-test.js | 9 | 3 | 0 |  |
+| react-dom/refs-test.js | 12 | 0 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 3 | 0 | 0 |  |
 | react/createReactClassIntegration-test.js | 24 | 2 | 2 |  |

@@ -19,7 +19,10 @@ export const FORWARD_REF = Symbol.for("react.forward_ref");
 export const MEMO = Symbol.for("react.memo");
 export const LAZY = Symbol.for("react.lazy");
 
-export type Element = { $$typeof: symbol; type: any; key: string | null; props: any; _owner?: null; _store?: object };
+/** The component rendering now (in development): an element's owner, for owner stacks. Given by core. */
+let ownerSource: () => any = () => null;
+export const setOwnerSource = (fn: () => any) => void (ownerSource = fn);
+export type Element = { $$typeof: symbol; type: any; key: string | null; props: any; _owner?: any; _store?: object };
 
 export const Fragment = FRAGMENT;
 export const StrictMode = STRICT;
@@ -36,6 +39,8 @@ export function addTransitionType(_type: string) {}
 
 function element(type: any, key: any, props: any): Element {
   const el: any = { $$typeof: ELEMENT, type, key, props, _owner: null };
+  // Its owner (development): not enumerable, so deep equality does not walk into the fiber tree.
+  if (dev()) Object.defineProperty(el, "_owner", { value: ownerSource(), writable: true, enumerable: false });
   // Not enumerable, as React's: elements compare equal whatever was checked on them.
   const store = {};
   Object.defineProperty(store, "validated", { value: 0, writable: true, configurable: false, enumerable: false });

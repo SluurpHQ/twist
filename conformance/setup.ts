@@ -6,7 +6,32 @@ import { join } from "node:path";
 
 import "./gates.ts";
 
-GlobalRegistrator.register({ url: "http://localhost/" });
+// jsdom loads no frames (React's tests render <iframe src="https://…">), and has `nonce` on every element.
+GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframePageLoading: true } });
+// happy-dom tells the console a frame or script it did not load; jsdom says nothing.
+{
+  const { default: Context } = await import("happy-dom/lib/window/WindowBrowserContext.js" as any);
+  const page: any = new Context(window).getBrowserPage();
+  if (page?.console) {
+    const real = page.console;
+    page.console = new Proxy(real, {
+      get: (t, k) => (k === "error" ? (...a: any[]) => (/loading is disabled/.test(String(a[0]?.message ?? a[0])) ? undefined : t.error(...a)) : Reflect.get(t, k)),
+    });
+  }
+}
+if (!("nonce" in HTMLElement.prototype)) {
+  for (const proto of [HTMLElement.prototype, (globalThis as any).SVGElement?.prototype].filter(Boolean))
+    Object.defineProperty(proto, "nonce", {
+      configurable: true,
+      get(this: Element) {
+        return (this as any).__nonce ?? this.attributes.getNamedItem("nonce")?.value ?? "";
+      },
+      set(this: any, v: string) {
+        this.__nonce = String(v);
+        Element.prototype.setAttribute.call(this, "nonce", String(v));
+      },
+    });
+}
 // React's tests run in jsdom, where an element turned into a string is "[object HTMLDivElement]" (happy-dom prints
 // its markup).
 // jsdom focuses only focusable elements (happy-dom any): focus() on a plain <div> does nothing there.
@@ -90,8 +115,11 @@ const expectLikeJest: any = (value: any, ...rest: any[]) => {
   // A DOM node against an inline snapshot: compared as Jest's DOM printer writes it.
   if (isDomNode(value)) {
     const m = bunExpect(value, ...rest);
+    // Jest compares DOM nodes with isEqualNode (Bun would walk all their properties, fibers included).
+    const equalNode = (other: any) => bunExpect(isDomNode(other) ? value === other || value.isEqualNode(other) : false).toBe(true);
     return new Proxy(m, {
-      get: (t, k) => (k === "toMatchInlineSnapshot" ? (snap: string) => bunExpect(g.__printDomNode(value, "")).toBe(dedent(snap)) : Reflect.get(t, k)),
+      get: (t, k) =>
+        k === "toMatchInlineSnapshot" ? (snap: string) => bunExpect(g.__printDomNode(value, "")).toBe(dedent(snap)) : k === "toEqual" || k === "toStrictEqual" ? equalNode : Reflect.get(t, k),
     });
   }
   const m = bunExpect(value, ...rest);
@@ -150,8 +178,25 @@ if (!process.argv.some((a) => a.includes("redux-tests"))) {
   };
   g.__printDomNode = printNode;
   // expect(x).toMatchInlineSnapshot(…), as prepare.ts rewrites it.
+  // Plain values as Jest's pretty-format prints them (escapeString and printBasicPrototype off, as React's config):
+  // Bun's printer puts a multi-line string in an array on a line of its own.
+  const plain = (v: any): boolean =>
+    v === null || ["string", "number", "boolean", "undefined"].includes(typeof v) || (Array.isArray(v) && v.every(plain)) || (typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype && Object.values(v).every(plain));
+  const printPlain = (v: any, indent: string): string => {
+    if (typeof v === "string") return `"${v}"`;
+    if (Array.isArray(v)) return v.length ? `[\n${v.map((x) => `${indent}  ${printPlain(x, indent + "  ")},`).join("\n")}\n${indent}]` : "[]";
+    if (v && typeof v === "object") {
+      const keys = Object.keys(v).sort();
+      return keys.length ? `{\n${keys.map((k) => `${indent}  "${k}": ${printPlain(v[k], indent + "  ")},`).join("\n")}\n${indent}}` : "{}";
+    }
+    return String(v);
+  };
   g.__inlineSnapshot = (value: any) => (snap?: string) =>
-    isDomNode(value) ? bunExpect(printNode(value, "")).toBe(dedent(snap ?? "")) : bunExpect(value).toMatchInlineSnapshot(snap);
+    isDomNode(value)
+      ? bunExpect(printNode(value, "")).toBe(dedent(snap ?? ""))
+      : Array.isArray(value) && value.some((x) => typeof x === "string" && x.includes("\n")) && plain(value)
+        ? bunExpect(printPlain(value, "")).toBe(dedent(snap ?? ""))
+        : bunExpect(value).toMatchInlineSnapshot(snap);
 }
 
 // React's toMatchRenderedOutput: a noop root (or the noop renderer) drawn as the JSX expected.
