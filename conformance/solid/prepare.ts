@@ -47,6 +47,9 @@ for (const [pkg, file] of Object.entries(SRC)) {
   mkdirSync(join(out, pkg, "src"), { recursive: true });
   await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist(file))};\n`);
 }
+// The signals package's core entry is its public core too.
+mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
+await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
 const ours = twist("index.ts");
 // And by package name: packages that are ours (Bun's resolver finds packages; a plugin cannot invent them).
 for (const name of ["solid-js", "@solidjs/signals"]) {

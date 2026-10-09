@@ -15,6 +15,41 @@ export interface Owner {
   cleanups: (() => void)[] | null;
   context: Record<symbol, unknown> | null;
   disposed: boolean;
+  /** Its id for hydration (its parent's id and its place among its siblings), when its root has one. */
+  id?: string;
+  /** How many children it has given ids to (reset when a computation runs again). */
+  childCount?: number;
+  /** Takes no id slot of its own: its parent's id, and requests passed up. */
+  transparent?: boolean;
+}
+
+/** The owner that hands out ids for `o`: itself, or the first non-transparent owner above it. */
+const idOwner = (o: Owner) => {
+  let at: Owner = o;
+  while (at.transparent && at.parent) at = at.parent;
+  return at;
+};
+
+/** The id the next child of `o` takes (without taking it). */
+export function peekNextChildId(o: Owner): string {
+  const at = idOwner(o);
+  if (at.id == null) throw new Error("Cannot get child id from owner without an id");
+  return at.id + (at.childCount ?? 0).toString(36);
+}
+
+/** The id the next child of `o` takes: taken. */
+export function getNextChildId(o: Owner): string {
+  const id = peekNextChildId(o);
+  const at = idOwner(o);
+  at.childCount = (at.childCount ?? 0) + 1;
+  return id;
+}
+
+/** An owner made under `parent` given its id (unless transparent, which shares its parent's). */
+function giveId(o: Owner, parent: Owner | null) {
+  if (!parent || idOwner(parent).id == null) return;
+  if (o.transparent) o.id = idOwner(parent).id;
+  else o.id = getNextChildId(parent);
 }
 
 let owner: Owner | null = null;
@@ -27,9 +62,15 @@ class Root implements Owner {
   cleanups: (() => void)[] | null = null;
   context: Record<symbol, unknown> | null;
   disposed = false;
-  constructor(public parent: Owner | null) {
+  id?: string;
+  childCount = 0;
+  transparent?: boolean;
+  constructor(public parent: Owner | null, options?: { id?: string; transparent?: boolean }) {
     this.context = parent?.context ?? null;
     if (parent) (parent.owned ??= []).push(this);
+    this.transparent = options?.transparent;
+    if (options?.id != null) this.id = options.id;
+    else giveId(this, parent);
   }
 }
 
@@ -85,8 +126,8 @@ export function onCleanup<T extends () => void>(fn: T): T {
 }
 
 /** A scope of its own, owned by the current one: disposed with it, or by the function `fn` is given. */
-export function createRoot<T>(fn: (dispose: () => void) => T, _options?: { id?: string }): T {
-  const root = new Root(owner);
+export function createRoot<T>(fn: (dispose: () => void) => T, options?: { id?: string; transparent?: boolean }): T {
+  const root = new Root(owner, options);
   return runWithOwner(root, () =>
     fn(() => {
       dispose(root);
@@ -123,7 +164,7 @@ const DIRTY = 2;
 let clock = 0;
 let ids = 0;
 
-export type SignalOptions<T> = { equals?: Equals<T>; unobserved?: () => void; ownedWrite?: boolean; name?: string; lazy?: boolean };
+export type SignalOptions<T> = { equals?: Equals<T>; unobserved?: () => void; ownedWrite?: boolean; name?: string; lazy?: boolean; defer?: boolean; schedule?: boolean; transparent?: boolean };
 
 /** Thrown by a read of a value that has never been ready (an async memo's first load): Loading catches it. */
 export class NotReadyError extends Error {
@@ -269,7 +310,11 @@ export class Computation<T> extends Node<T> implements Owner {
   cleanups: (() => void)[] | null = null;
   context: Record<symbol, unknown> | null;
   disposed = false;
-  id = ids++;
+  /** Its place in the order computations run in (creation order). */
+  order = ids++;
+  id?: string;
+  childCount = 0;
+  transparent?: boolean;
   kind: number;
   fn: (prev?: T) => T;
   state = DIRTY;
@@ -303,6 +348,8 @@ export class Computation<T> extends Node<T> implements Owner {
     this.parent = owner;
     this.context = owner?.context ?? null;
     if (owner) (owner.owned ??= []).push(this);
+    this.transparent = (options as any)?.transparent;
+    giveId(this, owner);
     this.equals = options?.equals ?? Object.is;
     this.lazy = !!options?.lazy;
     this.unobserved = options?.unobserved;
@@ -391,6 +438,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   run() {
     disposeOwned(this);
+    this.childCount = 0;
     if (this.attached) for (const s of this.sources) s.unsubscribe(this);
     this.sources = [];
     this.seen = [];
@@ -444,7 +492,8 @@ export class Computation<T> extends Node<T> implements Owner {
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
     const changed = first || this.equals === false || !this.equals(now, next);
     if (this.kind !== MEMO) {
-      if (changed || this.applied === NONE) {
+      // (An effect applies whenever its compute ran again: it ran because something it read changed.)
+      if (changed || this.applied === NONE || this.equals === Object.is) {
         if (flushing || this.tx) this.staged = next;
         else this.value = next;
         if (flushing && !this.tx) staged.push(this);
@@ -613,7 +662,14 @@ export function resetErrorHalt() {
   halted = false;
 }
 
-const byOrder = (a: Computation<any>, b: Computation<any>) => a.height - b.height || a.id - b.id;
+const byOrder = (a: Computation<any>, b: Computation<any>) => a.height - b.height || a.order - b.order;
+
+/** The computations that own `c`, brought up to date first (top-down): one that runs again disposes `c`. */
+function ownersFirst(c: Computation<any>) {
+  let chain: Computation<any>[] | null = null;
+  for (let o = c.parent; o; o = o.parent) if (o instanceof Computation && o.state !== CLEAN) (chain ??= []).push(o);
+  if (chain) for (let i = chain.length - 1; i >= 0; i--) if (!chain[i]!.disposed) chain[i]!.update();
+}
 
 /** What isPending()/latest() readers follow: told whenever a hold or a flight starts or ends. */
 const status = new (class extends Node<number> {})();
@@ -746,7 +802,7 @@ function drain() {
     while (dirty.length) {
       const now = dirty.sort(byOrder);
       dirty = [];
-      for (const c of now) if (!c.disposed) c.update();
+      for (const c of now) if (!c.disposed) ownersFirst(c), c.disposed || c.update();
     }
     settleRound();
     commitTransactions();
@@ -849,8 +905,16 @@ function effectOf<T>(kind: 1 | 2, compute: (prev?: T) => T, apply?: ((value: T, 
   else if (apply) (e.apply = apply.effect), (e.onError = apply.error);
   else e.apply = () => {};
   e.run();
-  // A render effect applies its first value as it is made (the DOM is built with it); others at the flush.
-  if (kind === RENDER && e.due && !e.tx && e.error === NONE) {
+  // Deferred: what it computed first is its baseline, not a change to apply.
+  if (options?.defer && e.due) {
+    e.due = false;
+    remove(applies[kind], e);
+    e.applied = e.current() as T;
+    e.promote();
+  }
+  // A render effect applies its first value as it is made (the DOM is built with it), unless scheduled; others at
+  // the flush.
+  if (kind === RENDER && !options?.schedule && e.due && !e.tx && e.error === NONE) {
     remove(applies[RENDER], e);
     e.runApply();
   }

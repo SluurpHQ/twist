@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-2321 pass, 2274 fail, 703 files (177 did not load, 239 test Solid's internals)
+2487 pass, 2131 fail, 703 files (178 did not load, 237 test Solid's internals)
 
 ## Why files did not load
 
@@ -17,6 +17,7 @@
 - 2 × SyntaxError: Export named 'getHydrationWriter' not found
 - 2 × SyntaxError: Export named 'createRequestEvent' not found
 - 2 × Cannot find module '../../src/server.js'
+- 1 × SyntaxError: Export named '_resetExternalSourceConfig' not found
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × Cannot find module '../src/map.js'
 - 1 × SyntaxError: Export named '$REFRESH' not found
@@ -90,20 +91,20 @@
 | signals/tests/compute-write-joins-transition.test.ts | 1 | 1 |  |
 | signals/tests/contested-effect.test.ts | 1 | 2 |  |
 | signals/tests/context.test.ts | 3 | 3 |  |
-| signals/tests/createEffect.test.ts | 19 | 5 |  |
+| signals/tests/createEffect.test.ts | 24 | 0 |  |
 | signals/tests/createErrorBoundary.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
 | signals/tests/createLoadingBoundary.on.test.ts | 2 | 5 |  |
 | signals/tests/createLoadingBoundary.test.ts | 10 | 16 |  |
 | signals/tests/createMemo.test.ts | 0 | 0 |  |
-| signals/tests/createOptimistic.test.ts | 13 | 55 |  |
+| signals/tests/createOptimistic.test.ts | 12 | 56 |  |
 | signals/tests/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
-| signals/tests/createReaction.test.ts | 1 | 4 |  |
+| signals/tests/createReaction.test.ts | 2 | 3 |  |
 | signals/tests/createRevealOrder.test.ts | 0 | 1 | SyntaxError: Export named 'createRevealOrder' not found |
-| signals/tests/createRoot.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/index.js' |
+| signals/tests/createRoot.test.ts | 20 | 2 |  |
 | signals/tests/createSignal.test.ts | 10 | 0 |  |
 | signals/tests/createTrackedEffect.test.ts | 7 | 12 |  |
 | signals/tests/derived-write-then-derivation-3733.test.ts | 14 | 23 |  |
-| signals/tests/dev.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/index.js' |
+| signals/tests/dev.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'DEV' not found |
 | signals/tests/diagnostics.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
 | signals/tests/direct-commit-readers-posture.test.ts | 0 | 3 |  |
 | signals/tests/direction-rule-probe.test.ts | 0 | 1 |  |
@@ -113,7 +114,7 @@
 | signals/tests/effect-error-phases.test.ts | 5 | 6 |  |
 | signals/tests/effect-mainline-ownership-3412.test.ts | 4 | 0 |  |
 | signals/tests/effect-phase-writes.test.ts | 0 | 10 |  |
-| signals/tests/enableExternalSource.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/index.js' |
+| signals/tests/enableExternalSource.test.ts | 0 | 1 | SyntaxError: Export named '_resetExternalSourceConfig' not found |
 | signals/tests/enforceLoadingBoundary.test.ts | 0 | 1 | SyntaxError: Export named 'enforceLoadingBoundary' not found |
 | signals/tests/equals-comparator-errors.test.ts | 1 | 5 |  |
 | signals/tests/error-silent-recovery.test.ts | 0 | 7 |  |
@@ -121,7 +122,7 @@
 | signals/tests/falsy-error-identity.test.ts | 18 | 2 |  |
 | signals/tests/finalize-reentry.test.ts | 0 | 4 |  |
 | signals/tests/first-observer-stale-reader.test.ts | 1 | 0 |  |
-| signals/tests/flatten-async-iterable.test.ts | 3 | 8 |  |
+| signals/tests/flatten-async-iterable.test.ts | 4 | 7 |  |
 | signals/tests/flatten-needs-unwrap.test.ts | 1 | 2 |  |
 | signals/tests/flush-in-action.test.ts | 1 | 5 |  |
 | signals/tests/flush.test.ts | 6 | 0 |  |
@@ -162,7 +163,7 @@
 | signals/tests/latest-created-inside-window.test.ts | 2 | 0 |  |
 | signals/tests/latest-held-till-flush.test.ts | 13 | 9 |  |
 | signals/tests/latest-isPending-consistency.test.ts | 5 | 3 |  |
-| signals/tests/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |
+| signals/tests/latest-lazy-companion-backfill.test.ts | 0 | 2 |  |
 | signals/tests/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |
 | signals/tests/latest-plain-write-purity.test.ts | 4 | 0 |  |
 | signals/tests/latest-probe-order-independence.test.ts | 1 | 1 |  |
@@ -240,14 +241,14 @@
 | signals/tests/store/createOptimisticStore.test.ts | 5 | 75 |  |
 | signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
 | signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
-| signals/tests/store/createProjection.test.ts | 4 | 16 |  |
+| signals/tests/store/createProjection.test.ts | 2 | 18 |  |
 | signals/tests/store/createStore.test.ts | 0 | 1 | SyntaxError: Export named 'storePath' not found |
 | signals/tests/store/deep-chained-view.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
 | signals/tests/store/deep-held-visibility.test.ts | 0 | 1 |  |
 | signals/tests/store/deep-overlay-rewalk.test.ts | 3 | 0 |  |
 | signals/tests/store/derived-optimistic-retained-row-3859.test.ts | 0 | 2 |  |
 | signals/tests/store/derived-optimistic-shadow.test.ts | 2 | 2 |  |
-| signals/tests/store/derived-presence-async-3726.test.ts | 3 | 5 |  |
+| signals/tests/store/derived-presence-async-3726.test.ts | 2 | 6 |  |
 | signals/tests/store/derived-retained-draft-row-3767.test.ts | 2 | 1 |  |
 | signals/tests/store/enumerator-presence-nodes.test.ts | 2 | 16 |  |
 | signals/tests/store/flight-owned-transaction.test.ts | 1 | 3 |  |
@@ -256,7 +257,7 @@
 | signals/tests/store/fold-scheduling.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
 | signals/tests/store/fold-slot-identity.test.ts | 0 | 6 |  |
 | signals/tests/store/kanban-a17-fixture.test.ts | 1 | 2 |  |
-| signals/tests/store/lane-authority-twins.test.ts | 1 | 6 |  |
+| signals/tests/store/lane-authority-twins.test.ts | 0 | 7 |  |
 | signals/tests/store/latest-read-after-write-3576.test.ts | 0 | 1 |  |
 | signals/tests/store/native-collections.test.ts | 8 | 2 |  |
 | signals/tests/store/next-smoke.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/target.js' |
@@ -281,7 +282,7 @@
 | signals/tests/store/reconcile-captured-proxies.test.ts | 7 | 2 |  |
 | signals/tests/store/reconcile-resend-identity.test.ts | 2 | 2 |  |
 | signals/tests/store/reconcile.test.ts | 26 | 21 |  |
-| signals/tests/store/recursive-effects.test.ts | 3 | 1 |  |
+| signals/tests/store/recursive-effects.test.ts | 4 | 0 |  |
 | signals/tests/store/retained-draft-row-3767.test.ts | 0 | 1 |  |
 | signals/tests/store/shallow-loading.test.ts | 0 | 8 |  |
 | signals/tests/store/shallow.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
@@ -301,10 +302,10 @@
 | signals/tests/superseded-before-first-commit.test.ts | 0 | 1 |  |
 | signals/tests/superseded-flight-pending-source.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'OBSERVE' not found |
 | signals/tests/superseded-source-blocks-3462.test.ts | 0 | 2 |  |
-| signals/tests/syncThenable.test.ts | 4 | 23 |  |
+| signals/tests/syncThenable.test.ts | 20 | 7 |  |
 | signals/tests/tick-scoped-pass-transaction.test.ts | 0 | 2 |  |
-| signals/tests/transition-corpse-revival.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/index.js' |
-| signals/tests/transition-orphan-recompute.test.ts | 0 | 2 |  |
+| signals/tests/transition-corpse-revival.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/constants.js' |
+| signals/tests/transition-orphan-recompute.test.ts | 1 | 1 |  |
 | signals/tests/transitionEntanglement.test.ts | 0 | 2 |  |
 | signals/tests/transitionMerge.test.ts | 0 | 1 |  |
 | signals/tests/treeshake.test.ts | 0 | 1 |  |
@@ -314,12 +315,12 @@
 | signals/tests/untrack.test.ts | 3 | 0 |  |
 | signals/tests/untracked-async-read.test.ts | 1 | 2 |  |
 | signals/tests/untracked-read-after-await.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
-| signals/tests/verdict-contract.test.ts | 1 | 4 |  |
+| signals/tests/verdict-contract.test.ts | 0 | 5 |  |
 | signals/tests/verdict-mount-first-pass-3851.test.ts | 0 | 3 |  |
 | signals/tests/verdict-mount-loading-flush-loop.test.ts | 0 | 0 |  |
 | signals/tests/visibility-oracle-posture.test.ts | 1147 | 37 |  |
-| signals/tests/visibility-oracle-store.test.ts | 101 | 52 |  |
-| signals/tests/visibility-oracle.test.ts | 74 | 52 |  |
+| signals/tests/visibility-oracle-store.test.ts | 108 | 45 |  |
+| signals/tests/visibility-oracle.test.ts | 77 | 49 |  |
 | signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
 | signals/tests/zombie-create-path-keeps-flag.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'DEV' not found |
 | signals/tests/zombie-recompute-keeps-flag.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'DEV' not found |
@@ -422,11 +423,11 @@
 | web/test/dynamic.spec.tsx | 0 | 1 | SyntaxError: Export named 'Dynamic' not found |
 | web/test/element.spec.tsx | 0 | 1 | not ours: SyntaxError: Export named 'DEV' not found |
 | web/test/errored-async-nesting.spec.tsx | 1 | 2 |  |
-| web/test/errored.spec.tsx | 3 | 9 |  |
+| web/test/errored.spec.tsx | 8 | 4 |  |
 | web/test/event-handler.spec.tsx | 0 | 1 | SyntaxError: Export named 'addEvent' not found |
-| web/test/for.nonkeyed.spec.tsx | 13 | 37 |  |
+| web/test/for.nonkeyed.spec.tsx | 22 | 28 |  |
 | web/test/for.nonkeyed.store.spec.tsx | 0 | 1 |  |
-| web/test/for.spec.tsx | 20 | 30 |  |
+| web/test/for.spec.tsx | 50 | 0 |  |
 | web/test/frames-adopted-region-fragments.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
 | web/test/frames-assets-client.spec.ts | 0 | 1 | not ours: Cannot find module '../frames/src/frame-client.js' |
 | web/test/frames-binding-slots.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
@@ -513,9 +514,9 @@
 | web/test/hydration/welcome-status-streamed.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/hydration/write-before-resume.spec.tsx | 0 | 1 | SyntaxError: Export named 'hydrate' not found |
 | web/test/inherited-dom-properties.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
-| web/test/insert-falsy-sole-child-issue-3571.spec.tsx | 0 | 8 |  |
+| web/test/insert-falsy-sole-child-issue-3571.spec.tsx | 8 | 0 |  |
 | web/test/insert-flatten-needs-unwrap.spec.tsx | 1 | 0 |  |
-| web/test/insert-text-reuse.spec.tsx | 0 | 4 |  |
+| web/test/insert-text-reuse.spec.tsx | 3 | 1 |  |
 | web/test/interaction-frame-per-event-3754.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
 | web/test/interaction-provenance.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
 | web/test/ispending-combined-atomic-3442.spec.tsx | 3 | 0 |  |
@@ -548,7 +549,7 @@
 | web/test/optimistic-list-holes-f3-f5.spec.tsx | 0 | 10 |  |
 | web/test/optimistic-mount-style-3835.spec.tsx | 0 | 3 |  |
 | web/test/optimistic-move-keyed-show-3662.spec.tsx | 7 | 0 |  |
-| web/test/optimistic-nested-show-drag-3706.spec.tsx | 0 | 2 |  |
+| web/test/optimistic-nested-show-drag-3706.spec.tsx | 2 | 0 |  |
 | web/test/optimistic-playground-port.spec.tsx | 0 | 1 |  |
 | web/test/performance-tracks.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/polymorphic-chain.spec.tsx | 0 | 1 | SyntaxError: Export named 'isStatic' not found |
@@ -559,7 +560,7 @@
 | web/test/refresh-hmr-flow.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/refresh-render.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/render-halt-recovery.spec.tsx | 0 | 1 |  |
-| web/test/repeat.spec.tsx | 21 | 30 |  |
+| web/test/repeat.spec.tsx | 50 | 1 |  |
 | web/test/runtime/chunk-reader-hardening.spec.ts | 0 | 1 | not ours: Cannot find module '../../server-functions/src/shared.js' |
 | web/test/runtime/chunk-reader.spec.ts | 0 | 1 | not ours: Cannot find module '../../server-functions/src/shared.js' |
 | web/test/select-multiple.spec.tsx | 4 | 0 |  |
@@ -728,7 +729,7 @@
 | web/test/server/write-before-resume.gen.spec.tsx | 0 | 1 | SyntaxError: Export named 'renderToStream' not found |
 | web/test/show-in-for.spec.tsx | 0 | 1 |  |
 | web/test/show-optimistic-sync-write-3698.spec.tsx | 0 | 2 |  |
-| web/test/show.spec.tsx | 12 | 18 |  |
+| web/test/show.spec.tsx | 29 | 1 |  |
 | web/test/spread-enumerate.spec.tsx | 1 | 3 |  |
 | web/test/spread-nodes.spec.tsx | 8 | 18 |  |
 | web/test/spread-nullish.spec.tsx | 1 | 3 |  |
@@ -737,7 +738,7 @@
 | web/test/spread-static-text.spec.tsx | 3 | 0 |  |
 | web/test/style-class-tracked.spec.tsx | 0 | 1 | SyntaxError: Export named 'readShallow' not found |
 | web/test/superseded-source-blocks-3462.spec.tsx | 0 | 2 |  |
-| web/test/switch.spec.tsx | 11 | 19 |  |
+| web/test/switch.spec.tsx | 27 | 3 |  |
 | web/test/take-hydration-value.spec.ts | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
 | web/test/template-document-shell.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/client.js' |
 | web/test/trace-client.spec.tsx | 0 | 1 | SyntaxError: Export named 'getTraceContext' not found |
