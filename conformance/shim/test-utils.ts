@@ -29,6 +29,9 @@ async function drain(transitions = true) {
   flushPassiveEffects();
 }
 
+/** One real turn of the event loop (setImmediate may be faked in the test). */
+const realTurn = () => new Promise<void>((r) => ((globalThis as any).__realSetImmediate ?? setImmediate)(r));
+
 /** Runs `fn` and everything it sets off; an error no boundary caught is thrown from here, as React's act does. */
 export async function act<T>(fn: () => T | Promise<T>): Promise<T> {
   const errors: unknown[] = [];
@@ -37,9 +40,11 @@ export async function act<T>(fn: () => T | Promise<T>): Promise<T> {
   try {
     out = await fn();
     await drain();
-    // A server render starts on setImmediate (Jest fakes it and act runs it; Bun does not fake it): one real turn.
-    if (streamsStarting()) {
-      await new Promise((r) => setImmediate(r));
+    // A server render starts on setImmediate: faked in a node-environment file (act runs it), else one real turn.
+    for (let i = 0; i < 10 && streamsStarting(); i++) {
+      if ((bunJest as any).getTimerCount?.() > 0) (bunJest as any).runOnlyPendingTimers();
+      // A real turn either way: what the render wrote reaches a Node stream's listeners on the next tick.
+      await realTurn();
       await drain();
     }
   } finally {
@@ -55,8 +60,8 @@ export async function serverAct<T>(fn: () => T | Promise<T>): Promise<T> {
   const j: any = bunJest;
   const timers = async () => {
     for (let i = 0; i < 100; i++) {
-      // Bun does not fake setImmediate (the server's start): a real turn for it.
-      await new Promise((r) => setImmediate(r));
+      // A real turn too (the server's start, where setImmediate is not faked).
+      await realTurn();
       await Promise.resolve();
       if (!(j?.getTimerCount?.() > 0)) break;
       j.runOnlyPendingTimers();

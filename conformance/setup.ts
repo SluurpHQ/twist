@@ -2,7 +2,7 @@
 // the shims (scheduler, internal-test-utils).
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { plugin } from "bun";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import "./gates.ts";
 
@@ -168,6 +168,7 @@ for (const proto of [globalThis.Element?.prototype, globalThis.Node?.prototype])
 
 const g = globalThis as any;
 g.__realSetTimeout = setTimeout;
+g.__realSetImmediate = setImmediate;
 // Some tests put their own jsdom in place (global.window = …): these must be writable, as they are under Jest.
 for (const k of ["window", "document", "navigator", "location", "self"]) {
   const v = g[k];
@@ -214,13 +215,33 @@ const { resetWarnings } = await import("../src/warnings.ts");
   const { resetLog } = await import("./shim/scheduler.ts");
   const { resetConsole } = await import("./shim/test-utils.ts");
   const { resetAct } = await import("../src/core.ts");
-  (await import("bun:test")).beforeEach(() => (resetLog(), resetConsole(), resetAct()));
+  const { resetStreams } = await import("../src/server.ts");
+  (await import("bun:test")).beforeEach(() => (resetLog(), resetConsole(), resetAct(), resetStreams()));
 }
 // React's jest config fakes timers in every test (fakeTimers.enableGlobally); react-redux's vitest does not.
 if (!process.argv.some((a) => a.includes("redux-tests"))) {
   const t = await import("bun:test");
-  t.beforeEach(() => t.jest.useFakeTimers());
-  t.afterEach(() => t.jest.useRealTimers());
+  // In a file run in Jest's node environment, setImmediate is faked with the rest (the jsdom environment keeps its
+  // own real one): React's server starts its work in one, and those tests run it with jest.runAllTimers().
+  const file = process.argv.find((a) => /-test\.js$/.test(a));
+  let nodeEnv = false;
+  try {
+    nodeEnv = !!file && /@jest-environment node\b/.test((await Bun.file(isAbsolute(file) ? file : join(import.meta.dir, file)).text()).slice(0, 2000));
+  } catch {}
+  const realImmediate = globalThis.setImmediate;
+  const realClear = globalThis.clearImmediate;
+  t.beforeEach(() => {
+    t.jest.useFakeTimers();
+    if (nodeEnv) {
+      (globalThis as any).setImmediate = (fn: (...a: any[]) => void, ...args: any[]) => setTimeout(fn, 0, ...args);
+      (globalThis as any).clearImmediate = (id: any) => clearTimeout(id);
+    }
+  });
+  t.afterEach(() => {
+    t.jest.useRealTimers();
+    (globalThis as any).setImmediate = realImmediate;
+    (globalThis as any).clearImmediate = realClear;
+  });
 }
 
 // @testing-library/jest-dom's matchers, which react-redux's tests use (toBeInTheDocument…).

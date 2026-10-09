@@ -889,6 +889,8 @@ function prerenderHtml(node: any, options: any): Promise<string> {
         node,
         {
           ...options,
+          // (A prerender's boundaries done in place end without a text separator, as React writes them.)
+          prerendering: true,
           onShellError: (e: unknown) => {
             options.onShellError?.(e);
             if (aborting) done("");
@@ -1100,7 +1102,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     }
     res.boundary = res.replay = null;
     // Done before the first flush: in the shell, its resources with the shell's (text at its end kept apart).
-    if (!flowing && inShell(b, `<!--$-->${inner}${ctx.lastText ? "<!-- -->" : ""}<!--/$-->`)) return watch();
+    if (!flowing && inShell(b, `<!--$-->${inner}${ctx.lastText && !options.prerendering ? "<!-- -->" : ""}<!--/$-->`)) return watch();
     reveal(b, ctx, inner);
   };
   /** A boundary's content sent after the shell, and the script that puts it in place of its fallback. */
@@ -1226,7 +1228,11 @@ export function renderToPipeableStream(node: any, options: any = {}) {
     fatal = { error: e };
     out?.destroy?.(e);
   };
-  setImmediateOr(() => (run = startStream(node, { ...options, onShellError: shellError }, write, finish, out !== null, (a) => (abortNow = a))));
+  setImmediateOr(() => {
+    run = startStream(node, { ...options, onShellError: shellError }, write, finish, out !== null, (a) => (abortNow = a));
+    // Piped while its shell rendered (from onShellReady): it flows now.
+    if (out) run.flow();
+  });
   return {
     pipe(w: any) {
       out = w;
@@ -1278,10 +1284,12 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
 /** Renders scheduled to start and not started yet (a test's act waits for them). */
 let starting = 0;
 export const streamsStarting = () => starting;
+/** For a test runner: renders scheduled by a test that ended (its fake timers dropped) forgotten. */
+export const resetStreams = () => void (starting = 0);
+/** A render's start: in a microtask, as React 19 starts its work (scheduleMicrotask). */
 const setImmediateOr = (fn: () => void) => {
   starting++;
-  const run = () => (starting--, fn());
-  return (globalThis as any).setImmediate ? (globalThis as any).setImmediate(run) : setTimeout(run, 0);
+  queueMicrotask(() => (starting--, fn()));
 };
 
 export const version = "19.3.0";
