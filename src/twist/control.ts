@@ -41,12 +41,14 @@ export function Repeat(props: { count: number; from?: number; fallback?: any; ch
 
 /** `children` while `when` holds, else `fallback`; function children get an accessor (the value, when keyed). */
 export function Show<T>(props: { when: T | undefined | null | false; keyed?: boolean; fallback?: any; children: any }) {
-  const when = createMemo(() => props.when, { equals: props.keyed ? Object.is : (a: any, b: any) => !a === !b });
+  // The condition read once per change; what decides the branch is its truth (its value, when keyed).
+  const value = createMemo(() => props.when);
+  const branch = createMemo(() => (props.keyed ? value() : !!value()), { equals: Object.is });
   return createMemo(() => {
-    const w = when();
-    if (!w) return props.fallback;
+    const b = branch();
+    if (!b) return props.fallback;
     const c = props.children;
-    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? w : () => props.when));
+    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? b : value));
     return c;
   });
 }
@@ -65,24 +67,27 @@ export function Switch(props: { fallback?: any; children: any }) {
     const list = flatten(typeof props.children === "function" ? props.children() : props.children);
     return (Array.isArray(list) ? list : [list]).filter((m: any) => m && m[MATCH]).map((m: any) => m.props as MatchProps<unknown>);
   });
+  // Each Match's condition read once per change (later ones only while earlier ones fail); the branch is which matches
+  // (and its value, when keyed).
+  const values = createMemo(() => matches().map((m) => createMemo(() => m.when)));
   const picked = createMemo(
     () => {
       const ms = matches();
+      const vs = values();
       for (let i = 0; i < ms.length; i++) {
-        const w = ms[i]!.when;
-        if (w) return [i, w] as const;
+        const w = vs[i]!();
+        if (w) return [i, ms[i]!.keyed ? w : true] as const;
       }
       return [-1, undefined] as const;
     },
-    { equals: (a: any, b: any) => a[0] === b[0] && (ms(a[0])?.keyed ? a[1] === b[1] : !a[1] === !b[1]) },
+    { equals: (a: any, b: any) => a[0] === b[0] && a[1] === b[1] },
   );
-  const ms = (i: number) => matches()[i];
   return createMemo(() => {
     const [i, w] = picked();
     if (i < 0) return props.fallback;
     const m = matches()[i]!;
     const c = m.children;
-    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(m.keyed ? w : () => m.when));
+    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(m.keyed ? w : values()[i]!));
     return c;
   });
 }
