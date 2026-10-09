@@ -20,7 +20,8 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const frame = () => new Promise((r) => setTimeout(r, 20));
 const mount = (box: HTMLElement, el: any) => {
   const root = createRoot(box);
-  root.render(el);
+  // root.render schedules, as in React: drawn now for the checks that read the page right after.
+  flushSync(() => root.render(el));
   return root;
 };
 const click = (el: Element) => (el as HTMLElement).click();

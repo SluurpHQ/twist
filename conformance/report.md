@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2819 pass, 1205 fail, 314 skipped (gated off for stable React 19).
+2828 pass, 1196 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -10,7 +10,7 @@
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
 | react-dom/quoteAttributeValueForBrowser-test.js | 0 | 8 | 0 |  |
-| react-dom/ReactBrowserEventEmitter-test.js | 8 | 2 | 0 |  |
+| react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 4 | 1 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 10 | 9 | 2 |  |
@@ -30,14 +30,14 @@
 | react-dom/ReactDOMEventListener-test.js | 21 | 2 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 86 | 6 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 25 | 11 | 1 |  |
-| react-dom/ReactDOMFiberAsync-test.js | 10 | 8 | 1 |  |
+| react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 34 | 139 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 35 | 138 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 3 | 18 | 0 |  |
-| react-dom/ReactDOMFizzShellHydration-test.js | 4 | 8 | 0 |  |
+| react-dom/ReactDOMFizzShellHydration-test.js | 5 | 7 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 1 | 5 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 3 | 14 | 0 |  |
@@ -59,7 +59,7 @@
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
 | react-dom/ReactDOMLegacyFiber-test.js | 0 | 1 | 42 |  |
 | react-dom/ReactDOMLegacyFloat-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMNativeEventHeuristic-test.js | 4 | 4 | 0 |  |
+| react-dom/ReactDOMNativeEventHeuristic-test.js | 5 | 3 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMOption-test.js | 9 | 3 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 13 | 14 | 0 |  |
@@ -129,7 +129,7 @@
 | react-dom/ReactTestUtilsAct-test.js | 9 | 15 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 2 | 3 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 11 | 0 | 0 |  |
-| react-dom/ReactUpdates-test.js | 32 | 10 | 3 |  |
+| react-dom/ReactUpdates-test.js | 34 | 8 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
 | react-dom/refs-test.js | 9 | 3 | 0 |  |

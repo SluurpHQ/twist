@@ -1,7 +1,7 @@
 // The runtime: React's API on Sluurp's signals. Each component renders inside a signals effect, so what it reads
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
-import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
+import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer, listenOnElement } from "./events.ts";
@@ -398,6 +398,10 @@ function serverCursor(host: Node): Node | null {
   hydrating!.set(host, n);
   return n;
 }
+/** What this hydration inserted (not the server's): removed if it is given up. */
+let madeWhileHydrating: Node[] = [];
+/** What this hydration waits for (a component suspended with no boundary around it): tried again when it settles. */
+let hydrationWaits: PromiseLike<any> | null = null;
 
 /** A server node taken for a fiber: the next one, if it is the same kind of thing. */
 function claim(host: Node, match: (n: Node) => boolean): Node | null {
@@ -455,6 +459,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (hydrating && text !== "") mismatched = true;
       f.dom = docOf(host).createTextNode(text);
       host.insertBefore(f.dom, hydrating ? serverCursor(host) : before);
+      if (hydrating) madeWhileHydrating.push(f.dom);
     }
     return f;
   }
@@ -514,8 +519,11 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       attrsDiffer = true;
     }
     if (server) {
-      if (props.dangerouslySetInnerHTML == null) dropUnclaimed(el);
-    } else host.insertBefore(el, hydrating ? serverCursor(host) : before);
+      if (props.dangerouslySetInnerHTML == null && !hydrationWaits) dropUnclaimed(el);
+    } else {
+      host.insertBefore(el, hydrating ? serverCursor(host) : before);
+      if (hydrating) madeWhileHydrating.push(el);
+    }
     if (props.ref != null) layoutQueue.push(() => !f.dead && setRef(f, props.ref, el));
     return f;
   }
@@ -1048,6 +1056,11 @@ function caught(f: Fiber, e: any) {
         return;
       }
     }
+    // No boundary while taking over server markup: the server's stays, and hydration is tried again later.
+    if (hydrating) {
+      hydrationWaits = e;
+      return;
+    }
     // No boundary: drawn again when it settles.
     e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
     return;
@@ -1452,8 +1465,28 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   // Renders of this root started while it is already rendering or committing (componentDidMount rendering the
   // root again): past React's limit it is a loop, thrown as React throws it.
   let nested = 0;
-  return {
-    render(children: any) {
+  // What render() was last given and not drawn yet: drawn by the root's effect, as an update is (on the next
+  // microtask, or at once in flushSync and act), so render() schedules work as React's root.render does.
+  const NONE = {};
+  let pending: any = NONE;
+  // What render() was given last: what a hydration that waited tries again with.
+  let latest: any = NONE;
+  const asked = signal(0);
+  // A hydration still to do comes first, on its own: an update given meanwhile is drawn after it.
+  let hydrateFirst: any = NONE;
+  effect(() => {
+    asked();
+    if (hydrateFirst !== NONE) {
+      const children = hydrateFirst;
+      hydrateFirst = NONE;
+      untrack(() => runWithOwner(null, () => renderNow(children)));
+    }
+    if (pending === NONE) return;
+    const children = pending;
+    pending = NONE;
+    untrack(() => runWithOwner(null, () => renderNow(children)));
+  });
+  function renderNow(children: any) {
       if (depth > 0) {
         if (++nested > LIMIT) {
           nested = 0;
@@ -1467,7 +1500,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         if (!hydrate) (container as Element).replaceChildren?.();
       }
       depth++;
-      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false);
+      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null);
       const wasRendering = rendering;
       rendering = true;
       if (depth === 1) startRender();
@@ -1492,7 +1525,19 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         }
         (state as any).threw = false;
         for (const tell of caughtThisRender.splice(0)) tell();
-        if (hydrate) dropUnclaimed(container);
+        if (hydrate && hydrationWaits) {
+          // Suspended with no boundary: nothing of this attempt is kept, the server's markup stays as it was.
+          const waits = hydrationWaits;
+          hydrationWaits = null;
+          mismatched = false;
+          attrsDiffer = false;
+          for (const n of madeWhileHydrating.splice(0)) n.parentNode?.removeChild(n);
+          for (const c of top.children) unmount(c, false);
+          top.children = [];
+          first = true;
+          const again = () => ((hydrateFirst = latest), (pending = NONE), asked.set(asked.peek() + 1), flushSignals());
+          waits.then(again, again);
+        } else if (hydrate) dropUnclaimed(container);
       } finally {
         rendering = wasRendering;
         if (hydrate) {
@@ -1509,8 +1554,18 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       }
       // Called from inside a render or commit (a root made in componentDidMount): flushed when that one ends.
       if (depth === 0) flushSignals();
+  }
+  return {
+    render(children: any) {
+      // Inside a render or a commit (a root made in componentDidMount): drawn with it, as before.
+      latest = children;
+      if (depth > 0) return renderNow(children);
+      if (first && options?.hydrate && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
+      else pending = children;
+      asked.set(asked.peek() + 1);
     },
     unmount() {
+      pending = NONE;
       for (const c of top.children) unmount(c, true);
       top.children = [];
     },
