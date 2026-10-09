@@ -356,6 +356,12 @@ function topInHidden(f: Fiber): number {
 }
 /** An Activity's top-level nodes, and those of the portals in it (React hides a portal's children too). */
 function activityNodes(f: Fiber, out: Node[] = [], top = true): Node[] {
+  // Still as the server drew it: the nodes between its markers.
+  if ((f as any).dehydrated && (f as any).region) {
+    const { start, end } = (f as any).region;
+    if (top) for (let n = start.nextSibling; n && n !== end; n = n.nextSibling) if (n.nodeType === 1 || n.nodeType === 3) out.push(n);
+    return out;
+  }
   for (const c of f.children) {
     if (c.kind === HOST || c.kind === TEXT) {
       if (top) out.push(c.dom);
@@ -1707,7 +1713,8 @@ function update(f: Fiber, c: any) {
   }
   if (f.kind === FRAG) {
     if (f.type === ACTIVITY && (f as any).dehydrated && !hydrating && c.props !== f.props)
-      return updateDehydrated(f, c.props, () => reconcile(f, toList(f.props?.children), hostParentOf(f), nextDomAfter(f)));
+      // (Then updated as any Activity is below: shown or hidden, its children drawn.)
+      updateDehydrated(f, c.props, () => {});
     const host = hostParentOf(f);
     const prev = f.props;
     // The same element again (a parent that bailed out on its children): nothing of it renders again.
