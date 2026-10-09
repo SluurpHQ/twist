@@ -678,12 +678,12 @@ function bootstrapPreloads(options: any, nonce: string | undefined, res: Resourc
   for (const s of options.bootstrapScripts ?? []) {
     res.script.set(src(s), null);
     res.module.set(src(s), null);
-    out += `<link rel="preload" as="script" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+    out += `<link rel="preload" as="script" fetchPriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
   }
   for (const s of options.bootstrapModules ?? []) {
     res.script.set(src(s), null);
     res.module.set(src(s), null);
-    out += `<link rel="modulepreload" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+    out += `<link rel="modulepreload" fetchPriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
   }
   return out;
 }
