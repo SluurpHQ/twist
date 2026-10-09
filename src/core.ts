@@ -389,12 +389,13 @@ const pastComments = (n: Node | null) => {
 };
 
 /** The next server node in `host`, past comments (React's separators and markers). */
-function nextServerNode(host: Node): Node | null {
+function nextServerNode(host: Node, scripts = false): Node | null {
   if (!hydrating) return null;
   let n = hydrating.has(host) ? hydrating.get(host)! : host.firstChild;
   const limit = regionIn(host)?.end;
-  // Past comments and a doctype: markers and the document's preamble are no fiber's.
-  while (n && n !== limit && (n.nodeType === 8 || n.nodeType === 10)) n = n.nextSibling;
+  // Past comments and a doctype: markers and the document's preamble are no fiber's; past the server's own
+  // scripts (bootstrap, runtime) too, unless a <script> is what is being claimed.
+  while (n && n !== limit && (n.nodeType === 8 || n.nodeType === 10 || (!scripts && (n as Element).localName === "script"))) n = n.nextSibling;
   return n === limit ? null : n;
 }
 
@@ -626,7 +627,8 @@ let hydrationWaits: PromiseLike<any> | null = null;
 
 /** A server node taken for a fiber: the next one, if it is the same kind of thing. */
 function claim(host: Node, match: (n: Node) => boolean): Node | null {
-  const n = nextServerNode(host);
+  const first = nextServerNode(host, true);
+  const n = first && match(first) ? first : nextServerNode(host);
   if (!n || !match(n)) return null;
   hydrating!.set(host, n.nextSibling);
   return n;

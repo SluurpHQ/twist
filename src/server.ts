@@ -343,6 +343,34 @@ function once(node: any, ctx: Ctx) {
 
 const fresh = (): Ctx => ({ values: new Map(), ids: 0, waiting: [], svg: false, select: undefined, lastText: false, stack: [] });
 
+/** Inline script content made safe as React makes it: the "s" of any "<script" or "</script" escaped. */
+const scriptSafe = (code: string) => code.replace(/(<\/|<)(s)(cript)/gi, (_m, a, b, c) => a + (b === "s" ? "\\u0073" : "\\u0053") + c);
+/** A bootstrap script's attributes, given as a string or as { src, integrity, crossOrigin }. */
+function scriptAttrs(s: any, nonce?: string) {
+  const src = typeof s === "string" ? s : s.src;
+  let out = ` src="${escape(src)}"`;
+  if (typeof s === "object" && s.integrity) out += ` integrity="${escape(s.integrity)}"`;
+  if (typeof s === "object" && s.crossOrigin != null) out += ` crossorigin="${s.crossOrigin === "use-credentials" ? "use-credentials" : ""}"`;
+  if (nonce) out += ` nonce="${escape(nonce)}"`;
+  return out;
+}
+/** The import map and the preloads of the bootstrap scripts and modules (React's preamble resources). */
+function preamble(options: any, nonce?: string) {
+  let out = "";
+  if (options.importMap) out += `<script type="importmap">${scriptSafe(JSON.stringify(options.importMap))}</script>`;
+  for (const s of options.bootstrapScripts ?? []) out += `<link rel="preload" as="script" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+  for (const s of options.bootstrapModules ?? []) out += `<link rel="modulepreload" fetchpriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+  return out;
+}
+/** The bootstrap: its inline content, then its scripts and modules, each async. */
+function bootstrap(options: any, nonce?: string) {
+  const open = nonce ? `<script nonce="${escape(nonce)}">` : "<script>";
+  let out = options.bootstrapScriptContent ? `${open}${scriptSafe(String(options.bootstrapScriptContent))}</script>` : "";
+  for (const s of options.bootstrapScripts ?? []) out += `<script${scriptAttrs(s, nonce)} async=""></script>`;
+  for (const s of options.bootstrapModules ?? []) out += `<script type="module"${scriptAttrs(s, nonce)} async=""></script>`;
+  return out;
+}
+
 /** A boundary's fallback rendered under React's "Suspense Fallback" frame (in place of "Suspense"). */
 function fallbackFrame(ctx: Ctx, fn: () => string): string {
   const i = ctx.stack.length - 1;
@@ -407,7 +435,7 @@ export async function prerenderToNodeStream(node: any, _options: any = {}) {
  * The swap a streamed boundary runs (sent once, before the first): its content, sent hidden, takes the place of
  * the fallback between the boundary's markers. `$SX` gives a boundary up to the client (it renders it itself).
  */
-const RUNTIME =
+const RUNTIME_SOURCE =
   "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m,k){var t=document.getElementById(b);if(!t)return;if(g)t.dataset.dgst=g;if(m)t.dataset.msg=m;if(k)t.dataset.cstck=k;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}}</script>";
 
 type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[] };
@@ -418,6 +446,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const pending = new Set<Boundary>();
   let runtimeSent = false;
   let closed = false;
+  const nonce: string | undefined = typeof options.nonce === "string" ? options.nonce : options.nonce?.script;
+  const scriptOpen = nonce ? `<script nonce="${escape(nonce)}">` : "<script>";
+  const RUNTIME = RUNTIME_SOURCE.replace("<script>", scriptOpen);
   const onError = (e: unknown) => options.onError?.(e, { componentStack: componentStackOf(e) });
   // The digest and (in development) the message, as script arguments.
   const sxArgs = (digest: unknown, message: string, error?: unknown) =>
@@ -458,11 +489,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         return watch();
       }
       const digest = onError(e);
-      write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
+      write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
       runtimeSent = true;
       return watch();
     }
-    write(`${runtimeSent ? "" : RUNTIME}<div hidden id="S:${b.id}">${inner}</div><script>$SC("B:${b.id}","S:${b.id}")</script>`);
+    write(`${runtimeSent ? "" : RUNTIME}<div hidden id="S:${b.id}">${inner}</div>${scriptOpen}$SC("B:${b.id}","S:${b.id}")</script>`);
     runtimeSent = true;
     watch();
   };
@@ -475,11 +506,14 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     closed = true;
     return { abort() {}, failed: e };
   }
-  const head = options.bootstrapScriptContent ? `<script>${options.bootstrapScriptContent}</script>` : "";
-  const tail =
-    (options.bootstrapScripts ?? []).map((s: any) => `<script src="${escape(typeof s === "string" ? s : s.src)}" async=""></script>`).join("") +
-    (options.bootstrapModules ?? []).map((s: any) => `<script type="module" src="${escape(typeof s === "string" ? s : s.src)}" async=""></script>`).join("");
-  write(shell + head + tail);
+  // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
+  // bootstrap scripts after it, as React writes them.
+  const headAt = /<head(?:\s[^>]*)?>/.exec(shell);
+  const pre = preamble(options, nonce);
+  const shellWithPreamble = headAt ? shell.slice(0, headAt.index + headAt[0].length) + pre + shell.slice(headAt.index + headAt[0].length) : pre + shell;
+  // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
+  const paint = !shared.boundaries.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
+  write(shellWithPreamble + paint + bootstrap(options, nonce));
   options.onShellReady?.();
   watch();
   return {
@@ -490,7 +524,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       for (const b of pending) {
         const why = reason ?? new Error("The render was aborted by the server without a reason.");
         const digest = onError(why);
-        write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)))})</script>`);
+        write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)))})</script>`);
         runtimeSent = true;
       }
       pending.clear();
