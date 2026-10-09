@@ -1290,7 +1290,8 @@ let hydrationWaits: PromiseLike<any> | null = null;
 function claim(host: Node, match: (n: Node) => boolean): Node | null {
   const first = nextServerNode(host, true);
   let n = first && match(first) && !isResourceNode(first) ? first : nextServerNode(host);
-  if (n && (!match(n) || isResourceNode(n)) && rootOrSingleton(host)) {
+  // In a root or singleton, other elements are passed over (an extension's); a boundary or text stops the search.
+  if (n && n.nodeType === 1 && (!match(n) || isResourceNode(n)) && rootOrSingleton(host)) {
     const limit = regionIn(host)?.end;
     let m: Node | null = n.nextSibling;
     while (m && m !== limit && ((m.nodeType === 8 && !boundaryStart(m)) || (m.nodeType === 1 && (!match(m) || isResourceNode(m))))) m = m.nextSibling;
