@@ -33,6 +33,8 @@ const SETUP_ONLY: [RegExp, string][] = [
   // The engine's own wording of a TypeError (V8's in React's tests, JavaScriptCore's under Bun): either accepted.
   [/\.toThrow\(\s*"Cannot read properties of undefined \(reading '(\w+)'\)"\s*\)/g, ".toThrow(/Cannot read properties of undefined \\(reading '$1'\\)|undefined is not an object \\(evaluating '.*\\.$1'\\)/)"],
   [/\/Cannot assign to read only property\.\*\//g, "/Cannot assign to read only property.*|Attempted to assign to readonly property/"],
+  // document.readyState set by a test (React's environment lets it; jsdom here only has a getter).
+  [/\bdocument\.readyState = (['"]\w+['"]);/g, "Object.defineProperty(document, 'readyState', {value: $1, configurable: true});"],
 ];
 
 /**

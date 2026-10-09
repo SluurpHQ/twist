@@ -1263,9 +1263,23 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   const chunks: string[] = [];
   let out: any = null;
   let ended = false;
-  const write = (c: string) => (out ? out.write(c) : chunks.push(c));
-  const finish = () => (out ? out.end?.() : (ended = true));
+  // The destination closed or errored before the render was done: nothing more is written to it.
+  let dropped = false;
+  const write = (c: string) => {
+    if (dropped) return;
+    if (!out) return void chunks.push(c);
+    // Ended or destroyed by its owner (its close event may come later): closed early.
+    if (out.writableEnded || out.destroyed) return cancel("The destination stream closed early.")();
+    out.write(c);
+  };
+  const finish = () => ((ended = true), out && !dropped ? out.end?.() : undefined);
   let run: ReturnType<typeof startStream> | null = null;
+  const cancel = (reason: string) => () => {
+    if (ended || dropped) return;
+    dropped = true;
+    const why = new Error(reason);
+    abortNow ? abortNow(why) : run?.abort(why);
+  };
   // Started on the next turn, as React starts its work; it flows once piped.
   let abortNow: ((reason?: unknown) => void) | null = null;
   // A shell that failed: the destination destroyed with its error, as React's fatal error does (once piped).
@@ -1283,6 +1297,9 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   return {
     pipe(w: any) {
       out = w;
+      // As React's pipe: a destination that errors or closes early aborts what is left of the render.
+      w.on?.("error", cancel("The destination stream errored while writing data."));
+      w.on?.("close", cancel("The destination stream closed early."));
       for (const c of chunks.splice(0)) w.write(c);
       // (One nobody listens to for errors is ended instead: an unhandled stream error would take the process down.)
       if (fatal) w.listenerCount?.("error") ? w.destroy?.((fatal as any).error) : w.end?.();
