@@ -783,7 +783,8 @@ function tellStatus() {
 function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (seen.has(n)) return false;
   seen.add(n);
-  if (n.tx && n.staged !== NONE) return true;
+  // Held by a transaction still waiting on a flight (one with none left commits this round).
+  if (n.tx && n.staged !== NONE && !committableTx(n.tx)) return true;
   if ((n as any).affected) return true;
   if (n instanceof Computation) {
     if (n.flight && n.ready && !n.quiet && !n.loadingWindow) return true;
@@ -875,8 +876,13 @@ function hold(n: Node, t: Transaction) {
 
 /** Whether a transaction is ready to commit (nothing in flight, no action still running in it). */
 function committable() {
-  for (const t of transactions) if (!t.merged && !t.open && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight)) return true;
+  for (const t of transactions) if (committableTx(t)) return true;
   return false;
+}
+
+/** A transaction with no flight left (and no action open): it commits this round. */
+function committableTx(t: Transaction) {
+  return !t.merged && !t.open && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight);
 }
 
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
@@ -953,9 +959,13 @@ export function flush<T>(fn?: () => T): T {
     throw e;
   } finally {
     flushing--;
+    // A refresh counts for the flush it was asked in.
+    if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
   }
   return result;
 }
+
+const refreshedNow: Computation<any>[] = [];
 
 // ---------------------------------------------------------------- the API
 
@@ -980,15 +990,25 @@ export function createSignal<T>(value: T | ((prev?: T) => T), options?: SignalOp
 function writableMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): [Accessor<T>, Setter<T>] {
   const written = new Signal<{ v: T } | null>(null, { ownedWrite: options?.ownedWrite, equals: false });
   let seen: { v: T } | null = null;
+  // Each source's version at the last run: a write holds only while none of them moved (and no refresh asked).
+  let versions: [Source, number][] = [];
   const m = new Computation<T>(
     MEMO,
     (prev) => {
       const w = written.read();
+      const moved = (m as any).refreshed || versions.some(([s, v]) => (s instanceof Computation && s.update(), (s as any).version !== v));
+      let out: T;
       if (w !== seen) {
         seen = w;
-        if (w) return w.v;
-      }
-      return fn(prev);
+        if (w && !moved) {
+          // The write holds: still subscribed to what the last run read.
+          for (const [s] of versions) m.track(s as any);
+          return w.v;
+        }
+        out = fn(w ? w.v : prev);
+      } else out = fn(prev);
+      versions = m.sources.filter((s) => s !== written).map((s) => [s, (s as any).version]);
+      return out;
     },
     options,
   );
@@ -1097,9 +1117,11 @@ export function latest<T>(fn: () => T): T {
 /** Run a derived value again (an async one re-asks quietly: isPending stays false). */
 export function refresh<T>(target: (() => T) | object): Promise<T> {
   const c = (typeof target === "function" ? accessors.get(target) : undefined) ?? (typeof target === "object" && target ? accessors.get(refreshables.get(target)?.() as any) : undefined);
-  if (typeof target !== "function" && !c) throw new Error("refresh() expects a refreshable source (a memo, a derived signal or store)");
+  if (!c && (typeof target !== "function" || !accessors.has(target))) throw new Error("INVALID_REFRESH_TARGET: refresh() expects a refreshable source (a memo, a derived signal or store)");
   if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
   c.quiet = true;
+  (c as any).refreshed = true;
+  refreshedNow.push(c);
   if (acting) (c as any).joins = acting.tx;
   c.mark(DIRTY);
   return resolve(() => (typeof target === "function" ? (target as () => T)() : (target as T)));
