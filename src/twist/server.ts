@@ -45,7 +45,8 @@ const OWN = Symbol("twist.ssr.own");
 /** An element made at run time (a dynamic tag): it always takes a key of its own. */
 export function ssrElement(tag: string, props: any, children?: any, needsId?: boolean, skip?: (k: string) => boolean, attrs?: string) {
   if (Array.isArray(children)) (children as any)[OWN] = true;
-  return { [EL]: true, tag, props, children, keyed: !!needsId, skip, attrs, sources: true } as Element_;
+  // Rendered here, in the order it is called (its key taken now): finished HTML.
+  return { t: element({ [EL]: true, tag, props, children, skip, attrs, sources: true } as Element_, !!needsId) };
 }
 
 /**
@@ -139,7 +140,7 @@ export function Hydration(props: { children?: any }) {
 // ---------------------------------------------------------------- escaping
 
 const CONTENT = /[<&]/;
-const ATTR = /[&"]/;
+const ATTR = /[&"<]/
 
 /** Text for HTML: `<` and `&` in content, `&` and `"` in an attribute. */
 export function escape(s: any, attr?: boolean): any {
@@ -163,7 +164,7 @@ export function escape(s: any, attr?: boolean): any {
   }
   if (!(attr ? ATTR : CONTENT).test(s)) return s;
   let out = "";
-  for (const c of s) out += c === "&" ? "&amp;" : c === "<" && !attr ? "&lt;" : c === '"' && attr ? "&quot;" : c;
+  for (const c of s) out += c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === '"' && attr ? "&quot;" : c;
   return out;
 }
 
@@ -254,6 +255,12 @@ function element(el: Element_, keyed: boolean): string {
   }
   if (VOID.has(tag)) return out + " />";
   out += ">";
+  // The page's head: what useHead registers goes here once the shell is rendered.
+  if (tag === "head" && head && !head.placed) {
+    head.placed = true;
+    const inner = kids !== NONE_CHOSEN ? children(kids) : "";
+    return out + inner + HEAD_SLOT + "</head>";
+  }
   const was = selecting;
   if (chosen !== NONE_CHOSEN) selecting = chosen;
   try {
@@ -393,6 +400,9 @@ type Render = {
   /** What async nodes answered, by id: a retry takes the same answer instead of asking again. */
   answers: Map<string, [boolean, unknown]>;
   options: { renderId?: string; noHydrate?: boolean };
+  /** What useHead registered, and whether the patch script has been sent. */
+  head: HeadRegistry | null;
+  headScript?: boolean;
   /** Whether the shell has gone out (later, nothing holds it). */
   shellSent: boolean;
   /** What the client hydrates with, as script text not yet sent. */
@@ -473,12 +483,15 @@ export function Loading(props: { fallback?: any; children?: any }) {
   const parent = getOwner();
   const boundary = createOwner(parent);
   const id = (boundary as any).id as string | undefined;
+  const wasBoundary = headBoundary;
   try {
     boundaries++;
+    headBoundary = id ?? headBoundary;
     try {
       return { t: runWithOwner(boundary, () => html(props.children, false)) };
     } finally {
       boundaries--;
+      headBoundary = wasBoundary;
     }
   } catch (e) {
     if (!(e instanceof NotReadyError)) throw e;
@@ -504,13 +517,19 @@ export function Loading(props: { fallback?: any; children?: any }) {
         try {
           boundaries++;
           let content: string;
+          const hb = headBoundary;
+          headBoundary = id;
+          // (What an earlier pass of it registered goes: this pass registers it again.)
+          if (r.head) r.head.groups = r.head.groups.filter((g) => g.boundary !== id);
           try {
             content = rendering(r, r.options, () => runWithOwner(boundary, () => html(props.children, false)));
           } finally {
             boundaries--;
+            headBoundary = hb;
           }
+          const patch = r.head ? headPatch(r, id!) : "";
           fragments.get(boundary)?.(true);
-          r.chunks.push(takeData(r) + `<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
+          r.chunks.push(takeData(r) + patch + `<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
           if (!next) throw e2;
@@ -536,6 +555,151 @@ function script(r: Render, code: string) {
   const s = r.revealScript ? code : REVEAL + ";" + code;
   r.revealScript = true;
   return `<script>${s}</script>`;
+}
+
+// ---------------------------------------------------------------- head (useHead)
+
+type HeadDesc = { tag: string; props?: Record<string, any>; key?: any };
+type HeadGroup = { boundary: string; tags: HeadDesc[] };
+type HeadRegistry = { groups: HeadGroup[]; resources: string[]; sent: Set<string>; placed: boolean };
+
+const HEAD_SLOT = "\u0000head\u0000";
+const HEAD_TAGS = new Set(["title", "meta", "link", "style", "script", "base"]);
+const RESOURCE_RELS = new Set(["preload", "modulepreload", "prefetch", "preconnect", "dns-prefetch", "stylesheet"]);
+
+/** The registry of the render under way. */
+let head: HeadRegistry | null = null;
+/** The Loading boundary rendering now ("" for the shell): what useHead registers belongs to it. */
+let headBoundary = "";
+
+const newHead = (): HeadRegistry => ({ groups: [], resources: [], sent: new Set(), placed: false });
+
+/**
+ * Tags for the page's head. Replaceable ones (a title, a meta by name, a canonical link…) resolve last-wins: in the
+ * shell's head for the shell, as patch ops beside a streamed boundary's reveal. Resources (scripts with a src,
+ * stylesheets, preloads) go out as they are.
+ */
+export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc[])) {
+  if (!head) return;
+  const list = typeof tags === "function" ? tags() : tags;
+  const group: HeadGroup = { boundary: headBoundary, tags: [] };
+  for (const d of Array.isArray(list) ? list : [list]) {
+    if (!d || !HEAD_TAGS.has(d.tag)) continue;
+    if (isResource(d)) {
+      // (Its props read now: one not ready waits, under its boundary, like any read.)
+      const markup = headTag(d);
+      const id = resourceId(d);
+      if (!head.sent.has(id)) head.sent.add(id), headBoundary === "" ? head.resources.push(markup) : group.tags.push({ ...d, props: { ...d.props, [RAW]: markup } });
+    } else {
+      // Its props read now: under a boundary one not ready suspends it (the shell's head waits at its own fill).
+      if (headBoundary !== "") headAttrs(d), evalHead(d.props?.children);
+      group.tags.push(d);
+    }
+  }
+  if (group.tags.length) head.groups.push(group);
+}
+
+const RAW = "\u0000raw";
+
+function isResource(d: HeadDesc) {
+  const p = d.props ?? {};
+  if (d.tag === "link") return RESOURCE_RELS.has(evalHead(p.rel));
+  if (d.tag === "script") return "src" in p;
+  if (d.tag === "style") return "href" in p;
+  return false;
+}
+
+const evalHead = (v: any) => (typeof v === "function" ? v() : v);
+
+function resourceId(d: HeadDesc) {
+  const p = d.props ?? {};
+  return "res:" + d.tag + ":" + (evalHead(p.rel) ?? "") + ":" + String(evalHead(p.href) ?? evalHead(p.src) ?? "");
+}
+
+/** Which tag a later one replaces: one title, one base, a meta by name, a link by rel and href; else its own. */
+function identity(d: HeadDesc, unique: number) {
+  const p = d.props ?? {};
+  if (d.tag === "title" || d.tag === "base") return d.tag;
+  if (d.key != null) return d.tag + ":key:" + evalHead(d.key);
+  if (d.tag === "meta") {
+    if (p.charset != null) return "charset";
+    for (const ns of ["name", "property", "http-equiv"]) if (p[ns] != null) return "meta:" + ns + ":" + evalHead(p[ns]);
+  }
+  if (d.tag === "link") return "link:" + (evalHead(p.rel) ?? "") + ":" + (evalHead(p.href) ?? "");
+  return "u" + unique;
+}
+
+/** A head tag's props as attributes: values read, camelCase handlers and children left out. */
+function headAttrs(d: HeadDesc): Record<string, string | true> {
+  const out: Record<string, string | true> = {};
+  for (const k of Object.keys(d.props ?? {})) {
+    if (k === "children" || k === RAW || /^on[A-Z]/.test(k) || !ATTR_NAME.test(k)) continue;
+    const v = evalHead(d.props![k]);
+    if (v == null || v === false) continue;
+    out[k] = v === true ? true : String(v);
+  }
+  return out;
+}
+
+function headTag(d: HeadDesc): string {
+  if (d.props?.[RAW]) return d.props[RAW];
+  let out = "<" + d.tag;
+  const a = headAttrs(d);
+  for (const k of Object.keys(a)) out += a[k] === true ? " " + k : ` ${k}="${escape(a[k], true)}"`;
+  if (VOID.has(d.tag)) return out + ">";
+  const text = evalHead(d.props?.children);
+  return out + ">" + (text == null ? "" : d.tag === "title" ? escape(String(text)) : String(text)) + "</" + d.tag + ">";
+}
+
+/** The winners of `groups`, last one per identity. */
+function winners(groups: HeadGroup[]): HeadDesc[] {
+  const by = new Map<string, HeadDesc>();
+  let unique = 0;
+  for (const g of groups) for (const d of g.tags) by.set(identity(d, unique++), d);
+  return [...by.values()];
+}
+
+/** The head's slot filled: the shell's tags (and its resources). Waiting when `wait`: a tag not ready holds it. */
+function fillHead(shell: string, h: HeadRegistry, wait: boolean): string | Promise<string> {
+  if (!shell.includes(HEAD_SLOT)) return shell;
+  try {
+    const tags = winners(h.groups.filter((g) => g.boundary === "")).map(headTag);
+    return shell.replace(HEAD_SLOT, () => h.resources.join("") + tags.join(""));
+  } catch (e) {
+    const waits = wait && e instanceof NotReadyError && settlesOf(e);
+    if (!waits) return shell.replace(HEAD_SLOT, () => h.resources.join(""));
+    return waits.then(() => fillHead(shell, h, wait));
+  }
+}
+
+function shellHead(r: Render, shell: string): string | Promise<string> {
+  return r.head ? rendering(r, r.options, () => fillHead(shell, r.head!, true)) : shell;
+}
+
+/** Applies head patch ops: retitle, remove by identity, add (written for Twist). */
+const HEAD_SCRIPT = `function $dh(o,i,e,n,k){for(i=0;i<o.length;i++){e=o[i];if(e[0]=="t"){n=document.querySelector("title");if(!n){n=document.createElement("title");document.head.appendChild(n)}n.textContent=e[1];n.setAttribute("data-dh","title")}else if(e[0]=="r"){document.head.querySelectorAll("[data-dh]").forEach(function(x){x.getAttribute("data-dh")==e[1]&&x.remove()})}else{n=document.createElement(e[2]);for(k in e[3])n.setAttribute(k,e[3][k]===true?"":e[3][k]);if(e[4]!=null)n.textContent=e[4];n.setAttribute("data-dh",e[1]);document.head.appendChild(n)}}}`;
+
+/** A streamed boundary's head: its resources as markup, its tags as patch ops for $dh. */
+function headPatch(r: Render, id: string): string {
+  const h = r.head!;
+  const groups = h.groups.filter((g) => g.boundary === id);
+  if (!groups.length) return "";
+  let markup = "";
+  const ops: unknown[] = [];
+  let unique = 0;
+  for (const d of winners(groups)) {
+    if (d.props?.[RAW]) {
+      markup += d.props[RAW];
+      continue;
+    }
+    const ident = identity(d, unique++);
+    if (d.tag === "title") ops.push(["t", String(evalHead(d.props?.children) ?? "")]);
+    else ops.push(["r", ident], ["a", ident, d.tag, headAttrs(d), evalHead(d.props?.children) ?? null]);
+  }
+  if (!ops.length) return markup;
+  const code = (r.headScript ? "" : HEAD_SCRIPT + ";") + "$dh(" + JSON.stringify(ops).replace(/</g, "\\u003c") + ")";
+  r.headScript = true;
+  return markup + `<script>${code}</script>`;
 }
 
 // ---------------------------------------------------------------- render entry points
@@ -568,6 +732,8 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   const wasRender = render;
   sharedConfig.context = options.noHydrate ? null : { id: options.renderId ?? "" };
   render = r;
+  const wasHead = head;
+  if (r) head = r.head;
   setServerAnswers(r?.answers ?? null);
   setServerFly(r?.serializer ? sendAnswer : null);
   try {
@@ -575,31 +741,38 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   } finally {
     sharedConfig.context = was;
     render = wasRender;
+    head = wasHead;
     setServerAnswers(wasRender?.answers ?? null);
     setServerFly(wasRender?.serializer ? sendAnswer : null);
   }
 }
 
 export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean } = {}): string {
-  return rendering(null, options, () =>
-    createRoot(
-      (dispose) => {
-        try {
-          return html(code(), false);
-        } finally {
-          dispose();
-        }
-      },
-      { id: options.renderId ?? "" },
-    ),
-  );
+  const wasHead = head;
+  head = newHead();
+  try {
+    return rendering(null, options, () =>
+      createRoot(
+        (dispose) => {
+          try {
+            return fillHead(html(code(), false), head!, false) as string;
+          } finally {
+            dispose();
+          }
+        },
+        { id: options.renderId ?? "" },
+      ),
+    );
+  } finally {
+    head = wasHead;
+  }
 }
 
 type Writable = { write(chunk: string): void; end(): void };
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: { renderId?: string; noHydrate?: boolean; onCompleteShell?: () => void; onCompleteAll?: () => void } = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: newHead(), data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false };
   if (!options.noHydrate) r.serializer = hydrationSerializer({ scopeId: options.renderId, onData: (s) => ((r.data += s + ";"), r.wake?.()) });
   let dispose!: () => void;
   let root!: any;
@@ -607,7 +780,9 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
   const shellReady = new Promise<string>((ok, fail) => {
     const attempt = () => {
       try {
-        filled(r, rendering(r, options, () => runWithOwner(root, () => html(code(), false)))).then(ok, fail);
+        filled(r, rendering(r, options, () => runWithOwner(root, () => html(code(), false))))
+          .then((shell) => shellHead(r, shell))
+          .then(ok, fail);
       } catch (e) {
         const waits = e instanceof NotReadyError && settlesOf(e);
         if (!waits) return fail(e);
@@ -648,8 +823,8 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
       shell = s + takeData(r);
       shellSent = true;
       r.shellSent = true;
-      for (const w of sinks) w.write(shell);
       options.onCompleteShell?.();
+      for (const w of sinks) w.write(shell);
       rendering(r, options, drain);
     },
     (e) => {
