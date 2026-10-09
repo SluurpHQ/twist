@@ -463,6 +463,8 @@ let renderSerial = 0;
 function profilerBegins(f: Fiber) {
   (f as any).began = now();
   (f as any).beganIn = renderSerial;
+  // Rendered itself (its parent did): told even when nothing below it renders, as React tells it.
+  if (!profiled.has(f)) profiled.set(f, 0);
 }
 
 /** A component drawn in `self` time: counted in each Profiler around it. */
