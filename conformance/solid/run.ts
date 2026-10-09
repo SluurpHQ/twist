@@ -54,6 +54,9 @@ rows.sort((a, b) => a.file.localeCompare(b.file));
 // implementation, not its behaviour, and cannot run against another.
 const INTERNAL = /Cannot find module 'solid-js\/(internal|attribution|refresh)'|Cannot find module '(\.\.\/)+(src\/(attribution|core\/|client\/|client\.js|store\/(store|target)\.js|server\/)|dist\/|frames\/src|server-functions\/src)|Export named '(DEV|OBSERVE|\$RECORD|clearSnapshots|markSnapshotScope|setSnapshotCapture|releaseSnapshotScope)'/;
 for (const r of rows) if (r.note && INTERNAL.test(r.note)) r.note = "not ours: " + r.note;
+// More of the same: Solid's dev hooks, its own source modules, its diagnostics package, its build output.
+const INTERNAL_MORE = /Export named '(\$DEVCOMP|_resetExternalSourceConfig)'|Cannot find module '(\.\.\/)+src\/(map|render|refresh\/index|server-mock)\.js'|Cannot find module 'solid-js\/internal\/|Cannot find module '@solidjs\/diagnostics'|[\\/]dist[\\/]/;
+for (const r of rows) if (r.note && !r.note.startsWith("not ours") && INTERNAL_MORE.test(r.note)) r.note = "not ours: " + r.note;
 // Files that test only what Twist leaves out on purpose (Solid 1 compat helpers).
 const LEFT_OUT = /store\/storePath\.test\.ts$/;
 for (const r of rows) if (LEFT_OUT.test(r.file)) r.note = "not ours: a Solid 1 compat helper";
@@ -65,6 +68,10 @@ for (const r of rows) if (r.note && /Export named 'Dynamic'/.test(r.note)) r.not
 // Solid's server functions (its RPC) and frames (its server components): Sluurp has its own RPC and server components.
 const OWN_LAYER = /server-functions|(^|\/)frames?[-/]|frame-sink|frames\/src/;
 for (const r of rows) if (OWN_LAYER.test(r.file) || (r.note && OWN_LAYER.test(r.note))) r.note = "not ours: Solid's server functions / frames (Sluurp has its own RPC and server components)";
+// Solid's request/response layer (request events, HTTP status and headers, SSR responses, traces): Sluurp's server
+// handles requests and responses itself.
+const HTTP_LAYER = /Export named '(createRequestEvent|getRequestEvent|httpHeader|httpStatus|createSSRResponse|getTraceContext|getHydrationWriter)'/;
+for (const r of rows) if (r.note && !r.note.startsWith("not ours") && HTTP_LAYER.test(r.note)) r.note = "not ours: Solid's request/response layer (Sluurp's server handles requests)";
 // Files that run Solid's built packages (or its repo's scripts) in a child process, or walk its graph's own fields.
 for (const r of rows) {
   const src = readFileSync(join(here, "solid-tests", r.file), "utf8");
