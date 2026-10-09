@@ -1494,6 +1494,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // A new top-level node in a hidden Activity (or a portal's in one) is hidden as it comes.
     if (hiddenActivities) for (let k = topInHidden(f); k > 0; k--) hideNode(el, true);
     // An image loaded again once committed: a load it fired before then reached no handler (React's commitMount).
+    if (props.autoFocus && !ns && !server && (type === "input" || type === "button" || type === "select" || type === "textarea")) {
+      insertionQueue.push(() => !f.dead && (el as HTMLElement).focus());
+    }
     if (type === "img" && !ns && !server && (props.src || props.srcSet)) {
       insertionQueue.push(() => {
         if (f.dead) return;
@@ -2056,9 +2059,19 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
 /** A render beginning: its start time, and whether an update set in the last commit set it off. */
 function startRender() {
   renderSerial++;
+  if (focusedBefore === undefined && typeof document !== "undefined") focusedBefore = document.activeElement;
   renderStart = now();
   renderIsNested = nestedUpdate;
   nestedUpdate = false;
+}
+
+/** What had focus when the render began: focused again at commit if moving nodes took it away (React's restoreSelection). */
+let focusedBefore: Element | null | undefined;
+function restoreFocus() {
+  const el = focusedBefore;
+  focusedBefore = undefined;
+  if (!el || !el.isConnected || el.ownerDocument.activeElement === el || el === el.ownerDocument.body) return;
+  (el as HTMLElement).focus?.();
 }
 
 /** A root's render in progress (not an update drawn later): errors caught in it are told after any retry. */
@@ -2442,6 +2455,7 @@ function commit() {
       insertionQueue.length = 0;
       // In the page from now on: events reach their handlers (before, React finds no mounted fiber).
       for (const f of fresh) (f as any).placed = true;
+      restoreFocus();
       inEffects++;
       try {
         for (let i = 0; i < layoutQueue.length; i++) timed(layoutQueue[i]!, effectTime);
@@ -2561,7 +2575,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0));
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined));
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
