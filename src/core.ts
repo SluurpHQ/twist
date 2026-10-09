@@ -2038,7 +2038,7 @@ export const client = {
       };
       // Settles once this action has run: a form whose action this is stays pending until then.
       box.dispatch = (payload: any) => {
-        if (rendering && current) throw new Error("Cannot update action state while rendering.");
+        if (current) throw new Error("Cannot update action state while rendering.");
         let done!: () => void;
         const settled = new Promise<void>((r) => (done = r));
         // Pending at once (an urgent update, even inside a transition), and until the queue is done.
