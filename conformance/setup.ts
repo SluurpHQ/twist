@@ -59,6 +59,12 @@ GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframe
     },
   });
 }
+// A textarea's defaultValue and value are strings of what is given (happy-dom drops 0 and false).
+for (const key of ["defaultValue", "value"]) {
+  const proto: any = HTMLTextAreaElement.prototype;
+  const d = Object.getOwnPropertyDescriptor(proto, key);
+  if (d?.set) Object.defineProperty(proto, key, { ...d, set(this: any, v: any) { d.set!.call(this, v === null ? "" : String(v)); } });
+}
 // A clone keeps a checkbox's or radio's checkedness when it was set (its dirty checked flag), as the HTML spec has it.
 {
   const PS: any = await import("happy-dom/lib/PropertySymbol.js" as any);

@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3534 pass, 490 fail, 314 skipped (gated off for stable React 19).
+3554 pass, 470 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -13,7 +13,7 @@
 | react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactComponent-test.js | 15 | 4 | 2 |  |
+| react-dom/ReactComponent-test.js | 17 | 2 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 22 | 4 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 36 | 4 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
@@ -75,7 +75,7 @@
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 140 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 35 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 7 | 3 | 0 |  |
+| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 9 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 51 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 5 | 5 | 0 |  |
@@ -84,7 +84,7 @@
 | react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSelect-test.js | 64 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 30 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationTextarea-test.js | 38 | 2 | 0 |  |
+| react-dom/ReactDOMServerIntegrationTextarea-test.js | 40 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 72 | 5 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 18 | 2 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 4 | 6 | 0 |  |
@@ -99,7 +99,7 @@
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 1 | 1 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
-| react-dom/ReactDOMTextarea-test.js | 45 | 8 | 0 |  |
+| react-dom/ReactDOMTextarea-test.js | 51 | 2 | 0 |  |
 | react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 10 | 2 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 4 | 10 | 12 |  |
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 3 | 1 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 9 | 2 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 36 | 9 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 39 | 6 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 16 | 8 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
@@ -141,7 +141,7 @@
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
 | react/ReactChildren-test.js | 38 | 4 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
-| react/ReactContextValidator-test.js | 1 | 7 | 5 |  |
+| react/ReactContextValidator-test.js | 6 | 2 | 5 |  |
 | react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
 | react/ReactElementClone-test.js | 17 | 4 | 0 |  |

@@ -98,6 +98,10 @@ function uncaught(root: RootState, e: unknown) {
 }
 
 let current: Fiber | null = null;
+/** A class's context when it has no (valid) contextType, as React gives it. */
+const EMPTY_CONTEXT = Object.freeze({});
+/** The component that rendered the element being made now (a form field's warnings name it). */
+let hostOwner: Fiber | null = null;
 setOwnerSource(() => current);
 let hookAt = 0;
 
@@ -1367,7 +1371,14 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
         if (props.size != null && typeof props.size !== "function" && typeof props.size !== "symbol") el.setAttribute("size", String(props.size));
       }
       if (type !== "textarea" && type !== "input") reconcile(f, toList(props.children), el, null);
-      initForm(el, type, props, false, !!server);
+      // (Its owner named in the field's warnings, as React names the component that rendered it.)
+      const wasOwner = hostOwner;
+      hostOwner = (f as any).owner ?? null;
+      try {
+        initForm(el, type, props, false, !!server);
+      } finally {
+        hostOwner = wasOwner;
+      }
     } else {
       setProps(el, props, null, ns === SVG_NS);
       setDefaults(el, props);
@@ -1698,6 +1709,8 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       f.tick = signal(0);
       return renderClass;
     }
+    if (dev() && typeof type.contextType === "object" && type.contextType !== null)
+      warn(`${nameOf(type)}: Function components do not support contextType.`, "function-context-type:" + nameOf(type));
     if (dev() && type.prototype && typeof type.prototype.render === "function") {
       const n = type.displayName || type.name || "Component";
       warn(`The <${n} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${n} to extend React.Component instead.`, "render-not-extended:" + n);
@@ -1947,7 +1960,21 @@ function renderClass(f: Fiber, withRef: any) {
     if (f.inst && shallowEqual(f.inst.props, rest)) props = f.inst.props;
   }
   const ref = withRef?.ref;
-  const ctx = C.contextType ? readContext(f, C.contextType) : undefined;
+  const ct = C.contextType;
+  const validCt = ct != null && ct.$$typeof === CONTEXT;
+  // An invalid contextType: React's warning (once per class), and the empty context.
+  if (dev() && !f.inst && "contextType" in C && ct !== null && !validCt) {
+    const why =
+      ct === undefined
+        ? " However, it is set to undefined. This can be caused by a typo or by mixing up named and default imports. This can also happen due to a circular dependency, so try moving the createContext() call to a separate file."
+        : typeof ct !== "object"
+          ? ` However, it is set to a ${typeof ct}.`
+          : ct.$$typeof === CONSUMER
+            ? " Did you accidentally pass the Context.Consumer instead?"
+            : ` However, it is set to an object with keys {${Object.keys(ct).join(", ")}}.`;
+    warn(`${nameOf(C)} defines an invalid contextType. contextType should point to the Context object returned by React.createContext().${why}`, "invalid-context-type:" + nameOf(C));
+  }
+  const ctx = validCt ? readContext(f, ct) : EMPTY_CONTEXT;
   // React calls the legacy will-lifecycles only for a class that does not use the newer static ones.
   const legacy = !C.getDerivedStateFromProps && !f.inst?.getSnapshotBeforeUpdate && !C.prototype.getSnapshotBeforeUpdate;
   const call = (name: string, ...args: any[]) => {
@@ -3308,7 +3335,7 @@ export const version = "19.3.0";
 export { ELEMENT };
 
 // Which component is rendering, for "Check the render method of `X`." in warnings.
-setOwner(() => (current ? nameOf(current.type) : null));
+setOwner(() => (current ? nameOf(current.type) : hostOwner ? nameOf(hostOwner.type) : null));
 
 // A form's action runs through submitForm (its status, its reset, its boundary).
 onSubmitAction(submitForm, formPendingWhile);

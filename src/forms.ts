@@ -95,6 +95,11 @@ function updateInput(node: HTMLInputElement, p: any, lastDefaultValue: any) {
 
 function initTextarea(node: HTMLTextAreaElement, p: any) {
   let { value, defaultValue, children } = p;
+  if (dev()) {
+    // React's validateTextareaProps.
+    if (value !== undefined && defaultValue !== undefined)
+      warn(`${ownerName() || "A component"} contains a textarea with both value and defaultValue props. Textarea elements must be either controlled or uncontrolled (specify either the value prop, or the defaultValue prop, but not both). Decide between using a controlled or uncontrolled textarea and remove one of these props. More info: https://react.dev/link/controlled-components`, "textarea-value-default");
+  }
   let initial = value;
   if (initial == null) {
     if (children != null) {
