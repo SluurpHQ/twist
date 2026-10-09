@@ -55,7 +55,7 @@ type Ctx = {
   picture: boolean;
   fallback: boolean;
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
-  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number }; onError: (e: unknown) => any };
+  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown } }; onError: (e: unknown, at?: string) => any };
 };
 
 function attrs(props: any, ctx: Ctx, tag: string) {
@@ -313,8 +313,20 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       const deps = { sheets: new Set<any>(), styles: new Set<any>() };
       ctx.res.boundary = deps;
       ctx.lastText = false;
+      const abortedNow = () => {
+        const why = ctx.streaming!.shared.aborted!.reason;
+        const at = stackText(ctx.stack);
+        const digest = ctx.streaming!.onError(why, at);
+        ctx.res.boundary = parentDeps;
+        ctx.streaming!.shared.boundaries.length = queued;
+        const fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+        ctx.lastText = false;
+        return `<!--$!-->${errorTemplate(digest, aborted((why as any)?.message ?? String(why)), undefined, at)}${fallback}<!--/$-->`;
+      };
+      if (ctx.streaming?.shared.aborted) return abortedNow();
       try {
         const out = suspendAfter(ctx, () => render(props.children, ctx, hooks));
+        if (ctx.streaming?.shared.aborted) return abortedNow();
         ctx.lastText = false;
         if (parentDeps) {
           for (const k of ["sheets", "styles"] as const) for (const x of deps[k]) parentDeps[k].add(x);
@@ -322,6 +334,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         }
         return `<!--$-->${out}<!--/$-->`;
       } catch (e: any) {
+        // Aborted meanwhile: whatever it threw, it is an aborted boundary.
+        if (ctx.streaming?.shared.aborted) return abortedNow();
         ctx.res.boundary = parentDeps;
         ctx.lastText = false;
         // Boundaries met inside it were never written: they go with this render.
@@ -801,7 +815,7 @@ function segmentWrap(ctx: Ctx): [string, string] {
 }
 
 /** One streamed render: the shell, then each boundary as it settles, written through `write`. */
-function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void, flowingAtStart = true) {
+function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void, flowingAtStart = true, expose?: (abort: (reason?: unknown) => void) => void) {
   // Until the stream flows (pipe), nothing is written: the shell waits, and boundaries that complete meanwhile are
   // written into it in place (React flushes them with the shell, no script).
   let flowing = flowingAtStart;
@@ -835,7 +849,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const onError = (e: unknown, at?: string) => {
     const componentStack = at ?? componentStackOf(e);
     if (isBrowserOnly(e)) return options.onBrowserBailout?.(e, { componentStack }), "";
-    const digest = options.onError?.(e, { componentStack });
+    const digest = options.onError ? options.onError(e, { componentStack }) : (console.error(e), undefined);
     return digest === "" ? undefined : digest;
   };
   // The digest and (in development) the message, as script arguments.
@@ -967,9 +981,16 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   postamble = end ? end[0] : "";
   write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
   };
+  // Aborted while the shell renders: what is left is aborted once it is done.
+  let renderingShell = true;
+  expose?.((reason?: unknown) => {
+    if (renderingShell) shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
+    else api.abort(reason);
+  });
   const failed = tryShell();
+  renderingShell = false;
   if (failed) return { abort() {}, failed, flow() {} };
-  return {
+  const api = {
     failed: null,
     /** The stream flows (piped): the shell and what completed into it written, then the rest as it comes. */
     flow() {
@@ -1005,6 +1026,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       close();
     },
   };
+  if (shared.aborted) api.abort(shared.aborted.reason);
+  return api;
 }
 
 export function renderToPipeableStream(node: any, options: any = {}) {
@@ -1015,7 +1038,8 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   const finish = () => (out ? out.end?.() : (ended = true));
   let run: ReturnType<typeof startStream> | null = null;
   // Started on the next turn, as React starts its work; it flows once piped.
-  setImmediateOr(() => (run = startStream(node, options, write, finish, out !== null)));
+  let abortNow: ((reason?: unknown) => void) | null = null;
+  setImmediateOr(() => (run = startStream(node, options, write, finish, out !== null, (a) => (abortNow = a))));
   return {
     pipe(w: any) {
       out = w;
@@ -1025,7 +1049,7 @@ export function renderToPipeableStream(node: any, options: any = {}) {
       return w;
     },
     abort(reason?: unknown) {
-      run?.abort(reason);
+      abortNow ? abortNow(reason) : run?.abort(reason);
     },
   };
 }
