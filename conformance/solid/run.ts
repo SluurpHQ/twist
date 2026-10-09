@@ -4,7 +4,9 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const here = import.meta.dir;
-const filter = process.argv[2] ?? "";
+const filter = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "";
+// `--accept`: the baseline rewritten even when files lost passes (a change that rightly costs some).
+const accept = process.argv.includes("--accept");
 const files: string[] = [];
 const walk = (d: string) => {
   for (const f of readdirSync(d, { withFileTypes: true })) {
@@ -40,6 +42,11 @@ async function worker() {
     }
   }
 }
+// The server tests first: they write the artifacts the hydration tests replay (Twist's own server output, not the
+// copies from Solid's repo).
+const later = queue.splice(0).filter((f) => !/[\\/]test[\\/]server[\\/]/.test(f) || !queue.push(f));
+await Promise.all(Array.from({ length: 8 }, worker));
+queue.push(...later);
 await Promise.all(Array.from({ length: 8 }, worker));
 rows.sort((a, b) => a.file.localeCompare(b.file));
 
@@ -89,6 +96,6 @@ if (existsSync(json) && !filter) {
   lostAny = lost.length > 0;
   console.log(lost.length ? "lost passes:\n" + lost.join("\n") : "no file lost passes");
 }
-if (!filter && !lostAny) writeFileSync(json, JSON.stringify(rows));
+if (!filter && (!lostAny || accept)) writeFileSync(json, JSON.stringify(rows));
 writeFileSync(join(here, "errors.txt"), [...errors].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${n}\t${m}`).join("\n") + "\n");
 console.log(md.split("\n").slice(0, 30).join("\n"));

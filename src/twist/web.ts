@@ -660,6 +660,81 @@ function claimElement(d: { tag: string; props: Record<string, any> }, keyed: boo
   return el;
 }
 
+// ---------------------------------------------------------------- head
+
+type HeadDesc = { tag: string; props?: Record<string, any>; key?: any };
+const HEAD_TAGS = new Set(["title", "meta", "link", "style", "script", "base"]);
+
+/**
+ * Tags for the document's head, kept current: a title sets the document's title, the rest are elements this call owns
+ * (gone when it re-runs or its owner ends). Its props are read where it runs, so one not ready holds its Loading.
+ */
+export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc[])) {
+  let owned: Element[] = [];
+  const read = (v: any) => (typeof v === "function" ? v() : v);
+  createRenderEffect(
+    () => {
+      const list = typeof tags === "function" ? tags() : tags;
+      return (Array.isArray(list) ? list : [list])
+        .filter((d) => d && HEAD_TAGS.has(d.tag))
+        .map((d) => {
+          const attrs: Record<string, any> = {};
+          for (const k of Object.keys(d.props ?? {})) if (k !== "children" && !/^on[A-Z]/.test(k)) attrs[k] = read(d.props![k]);
+          // A stylesheet holds what shows with it until it has loaded (no unstyled flash): preloaded meanwhile.
+          if (d.tag === "link" && attrs.rel === "stylesheet" && attrs.href) {
+            const gate = sheetGate(String(attrs.href));
+            if (!gate.loaded) gate.ready();
+          }
+          return { tag: d.tag, attrs, text: read(d.props?.children) };
+        });
+    },
+    (descs: { tag: string; attrs: Record<string, any>; text: any }[]) => {
+      for (const el of owned) el.remove();
+      owned = [];
+      for (const d of descs) {
+        if (d.tag === "title") {
+          document.title = d.text == null ? "" : String(d.text);
+          continue;
+        }
+        // The warmed link becomes the stylesheet.
+        const warm = d.tag === "link" && d.attrs.rel === "stylesheet" ? sheets.get(String(d.attrs.href))?.link : undefined;
+        const el = warm ?? document.createElement(d.tag);
+        if (warm) el.removeAttribute("as");
+        for (const k of Object.keys(d.attrs)) setAttribute(el, k, d.attrs[k]);
+        if (d.text != null) el.textContent = String(d.text);
+        document.head.appendChild(el);
+        owned.push(el);
+      }
+    },
+  );
+  onCleanup(() => {
+    for (const el of owned) el.remove();
+    owned = [];
+  });
+}
+
+/** Stylesheets warming up, by href: a preload link, settled when it loads (or fails: shown anyway). */
+const sheets = new Map<string, { link: HTMLLinkElement; loaded: boolean; promise: Promise<void>; ready: () => unknown }>();
+
+function sheetGate(href: string) {
+  let g = sheets.get(href);
+  if (g) return g;
+  const link = document.createElement("link");
+  link.setAttribute("rel", "preload");
+  link.setAttribute("as", "style");
+  link.setAttribute("href", href);
+  let done!: () => void;
+  const promise = new Promise<void>((ok) => (done = ok));
+  // (Read as an async value: a reveal waiting on it holds as for any data, the committed view staying.)
+  const ready = createRoot(() => createMemo(() => promise.then(() => true)));
+  sheets.set(href, (g = { link, loaded: false, promise, ready }));
+  const settle = () => ((g!.loaded = true), done());
+  link.addEventListener("load", settle);
+  link.addEventListener("error", settle);
+  document.head.appendChild(link);
+  return g;
+}
+
 // ---------------------------------------------------------------- client-only components
 
 type ClientOnlyOptions = { lazy?: boolean; export?: string };

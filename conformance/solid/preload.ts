@@ -5,7 +5,8 @@ import { plugin } from "bun";
 import { join } from "node:path";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
-GlobalRegistrator.register();
+// As jsdom runs Solid's tests: a page URL, and nothing fetched (no CSS, scripts or frames loaded).
+GlobalRegistrator.register({ url: "http://localhost/", settings: { disableCSSFileLoading: true, disableJavaScriptFileLoading: true, disableIframePageLoading: true, handleDisabledFileLoadingAsSuccess: true } as any });
 // Vitest's globals, as Solid's tests use them without importing.
 import { vi } from "./vitest.ts";
 (globalThis as any).vi = vi;
