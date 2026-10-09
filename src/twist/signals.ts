@@ -433,6 +433,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.equals = options?.equals ?? Object.is;
     this.lazy = !!options?.lazy;
     if ((options as any)?.deferStream) (this as any).deferStream = true;
+    if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
     this.unobserved = options?.unobserved;
     // A declared first paint: born committed with it; its first flight is quiet (never pending, never held).
     if (options && "loadingValue" in options) {
@@ -585,7 +586,22 @@ export class Computation<T> extends Node<T> implements Owner {
     let next: T;
     let threw: unknown = NONE;
     try {
-      next = this.fn(this.current());
+      // Hydrating: what the server sent under this node's id is its first answer (its compute does not run).
+      const sent = this.ranAt === -1 && sharedConfig.hydrating ? serverSent(this) : NONE;
+      if (sent !== NONE) {
+        const ref = sent as any;
+        if (ref && typeof ref === "object" && ref.s === 2) {
+          if (typeof ref.then === "function") ref.then(undefined, noop);
+          throw ref.v;
+        }
+        next = ref && typeof ref === "object" && ref.s === 1 ? ref.v : ref;
+        // A stream the client goes on with ("hybrid"): once the server's answer has landed, its compute runs here,
+        // quietly (its first yield repeats that answer).
+        if ((this as any).ssrSource === "hybrid" && this.fn.constructor?.name === "AsyncGeneratorFunction") {
+          const takeOver = () => !this.disposed && ((this.quiet = true), this.mark(DIRTY), schedule());
+          ref && typeof ref.then === "function" && ref.s !== 1 ? ref.then(takeOver, noop) : queueMicrotask(takeOver);
+        }
+      } else next = this.fn(this.current());
     } catch (e) {
       threw = e;
     } finally {
@@ -1802,6 +1818,13 @@ export function createReaction(onChange: () => void) {
 
 /** Hydration (a server's HTML adopted): Twist renders on the client only, for now. */
 export const sharedConfig: { hydrating: boolean; context: unknown } = { hydrating: false, context: null };
+
+/** The value the server sent for an async node (in `_$HY.r` by its id), or NONE. */
+function serverSent(n: { id?: string; kind: number }): unknown {
+  if (n.id == null || n.kind !== MEMO) return NONE;
+  const r = (globalThis as any)._$HY?.r;
+  return r && n.id in r ? r[n.id] : NONE;
+}
 export const isHydrating = () => sharedConfig.hydrating;
 export function enableHydration() {}
 

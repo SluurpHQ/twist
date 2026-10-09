@@ -16,10 +16,11 @@ import {
   getNextChildId,
   sharedConfig,
   createSignal,
+  createOwner,
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic, spreadSource } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic, spreadSource, Loading } from "./control.ts";
 
 export * from "./control.ts";
 import { inOrder } from "../shared/in-order.ts";
@@ -479,10 +480,54 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
   if (v == null || typeof v === "boolean") return [];
   if (Array.isArray(v)) return claimList(v, !!(v as any)[OWN], inTemplate, false, at);
   if (typeof v === "function") return bindAt(v, at);
-  if (v[COMP]) return claimHtml(createComponent(v.fn, componentProps(v.props)), false, at);
+  if (v[COMP]) return v.fn === Loading ? claimLoading(componentProps(v.props), at) : claimHtml(createComponent(v.fn, componentProps(v.props)), false, at);
   if (v[EL]) return [claimElement(v, v.keyed ?? !inTemplate, at)];
   return claimText(v, at);
 }
+
+/**
+ * A Loading boundary the server rendered: its owner takes the id the server's did. Content rendered in place is claimed
+ * under it; content the server streamed later shows its fallback (claimed) until the fragment record settles, the
+ * reveal script having swapped the content in, which is claimed then.
+ */
+function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): Node[] {
+  const parent = getOwner();
+  const boundary = createOwner(parent) as any;
+  const id = boundary.id as string | undefined;
+  const pl = at.next as Element | null;
+  if (id == null || !pl || pl.nodeName !== "TEMPLATE" || pl.id !== "pl-" + id) return runWithOwner(boundary, () => claimHtml(props.children, false, at));
+  // The fallback, between the placeholder template and its end comment.
+  const end = (() => {
+    for (let n = pl.nextSibling; n; n = n.nextSibling) if (n.nodeType === 8 && (n as Comment).data === "pl-" + id) return n;
+    return null;
+  })();
+  at.next = pl.nextSibling;
+  const fallback = runWithOwner(parent, () => claimHtml(props.fallback, false, at));
+  at.next = end ? end.nextSibling : at.next;
+  // What comes before the boundary stays put: the content, once revealed, starts right after it.
+  const ahead = pl.previousSibling;
+  const host = at.parent;
+  const record = (globalThis as any)._$HY?.r?.[id + "_fr"];
+  const reveal = () => {
+    const was = hydrating;
+    const registry = new Map<string, Element>();
+    for (const el of (host as Element).querySelectorAll?.("[_hk]") ?? []) registry.set(el.getAttribute("_hk")!, el);
+    hydrating = { registry };
+    sharedConfig.hydrating = true;
+    try {
+      runWithOwner(boundary, () => claimHtml(props.children, false, { parent: host, next: ahead ? ahead.nextSibling : host.firstChild }));
+      flush();
+    } finally {
+      hydrating = was;
+      sharedConfig.hydrating = !!was;
+    }
+  };
+  if (record && typeof record.then === "function" && record.s !== 1) record.then(() => queueMicrotask(reveal), noopFn);
+  else if (record) queueMicrotask(reveal);
+  return fallback;
+}
+
+const noopFn = () => {};
 
 /** An element's children: mirrors the server's children(). */
 function claimChildren(c: any, at: Cursor) {
@@ -502,7 +547,7 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
       else out.push(...bindAt(x, at));
     } else if (Array.isArray(x)) out.push(...claimList(x, !!(x as any)[OWN], inTemplate && own, viaFn, at));
     else if (x[EL]) out.push(claimElement(x, x.keyed ?? !(inTemplate && own && !viaFn), at));
-    else if (x[COMP]) out.push(...claimHtml(createComponent(x.fn, componentProps(x.props)), false, at));
+    else if (x[COMP]) out.push(...claimHtml(x, false, at));
     else if ((x as Node).nodeType) out.push(x as Node);
     else out.push(...claimText(x, at));
   }

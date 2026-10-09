@@ -401,6 +401,8 @@ type Render = {
   holes: Map<string, Promise<string>>;
 };
 let render: Render | null = null;
+/** What settles each streamed boundary's fragment record. */
+const fragments = new WeakMap<object, (v: boolean) => void>();
 /** Loading boundaries being rendered (under one, a waiting hole shows the boundary's fallback instead). */
 let boundaries = 0;
 let holeCount = 0;
@@ -502,6 +504,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
           } finally {
             boundaries--;
           }
+          fragments.get(boundary)?.(true);
           r.chunks.push(takeData(r) + `<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
@@ -511,6 +514,11 @@ export function Loading(props: { fallback?: any; children?: any }) {
         r.wake?.();
       });
     };
+    // The boundary's fragment record: settles once its content has been sent (the client hydrates it then).
+    let revealed!: (v: boolean) => void;
+    const record = new Promise<boolean>((ok) => (revealed = ok));
+    fragments.set(boundary, revealed);
+    if (r.serializer && noHydration === 0) r.serializer.write(id + "_fr", record);
     retry(waits);
     return { t: `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->` };
   }
@@ -587,7 +595,7 @@ type Writable = { write(chunk: string): void; end(): void };
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: { renderId?: string; noHydrate?: boolean; onCompleteShell?: () => void; onCompleteAll?: () => void } = {}) {
   const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false };
-  if (!options.noHydrate) r.serializer = hydrationSerializer({ scopeId: options.renderId, onData: (s) => ((r.data += s), r.wake?.()) });
+  if (!options.noHydrate) r.serializer = hydrationSerializer({ scopeId: options.renderId, onData: (s) => ((r.data += s + ";"), r.wake?.()) });
   let dispose!: () => void;
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.

@@ -53,7 +53,7 @@ for (const f of walk(out)) {
       .replace(/(["'])@solidjs\/web\1/g, '"@twist/web-server"')
       .replace(/(@jsxImportSource\s+)@solidjs\/web\b/g, "$1@twist/web-server")
       .replace(/(["'])solid-js\1/g, '"@twist/solid-server"')
-      .replace(/(["'])\.\.\/harness\//g, "$1./_harness/")
+      .replace(/(["'])\.\.\/harness\/(?!__artifacts__)/g, "$1./_harness/")
       .replace(/(["'])\.\.\/\.\.\/src\/server\.js\1/g, '"@twist/web-server"');
   if (t !== s) writeFileSync(f, t);
 }
