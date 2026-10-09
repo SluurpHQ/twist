@@ -809,6 +809,22 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   let endHeld = false;
   const shared = { ids: 0, boundaries: [] as Boundary[], next: 0 };
   const res = new Resources(writeTag, typeof options.nonce === "object" ? options.nonce?.style : undefined);
+  if (typeof options.onHeaders === "function") {
+    if (typeof options.maxHeadersLength === "number" && options.maxHeadersLength <= 0)
+      warn(
+        `React expected a positive non-zero \`maxHeadersLength\` option but found ${options.maxHeadersLength === 0 ? "zero" : options.maxHeadersLength} instead. When using the \`onHeaders\` option you may supply an optional \`maxHeadersLength\` option as well however, when setting this value to zero or less no headers will be captured.`,
+      );
+    res.headers = { preconnects: "", fontPreloads: "", highImagePreloads: "", remaining: 2 + (typeof options.maxHeadersLength === "number" ? options.maxHeadersLength : 2000) };
+  }
+  /** The early Link header handed to onHeaders, once: when the shell is done, or first waits. */
+  const sendHeaders = (shellComplete: boolean) => {
+    try {
+      const h = res.takeHeaders(shellComplete);
+      if (h) options.onHeaders(h);
+    } catch (e) {
+      onError(e);
+    }
+  };
   const pending = new Set<Boundary>();
   let runtimeSent = false;
   let closed = false;
@@ -917,6 +933,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       shell = once(node, ctxFor());
     } catch (e: any) {
       if (e && typeof e.then === "function") {
+        sendHeaders(false);
         shared.boundaries.length = 0;
         shared.ids = 0;
         const again = () => (closed ? undefined : tryShell());
@@ -930,6 +947,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       return e;
     }
     shellDone = true;
+    sendHeaders(true);
     held = shell;
     options.onShellReady?.();
     if (flowing) writeShell();

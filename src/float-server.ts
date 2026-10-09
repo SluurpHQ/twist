@@ -63,9 +63,21 @@ export class Resources {
 
   // ------------------------------------------------------------ ReactDOM.prefetchDNS, preconnect, preload, preinit…
 
+  /** With onHeaders: the early Link header being gathered (until it is sent), and the room left in it. */
+  headers: { preconnects: string; fontPreloads: string; highImagePreloads: string; remaining: number } | null = null;
+  /** A Link header entry, if it fits (React's capacity check: the room shrinks even when it does not). */
+  private intoHeader(kind: "preconnects" | "fontPreloads" | "highImagePreloads", header: string) {
+    const h = this.headers;
+    if (!h || h.remaining <= 0) return false;
+    if ((h.remaining -= header.length + 2) < 0) return false;
+    h[kind] = h[kind] ? h[kind] + ", " + header : header;
+    return true;
+  }
+
   prefetchDNS(href: string) {
     if (typeof href !== "string" || !href || this.dns.has(href)) return;
     this.dns.add(href);
+    if (this.intoHeader("preconnects", `<${headerHref(href)}>; rel=dns-prefetch`)) return;
     this.preconnects.push({ html: this.link({ href, rel: "dns-prefetch" }) });
   }
 
@@ -74,6 +86,7 @@ export class Resources {
     const bucket = crossOrigin === "use-credentials" ? "credentials" : typeof crossOrigin === "string" ? "anonymous" : "default";
     if (this.connect[bucket].has(href)) return;
     this.connect[bucket].add(href);
+    if (this.intoHeader("preconnects", `<${headerHref(href)}>; rel=preconnect${typeof crossOrigin === "string" ? `; crossorigin="${headerParam(crossOrigin)}"` : ""}`)) return;
     this.preconnects.push({ html: this.link({ rel: "preconnect", href, crossOrigin }) });
   }
 
@@ -84,6 +97,7 @@ export class Resources {
         const key = options?.imageSrcSet ? options.imageSrcSet + "\n" + (options.imageSizes || "") : href;
         if (this.image.has(key)) return;
         this.image.set(key, NO_CREDS);
+        if (typeof options?.imageSrcSet !== "string" && options?.fetchPriority === "high" && this.intoHeader("highImagePreloads", preloadHeader(href, as, options))) return;
         const chunk = { html: this.link({ rel: "preload", href: options?.imageSrcSet ? undefined : href, as, ...options }) };
         if (options?.fetchPriority === "high") this.highImages.push(chunk);
         else {
@@ -113,6 +127,7 @@ export class Resources {
         if (!seen) this.unknown.set(as, (seen = new Set()));
         if (seen.has(href)) return;
         seen.add(href);
+        if (as === "font" && this.intoHeader("fontPreloads", preloadHeader(href, as, options))) return;
         const chunk = { html: this.link({ rel: "preload", href, as, ...options }) };
         (as === "font" ? this.fontPreloads : this.bulk).push(chunk);
       }
@@ -259,6 +274,26 @@ export class Resources {
     if (this.image.has(key)) return;
     this.image.set(key, NO_CREDS);
     const co = props.crossOrigin;
+    const h = this.headers;
+    if (
+      h &&
+      typeof props.srcSet !== "string" &&
+      (props.fetchPriority === "high" || h.highImagePreloads.length < 500) &&
+      this.intoHeader(
+        "highImagePreloads",
+        preloadHeader(src, "image", {
+          imageSrcSet: props.srcSet,
+          imageSizes: props.sizes,
+          crossOrigin: typeof co === "string" ? (co === "use-credentials" ? co : "") : undefined,
+          integrity: props.integrity,
+          nonce: props.nonce,
+          type: props.type,
+          fetchPriority: props.fetchPriority,
+          referrerPolicy: props.referrerPolicy,
+        }),
+      )
+    )
+      return;
     const chunk = {
       html: this.link({
         rel: "preload",
@@ -278,6 +313,26 @@ export class Resources {
       this.bulk.push(chunk);
       this.preloads.images.set(key, chunk);
     }
+  }
+
+  /** The early Link header, once (React's emitEarlyPreloads); with the shell still waiting, its stylesheets too. */
+  takeHeaders(shellComplete: boolean): Record<string, string> | null {
+    const h = this.headers;
+    if (!h) return null;
+    this.headers = null;
+    let link = h.preconnects;
+    if (h.fontPreloads) link = link ? link + ", " + h.fontPreloads : h.fontPreloads;
+    if (h.highImagePreloads) link = link ? link + ", " + h.highImagePreloads : h.highImagePreloads;
+    if (!shellComplete)
+      out: for (const q of this.styles.values())
+        for (const sheet of q.sheets.values()) {
+          if (h.remaining <= 0) break out;
+          const p = sheet.props;
+          const header = preloadHeader(p.href, "style", { crossOrigin: p.crossOrigin, integrity: p.integrity, nonce: p.nonce, type: p.type, fetchPriority: p.fetchPriority, referrerPolicy: p.referrerPolicy, media: p.media });
+          if ((h.remaining -= header.length + 2) < 0) break out;
+          link = link ? link + ", " + header : header;
+        }
+    return link ? { Link: link } : {};
   }
 
   // ------------------------------------------------------------ writing
@@ -393,4 +448,12 @@ const take = (list: string[]) => {
   list.length = 0;
   return out;
 };
+/** A Link header's URL and quoted values, escaped as React escapes them. */
+const headerHref = (href: string) => String(href).replace(/[<>\n\r]/g, (c) => ({ "<": "%3C", ">": "%3E", "\n": "%0A", "\r": "%0D" })[c]!);
+const headerParam = (v: string) => String(v).replace(/["';,\n\r]/g, (c) => ({ '"': "%22", "'": "%27", ";": "%3B", ",": "%2C", "\n": "%0A", "\r": "%0D" })[c]!);
+function preloadHeader(href: string, as: string, params?: any) {
+  let out = `<${headerHref(href)}>; rel=preload; as="${headerParam(as)}"`;
+  for (const k in params ?? {}) if (typeof params[k] === "string") out += `; ${k.toLowerCase()}="${headerParam(params[k])}"`;
+  return out;
+}
 const escapeAttr = (s: string) => String(s).replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#39" }[c]};`);
