@@ -1,7 +1,7 @@
 // Form fields as React DOM handles them (ported from its ReactDOMInput, ReactDOMTextarea and ReactDOMSelect): the
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
-import { setProp } from "./props.ts";
+import { isEventProp, setProp } from "./props.ts";
 import { checkControlled, checkControlledSwitch, dev, ownerName, warn } from "./warnings.ts";
 import { validateProps } from "./validate-props.ts";
 import { fieldString } from "./coercion.ts";
@@ -242,7 +242,8 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean, hyd
   const own = OWN[tag]!;
   checkControlled(tag, props);
   validateProps(tag, props, true);
-  for (const k in props) if (!own.has(k) && props[k] != null) setProp(el, k, props[k], undefined, svg);
+  // Taken over from the server: only its listeners (its attributes are left as the server wrote them).
+  for (const k in props) if (!own.has(k) && props[k] != null && (!hydrating || isEventProp(k))) setProp(el, k, props[k], undefined, svg);
   if (tag === "input") initInput(el as HTMLInputElement, props, hydrating);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
   else if (tag === "select") initSelect(el as HTMLSelectElement, props);

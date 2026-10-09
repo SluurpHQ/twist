@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3605 pass, 419 fail, 314 skipped (gated off for stable React 19).
+3614 pass, 410 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -33,7 +33,7 @@
 | react-dom/ReactDOMFiberAsync-test.js | 14 | 4 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 121 | 52 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 122 | 51 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 14 | 7 | 0 |  |
@@ -41,7 +41,7 @@
 | react-dom/ReactDOMFizzStatic-test.js | 4 | 2 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 14 | 3 | 0 |  |
-| react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 7 | 5 | 0 |  |
+| react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 11 | 1 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
 | react-dom/ReactDOMFloat-test.js | 115 | 25 | 3 |  |
@@ -80,12 +80,12 @@
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 51 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMserverIntegrationProgress-test.js | 5 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationReconnecting-test.js | 52 | 2 | 0 |  |
+| react-dom/ReactDOMServerIntegrationReconnecting-test.js | 54 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSelect-test.js | 64 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationTextarea-test.js | 40 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 72 | 5 | 0 |  |
+| react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 73 | 4 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 18 | 2 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 42 | 15 | 10 |  |
@@ -94,7 +94,7 @@
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 6 | 3 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMSingletonComponents-test.js | 7 | 6 | 9 |  |
+| react-dom/ReactDOMSingletonComponents-test.js | 8 | 5 | 9 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 2 | 0 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |

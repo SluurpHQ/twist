@@ -314,6 +314,18 @@ export function setProps(el: Element, next: any, prev: any, svg: boolean) {
   if (html !== (prev?.dangerouslySetInnerHTML?.__html)) (el as HTMLElement).innerHTML = html ?? "";
 }
 
+/** An event prop React listens for (onClick, onClickCapture…), as opposed to an attribute. */
+export const isEventProp = (k: string) => k.length > 2 && k[0] === "o" && k[1] === "n" && k[2] === k[2]!.toUpperCase() && k[2] !== k[2]!.toLowerCase();
+
+/**
+ * A server element taken over: its listeners added, its attributes left as the server wrote them (React does not
+ * patch them while hydrating; a difference is told, not fixed).
+ */
+export function hydrateProps(el: Element, props: any, svg: boolean) {
+  validateProps(el.localName, props, true);
+  for (const k in props) if (isEventProp(k)) setProp(el, k, props[k], undefined, svg);
+}
+
 /** `defaultValue` and `defaultChecked`, set once when the element is made. */
 export function setDefaults(el: Element, props: any) {
   if (props.defaultValue !== undefined && props.value === undefined) {

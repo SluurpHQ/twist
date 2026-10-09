@@ -4,7 +4,7 @@
 import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
-import { MATH_NS, SVG_NS, styleText, eventOf, noop, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
+import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
@@ -12,7 +12,7 @@ import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn } from "./warnings.ts";
-import { assertValidProps, checkTagName } from "./attributes.ts";
+import { assertValidProps, checkTagName, customTag } from "./attributes.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
 
@@ -1363,9 +1363,12 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       checkTextNesting(text, around?.current?.tag, around?.implicitRoot ?? false);
     }
     // A server text node holds this one and maybe the next (adjacent text runs together in HTML): split off.
-    const had = hydrating && text !== "" ? (claim(host, (n) => n.nodeType === 3 && (n as Text).data.startsWith(text)) as Text | null) : null;
+    // In an element that suppresses hydration warnings: the server's text kept as it is (React tells nothing and does
+    // not fix it).
+    const suppressed = hydrating && parent.kind === HOST && parent.props?.suppressHydrationWarning === true;
+    const had = hydrating && text !== "" ? (claim(host, (n) => n.nodeType === 3 && (suppressed || (n as Text).data.startsWith(text))) as Text | null) : null;
     if (had) {
-      if (had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
+      if (!suppressed && had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
       f.dom = had;
     } else {
       if (hydrating && text !== "") {
@@ -1469,8 +1472,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
         hostOwner = wasOwner;
       }
     } else {
-      setProps(el, props, null, ns === SVG_NS);
-      setDefaults(el, props);
+      // Taken over from the server: listeners only (a custom element's properties are still set: the server could not).
+      if (server && hydrating && !customTag(type)) hydrateProps(el, props, ns === SVG_NS);
+      else setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
       // A noscript's children are not drawn on the client (React leaves them to the server).
       if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), el, null);
     }
