@@ -483,6 +483,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       );
     return renderOutput(renderFunction(type, props), ctx, hooks);
   }
+  if (type == null) throw invalidType(type);
   switch (type.$$typeof) {
     case CONTEXT: {
       const had = ctx.values.has(type);

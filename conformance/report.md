@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3479 pass, 545 fail, 314 skipped (gated off for stable React 19).
+3487 pass, 537 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -70,7 +70,7 @@
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 318 | 18 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 326 | 10 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 140 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 35 | 0 | 0 |  |

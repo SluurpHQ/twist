@@ -70,6 +70,23 @@ GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframe
     return copy;
   };
 }
+// The HTML parser's input preprocessing (CR and CRLF become LF) and its NULLs (U+FFFD in attribute values, dropped
+// from text), which happy-dom skips.
+const asParsed = (html: string) =>
+  html
+    .replace(/\r\n?/g, "\n")
+    .replace(/="[^"]*"|='[^']*'/g, (m) => m.replace(/\0/g, "�"))
+    .replace(/\0/g, "");
+for (const [proto, key] of [[Element.prototype, "innerHTML"], [Element.prototype, "outerHTML"], [(globalThis as any).ShadowRoot?.prototype, "innerHTML"]] as const) {
+  const d = proto && Object.getOwnPropertyDescriptor(proto, key);
+  if (!d?.set) continue;
+  Object.defineProperty(proto, key, {
+    ...d,
+    set(this: any, html: string) {
+      d.set!.call(this, typeof html === "string" ? asParsed(html) : html);
+    },
+  });
+}
 if (!("nonce" in HTMLElement.prototype)) {
   for (const proto of [HTMLElement.prototype, (globalThis as any).SVGElement?.prototype].filter(Boolean))
     Object.defineProperty(proto, "nonce", {
