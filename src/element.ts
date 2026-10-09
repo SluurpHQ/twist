@@ -221,6 +221,10 @@ export function invalidType(type: any): Error {
 
 /** React's error for an object rendered as a child. */
 export function objectChild(c: any): Error {
+  if (c?.$$typeof === Symbol.for("react.element"))
+    return new Error(
+      'A React Element from an older version of React was rendered. This is not supported. It can happen if:\n- Multiple copies of the "react" package is used.\n- A library pre-bundled an old copy of "react" or "react/jsx-runtime".\n- A compiler tries to "inline" JSX instead of using the runtime.',
+    );
   const shown = Object.prototype.toString.call(c) === "[object Object]" ? `object with keys {${Object.keys(c).join(", ")}}` : String(c);
   return new Error(`Objects are not valid as a React child (found: ${shown}). If you meant to render a collection of children, use an array instead.`);
 }

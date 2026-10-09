@@ -521,7 +521,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     const items = Array.isArray(c) ? null : iterated(c);
     if (items) checkKeys((c = items), parent.type);
     // A plain object is no child (an element, text, an array or an iterable is).
-    if (c && typeof c === "object" && !Array.isArray(c) && !c.$$typeof) throw objectChild(c);
+    if (c && typeof c === "object" && !Array.isArray(c) && (!c.$$typeof || c.$$typeof === Symbol.for("react.element"))) throw objectChild(c);
     // A function or a symbol: no node, and React's warning (once per parent).
     if (typeof c === "function" || typeof c === "symbol") {
       if (dev()) invalidChild(parent, c);

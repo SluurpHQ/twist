@@ -68,6 +68,12 @@ function promiseExpectations(code: string): string {
       at = j;
       continue;
     }
+    // A function held in a variable: called, as Jest does with one.
+    if (/^\s*\.\s*(rejects|resolves)\b/.test(code.slice(j + 1)) && /^\s*[\w$]+\s*$/.test(arg)) {
+      out += code.slice(at, open + 1) + "(typeof " + arg + " === \"function\" ? " + arg + "() : " + arg + ")";
+      at = j;
+      continue;
+    }
     // An inline snapshot: through setup.ts, which prints DOM nodes as Jest's DOM printer does.
     const snap = /^\s*\.\s*toMatchInlineSnapshot\(/.exec(code.slice(j + 1));
     if (snap) {

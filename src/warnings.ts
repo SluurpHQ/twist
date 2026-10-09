@@ -112,7 +112,7 @@ export function checkControlled(tag: string, props: any) {
       warnOnce("You provided a `checked` prop to a form field without an `onChange` handler. This will render a read-only field. If the field should be mutable use `defaultChecked`. Otherwise, set either `onChange` or `readOnly`.");
     }
   }
-  if (tag === "textarea" && props.children != null && props.value == null) warnOnce("Use the `defaultValue` or `value` props instead of setting children on <textarea>.");
+  if (tag === "textarea" && props.children != null && props.value == null) warn("Use the `defaultValue` or `value` props instead of setting children on <textarea>.");
 }
 
 /** A field switching between controlled and uncontrolled across an update. */

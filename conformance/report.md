@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3737 pass, 248 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3740 pass, 245 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -13,7 +13,7 @@
 | react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactComponent-test.js | 17 | 2 | 2 |  |
+| react-dom/ReactComponent-test.js | 18 | 1 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 23 | 3 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 39 | 1 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
@@ -21,7 +21,7 @@
 | react-dom/ReactCompositeComponentState-test.js | 4 | 4 | 1 |  |
 | react-dom/ReactDOM-test.js | 11 | 5 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 3 | 4 | 1 |  |
-| react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
+| react-dom/ReactDOMAttribute-test.js | 12 | 1 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMComponent-test.js | 161 | 3 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
@@ -99,7 +99,7 @@
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 2 | 0 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
-| react-dom/ReactDOMTextarea-test.js | 51 | 2 | 0 |  |
+| react-dom/ReactDOMTextarea-test.js | 52 | 1 | 0 |  |
 | react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 10 | 2 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 14 | 0 | 12 |  |
