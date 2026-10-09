@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2966 pass, 1058 fail, 314 skipped (gated off for stable React 19).
+3000 pass, 1024 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -44,7 +44,7 @@
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 7 | 5 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
-| react-dom/ReactDOMFloat-test.js | 42 | 98 | 3 |  |
+| react-dom/ReactDOMFloat-test.js | 72 | 68 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 17 | 28 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 43 | 46 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 7 | 3 | 0 |  |
@@ -94,7 +94,7 @@
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 6 | 3 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMSingletonComponents-test.js | 3 | 10 | 9 |  |
+| react-dom/ReactDOMSingletonComponents-test.js | 6 | 7 | 9 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 1 | 1 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
@@ -134,7 +134,7 @@
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
 | react-dom/refs-test.js | 9 | 3 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
-| react-dom/validateDOMNesting-test.js | 2 | 1 | 0 |  |
+| react-dom/validateDOMNesting-test.js | 3 | 0 | 0 |  |
 | react/createReactClassIntegration-test.js | 17 | 9 | 2 |  |
 | react/forwardRef-test.internal.js | 6 | 0 | 0 |  |
 | react/forwardRef-test.js | 16 | 3 | 0 |  |

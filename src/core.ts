@@ -11,10 +11,13 @@ import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from ".
 import { type Preview, tryTransition } from "./dryrun.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, warn } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
+import { HOISTABLE, type Resource, acquireResource, claimHoistable, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable } from "./float-client.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
 const TEXT = 1, HOST = 2, COMP = 3, FRAG = 4, PROVIDER = 5, PORTAL_F = 6, ROOT = 7;
+/** A <title>, <meta> or <link> kept in <head>, or a shared resource (stylesheet, <style>, async script): not in its place. */
+const HOIST = 8;
 
 export type Fiber = {
   kind: number;
@@ -601,6 +604,141 @@ function serverCursor(host: Node): Node | null {
   hydrating!.set(host, n);
   return n;
 }
+/** Where React hydrates loosely (skipping what does not match): a root's container, or <html>, <head>, <body>. */
+const rootContainers = new WeakSet<Node>();
+const rootOrSingleton = (host: Node) => rootContainers.has(host) || !!(host as any).__fiber?.singleton || host.nodeType === 9;
+/** A server node Float owns (a resource or a node Float made), never a fiber's. */
+function isResourceNode(n: Node) {
+  if (n.nodeType !== 1) return false;
+  const el = n as Element;
+  if ((el as any)[HOISTABLE]) return true;
+  switch (el.localName) {
+    case "link":
+      return el.getAttribute("rel") === "stylesheet" && el.hasAttribute("data-precedence");
+    case "style":
+      return el.hasAttribute("data-precedence");
+  }
+  return false;
+}
+/** A document's containers emptied as React's clearContainerSparingly does: scripts, styles and stylesheets stay. */
+function clearSparingly(container: Node) {
+  let n = container.firstChild;
+  if (n && n.nodeType === 10) n = n.nextSibling;
+  while (n) {
+    const node = n;
+    n = n.nextSibling;
+    switch (node.nodeName) {
+      case "HTML":
+      case "HEAD":
+      case "BODY":
+        clearSparingly(node);
+        continue;
+      case "SCRIPT":
+      case "STYLE":
+        continue;
+      case "LINK":
+        if ((node as HTMLLinkElement).rel?.toLowerCase() === "stylesheet") continue;
+    }
+    container.removeChild(node);
+  }
+}
+
+/** Whether an element renders inside a container (not directly in the document or <html>): React's containerTagInScope. */
+function inContainer(parent: Fiber): boolean {
+  for (let p: Fiber | null = parent; p; p = p.parent) {
+    if (p.kind === HOST) return p.type !== "html";
+    if (p.kind === ROOT || p.kind === PORTAL_F) {
+      const n = p.dom as Node;
+      return n.nodeType !== 9 && (n as Element).localName !== "html";
+    }
+  }
+  return false;
+}
+
+/** A hoistable or resource fiber: its element found or made, and put in place, when the render commits. */
+function mountHoist(f: Fiber, host: Node) {
+  const root = hoistableRoot(host);
+  const resource = getResource(root, f.type, f.props);
+  (f as any).resource = resource;
+  (f as any).hoistRoot = root;
+  layoutQueue.push(() => {
+    if (f.dead) return;
+    f.dom = resource ? acquireResource(root, resource, f.props) : placeHoistable(root, f.type, f.props);
+    if (f.dom && !resource) hide(f.dom, "__fiber", f);
+    if (f.props.ref != null) setRef(f, f.props.ref, f.dom);
+  });
+}
+
+/** React's hydrateHoistable: the document's matching <title>, <meta> or <link> taken over, or a new one into <head>. */
+function placeHoistable(root: Document | ShadowRoot, type: string, props: any): Element {
+  const d: Document = (root as any).ownerDocument || root;
+  let el: Element | null = null;
+  if (type === "title") {
+    const t = d.getElementsByTagName("title")[0];
+    if (t && !(t as any)[HOISTABLE] && !(t as any).__fiber && t.namespaceURI !== SVG_NS && !t.hasAttribute("itemprop")) el = t;
+    else {
+      el = d.createElement("title");
+      d.head.insertBefore(el, d.querySelector("head > title"));
+    }
+    setProps(el, props, null, false);
+    titleText(el, props.children);
+  } else {
+    el = claimHoistable(d, type, props);
+    if (!el) {
+      el = d.createElement(type);
+      setProps(el, props, null, false);
+      mountHoistable(root, type, el);
+    }
+  }
+  markHoistable(el);
+  return el;
+}
+
+/** A <title>'s text: its one child as a string (React keeps a title to text). */
+function titleText(el: Element, children: any) {
+  const c = Array.isArray(children) ? (children.length < 2 ? children[0] : null) : children;
+  const text = typeof c === "string" || typeof c === "number" || typeof c === "bigint" ? String(c) : c && typeof c === "object" && c.toString !== Object.prototype.toString ? String(c) : "";
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function updateHoist(f: Fiber, props: any) {
+  const prev = f.props;
+  if (prev === props) return;
+  const root = (f as any).hoistRoot as Document | ShadowRoot;
+  const was = (f as any).resource as Resource | null;
+  const next = getResource(root, f.type, props);
+  f.props = props;
+  if (was !== next) {
+    // Another resource, or a hoistable that becomes one (or the other way): let go of the old, take the new.
+    (f as any).resource = next;
+    const old = f.dom;
+    layoutQueue.push(() => {
+      if (f.dead) return;
+      if (was) was.count--;
+      else old?.parentNode?.removeChild(old);
+      f.dom = next ? acquireResource(root, next, props) : placeHoistable(root, f.type, props);
+    });
+  } else if (!next) {
+    layoutQueue.push(() => {
+      if (f.dead || !f.dom) return;
+      setProps(f.dom as Element, props, prev, false);
+      if (f.type === "title") titleText(f.dom as Element, props.children);
+    });
+  }
+  if (prev.ref !== props.ref)
+    layoutQueue.push(() => {
+      if (prev.ref != null) clearRef(f, prev.ref);
+      if (props.ref != null && !f.dead) setRef(f, props.ref, f.dom);
+    });
+}
+
+/** A hoistable taken out of <head>; a resource kept (it may be shared), one user fewer. */
+function releaseHoist(f: Fiber) {
+  const r = (f as any).resource as Resource | null;
+  if (r) r.count--;
+  else f.dom?.parentNode?.removeChild(f.dom);
+}
+
 /** The document's own <html>, <head> or <body> for `type` (made if the document has none), or null. */
 function singleton(host: Node, type: string): Element | null {
   if (type !== "html" && type !== "head" && type !== "body") return null;
@@ -628,7 +766,13 @@ let hydrationWaits: PromiseLike<any> | null = null;
 /** A server node taken for a fiber: the next one, if it is the same kind of thing. */
 function claim(host: Node, match: (n: Node) => boolean): Node | null {
   const first = nextServerNode(host, true);
-  const n = first && match(first) ? first : nextServerNode(host);
+  let n = first && match(first) && !isResourceNode(first) ? first : nextServerNode(host);
+  if (n && (!match(n) || isResourceNode(n)) && rootOrSingleton(host)) {
+    const limit = regionIn(host)?.end;
+    let m: Node | null = n.nextSibling;
+    while (m && m !== limit && (m.nodeType === 8 || !match(m) || isResourceNode(m))) m = m.nextSibling;
+    n = m === limit ? null : m;
+  }
   if (!n || !match(n)) return null;
   hydrating!.set(host, n.nextSibling);
   return n;
@@ -718,12 +862,17 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       checkNesting(type, around, (tag) => behindComponents(f, tag));
       f.nesting = ancestorsWith(around, type);
     }
+    if (ns !== MATH_NS && isHoistable(type, props, ns === SVG_NS, inContainer(parent), warn)) {
+      f.kind = HOIST;
+      mountHoist(f, host);
+      return f;
+    }
     // <html>, <head> and <body> are the document's own (React's singletons), wherever they are rendered.
     const single = !ns ? singleton(host, type) : null;
     if (single) (f as any).singleton = true;
     // Taken over while hydrating: what follows it in its parent comes next.
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
-    if (single && !hydrating) for (const c of [...single.childNodes]) if (type !== "html") single.removeChild(c);
+    if (single && !hydrating && type !== "html") clearSparingly(single);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null);
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
@@ -861,6 +1010,7 @@ function update(f: Fiber, c: any) {
     return;
   }
   const props = c.props;
+  if (f.kind === HOIST) return updateHoist(f, props);
   if (f.kind === HOST) {
     const prev = f.props;
     if (prev === props) return;
@@ -968,6 +1118,11 @@ function unmount(f: Fiber, removeDom: boolean) {
     });
   } else if (f.kind === HOST && f.props.ref != null) {
     later(() => clearRef(f, f.props.ref));
+  } else if (f.kind === HOIST) {
+    later(() => {
+      if (f.props.ref != null) clearRef(f, f.props.ref);
+      releaseHoist(f);
+    });
   } else if (f.kind === FRAG && (f as any).fragment && f.props?.ref != null) {
     later(() => clearRef(f, f.props.ref));
   }
@@ -2013,6 +2168,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
     }
   }
   (container as any).__root = true;
+  rootContainers.add(container);
   let unmounted = false;
   const state: RootState = { ids: 0, container };
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
@@ -2091,7 +2247,10 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       const hydrate = first && hydrating_;
       if (first) {
         first = false;
-        if (!hydrate) (container as Element).replaceChildren?.();
+        if (!hydrate) {
+          if (container.nodeType === 9 || (container as Element).localName === "html") clearSparingly(container);
+          else (container as Element).replaceChildren?.();
+        }
       }
       depth++;
       if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null), (hydrationError = null);
