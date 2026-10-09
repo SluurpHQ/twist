@@ -246,6 +246,8 @@ function hostParentOf(f: Fiber): Node {
 function firstDom(f: Fiber): Node | null {
   if (f.kind === HOST || f.kind === TEXT) return f.dom;
   if (f.kind === PORTAL_F) return null;
+  // A boundary still as the server drew it: its start comment.
+  if ((f as any).dehydrated && (f as any).region) return (f as any).region.start;
   for (const c of f.children) {
     const d = firstDom(c);
     if (d) return d;
@@ -282,7 +284,13 @@ function domNodes(f: Fiber, out: Node[] = []): Node[] {
   // A singleton stays where the document has it: not moved or removed with its parent's nodes.
   if ((f as any).singleton) return out;
   if (f.kind === HOST || f.kind === TEXT) out.push(f.dom);
-  else if (f.kind !== PORTAL_F) for (const c of f.children) domNodes(c, out);
+  else if ((f as any).dehydrated && (f as any).region) {
+    const { start, end } = (f as any).region;
+    for (let n: Node | null = start; n; n = n.nextSibling) {
+      out.push(n);
+      if (n === end) break;
+    }
+  } else if (f.kind !== PORTAL_F) for (const c of f.children) domNodes(c, out);
   return out;
 }
 
@@ -1033,7 +1041,11 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     for (const n of r.made) n.parentNode?.removeChild(n);
     layoutQueue.push(() => withFiber(at, () => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" })));
     drawFresh(f, host, removeRegion(region));
+    return;
   }
+  // Hydrated: the root's onHydrated told, with the boundary's start comment (React's hydration callbacks).
+  const onHydrated = (f.root as any).onHydrated;
+  if (typeof onHydrated === "function") layoutQueue.push(() => onHydrated(region.start));
 }
 
 /** A boundary the server gave to the client: reported with the server's reason (in development) and digest. */
@@ -1083,6 +1095,14 @@ function setDehydrated(f: Fiber, on: boolean) {
   if (on && !was) countDehydrated(1);
   else if (!on && was) countDehydrated(-1);
   if (start) start[DEHYDRATED] = on;
+}
+
+/** A dehydrated boundary let go (deleted, or drawn on the client instead): the root's onDeleted told, in the commit. */
+function tellDeleted(f: Fiber) {
+  const onDeleted = (f.root as any).onDeleted;
+  if (typeof onDeleted !== "function") return;
+  const start = (f as any).region.start;
+  depth > 0 && !committing ? deletions.push(() => onDeleted(start)) : onDeleted(start);
 }
 
 /** A dehydrated boundary hydrated again (its data is there, or its content streamed in). */
@@ -1702,6 +1722,7 @@ function update(f: Fiber, c: any) {
       // suspends), as React does when an update cannot wait for hydration.
       const region = (f as any).region;
       const host = region.start.parentNode;
+      tellDeleted(f);
       const after = removeRegion(region);
       (f as any).region = undefined;
       setDehydrated(f, false);
@@ -1741,8 +1762,9 @@ function unmount(f: Fiber, removeDom: boolean) {
     if (el.onclick === noop) el.onclick = null;
   }
   // A boundary still as the server drew it: its markup goes with it.
-  if (removeDom && (f as any).dehydrated && (f as any).region) {
-    removeRegion((f as any).region);
+  if ((f as any).dehydrated && (f as any).region) {
+    tellDeleted(f);
+    if (removeDom) removeRegion((f as any).region);
     setDehydrated(f, false);
   }
   // A host or text node going from under fragment refs: they let go of it (listeners, observers) in the commit.
@@ -3256,6 +3278,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   state.onUncaughtError = options?.onUncaughtError;
   state.onCaughtError = options?.onCaughtError;
   (state as any).onRecoverable = options?.onRecoverableError;
+  (state as any).onHydrated = options?.onHydrated;
+  (state as any).onDeleted = options?.onDeleted;
   let first = true;
   // Renders of this root started while it is already rendering or committing (componentDidMount rendering the
   // root again): past React's limit it is a loop, thrown as React throws it.
