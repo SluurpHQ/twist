@@ -277,13 +277,25 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // In order, back to front: each node before the one after it, moved only when it is not already there.
   // Taking over server markup, nodes are claimed or made in place: nothing to move.
   if (hydrating) return;
+  // What moves (React's lastPlacedIndex): new children, and kept ones now before a child that was after them; the
+  // others stay where they are (other nodes may sit between them, as a sibling portal's in the same container).
+  const oldIndex = new Map<Fiber, number>();
+  old.forEach((f, idx) => oldIndex.set(f, idx));
+  const placed = new Set<Fiber>();
+  let lastPlaced = -1;
+  for (const f of next) {
+    const oi = oldIndex.get(f);
+    if (oi === undefined || oi < lastPlaced) placed.add(f);
+    else lastPlaced = oi;
+  }
   const into = domParent(host);
   let cursor = before;
   for (let j = next.length - 1; j >= 0; j--) {
-    const nodes = domNodes(next[j]!);
+    const f = next[j]!;
+    const nodes = domNodes(f);
     for (let k = nodes.length - 1; k >= 0; k--) {
       const n = nodes[k]!;
-      if (n.parentNode !== into || pastComments(n.nextSibling) !== cursor) into.insertBefore(n, cursor);
+      if (n.parentNode !== into || (placed.has(f) && pastComments(n.nextSibling) !== cursor)) into.insertBefore(n, cursor);
       cursor = n;
     }
   }
@@ -2292,6 +2304,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
   addContainer(container, state);
   state.top = top;
+  // The container finds its root fiber (React's container key), as an element finds its own.
+  hide(container, "__rootFiber", top);
   state.onUncaughtError = options?.onUncaughtError;
   state.onCaughtError = options?.onCaughtError;
   (state as any).onRecoverable = options?.onRecoverableError;

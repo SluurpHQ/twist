@@ -57,7 +57,10 @@ function siblings(f: FNode): [FNode | null, FNode | null] {
 }
 /** The fiber a DOM node belongs to (its element's, or the nearest element's above it). */
 function fiberOfNode(node: any): FNode | null {
-  for (let n = node; n; n = n.parentNode) if (n.__fiber) return n.__fiber;
+  for (let n = node; n; n = n.parentNode) {
+    if (n.__fiber) return n.__fiber;
+    if (n.__rootFiber) return n.__rootFiber;
+  }
   return null;
 }
 
@@ -72,7 +75,9 @@ function scheduleUnobserve(inst: FragmentInstance, observer: any, node: Element)
   pendingUnobserves.push({ inst, observer, node });
   if (unobserveScheduled) return;
   unobserveScheduled = true;
-  const after = (fn: () => void) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => setTimeout(fn, 0)) : setTimeout(fn, 0));
+  // After the next paint: two animation frames, as React's requestPostPaintCallback.
+  const raf = (globalThis as any).requestAnimationFrame;
+  const after = (fn: () => void) => (typeof raf === "function" ? raf(() => raf(fn)) : setTimeout(fn, 0));
   after(() => {
     unobserveScheduled = false;
     const list = pendingUnobserves;
@@ -320,15 +325,8 @@ function validPosition(pos: number, frag: FNode, firstChild: FNode, lastChild: F
     for (let f = otherFiber; f; f = f.parent) if (f === frag) return true;
     return false;
   }
-  if (pos & N.DOCUMENT_POSITION_CONTAINS) {
-    if (!otherFiber) {
-      const d = (other as any).ownerDocument;
-      return other === d || other === d?.documentElement || other === d?.body;
-    }
-    const parent = parentHost(frag);
-    for (let f: FNode | null = frag; f; f = f.parent) if ((f.kind === K.HOST || f.kind === K.ROOT) && f === parent) return true;
-    return false;
-  }
+  // Something holding the fragment: an ancestor in the tree, the root container, or anything above it.
+  if (pos & N.DOCUMENT_POSITION_CONTAINS) return true;
   if (pos & (N.DOCUMENT_POSITION_PRECEDING | N.DOCUMENT_POSITION_FOLLOWING)) {
     if (!otherFiber) return false;
     const boundary = pos & N.DOCUMENT_POSITION_PRECEDING ? firstChild : lastChild;
