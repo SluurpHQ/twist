@@ -221,7 +221,8 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     return listen(el, name, next);
   }
   if ((name === "action" || name === "formAction") && typeof next === "function") return setAction(el, name, next);
-  if (name === "value" || name === "checked" || name === "selected") {
+  // A form field's value is its property; on any other element (progress, li, data…) it is an attribute.
+  if ((name === "value" && /^(INPUT|TEXTAREA|SELECT)$/.test(el.nodeName)) || name === "checked" || name === "selected") {
     // Properties, compared with what is on the element (a person may have changed it since).
     const now = (el as any)[name];
     const want = name === "value" ? (next == null ? "" : String(next)) : !!next;
@@ -235,8 +236,15 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   // React focuses it when it is made; there is no attribute.
   if (name === "autoFocus") return;
   const tag = el.localName;
-  // A custom element takes what it has as a property (React 19).
-  if (tag.includes("-") && name in el && typeof next !== "string") return void ((el as any)[name] = next);
+  // A custom element (React 19's setPropOnCustomElement): what it has as a property is set as one, whatever its
+  // type; anything else an attribute; innerText and textContent are not props.
+  if (tag.includes("-")) {
+    if (name === "innerText" || name === "textContent" || name === "innerHTML") return;
+    if (name in el) return void ((el as any)[name] = next === undefined ? null : next);
+    if (next === true) return el.setAttribute(name, "");
+    if (next == null || next === false || typeof next === "function" || typeof next === "symbol") return el.removeAttribute(name);
+    return el.setAttribute(name === "className" ? "class" : name, String(next));
+  }
   const out = isCustomElement(tag, (el as any).__props) ? customAttribute(tag, name, next) : attribute(tag, name, next, svg);
   if (!out) return;
   const [attr, value] = out;

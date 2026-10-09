@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-3112 pass, 912 fail, 314 skipped (gated off for stable React 19).
+3130 pass, 894 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 15 | 0 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 37 | 12 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 40 | 9 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
@@ -61,10 +61,10 @@
 | react-dom/ReactDOMLegacyFloat-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMNativeEventHeuristic-test.js | 5 | 3 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMOption-test.js | 9 | 3 | 0 |  |
+| react-dom/ReactDOMOption-test.js | 10 | 2 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 22 | 5 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
-| react-dom/ReactDOMSelect-test.js | 35 | 25 | 1 |  |
+| react-dom/ReactDOMSelect-test.js | 47 | 13 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 538 | 12 | 0 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
@@ -79,7 +79,7 @@
 | react-dom/ReactDOMServerIntegrationModes-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 51 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 5 | 5 | 0 |  |
-| react-dom/ReactDOMserverIntegrationProgress-test.js | 3 | 2 | 0 |  |
+| react-dom/ReactDOMserverIntegrationProgress-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationReconnecting-test.js | 52 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSelect-test.js | 64 | 7 | 0 |  |
