@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-3296 pass, 728 fail, 314 skipped (gated off for stable React 19).
+3298 pass, 726 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 15 | 0 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 40 | 9 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 41 | 8 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
@@ -64,7 +64,7 @@
 | react-dom/ReactDOMOption-test.js | 10 | 2 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 22 | 5 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
-| react-dom/ReactDOMSelect-test.js | 53 | 7 | 1 |  |
+| react-dom/ReactDOMSelect-test.js | 54 | 6 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 538 | 12 | 0 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |

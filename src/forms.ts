@@ -174,18 +174,52 @@ function updateSelect(node: HTMLSelectElement, p: any, wasMultiple: any) {
 // ---------------------------------------------------------------- value tracking
 
 /** What a field holds now, as React's inputValueTracking compares it. */
-const currentOf = (el: any) => (el.type === "checkbox" || el.type === "radio" ? String(el.checked) : String(el.value));
+const isCheckable = (el: any) => el.nodeName === "INPUT" && (el.type === "checkbox" || el.type === "radio");
+const currentOf = (el: any) => (isCheckable(el) ? String(el.checked) : String(el.value));
 
-/** The field's value noted as known: set by us, so no change to report. */
+/**
+ * React's value tracker (`_valueTracker`, which testing libraries use too): the value React last knew. Code setting
+ * `value` or `checked` on the element updates it (that is no change by the person); what a person types does not.
+ */
+function trackValueOnNode(node: any, field: string, current: string) {
+  const d = Object.getOwnPropertyDescriptor(node.constructor.prototype, field);
+  if (Object.prototype.hasOwnProperty.call(node, field) || !d || typeof d.get !== "function" || typeof d.set !== "function") return null;
+  const { get, set } = d;
+  Object.defineProperty(node, field, {
+    configurable: true,
+    enumerable: d.enumerable,
+    get() {
+      return get.call(this);
+    },
+    set(v: any) {
+      current = "" + v;
+      set.call(this, v);
+    },
+  });
+  return {
+    getValue: () => current,
+    setValue: (v: any) => void (current = "" + v),
+    stopTracking() {
+      node._valueTracker = null;
+      delete node[field];
+    },
+  };
+}
+
+/** The field's value noted as known (the tracker made the first time): set by us, so no change to report. */
 export function track(el: Element) {
-  (el as any).__tracked = currentOf(el);
+  const node = el as any;
+  if (!node._valueTracker) node._valueTracker = trackValueOnNode(node, isCheckable(node) ? "checked" : "value", currentOf(node));
+  else node._valueTracker.setValue(currentOf(node));
 }
 
 /** Whether the field's value differs from the last one known (and note it): onChange fires only then, as in React. */
 export function valueChanged(el: Element): boolean {
+  const tracker = (el as any)._valueTracker;
+  if (!tracker) return true;
   const now = currentOf(el);
-  if ((el as any).__tracked === now) return false;
-  (el as any).__tracked = now;
+  if (tracker.getValue() === now) return false;
+  tracker.setValue(now);
   return true;
 }
 
