@@ -1,5 +1,6 @@
 // Float in the browser: ReactDOM.preload and friends put their <link>/<script> in the document's <head> once, and
 // stylesheets with a precedence, async scripts and <style href precedence> are shared resources, as React's.
+import { FIBER } from "./warnings.ts";
 import { setProps } from "./props.ts";
 
 const NOT_LOADED = 0, LOADED = 1, ERRORED = 2, SETTLED = 3, INSERTED = 4;
@@ -523,7 +524,7 @@ export function claimHoistable(d: Document, type: string, props: any): Element |
   if (!cache.has(type)) {
     cache.set(type, null);
     for (const node of d.getElementsByTagName(type)) {
-      if ((node as any)[HOISTABLE] || (node as any).__fiber || (type === "link" && node.getAttribute("rel") === "stylesheet") || node.namespaceURI === "http://www.w3.org/2000/svg") continue;
+      if ((node as any)[HOISTABLE] || (node as any)[FIBER] || (type === "link" && node.getAttribute("rel") === "stylesheet") || node.namespaceURI === "http://www.w3.org/2000/svg") continue;
       const k = type + (keyAttr ? node.getAttribute(keyAttr) || "" : "");
       const list = cache.get(k);
       list ? list.push(node) : cache.set(k, [node]);

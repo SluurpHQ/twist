@@ -12,7 +12,7 @@ import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
-import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn } from "./warnings.ts";
+import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
 import { assertValidProps, checkTagName, customTag } from "./attributes.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
@@ -1155,7 +1155,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
   setDehydrated(f, false);
   if (r.mismatch) {
     const error = mismatchError(dev() ? r.diff : null, r.text);
-    const at = r.diff.at ?? f;
+    const at = (r.diff.at as Fiber | null) ?? f;
     for (const c of f.children) unmount(c, false);
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
@@ -1259,7 +1259,7 @@ function serverCursor(host: Node): Node | null {
 }
 /** Where React hydrates loosely (skipping what does not match): a root's container, or <html>, <head>, <body>. */
 const rootContainers = new WeakSet<Node>();
-const rootOrSingleton = (host: Node) => rootContainers.has(host) || !!(host as any).__fiber?.singleton || host.nodeType === 9;
+const rootOrSingleton = (host: Node) => rootContainers.has(host) || !!(host as any)[FIBER]?.singleton || host.nodeType === 9;
 /**
  * In a root or singleton, whether a server element of the right tag is this one: hoisted tags and what scripts or
  * extensions inject are told apart by their telling attributes (React's canHydrateInstance).
@@ -1321,7 +1321,7 @@ function clearSparingly(container: Node, root?: object) {
     const node = n;
     n = n.nextSibling;
     // Drawn by this root already (its nodes placed before the singleton was taken over): kept.
-    if (root && (node as any).__fiber?.root === root && !(node as any).__fiber.dead) continue;
+    if (root && (node as any)[FIBER]?.root === root && !(node as any)[FIBER].dead) continue;
     switch (node.nodeName) {
       case "HTML":
       case "HEAD":
@@ -1375,7 +1375,7 @@ function mountHoist(f: Fiber, host: Node) {
     if (f.dead) return;
     if (!resource && hiddenActivities && insideHidden(f)) return;
     f.dom = resource ? acquireResource(root, resource, f.props) : placeHoistable(root, f.type, f.props);
-    if (f.dom && !resource) hide(f.dom, "__fiber", f);
+    if (f.dom && !resource) (f.dom as any)[FIBER] = f;
     if (f.props.ref != null) setRef(f, f.props.ref, f.dom);
   });
 }
@@ -1386,7 +1386,7 @@ function placeHoistable(root: Document | ShadowRoot, type: string, props: any): 
   let el: Element | null = null;
   if (type === "title") {
     const t = d.getElementsByTagName("title")[0];
-    if (t && !(t as any)[HOISTABLE] && !(t as any).__fiber && t.namespaceURI !== SVG_NS && !t.hasAttribute("itemprop")) el = t;
+    if (t && !(t as any)[HOISTABLE] && !(t as any)[FIBER] && t.namespaceURI !== SVG_NS && !t.hasAttribute("itemprop")) el = t;
     else {
       el = d.createElement("title");
       d.head.insertBefore(el, d.querySelector("head > title"));
@@ -1464,27 +1464,6 @@ function singleton(host: Node, type: string): Element | null {
   return made;
 }
 
-/**
- * Our own fields on a DOM node, kept out of enumeration (snapshot serializers, devtools listing its keys): an
- * accessor on the node's prototype, once, over a symbol field (defineProperty per node is slow, and slows the node).
- */
-const hide = (node: any, key: string, value: any) => {
-  if (!(key in node)) {
-    const proto = Object.getPrototypeOf(node) ?? node;
-    const sym = Symbol.for("sluurp." + key);
-    Object.defineProperty(proto, key, {
-      get() {
-        return this[sym];
-      },
-      set(v) {
-        this[sym] = v;
-      },
-      configurable: true,
-      enumerable: false,
-    });
-  }
-  node[key] = value;
-};
 
 /** What this hydration inserted (not the server's): removed if it is given up. */
 let madeWhileHydrating: Node[] = [];
@@ -1666,8 +1645,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // A customized built-in (is="…") is made as one.
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : type === "script" ? inertScript(docOf(host)) : typeof props.is === "string" ? docOf(host).createElement(type, { is: props.is }) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
-    hide(el, "__fiber", f);
-    hide(el, "__props", null);
+    (el as any)[FIBER] = f;
+    (el as any)[PROPS] = null;
     (f as any).placed = false;
     listenOnElement(el, type);
     if (!server) {
@@ -1678,7 +1657,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (!server && hydrationStopped()) return f;
     // As the server drew it, to compare once the props are applied (and have warned as they do).
     const had = server && dev() && !props.suppressHydrationWarning ? attrsOf(server) : null;
-    (el as any).__props = props;
+    (el as any)[PROPS] = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
       // A select's multiple and size before its options: they decide whether the browser picks the first one.
@@ -1894,7 +1873,7 @@ function update(f: Fiber, c: any) {
     f.props = props;
     const el = f.dom as Element;
     // Its handlers change at commit: an event during the render still reaches the committed ones.
-    insertionQueue.push(() => ((el as any).__props = props));
+    insertionQueue.push(() => ((el as any)[PROPS] = props));
     if (FORM_TAGS.has(f.type) && !f.ns) {
       if (f.type !== "textarea" && f.type !== "input") reconcile(f, toList(props.children), el, null);
       updateForm(el, f.type, props, prev, false);
@@ -3279,7 +3258,7 @@ export const client = {
 
 function effectHook(create: () => any, deps: any[] | undefined, phase: "insertion" | "layout" | "passive") {
   const f = current!;
-  const h = hook(() => ({ deps: undefined as any, cleanup: null as any, first: true }));
+  const h = hook(() => ({ deps: undefined as any, cleanup: null as any, first: true, phase: "passive" as typeof phase, create: create, ranIn: 0 }));
   // Compared with the deps of the effect that ran: a render that never committed (a render-phase pass) sets none.
   if (!h.first && deps && !depsChanged(h.deps, deps)) return;
   h.phase = phase;
@@ -3621,7 +3600,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   addContainer(container, state);
   state.top = top;
   // The container finds its root fiber (React's container key), as an element finds its own.
-  hide(container, "__rootFiber", top);
+  (container as any)[ROOT_FIBER] = top;
   state.onUncaughtError = options?.onUncaughtError;
   state.onCaughtError = options?.onCaughtError;
   (state as any).onRecoverable = options?.onRecoverableError;
@@ -3927,7 +3906,7 @@ const formStatus = (f: Fiber): Sig<any> => ((f as any).formStatus ??= signal(IDL
  * reset once it is done, an error handed to the nearest boundary.
  */
 export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, data: FormData, submitter?: HTMLElement | null) {
-  const f: Fiber | undefined = (form as any).__fiber;
+  const f: Fiber | undefined = (form as any)[FIBER];
   const status = f ? formStatus(f) : null;
   const method = ((submitter as any)?.getAttribute?.("formmethod") ?? form.getAttribute("method") ?? "get").toLowerCase();
   // Drawn after the action has started, as React draws its optimistic pending state.
@@ -3956,7 +3935,7 @@ export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, 
 
 /** A form whose submit handlers started a transition: pending until that transition (and its actions) ends. */
 function formPendingWhile(form: HTMLFormElement, action: any, data: FormData, submitter?: HTMLElement | null) {
-  const f: Fiber | undefined = (form as any).__fiber;
+  const f: Fiber | undefined = (form as any)[FIBER];
   if (!f) return;
   const status = formStatus(f);
   const method = ((submitter as any)?.getAttribute?.("formmethod") ?? form.getAttribute("method") ?? "get").toLowerCase();
@@ -3966,7 +3945,7 @@ function formPendingWhile(form: HTMLFormElement, action: any, data: FormData, su
 
 /** React DOM's requestFormReset: the form reset once the transition it is called in is drawn. */
 export function requestFormReset(form: any) {
-  const f: Fiber | undefined = form?.__fiber;
+  const f: Fiber | undefined = form?.[FIBER];
   if (!f || f.kind !== HOST || f.type !== "form") throw new Error("Invalid form element. requestFormReset must be passed a form that was rendered by React.");
   if (transitioning) return endTransition(() => !f.dead && form.reset());
   // Outside one: reset now, as React does with a synchronous update (almost certainly a mistake).

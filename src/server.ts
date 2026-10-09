@@ -1167,7 +1167,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   let held: string | null = null;
   let endHeld = false;
   // chunk: React's progressiveChunkSize; inlined: the bytes of the boundaries written in place so far.
-  const shared = { ids: 0, boundaries: [] as Boundary[], next: 0, chunk: options.progressiveChunkSize ?? 12800, inlined: 0 };
+  const shared = { ids: 0, boundaries: [] as Boundary[], next: 0, chunk: options.progressiveChunkSize ?? 12800, inlined: 0, aborted: undefined as { reason: unknown } | undefined };
   const res = new Resources(writeTag, typeof options.nonce === "object" ? options.nonce?.style : undefined);
   if (typeof options.onHeaders === "function") {
     if (typeof options.maxHeadersLength === "number" && options.maxHeadersLength <= 0)

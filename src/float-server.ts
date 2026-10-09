@@ -399,7 +399,7 @@ export class Resources {
           attrs.hidden = "";
           continue;
         }
-        if (k !== "className" && ((k.length > 2 && (k[0] === "o" || k[0] === "O") && (k[1] === "n" || k[1] === "N")) || !/^[:A-Z_a-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�][:A-Z_a-zÀ-ÖØ-öø-˿Ͱ-ͽͿ-῿‌-‍⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�\-.0-9·̀-ͯ‿-⁀]*$/.test(k)))
+        if (k !== "className" && ((k.length > 2 && (k[0] === "o" || k[0] === "O") && (k[1] === "n" || k[1] === "N")) || !/^[:A-Z_a-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u02ff\u0370-\u037d\u037f-\u1fff\u200c-\u200d\u2070-\u218f\u2c00-\u2fef\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd][:A-Z_a-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u02ff\u0370-\u037d\u037f-\u1fff\u200c-\u200d\u2070-\u218f\u2c00-\u2fef\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd\-.0-9\u00b7\u0300-\u036f\u203f-\u2040]*$/.test(k)))
           continue;
         attrs[k === "className" ? "class" : k.toLowerCase()] = String(v);
       }

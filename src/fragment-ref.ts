@@ -58,8 +58,8 @@ function siblings(f: FNode): [FNode | null, FNode | null] {
 /** The fiber a DOM node belongs to (its element's, or the nearest element's above it). */
 function fiberOfNode(node: any): FNode | null {
   for (let n = node; n; n = n.parentNode) {
-    if (n.__fiber) return n.__fiber;
-    if (n.__rootFiber) return n.__rootFiber;
+    if (n[FIBER]) return n[FIBER];
+    if (n[ROOT_FIBER]) return n[ROOT_FIBER];
   }
   return null;
 }
@@ -402,3 +402,4 @@ export function fragmentsAbove(f: FNode): FragmentInstance[] {
   }
   return out;
 }
+import { FIBER, ROOT_FIBER } from "./warnings.ts";

@@ -2,7 +2,7 @@
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
 import { isEventProp, setProp } from "./props.ts";
-import { checkControlled, checkControlledSwitch, dev, ownerName, warn } from "./warnings.ts";
+import { checkControlled, checkControlledSwitch, dev, ownerName, warn, PROPS } from "./warnings.ts";
 import { validateProps } from "./validate-props.ts";
 import { fieldString } from "./coercion.ts";
 
@@ -270,7 +270,7 @@ export function updateForm(el: Element, tag: string, next: any, prev: any, svg: 
 
 /** After a field's change event: put back what its props say (React's restoreControlledState), radio groups too. */
 export function restoreForm(el: Element) {
-  const props = (el as any).__props;
+  const props = (el as any)[PROPS];
   if (!props) return;
   const tag = el.localName;
   if (tag === "input") {
@@ -281,7 +281,7 @@ export function restoreForm(el: Element) {
       const group = (top as ParentNode).querySelectorAll(`input[name="${CSS.escape("" + props.name)}"][type="radio"]`);
       for (const other of group) {
         if (other === el || (other as HTMLInputElement).form !== (el as HTMLInputElement).form) continue;
-        const theirs = (other as any).__props;
+        const theirs = (other as any)[PROPS];
         if (theirs) updateInput(other as HTMLInputElement, theirs, theirs.defaultValue);
       }
     }

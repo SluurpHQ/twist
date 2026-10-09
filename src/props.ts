@@ -7,7 +7,7 @@ import { configure, delegated, enterLeaveSources, listenAt, want } from "./event
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
 import { valueChanged } from "./forms.ts";
-import { dev, shown, warn } from "./warnings.ts";
+import { dev, shown, warn, PROPS } from "./warnings.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 export const noop = () => {};
@@ -215,7 +215,7 @@ function formActionOf(v: any): any {
 /** A form submitted (after its onSubmit handlers): its action run, as React's form action plugin does. */
 function submitted(e: SubmitEvent, startedTransition: boolean) {
   const form = e.target as HTMLFormElement;
-  const props = (form as any).__props;
+  const props = (form as any)[PROPS];
   if (!props || form.localName !== "form") return;
   // The button that submitted it (some DOMs give the form itself when requestSubmit() had none).
   const submitter = e.submitter && e.submitter !== (form as any) ? e.submitter : null;
@@ -224,7 +224,7 @@ function submitted(e: SubmitEvent, startedTransition: boolean) {
   let act = props.action;
   let by: HTMLElement | null = submitter;
   if (by) {
-    const own = (by as any).__props;
+    const own = (by as any)[PROPS];
     const theirs = own ? formActionOf(own.formAction) : by.getAttribute("formAction");
     if (theirs !== null) (act = theirs), (by = null);
   }
@@ -270,7 +270,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     if (name === "onClick" && next != null) (el as HTMLElement).onclick ??= noop;
     return listen(el, name, next);
   }
-  if ((name === "action" || name === "formAction") && next != null && dev()) checkFormAction(el.localName, name, next, (el as any).__props ?? {});
+  if ((name === "action" || name === "formAction") && next != null && dev()) checkFormAction(el.localName, name, next, (el as any)[PROPS] ?? {});
   if ((name === "action" || name === "formAction") && typeof next === "function") return setAction(el, name, next);
   // A form field's value is its property; on any other element (progress, li, data…) it is an attribute.
   if ((name === "value" && /^(INPUT|TEXTAREA|SELECT)$/.test(el.nodeName)) || name === "checked" || name === "selected") {
@@ -301,7 +301,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     if (next == null || next === false || typeof next === "function" || typeof next === "symbol") return el.removeAttribute(name);
     return el.setAttribute(name === "className" ? "class" : name, String(next));
   }
-  const out = isCustomElement(tag, (el as any).__props) ? customAttribute(tag, name, next) : attribute(tag, name, next, svg);
+  const out = isCustomElement(tag, (el as any)[PROPS]) ? customAttribute(tag, name, next) : attribute(tag, name, next, svg);
   if (!out) return;
   const [attr, value] = out;
   const ns = attr.startsWith("xlink:") ? XLINK_NS : attr.startsWith("xml:") ? XML_NS : null;

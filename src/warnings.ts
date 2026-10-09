@@ -3,10 +3,15 @@
 
 // Written as bundlers replace it (process.env.NODE_ENV), so a production build drops the checks; without a bundler,
 // read at run time.
+declare const process: { env: Record<string, string | undefined> };
 let PROD = false;
 try {
   PROD = process.env.NODE_ENV === "production";
 } catch {}
+/** Our fields on DOM nodes: symbols, so nothing listing a node's keys sees them, and set as plainly as any field. */
+export const FIBER = Symbol.for("sluurp.fiber");
+export const PROPS = Symbol.for("sluurp.props");
+export const ROOT_FIBER = Symbol.for("sluurp.rootFiber");
 export const dev = () => !PROD && (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
 const seen = new Set<string>();
 

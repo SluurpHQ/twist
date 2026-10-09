@@ -119,7 +119,7 @@ export function listenAt(el: Element, type: string) {
   if (had.has(type)) return;
   had.add(type);
   el.addEventListener(type, (e) => {
-    const f = (el as any).__fiber;
+    const f = (el as any)[FIBER];
     if (f && e.target === el) dispatch(e, el, new Set([f.root]), false);
   });
 }
@@ -156,7 +156,7 @@ function inDehydrated(target: Node | null): boolean {
   if (!dehydrated) return false;
   for (let n: any = target; n; n = n.parentNode) {
     // A node React already owns: the boundaries around it have hydrated.
-    if (n.__fiber) return false;
+    if (n[FIBER]) return false;
     let depth = 0;
     for (let s: any = n.previousSibling; s; s = s.previousSibling) {
       if (s.nodeType !== 8) continue;
@@ -175,7 +175,7 @@ function inDehydrated(target: Node | null): boolean {
 function nearest(target: Node | null, roots: Set<object>): FiberLike | null {
   if (inDehydrated(target)) return null;
   for (let n: any = target; n; n = n.parentNode) {
-    const f: FiberLike | undefined = n.__fiber;
+    const f: FiberLike | undefined = n[FIBER];
     if (f && roots.has(f.root)) return f;
   }
   return null;
@@ -183,7 +183,7 @@ function nearest(target: Node | null, roots: Set<object>): FiberLike | null {
 
 /** The nearest fiber at or above a node, of any root. */
 function nearestAny(target: Node | null): FiberLike | null {
-  for (let n: any = target; n; n = n.parentNode) if (n.__fiber) return n.__fiber;
+  for (let n: any = target; n; n = n.parentNode) if (n[FIBER]) return n[FIBER];
   return null;
 }
 
@@ -218,7 +218,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
     const early: [Element, string[]][] = [];
     for (let f: FiberLike | null = from; f; f = f.parent) {
       if (f.kind !== HOST) continue;
-      const names = propsFor(f.dom, native.type, true, f.dom.__props ?? f.props, native).filter((n) => polyfilled(n) && (from.dom === native.target || !OWN_TARGET.test(n)));
+      const names = propsFor(f.dom, native.type, true, f.dom[PROPS] ?? f.props, native).filter((n) => polyfilled(n) && (from.dom === native.target || !OWN_TARGET.test(n)));
       if (names.length) early.push([f.dom, names]);
     }
     path.push(...early.reverse());
@@ -226,7 +226,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   for (let f: FiberLike | null = from; f; f = f.parent) {
     if (f.kind !== HOST) continue;
     if (!capture && TARGET_ONLY.has(native.type) && f.dom !== native.target) continue;
-    let names = propsFor(f.dom, native.type, capture, f.dom.__props ?? f.props, native);
+    let names = propsFor(f.dom, native.type, capture, f.dom[PROPS] ?? f.props, native);
     if (capture) names = names.filter((n) => !polyfilled(n));
     // A change or select is the root's that drew its target: an outer root does not hear an inner root's input.
     if (from.dom !== native.target) names = names.filter((n) => !OWN_TARGET.test(n));
@@ -240,7 +240,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
     if (synthetic.isPropagationStopped()) break;
     synthetic.__current = el;
     for (const n of names) {
-      const fn = (el as any).__props?.[n];
+      const fn = (el as any)[PROPS]?.[n];
       synthetic.__type = POLYFILLED[n.endsWith("Capture") ? n.slice(0, -7) : n];
       if (typeof fn === "function") fn.call(el, synthetic);
     }
@@ -296,3 +296,4 @@ function wrap(native: Event): any {
     has: (t, k) => k in own || k in t,
   });
 }
+import { FIBER, PROPS } from "./warnings.ts";
