@@ -1,6 +1,6 @@
 // Every test file of Solid's run against Twist, one process each, counted into report.md: pass, fail per file, and
 // what stopped a file from loading (an export Twist lacks, an internal module). `bun run.ts [filter]`.
-import { readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const here = import.meta.dir;
@@ -66,5 +66,13 @@ const md = [
   ...rows.map((r) => `| ${r.file} | ${r.pass} | ${r.fail} | ${r.note ?? ""} |`),
 ].join("\n");
 writeFileSync(join(here, "report.md"), md + "\n");
+// Against the last full run: files that lost passes (a filtered run compares only what it ran).
+const json = join(here, "report.json");
+if (existsSync(json) && !filter) {
+  const before = new Map<string, Row>((JSON.parse(readFileSync(json, "utf8")) as Row[]).map((r) => [r.file, r]));
+  const lost = rows.filter((r) => (before.get(r.file)?.pass ?? 0) > r.pass).map((r) => `  ${r.file}: ${before.get(r.file)!.pass} -> ${r.pass}`);
+  console.log(lost.length ? "lost passes:\n" + lost.join("\n") : "no file lost passes");
+}
+if (!filter) writeFileSync(json, JSON.stringify(rows));
 writeFileSync(join(here, "errors.txt"), [...errors].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${n}\t${m}`).join("\n") + "\n");
 console.log(md.split("\n").slice(0, 30).join("\n"));

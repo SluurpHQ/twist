@@ -1295,14 +1295,19 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _opt
 /** `fn`'s value, or `fallback(error, reset)` once something under it throws. */
 export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
   const failed = new Signal<unknown>(NONE, { ownedWrite: true, equals: false });
-  const reset = () => ((failed.value = NONE), failed.bump());
-  // What the fallback shows: built under the boundary, kept current with what it reads.
-  const showFallback = () => {
-    const view = new Computation<F>(MEMO, () => resolveChildren(fallback(() => failed.value, reset)));
-    view.run();
-    return (() => view.read()) as unknown as F;
+  const reset = () => ((failed.value = NONE), (view = null), failed.bump());
+  // What the fallback shows: built once per error under the boundary, kept current with what it reads.
+  let view: Computation<F> | null = null;
+  let viewFor: unknown = NONE;
+  const showFallback = (): F => {
+    if (!view || viewFor !== failed.value) {
+      viewFor = failed.value;
+      view = runWithOwner(m, () => new Computation<F>(MEMO, () => resolveChildren(fallback(() => failed.value, reset))));
+      view.run();
+    }
+    return view.read();
   };
-  const m = new Computation<T | F>(MEMO, () => {
+  const m: Computation<T | F> = new Computation<T | F>(MEMO, (): T | F => {
     (m as any).catch = (e: unknown) => {
       if (failed.value !== NONE) return false;
       failed.value = e;
