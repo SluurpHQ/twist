@@ -146,6 +146,16 @@ export class Signal<T> {
     this.pending = next;
     schedule();
   }
+  /** The pending write dropped (a subclass commits it its own way). */
+  settle() {
+    this.pending = NONE;
+  }
+  /** Changed in place: its readers told. */
+  bump() {
+    this.version++;
+    clock++;
+    for (const o of this.observers) o.mark(DIRTY);
+  }
   /** The pending write applied: its observers go dirty if the value changed. */
   commit() {
     const next = this.pending as T;
@@ -164,6 +174,15 @@ export class Signal<T> {
     if (!this.observers.length) this.unobserved?.();
   }
 }
+
+/** Whether something tracks what is read now. */
+export const isTracking = () => listener !== null;
+/** A store setter's write: the same guard as a signal's. */
+export const guardStoreWrite = () => guardWrite(false);
+
+/** What refresh() re-runs for a target that is not a memo's accessor (a derived store's proxy, say). */
+const refreshables = new WeakMap<object, () => () => unknown>();
+export const refreshTarget = (target: object, memo: () => () => unknown) => void refreshables.set(target, memo);
 
 /** Writes in a reactive scope (a component body, a memo, a root being built) throw: they would re-run what read. */
 function guardWrite(allowed: boolean) {

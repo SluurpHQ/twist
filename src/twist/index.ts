@@ -1,2 +1,3 @@
 // Twist: Solid 2's API (signals, effects, owners, context) on Twist's own reactive core.
 export * from "./signals.ts";
+export { $PROXY, $TARGET, $TRACK, createProjection, createStore, deep, reconcile, snapshot } from "./store.ts";
