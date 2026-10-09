@@ -538,7 +538,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     seenKeys.add(key);
     const type = typeOf(c);
     const had = byKey.get(key);
-    if (had && had.type === type && !had.dead) {
+    if (had && (had.type === type || sameFamily(had.type, type)) && !had.dead) {
       byKey.delete(key);
       update(had, c);
       next.push(had);
@@ -1850,6 +1850,14 @@ function update(f: Fiber, c: any) {
     f.props = props;
     f.value!.set(props.value);
     reconcile(f, toList(props.children), hostParentOf(f), nextDomAfter(f));
+    return;
+  }
+  // A new version of its component (Fast Refresh): drawn with the new code, its state kept.
+  if (f.kind === COMP && c?.type !== undefined && c.type !== f.type && latestOf(c.type) !== f.type && sameFamily(f.type, c.type)) {
+    f.type = latestOf(c.type);
+    f.render = renderer(f.type, f);
+    f.props = props;
+    restart(f);
     return;
   }
   // A component: drawn again only if what it was given changed.
@@ -3388,6 +3396,97 @@ function applyTransitions(): boolean {
 /** A root drawn off the page (in place of server markup that did not match): what suspends with no boundary holds it. */
 let offPage: { waits: PromiseLike<any> | null } | null = null;
 
+// ---------------------------------------------------------------- Fast Refresh (react-refresh's renderer contract)
+
+/** How react-refresh tells which components are versions of one another (set by it, through the hook). */
+let resolveFamily: ((type: any) => any) | null = null;
+const familyOf = (type: any) => (resolveFamily && type != null && typeof type !== "string" ? resolveFamily(type) : undefined);
+/** The newest version of a component (an element may still name an older one, from a module not run again). */
+const latestOf = (type: any) => (typeof type === "function" ? (familyOf(type)?.current ?? type) : type);
+function sameFamily(a: any, b: any): boolean {
+  if (!resolveFamily || a == null || b == null || typeof a === "string" || typeof b === "string") return false;
+  const fa = familyOf(a);
+  return fa !== undefined && fa === familyOf(b);
+}
+
+/** Each root as react-refresh keeps it (an object it asks `current.memoizedState.element` of), to the root's top. */
+type RefreshRoot = { current: { memoizedState: { element: any } | null; alternate: any }; top: Fiber; render?: (element: any) => void };
+let hookId: any;
+let registered = false;
+const devHook = (): any => (typeof window !== "undefined" && dev() ? (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ : undefined);
+
+/** A refresh: components whose code changed drawn again with it (their state kept), stale ones mounted afresh. */
+function scheduleRefresh(root: RefreshRoot, update: { updatedFamilies: Set<any>; staleFamilies: Set<any> }) {
+  const walk = (f: Fiber) => {
+    if (f.dead) return;
+    if (f.kind === COMP) {
+      const family = familyOf(f.type) ?? familyOf(f.type?.type) ?? familyOf(f.type?.render);
+      if (family && (update.staleFamilies.has(family) || update.updatedFamilies.has(family))) {
+        const latest = family.current;
+        // A memo or forwardRef keeps its wrapper: the code inside it is the new one.
+        if (f.type?.type !== undefined && familyOf(f.type.type) === family) f.type = { ...f.type, type: latest };
+        else if (f.type?.render !== undefined && familyOf(f.type.render) === family) f.type = { ...f.type, render: latest };
+        else f.type = latest;
+        if (update.staleFamilies.has(family)) {
+          // Its hooks changed shape: mounted again, from nothing.
+          for (const c of f.children) unmount(c, true);
+          f.children = [];
+          for (const h of f.hooks ?? []) if (h?.cleanup) lifecycle(f, h.cleanup);
+          f.hooks = [];
+          f.inst = undefined;
+        }
+        f.render = renderer(f.type, f);
+        restart(f);
+      }
+    }
+    for (const c of [...f.children]) walk(c);
+  };
+  for (const c of [...root.top.children]) walk(c);
+  flushSignals();
+}
+
+/** This renderer, made known to react-refresh (through the DevTools hook it patches, or one made now). */
+function registerWithRefresh(): boolean {
+  if (registered) return true;
+  const w = typeof window !== "undefined" ? (window as any) : null;
+  if (!w || !dev()) return false;
+  // react-refresh patches the hook when it loads; if we load first, a minimal one it will find and patch.
+  w.__REACT_DEVTOOLS_GLOBAL_HOOK__ ??= {
+    renderers: new Map(),
+    supportsFiber: true,
+    inject(r: any) {
+      const id = this.renderers.size + 1;
+      this.renderers.set(id, r);
+      return id;
+    },
+    onScheduleFiberRoot() {},
+    onCommitFiberRoot() {},
+    onCommitFiberUnmount() {},
+    onPostCommitFiberRoot() {},
+    checkDCE() {},
+  };
+  // The id as the hook answers it (react-refresh keys us by it, even when it is none).
+  hookId = devHook().inject({
+    bundleType: 1,
+    version: "19.3.0",
+    rendererPackageName: "react-dom",
+    scheduleRefresh,
+    setRefreshHandler: (handler: ((type: any) => any) | null) => (resolveFamily = handler),
+    scheduleRoot: (root: RefreshRoot, element: any) => root.render?.(element),
+    findFiberByHostInstance: () => null,
+  });
+  return (registered = true);
+}
+/** A root committed (mounted, updated or gone): told to the hook, so react-refresh knows it. */
+function tellCommit(root: RefreshRoot, element: any) {
+  if (!registerWithRefresh()) return;
+  const was = root.current;
+  root.current = { memoizedState: { element }, alternate: was.memoizedState?.element != null ? was : null };
+  try {
+    devHook()?.onCommitFiberRoot?.(hookId, root, undefined, false);
+  } catch {}
+}
+
 /** A root's first render, done in a transition, committing now (its view transitions animate). */
 let transitionCommit = false;
 
@@ -3443,6 +3542,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   rootContainers.add(container);
   let unmounted = false;
   const state: RootState = { ids: 0, container };
+  const refreshRoot = { current: { memoizedState: null, alternate: null } } as unknown as RefreshRoot;
   (state as any).idPrefix = options?.identifierPrefix ?? "";
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
   addContainer(container, state);
@@ -3680,9 +3780,11 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       // Called from inside a render or commit (a root made in componentDidMount): flushed when that one ends.
       if (depth === 0) flushSignals();
   }
-  return {
+  refreshRoot.top = top;
+  const api = {
     render(children: any, ...rest: any[]) {
       if (unmounted) throw new Error("Cannot update an unmounted root.");
+      if (dev()) tellCommit(refreshRoot, children);
       if (dev()) {
         if (typeof rest[0] === "function") console.error("does not support the second callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
         else if (validContainer(rest[0])) console.error("You passed a container to the second argument of root.render(...). You don't need to pass it again since you already passed it to create the root.");
@@ -3723,9 +3825,12 @@ Check the render method of ${nameOf(owner.type)}.`));
       pending = NONE;
       for (const c of top.children) unmount(c, true);
       top.children = [];
+      if (dev()) tellCommit(refreshRoot, null);
       if (moved) throw new Error("The node to be removed is not a child of this node.");
     },
   };
+  refreshRoot.render = (element: any) => api.render(element);
+  return api;
 }
 
 /** Taken over as the server drew it: its nodes claimed in order and kept, what differs drawn anew. */
