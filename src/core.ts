@@ -8,6 +8,7 @@ import { addContainer, listenOnElement } from "./events.ts";
 import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
+import { type Preview, tryTransition } from "./dryrun.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
 
@@ -133,11 +134,11 @@ function toList(children: any): any[] {
 }
 
 /** A child's key among its siblings, and the fiber kind it makes. */
-function keyOf(c: any, i: number) {
+export function keyOf(c: any, i: number) {
   return c && typeof c === "object" && c.key != null ? "k" + c.key : "i" + i;
 }
 
-function typeOf(c: any): any {
+export function typeOf(c: any): any {
   if (typeof c === "string" || typeof c === "number" || typeof c === "bigint") return TEXT_NODE;
   if (Array.isArray(c)) return FRAGMENT;
   if (c.$$typeof === PORTAL) return PORTAL;
@@ -1014,7 +1015,12 @@ export class Component<P = any, S = any> {
       if (done) (this.__done ??= []).push(done);
       this.__f.tick!.set(this.__f.tick!.peek() + 1);
     };
-    if (!inTransition(apply)) apply();
+    const preview = (p: Preview) => {
+      const list = p.classes.get(this) ?? [];
+      list.push(partial);
+      p.classes.set(this, list);
+    };
+    if (!inTransition(apply, preview, this.__f)) apply();
   }
   forceUpdate(done?: () => void) {
     if (!this.__f) return;
@@ -1049,6 +1055,7 @@ const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
 /** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
 function caught(f: Fiber, e: any) {
   if (e && typeof e.then === "function") {
+    (f as any).suspended = true;
     // In a transition, an update keeps what is shown (no fallback) and is drawn again once the data is there.
     if (applyingTransition && f.committed) {
       // React still renders the boundary's fallback, then throws that attempt away: so do we, off the page.
@@ -1253,7 +1260,11 @@ export const client = {
       const box = state(f, typeof init === "function" ? (init as () => T)() : init);
       box.set = (v: any) => {
         const apply = () => box.put(typeof v === "function" ? v(box.v) : v);
-        if (current === f || !inTransition(apply)) apply();
+        const preview = (p: Preview) => {
+          const was = p.states.has(box) ? p.states.get(box) : box.v;
+          p.states.set(box, typeof v === "function" ? v(was) : v);
+        };
+        if (current === f || !inTransition(apply, preview, f)) apply();
       };
       return box;
     });
@@ -1266,7 +1277,8 @@ export const client = {
       box.reducer = reducer;
       box.dispatch = (a: any) => {
         const apply = () => box.put(box.reducer(box.v, a));
-        if (current === f || !inTransition(apply)) apply();
+        const preview = (p: Preview) => p.states.set(box, box.reducer(p.states.has(box) ? p.states.get(box) : box.v, a));
+        if (current === f || !inTransition(apply, preview, f)) apply();
       };
       return box;
     });
@@ -1490,7 +1502,8 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
 
 /** Inside startTransition: the updates set are a transition's, drawn after what is urgent. */
 let transitioning = 0;
-const transitionWork: (() => void)[] = [];
+type TransitionUpdate = { apply: () => void; preview?: (p: Preview) => void; fiber?: Fiber };
+const transitionWork: TransitionUpdate[] = [];
 let transitionBooked = false;
 /** A transition's updates being drawn now. */
 let applyingTransition = false;
@@ -1500,13 +1513,13 @@ const suspenseAbove = (f: Fiber) => {
   return false;
 };
 /** An update of a transition: applied once the urgent updates set with it have been drawn. */
-export function inTransition(apply: () => void): boolean {
+export function inTransition(apply: () => void, preview?: (p: Preview) => void, fiber?: Fiber): boolean {
   if (!transitioning) return false;
-  deferTransition(apply);
+  deferTransition(apply, preview, fiber);
   return true;
 }
-function deferTransition(apply: () => void) {
-  transitionWork.push(apply);
+function deferTransition(apply: () => void, preview?: (p: Preview) => void, fiber?: Fiber) {
+  transitionWork.push({ apply, preview, fiber });
   if (transitionBooked) return;
   transitionBooked = true;
   scheduleTransitions(flushTransitions);
@@ -1538,12 +1551,47 @@ function endTransition(fn: () => void) {
 }
 
 /** The transitions waiting, drawn now (act does, as React's act flushes every lane): whether there were any. */
+/** Whether rendering `f` again could suspend where a transition is held: a Suspense on the page below it, or a
+ * component below it that has suspended before. */
+function mightSuspend(f: Fiber): boolean {
+  if ((f as any).suspended) return true;
+  if (f.type === SUSPENSE) return true;
+  return f.children.some(mightSuspend);
+}
+
+/** What a held transition waits for: it is not tried again before that settles. */
+let transitionHeld: PromiseLike<any> | null = null;
+let transitionRetried = false;
+
 export function flushTransitions(): boolean {
   transitionBooked = false;
   if (!transitionWork.length && !transitionEnds.length) return false;
+  if (transitionHeld) return false;
+  // Tried first, off the page: what suspends holds the whole transition, the screen and state as they are.
+  const previewed = transitionWork.filter((w) => w.preview && w.fiber && !w.fiber.dead);
+  // Only where it can be held (a boundary on the page below, or something that has suspended there): a dry run
+  // costs a second render.
+  const retried = transitionRetried;
+  transitionRetried = false;
+  if (!retried && previewed.length && previewed.some((w) => mightSuspend(w.fiber!))) {
+    const preview: Preview = { states: new Map(), classes: new Map() };
+    for (const w of previewed) w.preview!(preview);
+    const waits = tryTransition(previewed.map((w) => w.fiber!), preview);
+    if (waits) {
+      transitionHeld = waits;
+      const retry = () => {
+        transitionHeld = null;
+        // Its data is there: drawn once now, as React renders the retry (the screen is kept if it suspends again).
+        transitionRetried = true;
+        if (!transitionBooked) (transitionBooked = true), scheduleTransitions(flushTransitions);
+      };
+      waits.then(retry, retry);
+      return true;
+    }
+  }
   applyingTransition = true;
   try {
-    for (const w of transitionWork.splice(0)) w();
+    for (const w of transitionWork.splice(0)) w.apply();
     flushSignals();
     if (transitionWaits.length) {
       // Suspended: its end waits for the data, then the transition is drawn again.
@@ -1758,7 +1806,9 @@ export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, 
 export function useFormStatus() {
   for (let p = current?.parent ?? null; p; p = p.parent) {
     if (p.kind !== HOST || p.type !== "form") continue;
-    return formStatus(p)();
+    const status = formStatus(p)();
+    // Pending is optimistic, as React's: shown by urgent renders, already over in the transition's own render.
+    return applyingTransition ? IDLE_FORM : status;
   }
   return IDLE_FORM;
 }
