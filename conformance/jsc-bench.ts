@@ -8,7 +8,7 @@ GlobalRegistrator.register();
 document.body.innerHTML = '<div id="main"></div>';
 const [app = "sluurp-plain", name = "create 1k", rounds = "200"] = process.argv.slice(2);
 const dir = join(import.meta.dir, "..", "test", "out", "bench", app);
-await import(join(dir, app.startsWith("signals") ? "app-signals.js" : "app.js"));
+await import(join(dir, "app.js"));
 const one = (globalThis as any).benchOne as (n: string) => void;
 const t = performance.now();
 for (let i = 0; i < +rounds; i++) one(name);

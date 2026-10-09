@@ -28,7 +28,7 @@ for (const k of ["textContent", "nodeValue"]) spy(w.Node.prototype, k);
 for (const k of ["className"]) spy(w.Element.prototype, k);
 spy(w.CharacterData.prototype, "data");
 const dir = join(import.meta.dir, "..", "test", "out", "bench", app);
-await import(join(dir, app.startsWith("signals") ? "app-signals.js" : "app.js"));
+await import(join(dir, "app.js"));
 const one = w.benchOne as (n: string) => void;
 one(name);
 on = true;

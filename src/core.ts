@@ -502,6 +502,33 @@ function reappear(f: Fiber) {
 
 // ---------------------------------------------------------------- reconciling
 
+/**
+ * The kept children (in `next`, with their old places) that form the longest run still in their old order: those need
+ * not move (a longest increasing subsequence, in n log n).
+ */
+function inOrder(next: Fiber[], oldIndex: Map<Fiber, number>): Set<Fiber> {
+  // tails[k]: the index in `next` ending the best run of length k+1 found so far; prev: the one before each.
+  const tails: number[] = [];
+  const prev = new Int32Array(next.length);
+  const at = (j: number) => oldIndex.get(next[j]!)!;
+  for (let j = 0; j < next.length; j++) {
+    const oi = oldIndex.get(next[j]!);
+    if (oi === undefined) continue;
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (at(tails[mid]!) < oi) lo = mid + 1;
+      else hi = mid;
+    }
+    prev[j] = lo > 0 ? tails[lo - 1]! : -1;
+    tails[lo] = j;
+  }
+  const stay = new Set<Fiber>();
+  for (let j = tails.length ? tails[tails.length - 1]! : -1; j >= 0; j = prev[j]!) stay.add(next[j]!);
+  return stay;
+}
+
 /** `parent`'s children made to be `list`: kept by key and type, the rest made or taken away, in order. */
 /** The Suspense boundary a fiber is in (its nearest), if any. */
 function boundaryOf(f: Fiber): Fiber | null {
@@ -606,17 +633,14 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     for (let j = 0; j < next.length; j++) if (next[j] !== old[j]) (same = false), (j = next.length);
     if (same) return;
   }
-  // What moves (React's lastPlacedIndex): new children, and kept ones now before a child that was after them; the
-  // others stay where they are (other nodes may sit between them, as a sibling portal's in the same container).
+  // What moves: new children, and kept ones outside the longest run still in their old order (that run stays; React
+  // keeps only those after the last one placed, so a swap moves every row between the two, where this moves two).
+  // The others stay where they are (other nodes may sit between them, as a sibling portal's in the same container).
   const oldIndex = new Map<Fiber, number>();
   old.forEach((f, idx) => oldIndex.set(f, idx));
   const placed = new Set<Fiber>();
-  let lastPlaced = -1;
-  for (const f of next) {
-    const oi = oldIndex.get(f);
-    if (oi === undefined || oi < lastPlaced) placed.add(f);
-    else lastPlaced = oi;
-  }
+  const stay = inOrder(next, oldIndex);
+  for (const f of next) if (!stay.has(f)) placed.add(f);
   // Nothing new and nothing moved: every node is where it was.
   if (!placed.size) return;
   const into = intoOf(parent, host);
