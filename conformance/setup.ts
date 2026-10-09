@@ -7,6 +7,11 @@ import { join } from "node:path";
 import "./gates.ts";
 
 GlobalRegistrator.register({ url: "http://localhost/" });
+// React's tests run in jsdom, where an element turned into a string is "[object HTMLDivElement]" (happy-dom prints
+// its markup).
+for (const proto of [globalThis.Element?.prototype, globalThis.Node?.prototype]) {
+  if (proto) Object.defineProperty(proto, "toString", { value: function (this: any) { return `[object ${this.constructor?.name ?? "Object"}]`; }, configurable: true, writable: true });
+}
 
 // jsdom runs a page's inline scripts (the streamed HTML's) with vm.runInContext, which Bun refuses for jsdom's window
 // ("Proxy is not allowed in the global prototype chain"): run them against that window with `with` instead.
