@@ -187,6 +187,9 @@ export function readThenable(t: any) {
       (v: any) => ((t.status = "fulfilled"), (t.value = v)),
       (e: any) => ((t.status = "rejected"), (t.reason = e)),
     );
+    // Settled as it was subscribed to (an instrumented thenable): read at once, no suspending.
+    if (t.status === "fulfilled") return t.value;
+    if (t.status === "rejected") throw t.reason;
   }
   throw t;
 }

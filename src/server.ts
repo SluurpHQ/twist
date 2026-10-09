@@ -1,6 +1,6 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, unwrapChild } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, readThenable, unwrapChild } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
@@ -199,15 +199,6 @@ function renderFunction(type: any, props: any) {
 }
 
 function serverHooks(ctx: Ctx) {
-  const readThenable = (t: any) => {
-    if (t.status === "fulfilled") return t.value;
-    if (t.status === "rejected") throw t.reason;
-    if (t.status !== "pending") {
-      t.status = "pending";
-      t.then((v: any) => ((t.status = "fulfilled"), (t.value = v)), (e: any) => ((t.status = "rejected"), (t.reason = e)));
-    }
-    throw t;
-  };
   const read = (c: any) => (ctx.values.has(c) ? ctx.values.get(c) : c._defaultValue);
   return {
     ...client,
