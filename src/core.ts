@@ -20,6 +20,8 @@ const TEXT = 1, HOST = 2, COMP = 3, FRAG = 4, PROVIDER = 5, PORTAL_F = 6, ROOT =
 /** A <title>, <meta> or <link> kept in <head>, or a shared resource (stylesheet, <style>, async script): not in its place. */
 const HOIST = 8;
 const RECOVERABLE = Symbol.for("react.recoverable");
+/** A useActionState whose action threw: its state signal moved to one of these, so the component renders to throw. */
+const FAILED = Symbol("failed"), FAILED_AGAIN = Symbol("failed again");
 
 export type Fiber = {
   kind: number;
@@ -1977,63 +1979,86 @@ export const client = {
   },
   useDebugValue() {},
   useActionState(action: (state: any, payload: any) => any, initial: any) {
+    const f = current!;
     const h = hook(() => {
-      const box: any = { v: initial, changed: signal(0), going: signal(0), queue: [] as any[], running: false, error: undefined, action };
-      const bump = () => box.changed.set(box.changed.peek() + 1);
-      const next = () => {
-        box.going.set(box.going.peek() - 1);
-        if (box.queue.length) run();
-        else box.running = false;
+      // shown: the state rendered; v: the state the queue has reached (actions chain on it, unseen until the end).
+      const box: any = { shown: signal(initial), v: initial, pending: signal(false), queue: [] as any[], running: false, error: undefined, action };
+      // The queue's end: its state shown (and pending off) in one update — a transition's, when it was dispatched in one.
+      const finish = (inTransition: boolean) => {
+        const apply = () => {
+          box.shown.set(box.v);
+          box.pending.set(false);
+        };
+        if (inTransition) deferTransition(apply);
+        else apply();
         flushSignals();
       };
-      const fail = (e: unknown) => {
-        // Thrown where the state is read, so the component's boundary gets it (React's behaviour).
-        box.error = e;
-        box.going.set(0);
-        box.current?.done();
+      const fail = (e: unknown, inTransition: boolean) => {
+        // Thrown where the state is read, so the component's boundary gets it; what was queued is dropped.
+        box.error = { e };
         for (const q of box.queue.splice(0)) q.done();
         box.running = false;
-        bump();
+        const apply = () => {
+          box.pending.set(false);
+          box.shown.set(box.shown.peek() === FAILED ? FAILED_AGAIN : FAILED);
+        };
+        if (inTransition) deferTransition(apply);
+        else apply();
         flushSignals();
       };
-      // One after another, each with the state the last one left; the first one at once.
+      // One after another, each with the state the last one reached, with the action it was dispatched with.
       const run = () => {
         box.running = true;
-        const entry = (box.current = box.queue.shift());
+        const entry = box.queue.shift();
         let r: any;
+        const was = transitioning;
+        if (entry.inTransition) transitioning++;
         try {
-          r = box.action(box.v, entry.payload);
+          r = entry.action(box.v, entry.payload);
         } catch (e) {
-          return fail(e);
+          entry.done();
+          return fail(e, entry.inTransition);
+        } finally {
+          transitioning = was;
         }
         const take = (v: any) => {
-          if (!Object.is(v, box.v)) (box.v = v), bump();
-          box.current = null;
+          box.v = v;
           entry.done();
-          next();
+          if (box.queue.length) return run();
+          box.running = false;
+          finish(entry.inTransition);
         };
-        if (r && typeof r.then === "function") r.then(take, fail);
-        else take(r);
+        if (r && typeof r.then === "function") {
+          if (!entry.inTransition)
+            warn(
+              "An async function with useActionState was called outside of a transition. This is likely not what you intended (for example, isPending will not update correctly). Either call the returned function inside startTransition, or pass it to an `action` or `formAction` prop.",
+            );
+          r.then(take, (e: unknown) => (entry.done(), fail(e, entry.inTransition)));
+        } else take(r);
       };
       // Settles once this action has run: a form whose action this is stays pending until then.
       box.dispatch = (payload: any) => {
+        if (rendering && current) throw new Error("Cannot update action state while rendering.");
         let done!: () => void;
         const settled = new Promise<void>((r) => (done = r));
-        box.going.set(box.going.peek() + 1);
-        box.queue.push({ payload, done });
+        // Pending at once (an urgent update, even inside a transition), and until the queue is done.
+        if (!box.pending.peek()) box.pending.set(true);
+        box.queue.push({ payload, done, action: box.action, inTransition: transitioning > 0 });
         if (!box.running) run();
+        flushSignals();
         return settled;
       };
       return box;
     });
+    void f;
     h.action = action;
-    h.changed();
+    const shown = h.shown();
     if (h.error !== undefined) {
-      const e = h.error;
+      const e = h.error.e;
       h.error = undefined;
       throw e;
     }
-    return [h.v, h.dispatch, h.going() > 0];
+    return [shown === FAILED || shown === FAILED_AGAIN ? h.v : shown, h.dispatch, h.pending()];
   },
   useOptimistic(state: any, change?: (s: any, a: any) => any) {
     const h = hook(() => ({ base: state, list: signal([]) as Sig<any[]> }));
