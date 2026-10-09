@@ -116,6 +116,8 @@ test("refs: object, callback, cleanup", async (box) => {
   eq([obj.current, cleaned], [null, true]);
 });
 
+const typeIn = (el: HTMLInputElement, v: string) => Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, v);
+
 test("controlled input", async (box) => {
   function C() {
     const [v, set] = useState("ab");
@@ -123,7 +125,8 @@ test("controlled input", async (box) => {
   }
   mount(box, <C />);
   const input = box.querySelector("input")!;
-  input.value = "abc";
+  // As a person (or testing-library) types: past React's value tracker, which treats code-set values as no change.
+  typeIn(input, "abc");
   input.dispatchEvent(new Event("input", { bubbles: true }));
   eq(input.value, "ABC");
   function Locked() {
@@ -132,7 +135,7 @@ test("controlled input", async (box) => {
   const b2 = document.createElement("div");
   mount(b2, <Locked />);
   const i2 = b2.querySelector("input")!;
-  i2.value = "changed";
+  typeIn(i2, "changed");
   i2.dispatchEvent(new Event("input", { bubbles: true }));
   eq(i2.value, "fixed");
 });
@@ -440,7 +443,7 @@ test("server render", () => {
     const [n] = useState(3);
     return <p className="x" style={{ marginTop: 2 }} data-on={true}>{n} &lt; {useContext(Ctx)}</p>;
   };
-  eq(renderToString(<Ctx value={9}><C /><input defaultValue="v" disabled /></Ctx>), '<p class="x" style="margin-top:2px" data-on="true">3<!-- --> &lt; <!-- -->9</p><input value="v" disabled="">');
+  eq(renderToString(<Ctx value={9}><C /><input defaultValue="v" disabled /></Ctx>), '<p class="x" style="margin-top:2px" data-on="true">3<!-- --> &lt; <!-- -->9</p><input value="v" disabled=""/>');
 });
 
 (async () => {
