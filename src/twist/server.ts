@@ -1,8 +1,9 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
-import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerRender, sharedConfig, untrack } from "./signals.ts";
+import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
+import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 export * from "./server-solid.ts";
@@ -365,6 +366,13 @@ type Render = {
   options: { renderId?: string; noHydrate?: boolean };
   /** Whether the shell has gone out (later, nothing holds it). */
   shellSent: boolean;
+  /** What the client hydrates with, as script text not yet sent. */
+  data: string;
+  serializer: ReturnType<typeof hydrationSerializer> | null;
+  /** Keys already written, and answers still to come (the stream ends after them). */
+  written: Set<string>;
+  pendingData: number;
+  headerSent: boolean;
   /** Holes of the shell still waiting, by placeholder. */
   holes: Map<string, Promise<string>>;
 };
@@ -468,7 +476,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
           } finally {
             boundaries--;
           }
-          r.chunks.push(`<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
+          r.chunks.push(takeData(r) + `<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
           if (!next) throw e2;
@@ -493,18 +501,43 @@ function script(r: Render, code: string) {
 
 // ---------------------------------------------------------------- render entry points
 
+/** An async node's answer, sent to the client under its id (once; nothing under NoHydration). */
+function sendAnswer(node: any, answer: unknown) {
+  const r = render;
+  const id = node?.id as string | undefined;
+  if (!r?.serializer || id == null || noHydration > 0 || !sharedConfig.context || r.written.has(id)) return;
+  r.written.add(id);
+  if (answer && typeof (answer as any).then === "function") {
+    r.pendingData++;
+    const done = () => queueMicrotask(() => (r.pendingData--, r.wake?.()));
+    (answer as Promise<unknown>).then(done, done);
+  }
+  r.serializer.write(id, answer);
+}
+
+/** The data not yet sent, as a script (the scope's header ahead of the first). */
+function takeData(r: Render): string {
+  if (!r.data) return "";
+  const s = (r.headerSent ? "" : headerScript(r.options.renderId)) + r.data;
+  r.headerSent = true;
+  r.data = "";
+  return `<script>${s}</script>`;
+}
+
 function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?: boolean }, fn: () => T): T {
   const was = sharedConfig.context;
   const wasRender = render;
   sharedConfig.context = options.noHydrate ? null : { id: options.renderId ?? "" };
   render = r;
   setServerAnswers(r?.answers ?? null);
+  setServerFly(r?.serializer ? sendAnswer : null);
   try {
     return fn();
   } finally {
     sharedConfig.context = was;
     render = wasRender;
     setServerAnswers(wasRender?.answers ?? null);
+    setServerFly(wasRender?.serializer ? sendAnswer : null);
   }
 }
 
@@ -527,7 +560,8 @@ type Writable = { write(chunk: string): void; end(): void };
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: { renderId?: string; noHydrate?: boolean; onCompleteShell?: () => void; onCompleteAll?: () => void } = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false };
+  if (!options.noHydrate) r.serializer = hydrationSerializer({ scopeId: options.renderId, onData: (s) => ((r.data += s), r.wake?.()) });
   let dispose!: () => void;
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.
@@ -555,8 +589,10 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
   let sent = 0;
   let done = false;
   const drain = () => {
+    const data = takeData(r);
+    if (data) r.chunks.push(data);
     for (; sent < r.chunks.length; sent++) for (const w of sinks) w.write(r.chunks[sent]!);
-    if (!r.waiting.size && !done) {
+    if (!r.waiting.size && !r.pendingData && !done) {
       done = true;
       options.onCompleteAll?.();
       dispose();
@@ -570,7 +606,7 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
   r.wake = () => queueMicrotask(() => shellSent && rendering(r, options, drain));
   const failed = shellReady.then(
     (s) => {
-      shell = s;
+      shell = s + takeData(r);
       shellSent = true;
       r.shellSent = true;
       for (const w of sinks) w.write(shell);

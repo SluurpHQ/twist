@@ -189,6 +189,9 @@ export const setServerRender = (on: boolean) => void (serverRender = on);
 /** The render under way on a server: what its async nodes answered, by id (a retry's node of the same id takes it). */
 let serverAnswers: Map<string, [boolean, unknown]> | null = null;
 export const setServerAnswers = (m: Map<string, [boolean, unknown]> | null) => void (serverAnswers = m);
+/** Told of each async node's answer as a server render asks for it (to send it to the client). */
+let serverFly: ((node: unknown, answer: unknown) => void) | null = null;
+export const setServerFly = (fn: typeof serverFly) => void (serverFly = fn);
 
 /** What a not-ready read waits on: the flight of the node it read, upstream of it, or nothing known. */
 export function settlesOf(e: NotReadyError): Promise<void> | null {
@@ -662,7 +665,16 @@ export class Computation<T> extends Node<T> implements Owner {
     const answers = serverAnswers;
     const id = (this as any).id as string | undefined;
     const known = serverRender ? answered.get(p as object) ?? (answers && id != null ? answers.get(id) : undefined) : undefined;
-    if (known) return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
+    if (known) {
+      if (serverFly) {
+        // (A failure sent as a rejected promise, handled here so nothing reports it as unhandled.)
+        const failed = known[0] ? null : Promise.reject(known[1]);
+        failed?.catch(noop);
+        serverFly(this, failed ?? known[1]);
+      }
+      return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
+    }
+    if (serverRender) serverFly?.(this, p);
     const flight = {};
     this.streaming = false;
     this.settles = serverRender
