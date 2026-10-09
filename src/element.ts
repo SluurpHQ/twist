@@ -11,6 +11,7 @@ export const PROFILER = Symbol.for("react.profiler");
 export const SUSPENSE = Symbol.for("react.suspense");
 export const SUSPENSE_LIST = Symbol.for("react.suspense_list");
 export const ACTIVITY = Symbol.for("react.activity");
+export const VIEW_TRANSITION = Symbol.for("react.view_transition");
 export const CONTEXT = Symbol.for("react.context");
 export const CONSUMER = Symbol.for("react.consumer");
 export const FORWARD_REF = Symbol.for("react.forward_ref");
@@ -25,6 +26,12 @@ export const Profiler = PROFILER;
 export const Suspense = SUSPENSE;
 export const SuspenseList = SUSPENSE_LIST;
 export const Activity = ACTIVITY;
+/** A part of the page animated by the browser's view transitions when it changes; drawn as its children. */
+export const ViewTransition = VIEW_TRANSITION;
+export const unstable_ViewTransition = VIEW_TRANSITION;
+export const unstable_SuspenseList = SUSPENSE_LIST;
+/** Names a transition's kind for view transitions; nothing to do where they are drawn as children. */
+export function addTransitionType(_type: string) {}
 
 function element(type: any, key: any, props: any): Element {
   const el: any = { $$typeof: ELEMENT, type, key: key == null ? null : "" + key, props, _owner: null };

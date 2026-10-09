@@ -1,7 +1,7 @@
 // Props on DOM elements, as React sets them: attributes or properties, styles, and events listened to on the
 // element itself (no delegation), each event given what React's handlers expect of it.
 
-import { XLINK_NS, XML_NS, attribute } from "./attributes.ts";
+import { XLINK_NS, XML_NS, attribute, customAttribute, isCustomElement } from "./attributes.ts";
 import { configure, delegated, want } from "./events.ts";
 import { checkPropName } from "./warnings.ts";
 import { valueChanged } from "./forms.ts";
@@ -179,7 +179,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   const tag = el.localName;
   // A custom element takes what it has as a property (React 19).
   if (tag.includes("-") && name in el && typeof next !== "string") return void ((el as any)[name] = next);
-  const out = attribute(tag, name, next, svg);
+  const out = isCustomElement(tag, (el as any).__props) ? customAttribute(tag, name, next) : attribute(tag, name, next, svg);
   if (!out) return;
   const [attr, value] = out;
   const ns = attr.startsWith("xlink:") ? XLINK_NS : attr.startsWith("xml:") ? XML_NS : null;
@@ -189,7 +189,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
 
 /** Every prop of a new element, or the ones that changed on an update. */
 export function setProps(el: Element, next: any, prev: any, svg: boolean) {
-  if (!prev) for (const k in next) checkPropName(el.localName, k, next[k]);
+  if (!prev && !isCustomElement(el.localName, next)) for (const k in next) checkPropName(el.localName, k, next[k]);
   if (prev) for (const k in prev) if (!(k in next)) setProp(el, k, undefined, prev[k], svg);
   // An input's type first: setting it afterwards resets what `checked` and `value` set.
   if (next.type !== undefined && (!prev || prev.type !== next.type)) setProp(el, "type", next.type, prev?.type, svg);

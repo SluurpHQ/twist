@@ -3,7 +3,7 @@
 import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, unwrapChild } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
-import { VOID_TAGS, assertValidProps, attribute, checkTagName } from "./attributes.ts";
+import { VOID_TAGS, assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
 const UNITLESS = new Set("animationIterationCount aspectRatio columnCount flex flexGrow flexShrink fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth gridRow gridColumn gridArea".split(" "));
@@ -66,7 +66,7 @@ function attrs(props: any, ctx: Ctx, tag: string) {
     }
     if (k === "autoFocus") continue;
     if ((k === "action" || k === "formAction") && typeof v === "function") continue;
-    const a = attribute(tag, k, v, ctx.svg);
+    const a = isCustomElement(tag, props) ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg);
     if (a) put(a[0], a[1]);
   }
   return out;

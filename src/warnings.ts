@@ -4,9 +4,20 @@
 export const dev = () => (globalThis as any).__DEV__ !== false && (globalThis as any).process?.env?.NODE_ENV !== "production";
 const seen = new Set<string>();
 
+/** Warnings held back while fn runs (props drawn on a scratch element to compare with the server's). */
+let muted = 0;
+export function muteWarnings<T>(fn: () => T): T {
+  muted++;
+  try {
+    return fn();
+  } finally {
+    muted--;
+  }
+}
+
 /** A development warning: every time, or once per `once` key where React keeps a flag for it. */
 export function warn(message: string, once?: string) {
-  if (!dev()) return;
+  if (!dev() || muted) return;
   if (once !== undefined) {
     if (seen.has(once)) return;
     seen.add(once);

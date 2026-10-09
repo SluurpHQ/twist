@@ -2,12 +2,12 @@
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
+import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer } from "./events.ts";
 import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
-import { checkKeys, checkTag, dev, duplicateKey, setOwner } from "./warnings.ts";
+import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
@@ -84,7 +84,21 @@ const layoutQueue: (() => void)[] = [];
 const passiveQueue: (() => void)[] = [];
 let passiveBooked = false;
 
-const report = (e: unknown) => (typeof reportError === "function" ? reportError(e) : console.error(e));
+/** An error told as a browser's reportError tells it: an `error` event on the window, then the console unless a
+ * listener handled it. The browser's own when it has one; a test DOM's (jsdom, happy-dom) is not always callable. */
+export function report(e: unknown) {
+  const native = typeof reportError === "function" && /\[native code\]/.test(Function.prototype.toString.call(reportError));
+  if (native && typeof navigator !== "undefined" && !/jsdom|HappyDOM/i.test(navigator.userAgent)) return reportError(e);
+  const w: any = typeof window !== "undefined" ? window : null;
+  let handled = false;
+  if (w?.dispatchEvent && typeof w.ErrorEvent === "function") {
+    try {
+      const ev = new w.ErrorEvent("error", { error: e, message: (e as any)?.message ?? String(e), cancelable: true });
+      handled = !w.dispatchEvent(ev);
+    } catch {}
+  }
+  if (!handled) console.error(e);
+}
 
 // ---------------------------------------------------------------- children
 
@@ -257,6 +271,29 @@ function childNs(host: Fiber): string | null {
 
 /** While a root takes over what the server drew: for each parent, the next of its server nodes to claim. */
 let hydrating: Map<Node, Node | null> | null = null;
+/** Whether this hydration found attributes that differ from the client's props: told once, as React does. */
+let attrsDiffer = false;
+const HYDRATION_ATTRS = "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch";
+
+/** The server's attributes against those the props draw (on a scratch element): whether any differs. */
+type Attrs = { names: Map<string, string>; css: string };
+const attrsOf = (el: Element): Attrs => ({ names: new Map(el.getAttributeNames().map((n) => [n, el.getAttribute(n)!])), css: (el as HTMLElement).style?.cssText ?? "" });
+function serverAttrsDiffer(server: Element, had: Attrs, type: string, ns: string | null, props: any): boolean {
+  const doc = server.ownerDocument;
+  const probe = ns ? doc.createElementNS(ns, type) : doc.createElement(type);
+  const { children: _c, dangerouslySetInnerHTML: _d, ...rest } = props;
+  try {
+    muteWarnings(() => setProps(probe, rest, null, ns === SVG_NS));
+  } catch {
+    return false;
+  }
+  // Form state is the element's, not an attribute; style is compared as the browser reads it.
+  const skip = new Set(["value", "checked", "selected", "style"]);
+  const names = new Set([...had.names.keys(), ...probe.getAttributeNames()]);
+  for (const n of names) if (!skip.has(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) return true;
+  return had.css !== ((probe as HTMLElement).style?.cssText ?? "");
+}
+
 /** Whether this hydration found markup that differs from the client's, reported once to onRecoverableError. */
 let mismatched = false;
 
@@ -271,6 +308,13 @@ function nextServerNode(host: Node): Node | null {
   if (!hydrating) return null;
   let n = hydrating.has(host) ? hydrating.get(host)! : host.firstChild;
   while (n && n.nodeType === 8) n = n.nextSibling;
+  return n;
+}
+
+/** Where a node made while hydrating goes: before the next server node, which stays next (the new node is not one). */
+function serverCursor(host: Node): Node | null {
+  const n = nextServerNode(host);
+  hydrating!.set(host, n);
   return n;
 }
 
@@ -309,7 +353,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     } else {
       if (hydrating && text !== "") mismatched = true;
       f.dom = docOf(host).createTextNode(text);
-      host.insertBefore(f.dom, hydrating ? nextServerNode(host) : before);
+      host.insertBefore(f.dom, hydrating ? serverCursor(host) : before);
     }
     return f;
   }
@@ -347,6 +391,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (hydrating) mismatched = true;
       checkTag(el, type);
     }
+    // As the server drew it, to compare once the props are applied (and have warned as they do).
+    const had = server && dev() && !attrsDiffer && !props.suppressHydrationWarning ? attrsOf(server) : null;
     (el as any).__props = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
@@ -357,13 +403,16 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       setDefaults(el, props);
       if (props.dangerouslySetInnerHTML == null) reconcile(f, toList(props.children), el, null);
     }
+    if (had && !attrsDiffer && serverAttrsDiffer(el, had, type, ns, props)) {
+      attrsDiffer = true;
+    }
     if (server) {
       if (props.dangerouslySetInnerHTML == null) dropUnclaimed(el);
-    } else host.insertBefore(el, hydrating ? nextServerNode(host) : before);
+    } else host.insertBefore(el, hydrating ? serverCursor(host) : before);
     if (props.ref != null) layoutQueue.push(() => setRef(f, props.ref, el));
     return f;
   }
-  if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY) {
+  if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
     const f = fiber(FRAG, type, key, props, parent);
     if (!(type === ACTIVITY && props.mode === "hidden")) reconcile(f, toList(props.children), host, before);
     return f;
@@ -1212,17 +1261,19 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         if (!hydrate) (container as Element).replaceChildren?.();
       }
       depth++;
-      if (hydrate) (hydrating = new Map()), (mismatched = false);
+      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false);
       try {
         reconcile(top, [children], container, null);
         if (hydrate) dropUnclaimed(container);
       } finally {
         if (hydrate) {
           hydrating = null;
+          // Attributes are told only where the markup matched: a mismatch draws the whole root anew.
+          if (attrsDiffer && !mismatched) console.error(HYDRATION_ATTRS);
           if (mismatched) {
             mismatched = false;
-            const report = options?.onRecoverableError ?? globalThis.reportError;
-            report?.(new Error("Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch"), { componentStack: "" });
+            const recover = options?.onRecoverableError ?? report;
+            recover(new Error("Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch"), { componentStack: "" });
           }
         }
         if (--depth === 0) commit();

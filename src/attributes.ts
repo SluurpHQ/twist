@@ -2,7 +2,7 @@
 // so both write the same markup. In development, the mistakes React warns about are warned about here too.
 
 const BOOLEAN = new Set(
-  "allowFullScreen async autoPlay controls default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden inert loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope".split(" "),
+  "allowFullScreen async autoPlay controls default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden inert loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope credentialless".split(" "),
 );
 const OVERLOADED_BOOLEAN = new Set(["capture", "download"]);
 // Written as the strings "true" and "false".
@@ -36,6 +36,21 @@ export { warn };
 
 const dataOrAria = (n: string) => /^(data|aria)-/i.test(n);
 
+/** A custom element (a tag with a dash, or a built-in one given `is`): React writes its props as they are. */
+export const isCustomElement = (tag: string, props: any) => tag.includes("-") || (props != null && props.is != null);
+
+/**
+ * A custom element's attribute, as React 19 writes it: className as class (and htmlFor as for, on an `is` element),
+ * true as present, false and null as absent, and no warnings. Functions and symbols are not attributes.
+ */
+export function customAttribute(tag: string, name: string, value: any): [string, string | null] | null {
+  const t = typeof value;
+  if (t === "function" || t === "symbol") return null;
+  const attr = name === "className" ? "class" : name === "htmlFor" && !tag.includes("-") ? "for" : name;
+  if (value == null || value === false) return [attr, null];
+  return [attr, value === true ? "" : String(value)];
+}
+
 /**
  * The attribute `name` on `tag` becomes, and its value: [attribute, value] to write, [attribute, null] to leave out,
  * or null when the prop is not an attribute at all (events, children, value…, handled elsewhere).
@@ -45,6 +60,10 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   if (BOOLEAN.has(name)) {
     if (t === "function" || t === "symbol") warnOnce(`Invalid value for prop \`${name}\` on <${tag}> tag.`);
     return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
+  }
+  // A function or a symbol is never an attribute's value: left out, and warned about (whatever the attribute).
+  if ((t === "function" || t === "symbol") && attributeNameSafe(name)) {
+    warnOnce(`Invalid value for prop \`${name}\` on <${tag}> tag. Either remove it from the element, or pass a string or number value to keep it in the DOM.`);
   }
   if (BOOLEANISH.has(name)) {
     if (value == null || t === "function" || t === "symbol") return [name, null];
