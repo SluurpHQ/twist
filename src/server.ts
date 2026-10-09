@@ -74,8 +74,9 @@ function attrs(props: any, ctx: Ctx, tag: string) {
     if (value != null) out += value === "" && !name.includes("-") && !name.includes(":") ? ` ${name}=""` : ` ${name}="${escape(value)}"`;
   };
   for (const k in props) {
-    const v = props[k];
+    let v = props[k];
     if (SKIP.has(k)) continue;
+    if (typeof v === "function" && v.isSignal === true) v = v();
     if (k[0] === "o" && k[1] === "n" && k.length > 2 && k[2] === k[2]!.toUpperCase()) continue;
     if (k === "style") {
       const css = v == null ? "" : style(v);
@@ -335,6 +336,8 @@ function suspendAfter(ctx: Ctx, fn: () => string): string {
 function renderFrame(node: any, ctx: Ctx, hooks: any): string {
   // A lazy or a promise as a child: what it resolves to (thrown to the nearest Suspense until then).
   node = unwrapChild(node);
+  // A signal: what it holds now (the client binds to it).
+  if (typeof node === "function" && node.isSignal === true) node = node();
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number" || typeof node === "bigint") {
     const text = String(node);

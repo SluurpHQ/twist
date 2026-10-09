@@ -8,11 +8,11 @@ const ours: Record<string, string> = {
   "react-dom": "react-dom.ts",
   "react-dom/client": "client.ts",
 };
-// sluurp-plain: ours unminified, for profiles with names.
-for (const name of ["react", "sluurp", "sluurp-plain"]) {
+// sluurp-plain: ours unminified, for profiles with names; signals: the app written with signals, on ours.
+for (const name of ["react", "sluurp", "sluurp-plain", "signals"]) {
   const dir = join(import.meta.dir, "..", "test", "out", "bench", name);
   const out = await Bun.build({
-    entrypoints: [join(import.meta.dir, "app.tsx")],
+    entrypoints: [join(import.meta.dir, name === "signals" ? "app-signals.tsx" : "app.tsx")],
     outdir: dir,
     target: "browser",
     minify: name !== "sluurp-plain",
@@ -23,6 +23,6 @@ for (const name of ["react", "sluurp", "sluurp-plain"]) {
         : [],
   });
   if (!out.success) throw new Error(out.logs.join("\n"));
-  await Bun.write(join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><title>bench ${name}</title><body><div id="main"></div><script type="module" src="app.js"></script>`);
+  await Bun.write(join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><title>bench ${name}</title><body><div id="main"></div><script type="module" src="${name === "signals" ? "app-signals" : "app"}.js"></script>`);
   console.log(name, (out.outputs[0].size / 1024).toFixed(0) + " KB");
 }

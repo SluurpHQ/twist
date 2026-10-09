@@ -277,6 +277,32 @@ test("a signal read in render re-renders", async (box) => {
   eq(box.textContent, "7");
 });
 
+test("a signal as a child or a prop updates its node, not its component", async (box) => {
+  const count = signal(1);
+  const tone = signal("a");
+  let renders = 0;
+  const C = () => (renders++, <b className={tone}>{count}</b>);
+  const root = mount(box, <C />);
+  count.set(2);
+  tone.set("b");
+  flushSync();
+  eq(box.innerHTML, '<b class="b">2</b>');
+  eq(renders, 1);
+  root.unmount();
+  count.set(3);
+  flushSync();
+  eq(box.innerHTML, "");
+});
+
+test("a signal holding an element is drawn as a child", async (box) => {
+  const what = signal<any>(<i>one</i>);
+  const C = () => <p>{what}</p>;
+  mount(box, <C />);
+  what.set(<u>two</u>);
+  flushSync();
+  eq(box.innerHTML, "<p><u>two</u></p>");
+});
+
 test("forwardRef and useImperativeHandle", async (box) => {
   const Input = forwardRef((_p: any, ref: any) => {
     const inner = useRef<HTMLInputElement>(null);

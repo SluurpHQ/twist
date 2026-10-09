@@ -4,7 +4,7 @@
 import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
-import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
+import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
 import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
 import { configureViewTransitions, renderInViewTransition, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
@@ -231,13 +231,38 @@ function toList(children: any): any[] {
   return one;
 }
 
+/** A value a bound text node shows (text, a number, or nothing); anything else is drawn as a child is. */
+const textValue = (v: any) => v == null || typeof v === "string" || typeof v === "number" || typeof v === "bigint" || typeof v === "boolean";
+const textOf = (v: any) => (v == null || typeof v === "boolean" ? "" : "" + v);
+
+/**
+ * A text node kept equal to a signal by an effect of its own: a change sets its data, nothing renders. A value that is
+ * no longer text draws its component again (which then reads it as a child).
+ */
+function bindText(f: Fiber, sig: () => any) {
+  (f as any).unbind = runWithOwner(null, () =>
+    effect(() => {
+      const v = sig();
+      if (f.dead) return;
+      if (!textValue(v)) {
+        let p = f.parent;
+        while (p && p.kind !== COMP) p = p.parent;
+        if (p) untrack(() => restart(p!));
+        return;
+      }
+      const s = textOf(v);
+      if ((f.dom as Text).data !== s) (f.dom as Text).data = s;
+    }),
+  );
+}
+
 /** A child's key among its siblings, and the fiber kind it makes. */
 export function keyOf(c: any, i: number) {
   return c && typeof c === "object" && c.key != null ? "k" + c.key : "i" + i;
 }
 
 export function typeOf(c: any): any {
-  if (typeof c === "string" || typeof c === "number" || typeof c === "bigint") return TEXT_NODE;
+  if (typeof c === "string" || typeof c === "number" || typeof c === "bigint" || typeof c === "function") return TEXT_NODE;
   if (Array.isArray(c)) return FRAGMENT;
   if (c.$$typeof === PORTAL) return PORTAL;
   return c.type;
@@ -525,8 +550,11 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     if (items) checkKeys((c = items), parent.type);
     // A plain object is no child (an element, text, an array or an iterable is).
     if (c && typeof c === "object" && !Array.isArray(c) && (!c.$$typeof || c.$$typeof === Symbol.for("react.element"))) throw objectChild(c);
+    // A signal holding text: a text node bound to it, set when it changes (its component does not render again).
+    // Holding anything else (an element, a list): read here, so the component renders again when it changes.
+    if (typeof c === "function" && c.isSignal === true && !textValue(untrack(c))) c = c();
     // A function or a symbol: no node, and React's warning (once per parent).
-    if (typeof c === "function" || typeof c === "symbol") {
+    if ((typeof c === "function" && c.isSignal !== true) || typeof c === "symbol") {
       if (dev()) invalidChild(parent, c);
       i++;
       continue;
@@ -1549,7 +1577,7 @@ function behindComponents(f: Fiber, tag: string): boolean {
 function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before: Node | null): Fiber {
   if (type === TEXT_NODE) {
     const f = fiber(TEXT, type, key, c, parent);
-    const text = "" + c;
+    const text = typeof c === "function" ? textOf(untrack(c)) : "" + c;
     if (dev()) {
       const around = nestingAt(parent);
       checkTextNesting(text, around?.current?.tag, around?.implicitRoot ?? false);
@@ -1583,6 +1611,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     }
     toldFragmentsAdded(f);
     if (hiddenActivities) for (let k = topInHidden(f); k > 0; k--) hideNode(f.dom, true);
+    if (typeof c === "function") bindText(f, c);
     return f;
   }
   if (type === FRAGMENT) {
@@ -1796,7 +1825,12 @@ function updateDehydrated(f: Fiber, props: any, redraw: () => void) {
 
 function update(f: Fiber, c: any) {
   if (f.kind === TEXT) {
-    if (f.props !== c) (f.dom as Text).data = "" + (f.props = c);
+    if (f.props === c) return;
+    (f as any).unbind?.();
+    (f as any).unbind = undefined;
+    f.props = c;
+    if (typeof c === "function") bindText(f, c);
+    else (f.dom as Text).data = "" + c;
     return;
   }
   if (f.kind === FRAG) {
@@ -1946,6 +1980,9 @@ function unmount(f: Fiber, removeDom: boolean) {
   }
   if (removeDom) for (const n of domNodes(f)) n.parentNode?.removeChild(n);
   f.dead = true;
+  // Bound to signals: let go.
+  (f as any).unbind?.();
+  if (f.kind === HOST && f.dom) unbindProps(f.dom as Element);
   if (f.type === VIEW_TRANSITION && f.committed) viewTransitionUnmounted(f);
   if (!f.committed) {
     // Never committed: nothing ran for it, nothing to undo.

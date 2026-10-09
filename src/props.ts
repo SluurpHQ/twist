@@ -1,6 +1,7 @@
 // Props on DOM elements, as React sets them: attributes or properties, styles, and events listened to on the
 // element itself (no delegation), each event given what React's handlers expect of it.
 
+import { effect, runWithOwner, untrack } from "../../signals/index.js";
 import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
 import { configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
@@ -308,15 +309,65 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   else ns ? el.setAttributeNS(ns, attr, value) : el.setAttribute(attr, value);
 }
 
+/** A prop given a signal (not a handler or a ref): bound to the element, set again whenever the signal changes. */
+const isBound = (k: string, v: any) => typeof v === "function" && v.isSignal === true && k !== "ref" && k !== "children" && !isEventProp(k);
+type Binding = { src: any; stop: () => void };
+const BINDINGS = Symbol("bindings");
+
+/** Its bound props made to match `next`: those gone or given another signal let go, new ones bound. */
+function bindProps(el: Element, next: any, svg: boolean) {
+  let binds: Map<string, Binding> | undefined = (el as any)[BINDINGS];
+  if (binds) for (const [k, b] of binds) if (next[k] !== b.src) b.stop(), binds.delete(k);
+  for (const k in next) {
+    const v = next[k];
+    if (!isBound(k, v) || binds?.get(k)?.src === v) continue;
+    if (!binds) (el as any)[BINDINGS] = binds = new Map();
+    let last: any;
+    // Its own effect, owned by no render: let go when the prop is, or the element goes.
+    const stop = runWithOwner(null, () =>
+      effect(() => {
+        const value = v();
+        untrack(() => setProp(el, k, value, last, svg));
+        last = value;
+      }),
+    );
+    binds.set(k, { src: v, stop });
+  }
+}
+
+/** Its bindings let go (it is gone). */
+export function unbindProps(el: Element) {
+  const binds: Map<string, Binding> | undefined = (el as any)[BINDINGS];
+  if (!binds) return;
+  for (const b of binds.values()) b.stop();
+  binds.clear();
+}
+
 /** Every prop of a new element, or the ones that changed on an update. */
 export function setProps(el: Element, next: any, prev: any, svg: boolean) {
-  validateProps(el.localName, next, true);
-  if (prev) for (const k in prev) if (!(k in next)) setProp(el, k, undefined, prev[k], svg);
+  let bound = false;
+  for (const k in next)
+    if (isBound(k, next[k])) {
+      bound = true;
+      break;
+    }
+  // Checked as the values the signals hold now.
+  let shown = next;
+  if (bound) {
+    shown = { ...next };
+    for (const k in shown) if (isBound(k, shown[k])) shown[k] = untrack(shown[k]);
+  }
+  validateProps(el.localName, shown, true);
+  if (bound || (el as any)[BINDINGS]) bindProps(el, next, svg);
+  if (prev) for (const k in prev) if (!(k in next) && !isBound(k, prev[k])) setProp(el, k, undefined, prev[k], svg);
+  // (A signal no longer given: what it had set taken off.)
+  if (prev) for (const k in prev) if (!(k in next) && isBound(k, prev[k])) setProp(el, k, undefined, untrack(prev[k]), svg);
   // An input's type first: setting it afterwards resets what `checked` and `value` set.
   if (next.type !== undefined && (!prev || prev.type !== next.type)) setProp(el, "type", next.type, prev?.type, svg);
   for (const k in next) {
     if (k === "type") continue;
     const v = next[k];
+    if (bound && isBound(k, v)) continue;
     // A field's value and checked are set again even when unchanged (a person may have changed them); else only what changed.
     if (!prev || prev[k] !== v || ((k === "value" || k === "checked") && /^(INPUT|TEXTAREA|SELECT)$/.test(el.nodeName))) setProp(el, k, v, prev ? prev[k] : undefined, svg);
   }
