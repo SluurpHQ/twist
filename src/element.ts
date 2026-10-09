@@ -181,7 +181,9 @@ export function readLazy(p: any) {
 export function readThenable(t: any) {
   if (t.status === "fulfilled") return t.value;
   if (t.status === "rejected") throw t.reason;
-  if (t.status !== "pending") {
+  // Already tracked by someone else (its status set): only subscribed to, as React does.
+  if (typeof t.status === "string") t.then(() => {}, () => {});
+  else {
     t.status = "pending";
     t.then(
       (v: any) => ((t.status = "fulfilled"), (t.value = v)),
