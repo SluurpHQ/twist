@@ -6,6 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
+import { configureViewTransitions, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
@@ -279,6 +280,11 @@ function topElements(f: Fiber, out: Element[] = []): Element[] {
   }
   return out;
 }
+
+configureViewTransitions(
+  (f) => f.type === VIEW_TRANSITION,
+  (f) => topElements(f as Fiber),
+);
 
 function domNodes(f: Fiber, out: Node[] = []): Node[] {
   // A singleton stays where the document has it: not moved or removed with its parent's nodes.
@@ -1839,6 +1845,7 @@ function unmount(f: Fiber, removeDom: boolean) {
   }
   if (removeDom) for (const n of domNodes(f)) n.parentNode?.removeChild(n);
   f.dead = true;
+  if (f.type === VIEW_TRANSITION && f.committed) viewTransitionUnmounted(f);
   if (!f.committed) {
     // Never committed: nothing ran for it, nothing to undo.
     f.stop?.();
@@ -2584,6 +2591,10 @@ function commit() {
       layoutQueue.length = 0;
       const made = fresh.splice(0);
       for (const f of made) (f.committed = true), ((f as any).placed = true);
+      viewTransitionsCommit(
+        made.filter((f) => f.type === VIEW_TRANSITION),
+        applyingTransition || transitionCommit,
+      );
       if (dev()) {
         const strictMade = made.filter((f) => (f as any).strict && !f.dead);
         if (strictMade.length) passiveQueue.push(() => doubleInvoke(strictMade));
@@ -2693,7 +2704,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined));
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), resetViewTransitions());
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -3253,6 +3264,7 @@ export function flushTransitions(): boolean {
     }
   }
   applyingTransition = true;
+  viewTransitionsBegin();
   try {
     for (const w of transitionWork.splice(0)) w.apply();
     flushSignals();
@@ -3277,6 +3289,9 @@ export function flushTransitions(): boolean {
   }
   return true;
 }
+
+/** A root's first render, done in a transition, committing now (its view transitions animate). */
+let transitionCommit = false;
 
 /** Transitions started so far: a submit's handlers that start one make its form pending. */
 let transitionsStartedCount = 0;
@@ -3383,7 +3398,12 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         top.dom = container;
         clearContainer(container);
         container.appendChild(frag);
-        commit();
+        transitionCommit = true;
+        try {
+          commit();
+        } finally {
+          transitionCommit = false;
+        }
         flushSignals();
       };
       // Its stylesheets loaded first, when it has some that are not (React's suspensey commit).
