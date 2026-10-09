@@ -33,14 +33,14 @@
 | react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 23 | 150 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 26 | 147 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServerNode-test.js | 5 | 16 | 0 |  |
+| react-dom/ReactDOMFizzServerNode-test.js | 3 | 18 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 1 | 11 | 0 |  |
-| react-dom/ReactDOMFizzStatic-test.js | 1 | 5 | 0 |  |
+| react-dom/ReactDOMFizzStatic-test.js | 0 | 6 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzStaticNode-test.js | 2 | 15 | 0 |  |
+| react-dom/ReactDOMFizzStaticNode-test.js | 3 | 14 | 0 |  |
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 0 | 12 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 2 | 2 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 2 | 9 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 20 | 25 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 19 | 26 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 10 | 14 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |

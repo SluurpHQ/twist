@@ -23,7 +23,16 @@ function style(s: any) {
   return out;
 }
 
-type Ctx = { values: Map<any, any>; ids: number; waiting: Promise<any>[]; svg: boolean; select: any; lastText: boolean };
+type Ctx = {
+  values: Map<any, any>;
+  ids: number;
+  waiting: Promise<any>[];
+  svg: boolean;
+  select: any;
+  lastText: boolean;
+  /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
+  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number }; onError: (e: unknown) => void };
+};
 
 function attrs(props: any, ctx: Ctx, tag: string) {
   let out = "";
@@ -153,7 +162,7 @@ function serverHooks(ctx: Ctx) {
     useInsertionEffect: NOOP,
     useImperativeHandle: NOOP,
     useContext: read,
-    useId: () => `_r_${(ctx.ids++).toString(32)}_`,
+    useId: () => `_r_${(ctx.streaming ? ctx.streaming.shared.ids++ : ctx.ids++).toString(32)}_`,
     useSyncExternalStore: (_s: any, get: any, getServer?: any) => (getServer ?? get)(),
     useTransition: () => [false, (fn: any) => fn()],
     useDeferredValue: (v: any) => v,
@@ -184,14 +193,25 @@ function render(node: any, ctx: Ctx, hooks: any): string {
   if (typeof type === "string") return host(type, props, ctx, hooks);
   if (typeof type === "symbol") {
     if (type === SUSPENSE) {
+      // Between markers, so the client finds the boundary: complete ($), pending ($?), or left to the client ($!).
       try {
-        return render(props.children, ctx, hooks);
+        return `<!--$-->${render(props.children, ctx, hooks)}<!--/$-->`;
       } catch (e: any) {
+        ctx.lastText = false;
+        const stream = ctx.streaming;
         if (e && typeof e.then === "function") {
+          if (stream) {
+            const id = stream.shared.next++;
+            stream.shared.boundaries.push({ id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e });
+            return `<!--$?--><template id="B:${id}"></template>${render(props.fallback, ctx, hooks)}<!--/$-->`;
+          }
           ctx.waiting.push(e);
-          return render(props.fallback, ctx, hooks);
+          return `<!--$!--><template></template>${render(props.fallback, ctx, hooks)}<!--/$-->`;
         }
-        throw e;
+        if (!stream) throw e;
+        // An error inside a boundary: its fallback now, the client renders it again (React's behaviour).
+        stream.onError(e);
+        return `<!--$!--><template></template>${render(props.fallback, ctx, hooks)}<!--/$-->`;
       }
     }
     return render(props.children, ctx, hooks);
@@ -299,35 +319,6 @@ async function complete(node: any) {
   }
 }
 
-export async function renderToReadableStream(node: any, options: any = {}) {
-  const html = await complete(node);
-  const text = (options.bootstrapScriptContent ? `<script>${options.bootstrapScriptContent}</script>` : "") + html +
-    (options.bootstrapModules ?? []).map((s: string) => `<script type="module" src="${escape(s)}"></script>`).join("") +
-    (options.bootstrapScripts ?? []).map((s: string) => `<script src="${escape(s)}" async></script>`).join("");
-  const body = new TextEncoder().encode(text);
-  const stream: any = new ReadableStream({
-    start(c) {
-      c.enqueue(body);
-      c.close();
-    },
-  });
-  stream.allReady = Promise.resolve();
-  return stream;
-}
-
-export function renderToPipeableStream(node: any, options: any = {}) {
-  const done = complete(node);
-  done.then(() => options.onShellReady?.(), (e) => options.onShellError?.(e));
-  done.then(() => options.onAllReady?.());
-  return {
-    pipe(w: any) {
-      done.then((html) => (w.write(html), w.end?.()));
-      return w;
-    },
-    abort() {},
-  };
-}
-
 // `react-dom/static`: the whole page, once everything it waits on has settled.
 export async function prerender(node: any, options: any = {}) {
   return { prelude: await renderToReadableStream(node, options), postponed: null };
@@ -338,5 +329,154 @@ export async function prerenderToNodeStream(node: any, _options: any = {}) {
   const { Readable } = await import("node:stream" as string);
   return { prelude: Readable.from([html]), postponed: null };
 }
+
+// ---------------------------------------------------------------- streaming
+
+/**
+ * The swap a streamed boundary runs (sent once, before the first): its content, sent hidden, takes the place of
+ * the fallback between the boundary's markers. `$SX` gives a boundary up to the client (it renders it itself).
+ */
+const RUNTIME =
+  "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove()};$SX=function(b){var t=document.getElementById(b);if(!t)return;var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$!'}</script>";
+
+type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any> };
+
+/** One streamed render: the shell, then each boundary as it settles, written through `write`. */
+function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void) {
+  const shared = { ids: 0, boundaries: [] as Boundary[], next: 0 };
+  const pending = new Set<Boundary>();
+  let runtimeSent = false;
+  let closed = false;
+  const onError = (e: unknown) => options.onError?.(e, { componentStack: "" });
+  const ctxFor = (b?: Boundary): Ctx => ({
+    ...fresh(),
+    values: b ? new Map(b.values) : new Map(),
+    svg: b?.svg ?? false,
+    select: b?.select,
+    streaming: { shared, onError },
+  });
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    options.onAllReady?.();
+    finish();
+  };
+  const watch = () => {
+    for (const b of shared.boundaries.splice(0)) {
+      pending.add(b);
+      const retry = () => (closed ? undefined : settle(b));
+      b.waiting.then(retry, retry);
+    }
+    if (!pending.size) close();
+  };
+  const settle = (b: Boundary) => {
+    pending.delete(b);
+    const ctx = ctxFor(b);
+    let inner: string;
+    try {
+      inner = once(b.children, ctx);
+    } catch (e: any) {
+      if (e && typeof e.then === "function") {
+        // Still waiting on something else: the boundary waits again.
+        b.waiting = e;
+        shared.boundaries.push(b);
+        return watch();
+      }
+      onError(e);
+      write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}")</script>`);
+      runtimeSent = true;
+      return watch();
+    }
+    write(`${runtimeSent ? "" : RUNTIME}<div hidden id="S:${b.id}">${inner}</div><script>$SC("B:${b.id}","S:${b.id}")</script>`);
+    runtimeSent = true;
+    watch();
+  };
+  let shell: string;
+  try {
+    shell = once(node, ctxFor());
+  } catch (e) {
+    onError(e);
+    options.onShellError?.(e);
+    closed = true;
+    return { abort() {}, failed: e };
+  }
+  const head = options.bootstrapScriptContent ? `<script>${options.bootstrapScriptContent}</script>` : "";
+  const tail =
+    (options.bootstrapScripts ?? []).map((s: any) => `<script src="${escape(typeof s === "string" ? s : s.src)}" async=""></script>`).join("") +
+    (options.bootstrapModules ?? []).map((s: any) => `<script type="module" src="${escape(typeof s === "string" ? s : s.src)}" async=""></script>`).join("");
+  write(shell + head + tail);
+  options.onShellReady?.();
+  watch();
+  return {
+    failed: null,
+    /** Stop waiting: what is still pending is left for the client to render. */
+    abort(reason?: unknown) {
+      if (closed) return;
+      for (const b of pending) {
+        onError(reason ?? new Error("The render was aborted by the server without a reason."));
+        write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}")</script>`);
+        runtimeSent = true;
+      }
+      pending.clear();
+      close();
+    },
+  };
+}
+
+export function renderToPipeableStream(node: any, options: any = {}) {
+  const chunks: string[] = [];
+  let out: any = null;
+  let ended = false;
+  const write = (c: string) => (out ? out.write(c) : chunks.push(c));
+  const finish = () => (out ? out.end?.() : (ended = true));
+  let run: ReturnType<typeof startStream> | null = null;
+  // Started on the next turn, as React starts its work: the caller has its pipe ready by then.
+  setImmediateOr(() => (run = startStream(node, options, write, finish)));
+  return {
+    pipe(w: any) {
+      out = w;
+      for (const c of chunks.splice(0)) w.write(c);
+      if (ended) w.end?.();
+      return w;
+    },
+    abort(reason?: unknown) {
+      run?.abort(reason);
+    },
+  };
+}
+
+export function renderToReadableStream(node: any, options: any = {}): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const enc = new TextEncoder();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    let allReady!: () => void;
+    const ready = new Promise<void>((r) => (allReady = r));
+    const stream: any = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
+    stream.allReady = ready;
+    const run = startStream(
+      node,
+      {
+        ...options,
+        onShellReady: () => {
+          options.onShellReady?.();
+          resolve(stream);
+        },
+        onShellError: (e: unknown) => {
+          options.onShellError?.(e);
+          reject(e);
+        },
+        onAllReady: () => {
+          options.onAllReady?.();
+          allReady();
+        },
+      },
+      (c) => controller.enqueue(enc.encode(c)),
+      () => controller.close(),
+    );
+    options.signal?.addEventListener?.("abort", () => run.abort(options.signal.reason), { once: true });
+  });
+}
+
+const setImmediateOr = (fn: () => void) => ((globalThis as any).setImmediate ? (globalThis as any).setImmediate(fn) : setTimeout(fn, 0));
 
 export const version = "19.3.0";
