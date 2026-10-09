@@ -126,6 +126,20 @@ for (const kind of ["error", "warn", "log"] as const) {
   console[kind] = (...args: any[]) => {
     // jsdom's own note about CSS it cannot parse (React's jsdom does not print it): not React's output.
     if (kind === "error" && String(args[0]).includes("Could not parse CSS stylesheet")) return;
+    // What React's console mock leaves out (its shouldIgnoreConsoleError): an error logged with an addendum, as
+    // the default onCaughtError/onUncaughtError log it.
+    if (kind === "error" && typeof args[0] === "string") {
+      const rest = args[0].startsWith("%c%s") ? args.slice(4) : args.slice(1);
+      const first = rest[0];
+      if (
+        first != null &&
+        ((typeof first === "object" && typeof first.message === "string" && typeof first.stack === "string" && !args[0].includes("Failed to serialize an action")) ||
+          (typeof first === "string" && first.indexOf("An error occurred in ") === 0))
+      ) {
+        original(...args);
+        return;
+      }
+    }
     seen[kind]!.push(args.map(String).join(" "));
     if (kind !== "log") original(...args);
   };

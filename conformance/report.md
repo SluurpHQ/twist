@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3487 pass, 537 fail, 314 skipped (gated off for stable React 19).
+3489 pass, 535 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -104,7 +104,7 @@
 | react-dom/ReactDOMUseId-test.js | 10 | 2 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 4 | 10 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 22 | 2 | 0 |  |
-| react-dom/ReactErrorBoundaries-test.internal.js | 27 | 22 | 1 |  |
+| react-dom/ReactErrorBoundaries-test.internal.js | 29 | 20 | 1 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 1 | 0 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |

@@ -1798,6 +1798,7 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     if (!f.committed && f.type.getDerivedStateFromError) f.inst.__remount = true;
     current = f;
     hookAt = 0;
+    (f as any).retrying = true;
     try {
       // A boundary with componentDidCatch alone has no state for the error yet: it shows nothing until its
       // componentDidCatch (in the commit) sets some, as React has it.
@@ -1814,6 +1815,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
       reconcile(f, toList(out), host, before);
     } catch (e) {
       caught(f, e);
+    } finally {
+      (f as any).retrying = false;
     }
   }
   drawing.delete(f);
@@ -2125,9 +2128,19 @@ function caught(f: Fiber, e: any) {
   }
   for (let p = f.parent; p; p = p.parent) {
     const inst = p.inst;
-    if (inst && !p.dead && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
+    // (Not one rendering its error state now: what fails there goes further up, as React does.)
+    if (inst && !p.dead && !(p as any).retrying && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
       if (p.type.getDerivedStateFromError) inst.__queue.push(p.type.getDerivedStateFromError(e));
-      if (inst.componentDidCatch) layoutQueue.push(() => !p.dead && guard(() => inst.componentDidCatch(e, { componentStack: "" })));
+      if (inst.componentDidCatch)
+        layoutQueue.push(() => {
+          if (p.dead) return;
+          const tick = p.tick?.peek();
+          const queued = inst.__queue.length;
+          guard(() => inst.componentDidCatch(e, { componentStack: "" }));
+          // With no getDerivedStateFromError and no update of its own, it swallows the error: React says so.
+          if (dev() && !p.type.getDerivedStateFromError && p.tick?.peek() === tick && inst.__queue.length === queued)
+            withFiber(p, () => warn(`${nameOf(p.type)}: Error boundaries should implement getDerivedStateFromError(). In that method, return a state update to display an error message or fallback UI.`));
+        });
       if (rendering) (p.root as any).threw = true;
       const tell = () => (p.root.onCaughtError ?? toldCaught(f, p))(e, { componentStack: "", errorBoundary: inst });
       if (rendering) caughtThisRender.push(() => !p.dead && tell());
