@@ -389,8 +389,167 @@ const pastComments = (n: Node | null) => {
 function nextServerNode(host: Node): Node | null {
   if (!hydrating) return null;
   let n = hydrating.has(host) ? hydrating.get(host)! : host.firstChild;
-  while (n && n.nodeType === 8) n = n.nextSibling;
-  return n;
+  const limit = regionIn(host)?.end;
+  while (n && n !== limit && n.nodeType === 8) n = n.nextSibling;
+  return n === limit ? null : n;
+}
+
+// ---------------------------------------------------------------- Suspense boundaries from the server
+
+/** A Suspense boundary the server drew, between its comments (`$` complete, `$?` pending, `$!` given to the
+ * client): hydrated on its own, as React does — what goes wrong inside stays inside. */
+type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspended: PromiseLike<any> | null; mismatch: boolean; made: Node[] };
+const regions: Region[] = [];
+const regionIn = (host: Node) => {
+  for (let i = regions.length - 1; i >= 0; i--) if (regions[i]!.host === host) return regions[i];
+  return undefined;
+};
+/** Markup that differs from the client's: the innermost boundary's to deal with, or the root's. */
+function markMismatch() {
+  const r = regions[regions.length - 1];
+  if (r) r.mismatch = true;
+  else mismatched = true;
+}
+/** The comment closing the boundary opened by `start`. */
+function boundaryEnd(start: Comment): Comment | null {
+  let depth = 0;
+  for (let n = start.nextSibling; n; n = n.nextSibling) {
+    if (n.nodeType !== 8) continue;
+    const d = (n as Comment).data;
+    if (d === "/$") {
+      if (depth === 0) return n as Comment;
+      depth--;
+    } else if (d === "$" || d === "$?" || d === "$!") depth++;
+  }
+  return null;
+}
+/** The boundary's server nodes between its comments taken away (it is drawn on the client instead). */
+function clearRegion(r: { start: Comment; end: Comment }) {
+  for (let n = r.start.nextSibling; n && n !== r.end; ) {
+    const next = n.nextSibling;
+    n.parentNode!.removeChild(n);
+    n = next;
+  }
+}
+const HYDRATION_FAILED = "Hydration failed because the server rendered HTML didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\nhttps://react.dev/link/hydration-mismatch";
+/** A recoverable error told in the commit, after what replaced the boundary is drawn, as React tells it. */
+const recoverable = (f: Fiber, message: string) => {
+  const error = new Error(message);
+  layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" }));
+};
+
+/** A Suspense boundary mounted while hydrating: taken over from its server markup, on its own. */
+function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
+  let raw: Node | null = hydrating!.has(host) ? hydrating!.get(host)! : host.firstChild;
+  while (raw && raw.nodeType === 3 && !(raw as Text).data.trim()) raw = raw.nextSibling;
+  const kind = raw && raw.nodeType === 8 ? (raw as Comment).data : null;
+  const end = kind === "$" || kind === "$?" || kind === "$!" ? boundaryEnd(raw as Comment) : null;
+  if (!end) {
+    // Not the server's boundary here: drawn as any other (a mismatch, found by what it holds).
+    start(f, host, before);
+    return;
+  }
+  const region = { start: raw as Comment, end };
+  hydrating!.set(host, end.nextSibling);
+  (f as any).region = region;
+  if (kind === "$?") {
+    // Still streaming: the server's fallback stays until its content arrives (the stream's script says so).
+    (raw as any)._reactRetry = () => retryBoundary(f);
+    return;
+  }
+  if (kind === "$!") {
+    serverGaveUp(f, region);
+    clearRegion(region);
+    drawFresh(f, host, end);
+    return;
+  }
+  hydrateRegion(f, host, region, () => start(f, host, before));
+}
+
+/** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
+ * they do not match. */
+function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comment }, draw: () => void) {
+  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, made: [] };
+  const was = hydrating!.get(host);
+  hydrating!.set(host, region.start.nextSibling);
+  regions.push(r);
+  try {
+    draw();
+    // What the server drew there and nothing claimed: a mismatch of the boundary's.
+    if (!r.suspended && nextServerNode(host)) r.mismatch = true;
+  } finally {
+    regions.pop();
+    hydrating!.set(host, was ?? region.end.nextSibling);
+  }
+  if (r.suspended) {
+    // Left as the server drew it, and hydrated again once what it waits for is there.
+    for (const c of f.children) unmount(c, false);
+    f.children = [];
+    for (const n of r.made) n.parentNode?.removeChild(n);
+    const again = () => retryBoundary(f);
+    r.suspended.then(again, again);
+    return;
+  }
+  if (r.mismatch) {
+    for (const c of f.children) unmount(c, false);
+    f.children = [];
+    for (const n of r.made) n.parentNode?.removeChild(n);
+    clearRegion(region);
+    recoverable(f, HYDRATION_FAILED);
+    drawFresh(f, host, region.end);
+  }
+}
+
+/** A boundary the server gave to the client: reported with the server's reason (in development) and digest. */
+function serverGaveUp(f: Fiber, region: { start: Comment }) {
+  const t = region.start.nextSibling as HTMLElement | null;
+  const data: any = t && t.nodeName === "TEMPLATE" ? (t as any).dataset ?? {} : {};
+  const error: any = new Error(
+    dev() && data.msg ? data.msg : "The server could not finish this Suspense boundary, likely due to an error during server rendering. Switched to client rendering.",
+  );
+  error.digest = data.dgst;
+  layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" }));
+}
+
+/** The boundary drawn on the client, not hydrated, before its closing comment. */
+function drawFresh(f: Fiber, host: Node, end: Node) {
+  const was = hydrating;
+  hydrating = null;
+  try {
+    f.stop?.();
+    f.children = [];
+    start(f, host, end);
+  } finally {
+    hydrating = was;
+  }
+}
+
+/** A dehydrated boundary hydrated again (its data is there, or its content streamed in). */
+function retryBoundary(f: Fiber) {
+  const region = (f as any).region as { start: Comment; end: Comment } | undefined;
+  if (!region || f.dead || hydrating) return;
+  const host = region.start.parentNode;
+  if (!host) return;
+  if (region.start.data === "$!") {
+    serverGaveUp(f, region);
+    clearRegion(region);
+    drawFresh(f, host, region.end);
+    flushSignals();
+    return;
+  }
+  hydrating = new Map();
+  depth++;
+  try {
+    hydrateRegion(f, host, region, () => {
+      f.stop?.();
+      f.children = [];
+      start(f, host, region.end);
+    });
+  } finally {
+    hydrating = null;
+    if (--depth === 0) commit();
+  }
+  flushSignals();
 }
 
 /** Where a node made while hydrating goes: before the next server node, which stays next (the new node is not one). */
@@ -415,12 +574,13 @@ function claim(host: Node, match: (n: Node) => boolean): Node | null {
 /** What the server drew in `host` and the client did not claim: taken away, as React does on a mismatch. */
 function dropUnclaimed(host: Node) {
   if (!hydrating) return;
+  const limit = regionIn(host)?.end;
   let n = nextServerNode(host);
-  while (n) {
+  while (n && n !== limit) {
     const next = n.nextSibling;
     if (n.nodeType !== 8) {
       host.removeChild(n);
-      mismatched = true;
+      markMismatch();
     }
     n = next;
   }
@@ -457,10 +617,10 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
       f.dom = had;
     } else {
-      if (hydrating && text !== "") mismatched = true;
+      if (hydrating && text !== "") markMismatch();
       f.dom = docOf(host).createTextNode(text);
       host.insertBefore(f.dom, hydrating ? serverCursor(host) : before);
-      if (hydrating) madeWhileHydrating.push(f.dom);
+      if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
     }
     return f;
   }
@@ -501,7 +661,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     (el as any).__fiber = f;
     listenOnElement(el, type);
     if (!server) {
-      if (hydrating) mismatched = true;
+      if (hydrating) markMismatch();
       checkTag(el, type);
     }
     // As the server drew it, to compare once the props are applied (and have warned as they do).
@@ -520,10 +680,10 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       attrsDiffer = true;
     }
     if (server) {
-      if (props.dangerouslySetInnerHTML == null && !hydrationWaits) dropUnclaimed(el);
+      if (props.dangerouslySetInnerHTML == null && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el);
     } else {
       host.insertBefore(el, hydrating ? serverCursor(host) : before);
-      if (hydrating) madeWhileHydrating.push(el);
+      if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
     }
     if (props.ref != null) layoutQueue.push(() => !f.dead && setRef(f, props.ref, el));
     return f;
@@ -548,7 +708,10 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     work.units.splice(work.at++, 0, () => !f.dead && start(f, hostParentOf(f), nextDomAfter(f)));
     return f;
   }
-  start(f, host, before);
+  // Its boundary has suspended while hydrating: the rest of it waits, as React stops rendering there.
+  if (hydrating && regions[regions.length - 1]?.suspended) return f;
+  if (type === SUSPENSE && hydrating) hydrateBoundary(f, host, before);
+  else start(f, host, before);
   return f;
 }
 
@@ -1099,6 +1262,18 @@ const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
 function caught(f: Fiber, e: any) {
   if (e && typeof e.then === "function") {
     (f as any).suspended = true;
+    // Its boundary is being hydrated: that boundary stays as the server drew it, and is hydrated again later.
+    if (hydrating) {
+      for (let p = f.parent; p; p = p.parent) {
+        if (p.type !== SUSPENSE) continue;
+        const r = regions.find((x) => x.fiber === p);
+        if (r) {
+          r.suspended ??= e;
+          return;
+        }
+        break;
+      }
+    }
     // In a transition, an update keeps what is shown (no fallback) and is drawn again once the data is there.
     if (applyingTransition && f.committed) {
       // React still renders the boundary's fallback, then throws that attempt away: so do we, off the page.
@@ -1709,6 +1884,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   state.top = top;
   state.onUncaughtError = options?.onUncaughtError;
   state.onCaughtError = options?.onCaughtError;
+  (state as any).onRecoverable = options?.onRecoverableError;
   let first = true;
   // Renders of this root started while it is already rendering or committing (componentDidMount rendering the
   // root again): past React's limit it is a loop, thrown as React throws it.

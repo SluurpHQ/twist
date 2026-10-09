@@ -5,11 +5,22 @@ import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { fieldString } from "./coercion.ts";
+import { dev } from "./warnings.ts";
 import { styleText } from "./props.ts";
 import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
 const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "suppressHydrationWarning", "suppressContentEditableWarning", "innerHTML"]);
+
+/** Why the server gave a boundary to the client, in its template as React writes it: the digest onError gave, and
+ * in development the message (the client reports it). */
+const RENDER_TO_STRING_SUSPENSE = 'The server used "renderToString" which does not support Suspense. If you intended for this Suspense boundary to render the fallback content on the server consider throwing an Error somewhere within the Suspense boundary. If you intended to have the server wait for the suspended component please switch to "renderToPipeableStream" which supports Suspense on the server';
+const errored = (e: any) => "Switched to client rendering because the server rendering errored:\n\n" + (e?.message ?? String(e));
+const aborted = (reason: string) => "Switched to client rendering because the server rendering aborted due to:\n\n" + reason;
+function errorTemplate(digest: unknown, message: string) {
+  const dgst = typeof digest === "string" ? ` data-dgst="${escape(digest)}"` : "";
+  return `<template${dgst}${dev() ? ` data-msg="${escape(message)}"` : ""}></template>`;
+}
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#39" }[c]};`);
 
@@ -26,7 +37,7 @@ type Ctx = {
   select: any;
   lastText: boolean;
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
-  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number }; onError: (e: unknown) => void };
+  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number }; onError: (e: unknown) => any };
 };
 
 function attrs(props: any, ctx: Ctx, tag: string) {
@@ -201,12 +212,12 @@ function render(node: any, ctx: Ctx, hooks: any): string {
             return `<!--$?--><template id="B:${id}"></template>${render(props.fallback, ctx, hooks)}<!--/$-->`;
           }
           ctx.waiting.push(e);
-          return `<!--$!--><template></template>${render(props.fallback, ctx, hooks)}<!--/$-->`;
+          return `<!--$!-->${errorTemplate(undefined, aborted(RENDER_TO_STRING_SUSPENSE))}${render(props.fallback, ctx, hooks)}<!--/$-->`;
         }
         if (!stream) throw e;
         // An error inside a boundary: its fallback now, the client renders it again (React's behaviour).
-        stream.onError(e);
-        return `<!--$!--><template></template>${render(props.fallback, ctx, hooks)}<!--/$-->`;
+        const digest = stream.onError(e);
+        return `<!--$!-->${errorTemplate(digest, errored(e))}${render(props.fallback, ctx, hooks)}<!--/$-->`;
       }
     }
     return render(props.children, ctx, hooks);
@@ -341,7 +352,7 @@ export async function prerenderToNodeStream(node: any, _options: any = {}) {
  * the fallback between the boundary's markers. `$SX` gives a boundary up to the client (it renders it itself).
  */
 const RUNTIME =
-  "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove()};$SX=function(b){var t=document.getElementById(b);if(!t)return;var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$!'}</script>";
+  "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m){var t=document.getElementById(b);if(!t)return;if(g)t.dataset.dgst=g;if(m)t.dataset.msg=m;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}}</script>";
 
 type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any> };
 
@@ -352,6 +363,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   let runtimeSent = false;
   let closed = false;
   const onError = (e: unknown) => options.onError?.(e, { componentStack: "" });
+  // The digest and (in development) the message, as script arguments.
+  const sxArgs = (digest: unknown, message: string) => `,${JSON.stringify(typeof digest === "string" ? digest : "").replace(/</g, "\\u003c")},${JSON.stringify(dev() ? message : "").replace(/</g, "\\u003c")}`;
   const ctxFor = (b?: Boundary): Ctx => ({
     ...fresh(),
     values: b ? new Map(b.values) : new Map(),
@@ -386,8 +399,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         shared.boundaries.push(b);
         return watch();
       }
-      onError(e);
-      write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}")</script>`);
+      const digest = onError(e);
+      write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}"${sxArgs(digest, errored(e))})</script>`);
       runtimeSent = true;
       return watch();
     }
@@ -417,8 +430,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     abort(reason?: unknown) {
       if (closed) return;
       for (const b of pending) {
-        onError(reason ?? new Error("The render was aborted by the server without a reason."));
-        write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}")</script>`);
+        const why = reason ?? new Error("The render was aborted by the server without a reason.");
+        const digest = onError(why);
+        write(`${runtimeSent ? "" : RUNTIME}<script>$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)))})</script>`);
         runtimeSent = true;
       }
       pending.clear();

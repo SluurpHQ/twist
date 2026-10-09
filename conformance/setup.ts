@@ -120,12 +120,13 @@ const ours: Record<string, string> = {
   "scheduler/unstable_mock": join(shim, "scheduler.ts"),
   "internal-test-utils": join(shim, "test-utils.ts"),
   "react-noop-renderer": join(shim, "noop.ts"),
+  "react-reconciler/constants": join(shim, "reconciler-constants.ts"),
 };
 
 plugin({
   name: "sluurp-dom-conformance",
   setup(b) {
-    b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils|react-noop-renderer)(\/.*)?$/ }, (a) => {
+    b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils|react-noop-renderer|react-reconciler)(\/.*)?$/ }, (a) => {
       const to = ours[a.path];
       return to ? { path: to } : undefined;
     });
