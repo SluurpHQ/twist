@@ -3,7 +3,7 @@
 import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
-import { attribute } from "./attributes.ts";
+import { VOID_TAGS, assertValidProps, attribute, checkTagName } from "./attributes.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
 const UNITLESS = new Set("animationIterationCount aspectRatio columnCount flex flexGrow flexShrink fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth gridRow gridColumn gridArea".split(" "));
@@ -170,6 +170,8 @@ function render(node: any, ctx: Ctx, hooks: any): string {
 }
 
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
+  checkTagName(tag);
+  assertValidProps(tag, props);
   const svg = ctx.svg;
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
@@ -180,7 +182,7 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
     if (chosen !== undefined && (Array.isArray(chosen) ? chosen.map(String).includes(String(v)) : String(chosen) === String(v))) open += " selected";
   }
   open += ">";
-  if (VOID.has(tag)) {
+  if (VOID.has(tag) && tag !== "menuitem") {
     ctx.svg = svg;
     return open;
   }

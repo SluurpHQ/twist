@@ -7,6 +7,7 @@ import { checkPropName } from "./warnings.ts";
 import { valueChanged } from "./forms.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
+const noop = () => {};
 export const MATH_NS = "http://www.w3.org/1998/Math/MathML";
 
 const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "suppressHydrationWarning", "suppressContentEditableWarning", "defaultValue", "defaultChecked", "innerHTML"]);
@@ -153,7 +154,11 @@ function setAction(el: Element, name: string, fn: any) {
 export function setProp(el: Element, name: string, next: any, prev: any, svg: boolean) {
   if (SKIP.has(name)) return;
   if (name === "style") return setStyle(el as HTMLElement, next, prev);
-  if (name[0] === "o" && name[1] === "n" && name.length > 2 && name[2] === name[2]!.toUpperCase()) return listen(el, name, next);
+  if (name[0] === "o" && name[1] === "n" && name.length > 2 && name[2] === name[2]!.toUpperCase()) {
+    // iOS Safari only sends clicks to elements it thinks are clickable: React gives them an onclick that does nothing.
+    if (name === "onClick" && next != null) (el as HTMLElement).onclick ??= noop;
+    return listen(el, name, next);
+  }
   if ((name === "action" || name === "formAction") && typeof next === "function") return setAction(el, name, next);
   if (name === "value" || name === "checked" || name === "selected") {
     // Properties, compared with what is on the element (a person may have changed it since).

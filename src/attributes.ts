@@ -81,6 +81,7 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
     return [attr, String(value)];
   }
   // Everything else: data- and aria- take booleans as text; any other attribute leaves booleans out.
+  if (!attributeNameSafe(name)) return null;
   let attr = ALIASES[name] ?? name;
   if (svg && SVG_HYPHEN.test(name)) attr = name.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
   if (value == null) return [attr, null];
@@ -93,4 +94,46 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
     return [attr, null];
   }
   return [attr, String(value)];
+}
+
+// ---------------------------------------------------------------- validation (React DOM's assertValidProps and friends)
+
+export const VOID_TAGS = new Set("area base br col embed hr img input keygen link meta param source track wbr menuitem".split(" "));
+const VALID_TAG = /^[a-zA-Z][a-zA-Z:_.\-\d]*$/;
+// React's isAttributeNameSafe: what may be written as an attribute name.
+const START_CHAR = ":A-Z_a-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
+const ATTRIBUTE_NAME = new RegExp("^[" + START_CHAR + "][" + START_CHAR + "\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040]*$");
+const safeNames = new Map<string, boolean>();
+
+/** Whether `name` may be an attribute; one that may not is warned about once and left out. */
+export function attributeNameSafe(name: string): boolean {
+  let ok = safeNames.get(name);
+  if (ok === undefined) {
+    ok = ATTRIBUTE_NAME.test(name);
+    safeNames.set(name, ok);
+    if (!ok) warn(`Invalid attribute name: \`${name}\``);
+  }
+  return ok;
+}
+
+/** A tag React refuses to write (a name that is not one, or markup smuggled in as one). */
+export function checkTagName(tag: string) {
+  if (!VALID_TAG.test(tag)) throw new Error(`Invalid tag: ${tag}`);
+}
+
+/** React DOM's assertValidProps: children of void elements, dangerouslySetInnerHTML's shape, style's type. */
+export function assertValidProps(tag: string, props: any) {
+  if (!props) return;
+  if (VOID_TAGS.has(tag) && (props.children != null || props.dangerouslySetInnerHTML != null)) {
+    throw new Error(`${tag} is a void element tag and must neither have \`children\` nor use \`dangerouslySetInnerHTML\`.`);
+  }
+  if (props.dangerouslySetInnerHTML != null) {
+    if (props.children != null) throw new Error("Can only set one of `children` or `props.dangerouslySetInnerHTML`.");
+    if (typeof props.dangerouslySetInnerHTML !== "object" || !("__html" in props.dangerouslySetInnerHTML)) {
+      throw new Error("`props.dangerouslySetInnerHTML` must be in the form `{__html: ...}`. Please visit https://react.dev/link/dangerously-set-inner-html for more information.");
+    }
+  }
+  if (props.style != null && typeof props.style !== "object") {
+    throw new Error("The `style` prop expects a mapping from style properties to values, not a string. For example, style={{marginRight: spacing + 'em'}} when using JSX.");
+  }
 }

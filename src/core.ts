@@ -7,6 +7,7 @@ import { MATH_NS, SVG_NS, eventOf, onAfterEvent, setDefaults, setProps } from ".
 import { addContainer } from "./events.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { checkTag, duplicateKey, setOwner } from "./warnings.ts";
+import { assertValidProps, checkTagName } from "./attributes.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -284,6 +285,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const f = fiber(HOST, type, key, props, parent);
     const ns = type === "svg" ? SVG_NS : type === "math" ? MATH_NS : f.ns;
     f.ns = ns;
+    checkTagName(type);
+    assertValidProps(type, props);
     const server = hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase()) as Element | null) : null;
     const el = (f.dom = server ?? (ns ? document.createElementNS(ns, type) : document.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
@@ -350,6 +353,7 @@ function update(f: Fiber, c: any) {
   if (f.kind === HOST) {
     const prev = f.props;
     if (prev === props) return;
+    assertValidProps(f.type, props);
     f.props = props;
     const el = f.dom as Element;
     (el as any).__props = props;
