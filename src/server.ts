@@ -1,6 +1,6 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
-import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, unwrapChild } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, unwrapChild } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
@@ -219,6 +219,14 @@ function render(node: any, ctx: Ctx, hooks: any): string {
         const digest = stream.onError(e);
         return `<!--$!-->${errorTemplate(digest, errored(e))}${render(props.fallback, ctx, hooks)}<!--/$-->`;
       }
+    }
+    // Activity: a visible one between its markers (React's); a hidden one is left to the client.
+    if (type === ACTIVITY) {
+      if (props.mode === "hidden") return "";
+      ctx.lastText = false;
+      const inner = render(props.children, ctx, hooks);
+      ctx.lastText = false;
+      return `<!--&-->${inner}<!--/&-->`;
     }
     return render(props.children, ctx, hooks);
   }

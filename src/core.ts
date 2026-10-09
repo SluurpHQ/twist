@@ -417,14 +417,16 @@ let mismatchedText = false;
 const failedMessage = (text: boolean) => (text ? HYDRATION_FAILED.replace("server rendered HTML", "server rendered text") : HYDRATION_FAILED);
 /** The comment closing the boundary opened by `start`. */
 function boundaryEnd(start: Comment): Comment | null {
+  const activity = start.data === "&";
+  const close = activity ? "/&" : "/$";
   let depth = 0;
   for (let n = start.nextSibling; n; n = n.nextSibling) {
     if (n.nodeType !== 8) continue;
     const d = (n as Comment).data;
-    if (d === "/$") {
+    if (d === close) {
       if (depth === 0) return n as Comment;
       depth--;
-    } else if (d === "$" || d === "$?" || d === "$!") depth++;
+    } else if (activity ? d === "&" : d === "$" || d === "$?" || d === "$!") depth++;
   }
   return null;
 }
@@ -452,14 +454,29 @@ const recoverable = (f: Fiber, message: string) => {
 };
 
 /** A Suspense boundary mounted while hydrating: taken over from its server markup, on its own. */
+/** How a boundary draws its children: a Suspense starts its effect, an Activity reconciles them. */
+function drawBoundary(f: Fiber, host: Node, before: Node | null) {
+  if (f.type === ACTIVITY) {
+    for (const c of f.children) unmount(c, false);
+    f.children = [];
+    reconcile(f, toList(f.props?.children), host, before);
+  } else {
+    f.stop?.();
+    f.children = [];
+    start(f, host, before);
+  }
+}
+
 function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   let raw: Node | null = hydrating!.has(host) ? hydrating!.get(host)! : host.firstChild;
   while (raw && raw.nodeType === 3 && !(raw as Text).data.trim()) raw = raw.nextSibling;
   const kind = raw && raw.nodeType === 8 ? (raw as Comment).data : null;
-  const end = kind === "$" || kind === "$?" || kind === "$!" ? boundaryEnd(raw as Comment) : null;
+  const expected = f.type === ACTIVITY ? kind === "&" : kind === "$" || kind === "$?" || kind === "$!";
+  const end = expected ? boundaryEnd(raw as Comment) : null;
   if (!end) {
     // Not the server's boundary here: drawn as any other (a mismatch, found by what it holds).
-    start(f, host, before);
+    if (f.type === ACTIVITY) reconcile(f, toList(f.props?.children), host, before);
+    else start(f, host, before);
     return;
   }
   const region = { start: raw as Comment, end };
@@ -475,7 +492,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
     drawFresh(f, host, removeRegion(region));
     return;
   }
-  hydrateRegion(f, host, region, () => start(f, host, before));
+  hydrateRegion(f, host, region, () => (f.type === ACTIVITY ? reconcile(f, toList(f.props?.children), host, before) : start(f, host, before)));
 }
 
 /** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
@@ -527,9 +544,7 @@ function drawFresh(f: Fiber, host: Node, end: Node | null) {
   const was = hydrating;
   hydrating = null;
   try {
-    f.stop?.();
-    f.children = [];
-    start(f, host, end);
+    drawBoundary(f, host, end);
   } finally {
     hydrating = was;
   }
@@ -552,11 +567,7 @@ function retryBoundary(f: Fiber) {
   hydrating = new Map();
   depth++;
   try {
-    hydrateRegion(f, host, region, () => {
-      f.stop?.();
-      f.children = [];
-      start(f, host, region.end);
-    });
+    hydrateRegion(f, host, region, () => drawBoundary(f, host, region.end));
   } finally {
     hydrating = null;
     if (--depth === 0) commit();
@@ -703,7 +714,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
     const f = fiber(FRAG, type, key, props, parent);
     if (type === PROFILER) profilerBegins(f);
-    if (!(type === ACTIVITY && props.mode === "hidden")) reconcile(f, toList(props.children), host, before);
+    if (type === ACTIVITY && props.mode !== "hidden" && hydrating) hydrateBoundary(f, host, before);
+    else if (!(type === ACTIVITY && props.mode === "hidden")) reconcile(f, toList(props.children), host, before);
     return f;
   }
   if (type && type.$$typeof === CONTEXT) {
@@ -1277,7 +1289,7 @@ function caught(f: Fiber, e: any) {
     // Its boundary is being hydrated: that boundary stays as the server drew it, and is hydrated again later.
     if (hydrating) {
       for (let p = f.parent; p; p = p.parent) {
-        if (p.type !== SUSPENSE) continue;
+        if (p.type !== SUSPENSE && !(p.type === ACTIVITY && regions.some((x) => x.fiber === p))) continue;
         const r = regions.find((x) => x.fiber === p);
         // A boundary that already does not match is drawn on the client: there it shows its fallback.
         if (r && !r.mismatch) {
