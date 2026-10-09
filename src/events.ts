@@ -228,6 +228,11 @@ function wrap(native: Event): any {
       if (k === "currentTarget") return own.__current;
       if (k === "type") return own.type ?? SYNTHETIC_TYPE[t.type] ?? t.type;
       if ((k === "target" || k === "relatedTarget") && k in own) return own[k];
+      // A text node's event targets its element (React's getEventTarget).
+      if (k === "target") {
+        const tg: any = t.target;
+        return tg && tg.nodeType === 3 ? tg.parentNode : tg;
+      }
       if (k in own) return own[k as string];
       const v = Reflect.get(t, k, t);
       return typeof v === "function" ? v.bind(t) : v;

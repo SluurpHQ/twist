@@ -9,6 +9,32 @@ import "./gates.ts";
 GlobalRegistrator.register({ url: "http://localhost/" });
 // React's tests run in jsdom, where an element turned into a string is "[object HTMLDivElement]" (happy-dom prints
 // its markup).
+// jsdom focuses only focusable elements (happy-dom any): focus() on a plain <div> does nothing there.
+{
+  const focus = HTMLElement.prototype.focus;
+  const focusable = (el: Element) => {
+    if (el.hasAttribute("tabindex") || (el as any).isContentEditable || el.getAttribute("contenteditable") != null) return true;
+    switch (el.localName) {
+      case "a":
+      case "area":
+        return el.hasAttribute("href");
+      case "input":
+        return !(el as HTMLInputElement).disabled && (el as HTMLInputElement).type !== "hidden";
+      case "select":
+      case "textarea":
+      case "button":
+        return !(el as HTMLButtonElement).disabled && !el.closest("fieldset[disabled]");
+      case "iframe":
+        return true;
+      case "summary":
+        return el.parentElement?.localName === "details";
+    }
+    return false;
+  };
+  HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
+    if (focusable(this)) return focus.call(this, options);
+  };
+}
 for (const proto of [globalThis.Element?.prototype, globalThis.Node?.prototype]) {
   if (proto) Object.defineProperty(proto, "toString", { value: function (this: any) { return `[object ${this.constructor?.name ?? "Object"}]`; }, configurable: true, writable: true });
 }

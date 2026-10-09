@@ -21,6 +21,8 @@ function visit(list: FNode[], deep: boolean, fn: (f: FNode) => boolean): boolean
 }
 /** The nearest host or root above: where the fragment's nodes are drawn into. */
 function parentHost(f: FNode): FNode | null {
+  // An unmounted fragment has no parent any more.
+  if (f.dead) return null;
   for (let p = f.parent; p; p = p.parent) if (p.kind === K.HOST || p.kind === K.ROOT) return p;
   return null;
 }
@@ -377,11 +379,19 @@ function scrollText(text: Text, top: boolean) {
   window.scrollTo(window.scrollX + r.left, top ? window.scrollY + r.top : window.scrollY + r.bottom - window.innerHeight);
 }
 
+/** Focused if it takes focus: told by a focus event, as React's setFocusIfFocusable. */
 function tryFocus(el: HTMLElement, options?: FocusOptions) {
-  if (typeof el.focus !== "function") return false;
   const doc = el.ownerDocument;
-  el.focus(options);
-  return doc.activeElement === el;
+  if (doc.activeElement === el) return true;
+  let focused = false;
+  const on = () => (focused = true);
+  doc.addEventListener("focus", on, true);
+  try {
+    (el.focus || HTMLElement.prototype.focus).call(el, options);
+  } finally {
+    doc.removeEventListener("focus", on, true);
+  }
+  return focused;
 }
 
 /** Fragment instances above a host or text fiber (up to its host parent): told when it comes or goes. */
