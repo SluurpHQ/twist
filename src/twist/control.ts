@@ -116,14 +116,26 @@ export function Errored(props: { fallback: any; children: any }) {
 /** A component whose code loads when first rendered (its readers wait, as for any first load). */
 export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
   let loaded: ((props: P) => any) | null = null;
-  let loading: Promise<unknown> | null = null;
+  let loading: Promise<(props: P) => any> | null = null;
+  // The import, shared by every instance; a failed one is not kept (the next render or preload asks again).
+  const start = () =>
+    (loading ??= load().then(
+      (m) => (loaded = m.default),
+      (e) => {
+        loading = null;
+        throw e;
+      },
+    ));
   const Comp = (props: P) => {
-    if (loaded) return loaded(props);
-    loading ??= load().then((m) => (loaded = m.default));
-    const ready = createMemo(() => loading!.then(() => true));
-    return createMemo(() => ((ready() as unknown as boolean) ? untrack(() => loaded!(props)) : undefined));
+    if (loaded) return untrack(() => loaded!(props));
+    // Not loaded yet: an async memo of the component (its readers wait, as for any first load), then rendered.
+    const which = createMemo<(props: P) => any>(() => (loaded ?? start()) as any);
+    return createMemo(() => {
+      const C = which();
+      return untrack(() => C(props));
+    });
   };
-  (Comp as any).preload = () => (loading ??= load().then((m) => (loaded = m.default)));
+  (Comp as any).preload = () => start();
   return Comp;
 }
 
