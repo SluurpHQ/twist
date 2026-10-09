@@ -134,11 +134,14 @@ export class NotReadyError extends Error {
 
 /** A hold: writes and what they led to, kept off screen until its last flight lands. */
 export class Transaction {
+  done = false;
   nodes = new Set<Node>();
   effects = new Set<Computation<any>>();
   flights = new Set<Computation<any>>();
   /** Actions still running in it (it cannot commit before they end). */
   open = 0;
+  /** What runs when it commits (optimistic values revert). */
+  ends: (() => void)[] = [];
   merged: Transaction | null = null;
   get root(): Transaction {
     let t: Transaction = this;
@@ -158,8 +161,11 @@ abstract class Node<T = any> {
   /** Counts its changes: a reader compares it with the count it saw. */
   version = 0;
   unobserved?: () => void;
-  /** The value in the world being read: staged while a pass runs, committed otherwise. */
+  /** An optimistic value shown over the truth until its transaction commits (or its flush ends). */
+  override: T | typeof NONE = NONE;
+  /** The value in the world being read: an optimistic override, else staged while a pass runs, else committed. */
   current(): T {
+    if (this.override !== NONE) return this.override as T;
     return inPass && this.staged !== NONE ? (this.staged as T) : this.value;
   }
   /** A new value staged: committed at the flush's end, or held by a transaction. */
@@ -175,6 +181,7 @@ abstract class Node<T = any> {
     if (this.staged !== NONE) this.value = this.staged as T;
     this.staged = NONE;
     this.tx = null;
+    (this as any).writtenIn = null;
   }
   subscribe(o: Computation<any>) {
     this.observers.push(o);
@@ -211,8 +218,11 @@ export class Signal<T> extends Node<T> {
     guardWrite(this.ownedWrite);
     if (this.pending === NONE) writes.push(this);
     this.pending = next;
+    if (acting) this.writtenIn = acting.tx;
     schedule();
   }
+  /** The action whose transaction this write belongs to (held with it until the action ends). */
+  writtenIn: Transaction | null = null;
   /** The pending write dropped (a subclass commits it its own way). */
   settle() {
     this.pending = NONE;
@@ -361,7 +371,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (listener) listener.track(this);
     if (this.error !== NONE) throw this.error;
     // Never had a value (a first load, or waiting on one): not ready.
-    if (!this.ready && !(inPass && this.staged !== NONE)) throw new NotReadyError(this);
+    if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);
     return this.current();
   }
   /** Brought up to date: run again if something it read changed (memos it read brought up to date first). */
@@ -405,14 +415,19 @@ export class Computation<T> extends Node<T> implements Owner {
     this.state = CLEAN;
     this.ranAt = clock;
     if (threw !== NONE) {
-      // Waiting on a first load upstream: still not ready (its readers wait too).
-      if (threw instanceof NotReadyError) return void (this.error = NONE);
+      // Waiting on a first load upstream: still not ready (its readers wait too); the Loading above shows its fallback.
+      if (threw instanceof NotReadyError) {
+        this.error = NONE;
+        if (this.kind !== MEMO || !this.ready) boundaryOf(this)?.wait(this);
+        return;
+      }
       this.error = threw;
       this.version++;
       if (this.kind !== MEMO) handleError(this, threw);
       return;
     }
     this.error = NONE;
+    boundaryOf(this)?.ready(this);
     // An async answer: in flight, its old value kept meanwhile.
     if (next! && typeof (next as any).then === "function") return this.fly(next as any);
     if (next! && typeof (next as any)[Symbol.asyncIterator] === "function") return this.stream(next as any);
@@ -565,6 +580,7 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (seen.has(n)) return false;
   seen.add(n);
   if (n.tx && n.staged !== NONE) return true;
+  if ((n as any).affected) return true;
   if (n instanceof Computation) {
     if (n.flight && n.ready && !n.quiet) return true;
     for (const s of n.sources) if (waiting(s, seen)) return true;
@@ -612,8 +628,10 @@ function settleRound() {
       if (c.tx) joins = c.tx.root;
       if (c.flight && c.ready && (c.kind !== MEMO || rendered(c))) holds = true;
     }
-    // Reading a node a transaction holds joins it.
+    // Reading a node a transaction holds joins it; an action's write is its transaction's.
     if (n instanceof Computation) for (const s of n.sources) if (s.tx && !n.verdict?.has(s)) joins = s.tx.root;
+    const by = (n as any).writtenIn as Transaction | null;
+    if (by && !by.done) joins = by.root;
     if (!holds && !joins) continue;
     const t: Transaction = joins ?? (tx ??= newTransaction());
     hold(n, t);
@@ -663,7 +681,9 @@ function commitTransactions() {
     for (const n of t.nodes) if (n instanceof Computation && n.flight) t.flights.add(n);
     if (t.flights.size || t.open) continue;
     transactions.delete(t);
+    t.done = true;
     for (const n of t.nodes) n.promote();
+    for (const end of t.ends.splice(0)) end();
     for (const e of t.effects) if (e.due) applies[e.kind as 1 | 2].push(e);
     statusChanged();
   }
@@ -671,10 +691,11 @@ function commitTransactions() {
 
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; writes.length || landings.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
+  for (let rounds = 0; writes.length || landings.length || guesses.length || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (writes.length) for (const s of writes.splice(0)) s.commit();
     if (landings.length) for (const [c, v] of landings.splice(0)) if (!c.disposed) c.take(v);
+    if (guesses.length) installGuesses();
     while (dirty.length) {
       const now = dirty.sort(byOrder);
       dirty = [];
@@ -686,6 +707,11 @@ function drain() {
     if (pendingErrors.length) for (const f of pendingErrors.splice(0)) f();
     if (applies[RENDER].length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
     if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
+    // Optimistic values written outside an action: shown for this flush, then the truth again.
+    if ((ambient.length || ambientEnds.length) && !writes.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) {
+      for (const n of ambient.splice(0)) n.override !== NONE && ((n.override = NONE), n.bump());
+      for (const end of ambientEnds.splice(0)) end();
+    }
   }
 }
 const statusDirty = () => false;
@@ -921,4 +947,266 @@ function resolveChildren(v: any): any {
     return out;
   }
   return v;
+}
+
+// ---------------------------------------------------------------- actions
+
+/** The action whose body is running now: its writes are held in its transaction. */
+let acting: { tx: Transaction } | null = null;
+
+/**
+ * An async mutation: a generator (or async generator) whose writes are held together (their effects wait) until the
+ * body ends and what it set off lands. Yielding a promise waits for it; the action answers a promise of the result.
+ */
+export function action<A extends unknown[], R>(gen: (...args: A) => Generator<any, R, any> | AsyncGenerator<any, R, any>): (...args: A) => Promise<R> {
+  return (...args: A) =>
+    new Promise<R>((ok, fail) => {
+      const tx = newTransaction();
+      tx.open++;
+      const me = { tx };
+      const it = gen(...args);
+      const end = (f: () => void) => {
+        tx.open--;
+        f();
+        schedule();
+      };
+      const step = (method: "next" | "throw", input?: unknown) => {
+        let r: IteratorResult<any, R> | Promise<IteratorResult<any, R>>;
+        const was = acting;
+        acting = me;
+        try {
+          r = (it as any)[method](input);
+        } catch (e) {
+          acting = was;
+          return end(() => fail(e));
+        }
+        acting = was;
+        if (r && typeof (r as any).then === "function" && !("done" in (r as any))) {
+          return void (r as Promise<IteratorResult<any, R>>).then(after, (e) => end(() => fail(e)));
+        }
+        after(r as IteratorResult<any, R>);
+      };
+      const after = (r: IteratorResult<any, R>) => {
+        if (r.done) return end(() => ok(r.value));
+        const v = r.value;
+        if (v && typeof v.then === "function") v.then((x: unknown) => step("next", x), (e: unknown) => step("throw", e));
+        else step("next", v);
+      };
+      step("next");
+    });
+}
+
+/** Thrown by until() when its timeout passes. */
+export class TimeoutError extends Error {
+  constructor() {
+    super("until() timed out");
+    this.name = "TimeoutError";
+  }
+}
+
+/** A promise for the first time `fn` settles truthy (with that value). */
+export function until<T>(fn: () => T, options?: { timeout?: number; signal?: AbortSignal }): Promise<NonNullable<T>> {
+  return new Promise((ok, fail) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = createRoot((dispose) => {
+      createEffect(
+        () => {
+          try {
+            return { v: fn(), ok: true };
+          } catch (e) {
+            if (e instanceof NotReadyError) return { v: undefined, ok: false };
+            throw e;
+          }
+        },
+        {
+          effect: ({ v, ok: ready }) => {
+            if (!ready || !v) return;
+            done();
+            ok(v as NonNullable<T>);
+          },
+          error: (e) => (done(), fail(e)),
+        },
+      );
+      return dispose;
+    });
+    const done = () => {
+      if (timer) clearTimeout(timer);
+      queueMicrotask(stop);
+    };
+    if (options?.timeout != null) timer = setTimeout(() => (done(), fail(new TimeoutError())), options.timeout);
+    options?.signal?.addEventListener("abort", () => (done(), fail(options.signal!.reason)));
+  });
+}
+
+// ---------------------------------------------------------------- boundaries
+
+/** A Loading boundary's state: the computations under it waiting on a first load. */
+class LoadingState {
+  waiting = new Set<Computation<any>>();
+  count = new (class extends Node<number> {})();
+  wait(c: Computation<any>) {
+    if (this.waiting.has(c)) return;
+    this.waiting.add(c);
+    this.count.bump();
+  }
+  ready(c: Computation<any>) {
+    if (this.waiting.delete(c)) this.count.bump();
+  }
+}
+
+function boundaryOf(c: Computation<any>): LoadingState | null {
+  for (let o: Owner | null = c.parent; o; o = o.parent) {
+    const b = (o as any).loading as LoadingState | undefined;
+    if (b) return b;
+  }
+  return null;
+}
+
+/** `fn`'s value, or `fallback()` while what is under it waits on a first load. */
+export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _options?: { on?: () => unknown }): () => T | F {
+  const state = new LoadingState();
+  state.count.value = 0;
+  const m = new Computation<T | F>(MEMO, () => {
+    (m as any).loading = state;
+    listener!.track(state.count);
+    let v: T;
+    try {
+      v = fn();
+    } catch (e) {
+      if (e instanceof NotReadyError) return untrack(fallback);
+      throw e;
+    }
+    for (const c of state.waiting) if (c.disposed) state.waiting.delete(c);
+    return state.waiting.size ? untrack(fallback) : resolveChildren(v);
+  });
+  m.run();
+  const read = () => m.read();
+  accessors.set(read, m);
+  return read;
+}
+
+/** `fn`'s value, or `fallback(error, reset)` once something under it throws. */
+export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
+  const failed = new Signal<unknown>(NONE, { ownedWrite: true, equals: false });
+  const m = new Computation<T | F>(MEMO, () => {
+    (m as any).catch = (e: unknown) => {
+      if (failed.value !== NONE) return false;
+      failed.value = e;
+      failed.bump();
+      return true;
+    };
+    const err = failed.read();
+    if (err !== NONE) return untrack(() => fallback(() => failed.value, () => ((failed.value = NONE), failed.bump())));
+    try {
+      return resolveChildren(fn());
+    } catch (e) {
+      if (e instanceof NotReadyError) throw e;
+      failed.value = e;
+      return untrack(() => fallback(() => failed.value, () => ((failed.value = NONE), failed.bump())));
+    }
+  });
+  m.run();
+  const read = () => m.read();
+  accessors.set(read, m);
+  return read;
+}
+
+/** A value with what is under it resolved: accessors called, nested arrays flattened. */
+export const flatten = (v: unknown) => resolveChildren(v);
+
+// ---------------------------------------------------------------- optimistic values
+
+/** Optimistic writes waiting for the next flush: [node, value, the action's transaction or null]. */
+const guesses: [Node, unknown, Transaction | null][] = [];
+/** Overrides installed outside an action: reverted at the end of their flush. */
+const ambient: Node[] = [];
+/** What undoes optimistic store writes made outside an action, at the end of their flush. */
+const ambientEnds: (() => void)[] = [];
+
+/** `end` run when the optimistic writes being made now are undone: at their action's end, or at the flush's. */
+export function onGuessEnd(end: () => void) {
+  const tx = acting?.tx;
+  if (tx && !tx.done) tx.ends.push(end);
+  else ambientEnds.push(end), schedule();
+}
+
+function installGuesses() {
+  for (const [n, v, tx] of guesses.splice(0)) {
+    const was = n.override;
+    n.override = v as any;
+    if (tx && !tx.done) {
+      if (was === NONE) tx.ends.push(() => n.override !== NONE && ((n.override = NONE), n.bump()));
+    } else if (!ambient.includes(n)) ambient.push(n);
+    n.bump();
+  }
+}
+
+/** An optimistic write to `n`: shown from the next flush until the action that made it ends. */
+export function guess(n: Node, v: unknown) {
+  guesses.push([n, v, acting?.tx ?? null]);
+  schedule();
+}
+
+/**
+ * A signal whose writes are optimistic: shown at once (from the next flush), over the truth, until the action that
+ * wrote them ends; given a function, the truth is derived from what it reads.
+ */
+export function createOptimistic<T>(value: T | ((prev?: T) => T), options?: SignalOptions<T>): [Accessor<T>, Setter<T>] {
+  const n: Node<T> =
+    typeof value === "function"
+      ? (() => {
+          const m = new Computation<T>(MEMO, value as (prev?: T) => T, options);
+          if (!m.lazy) m.run();
+          return m;
+        })()
+      : new Signal(value as T, { ...options, ownedWrite: true });
+  const read = n instanceof Computation ? () => n.read() : () => (n as Signal<T>).read();
+  accessors.set(read, n as any);
+  const set: Setter<T> = (next) => {
+    const v = typeof next === "function" ? (next as (prev: T) => T)(n.override !== NONE ? (n.override as T) : n.value) : next;
+    guess(n, v);
+    return v;
+  };
+  return [read, set];
+}
+
+/** What is being built when `fn` was created (an effect run once what it builds is on the page). */
+export function onSettled(fn: () => void | (() => void)) {
+  const o = owner;
+  let ended = false;
+  if (o) (o.cleanups ??= []).push(() => (ended = true));
+  queueMicrotask(() => {
+    if (ended) return;
+    flush();
+    const done = runWithOwner(null, fn);
+    if (typeof done === "function") {
+      if (o && !o.disposed) (o.cleanups ??= []).push(done);
+    }
+  });
+}
+
+/** A single-function effect: it tracks and does its work in the same run (it may run again in async situations). */
+export function createTrackedEffect(fn: () => void | (() => void)) {
+  let clean: void | (() => void);
+  createEffect(
+    () => {
+      if (typeof clean === "function") clean();
+      clean = fn();
+    },
+    () => {},
+  );
+  onCleanup(() => typeof clean === "function" && clean());
+}
+
+/** Declares that the work in progress will change `target`: it reads as pending until that work lands. */
+export function affects(target: unknown, _key?: PropertyKey) {
+  const c = typeof target === "function" ? accessors.get(target) : undefined;
+  const tx = acting?.tx;
+  if (!c || !tx) return;
+  (c as any).affected = ((c as any).affected ?? 0) + 1;
+  statusChanged();
+  tx.ends.push(() => {
+    (c as any).affected--;
+    statusChanged();
+  });
 }

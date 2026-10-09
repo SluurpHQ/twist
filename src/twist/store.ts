@@ -1,7 +1,7 @@
 // Twist's stores: objects and arrays read property by property (each a node of its own), changed through a draft.
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
-import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget } from "./signals.ts";
+import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, onGuessEnd } from "./signals.ts";
 
 export const $TARGET = Symbol("store-target");
 export const $PROXY = Symbol("store-proxy");
@@ -274,13 +274,20 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   const target = unwrap(seed) as Raw;
   const key = options?.key ?? "id";
   // The derive: run as a memo, its draft writes staged like a setter's (owned writes are allowed here).
+  // An async derive makes the memo async: the store is not ready until its first derive lands.
+  let runs = 0;
   const m = createMemo(() => {
     const d = draftOf(target);
     const r = fn(d as T);
-    if (r !== undefined && !(r instanceof Promise)) reconcile(r, key)(d);
-    else if (r instanceof Promise) r.then((v: any) => v !== undefined && reconcile(v, key)(draftOf(target)));
-    return undefined;
-  }, { ownedWrite: true } as any);
+    const run = ++runs;
+    if (r && typeof (r as any).then === "function")
+      return (r as Promise<any>).then((v) => {
+        if (v !== undefined && run === runs) reconcile(v, key)(draftOf(target));
+        return run;
+      });
+    if (r !== undefined) reconcile(r, key)(d);
+    return run;
+  });
   const proxy = new Proxy(target, {
     ...readHandler,
     get(t, k, receiver) {
@@ -379,3 +386,29 @@ export function deep<T>(v: T): T {
   return snapshot(v);
 }
 
+
+/**
+ * A store whose setter's writes are optimistic: shown from the next flush, then undone when the action that made them
+ * ends (or, outside an action, at the end of the flush), the truth (derived, if given a function) shown again.
+ */
+export function createOptimisticStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: { key?: string | ((v: any) => any) }): [T, StoreSetter<T>] {
+  const [store] = typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true) : createStore(init as T);
+  const target = unwrap(store) as Raw;
+  let saved: any = null;
+  const set: StoreSetter<T> = (fn) => {
+    if (!saved) {
+      saved = snapshot(store);
+      onGuessEnd(() => {
+        const truth = saved;
+        saved = null;
+        reconcile(truth, null)(draftOf(target));
+      });
+    }
+    const d = draftOf(target);
+    if (typeof fn === "function") {
+      const r = (fn as (d: T) => T | void)(d as T);
+      if (r !== undefined) replaceInto(target, r);
+    } else replaceInto(target, { ...(fn as object) });
+  };
+  return [store, set];
+}

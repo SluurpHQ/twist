@@ -1,66 +1,48 @@
 # Solid's tests on Twist
 
-46 pass, 831 fail, 703 files (647 did not load)
+2152 pass, 2276 fail, 703 files (479 did not load)
 
 ## Why files did not load
 
 - 284 × Cannot find module '@solidjs/web
 /jsx-dev-runtime'
 - 36 × Cannot find module '@solidjs/web/server-functions/server'
-- 33 × SyntaxError: Export named 'createOptimisticStore' not found
 - 32 × Cannot find module '@solidjs/web'
-- 31 × SyntaxError: Export named 'createLoadingBoundary' not found
 - 25 × Cannot find module '../src/attribution.js'
-- 24 × SyntaxError: Export named 'createOptimistic' not found
-- 19 × SyntaxError: Export named 'latest' not found
-- 14 × SyntaxError: Export named 'createErrorBoundary' not found
 - 14 × Cannot find module '../../src/server/index.js'
 - 12 × Cannot find module '../src/client/hydration.js'
-- 10 × SyntaxError: Export named 'affects' not found
-- 10 × SyntaxError: Export named 'createProjection' not found
-- 9 × SyntaxError: Export named 'NotReadyError' not found
-- 5 × SyntaxError: Export named 'DEV' not found
+- 6 × SyntaxError: Export named 'DEV' not found
+- 6 × SyntaxError: Export named 'OBSERVE' not found
 - 4 × Cannot find module '../src/core/index.js'
-- 4 × SyntaxError: Export named '$TARGET' not found
 - 4 × Cannot find module '../../src/store/store.js'
-- 4 × SyntaxError: Export named 'deep' not found
-- 4 × SyntaxError: Export named 'snapshot' not found
 - 4 × Cannot find module '../src/client.js'
-- 3 × SyntaxError: Export named 'createTrackedEffect' not found
 - 3 × Cannot find module '../src/core/dev.js'
-- 3 × SyntaxError: Export named 'resetErrorHalt' not found
-- 3 × SyntaxError: Export named 'reconcile' not found
 - 2 × SyntaxError: Export named 'clearSnapshots' not found
+- 2 × SyntaxError: Export named 'createRevealOrder' not found
 - 2 × Cannot find module '../src/core/constants.js'
-- 2 × SyntaxError: Export named 'OBSERVE' not found
 - 2 × Cannot find module '../src/store/store.js'
+- 2 × SyntaxError: Export named 'storePath' not found
 - 2 × Cannot find module '../../src/store/target.js'
-- 2 × SyntaxError: Export named '$PROXY' not found
+- 2 × SyntaxError: Export named 'createComponent' not found
 - 2 × Cannot find module '../../dist/server.js'
 - 2 × Cannot find module '../frames/src/frame-client.js'
 - 2 × Cannot find module '../../server-functions/src/shared.js'
-- 1 × SyntaxError: Export named 'refresh' not found
 - 1 × Cannot find module '../src/core/attribution.js'
 - 1 × SyntaxError: Export named 'ROOT_ERROR_HOOK' not found
-- 1 × SyntaxError: Export named 'ContextNotFoundError' not found
 - 1 × SyntaxError: Export named 'createReaction' not found
-- 1 × SyntaxError: Export named 'flatten' not found
+- 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × Cannot find module '../src/map.js'
 - 1 × SyntaxError: Export named '$REFRESH' not found
-- 1 × SyntaxError: Export named 'repeat' not found
-- 1 × SyntaxError: Export named 'resolve' not found
 - 1 × Cannot find module '../src/core/async.js'
-- 1 × SyntaxError: Export named 'storePath' not found
+- 1 × SyntaxError: Export named 'hasStaticKeys' not found
+- 1 × SyntaxError: Export named '$RECORD' not found
 - 1 × Cannot find module '../src/core/error.js'
 - 1 × Cannot find module '../src/core/core.js'
-- 1 × SyntaxError: Export named 'createUniqueId' not found
 - 1 × Cannot find module '../src/client/container-trace.js'
 - 1 × Cannot find module '../dist/solid.js'
 - 1 × Cannot find module '../src/client/core.js'
-- 1 × SyntaxError: Export named 'lazy' not found
 - 1 × SyntaxError: Export named 'enableHydration' not found
 - 1 × Cannot find module '../src/refresh/index.js'
-- 1 × SyntaxError: Export named 'createRevealOrder' not found
 - 1 × Cannot find module 'solid-js/attribution'
 - 1 × Cannot find module '../../frames/src/frame-client.js'
 - 1 × Cannot find module '../frames/src/client.js'
@@ -70,7 +52,7 @@
 - 1 × Cannot find module '../../dist/server.dev.js'
 - 1 × Cannot find module '../../src/server.js'
 - 1 × Cannot find module '../../frames/src/tree-rewrite.js'
-- 1 × SyntaxError: Export named 'merge' not found
+- 1 × SyntaxError: Export named 'spread' not found
 - 1 × SyntaxError: Export named 'getHydrationWriter' not found
 - 1 × SyntaxError: Export named 'getTraceContext' not found
 - 1 × Cannot find module '../src/render.js'
@@ -79,19 +61,19 @@
 
 | file | pass | fail | note |
 |---|---|---|---|
-| signals/a34-writes-then-derivations.test.ts | 0 | 1 | SyntaxError: Export named 'refresh' not found |
+| signals/a34-writes-then-derivations.test.ts | 2 | 6 |  |
 | signals/action-await-contract.test.ts | 0 | 4 |  |
-| signals/action-completion-race.test.ts | 0 | 1 |  |
-| signals/action-done-window.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/action-loading-rail.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/action-thenable-assimilation.test.ts | 0 | 4 |  |
-| signals/action.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/adoption-unchanged-key-read-3706.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/affects-audit-2893.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/affects-propagation.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/async-chain-supersession.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/action-completion-race.test.ts | 1 | 0 |  |
+| signals/action-done-window.test.ts | 2 | 1 |  |
+| signals/action-loading-rail.test.ts | 4 | 1 |  |
+| signals/action-thenable-assimilation.test.ts | 1 | 3 |  |
+| signals/action.test.ts | 49 | 18 |  |
+| signals/adoption-unchanged-key-read-3706.test.ts | 0 | 0 |  |
+| signals/affects-audit-2893.test.ts | 1 | 7 |  |
+| signals/affects-propagation.test.ts | 0 | 9 |  |
+| signals/async-chain-supersession.test.ts | 5 | 3 |  |
 | signals/async-landing-deps-3461.test.ts | 0 | 2 |  |
-| signals/async-lane-landing-equals-order.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
+| signals/async-lane-landing-equals-order.test.ts | 1 | 0 |  |
 | signals/attribution-benchmark-eval.test.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
 | signals/attribution-current-origin.test.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
 | signals/attribution-effect-cycle.test.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
@@ -116,253 +98,253 @@
 | signals/attribution-waterfall-eval.test.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
 | signals/attribution-wide-scope.test.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
 | signals/attribution.test.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
-| signals/autodispose-contract.test.ts | 1 | 3 |  |
-| signals/autodispose-pending-release.test.ts | 1 | 5 |  |
-| signals/body-end-supersession-visibility.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/born-held.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/boundary-not-born-held-3540.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/boundary-output-frame-reader.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/autodispose-contract.test.ts | 2 | 2 |  |
+| signals/autodispose-pending-release.test.ts | 4 | 2 |  |
+| signals/body-end-supersession-visibility.test.ts | 0 | 1 |  |
+| signals/born-held.test.ts | 1 | 3 |  |
+| signals/boundary-not-born-held-3540.test.ts | 1 | 11 |  |
+| signals/boundary-output-frame-reader.test.ts | 4 | 0 |  |
 | signals/client-error-hook.test.ts | 0 | 1 | SyntaxError: Export named 'ROOT_ERROR_HOOK' not found |
-| signals/compute-write-joins-transition.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
+| signals/compute-write-joins-transition.test.ts | 1 | 1 |  |
 | signals/contested-effect.test.ts | 0 | 3 |  |
-| signals/context.test.ts | 0 | 1 | SyntaxError: Export named 'ContextNotFoundError' not found |
-| signals/createEffect.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
+| signals/context.test.ts | 3 | 3 |  |
+| signals/createEffect.test.ts | 19 | 5 |  |
 | signals/createErrorBoundary.test.ts | 0 | 1 | SyntaxError: Export named 'clearSnapshots' not found |
-| signals/createLoadingBoundary.on.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/createLoadingBoundary.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/createMemo.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/createOptimistic.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/createProjection.draft-lifetime-3585.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
+| signals/createLoadingBoundary.on.test.ts | 2 | 5 |  |
+| signals/createLoadingBoundary.test.ts | 9 | 17 |  |
+| signals/createMemo.test.ts | 0 | 0 |  |
+| signals/createOptimistic.test.ts | 13 | 55 |  |
+| signals/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
 | signals/createReaction.test.ts | 0 | 1 | SyntaxError: Export named 'createReaction' not found |
-| signals/createRevealOrder.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
+| signals/createRevealOrder.test.ts | 0 | 1 | SyntaxError: Export named 'createRevealOrder' not found |
 | signals/createRoot.test.ts | 0 | 1 | Cannot find module '../src/core/index.js' |
-| signals/createSignal.test.ts | 5 | 5 |  |
-| signals/createTrackedEffect.test.ts | 0 | 1 | SyntaxError: Export named 'createTrackedEffect' not found |
-| signals/derived-write-then-derivation-3733.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
+| signals/createSignal.test.ts | 10 | 0 |  |
+| signals/createTrackedEffect.test.ts | 7 | 12 |  |
+| signals/derived-write-then-derivation-3733.test.ts | 14 | 23 |  |
 | signals/dev.test.ts | 0 | 1 | Cannot find module '../src/core/index.js' |
 | signals/diagnostics.test.ts | 0 | 1 | Cannot find module '../src/core/dev.js' |
-| signals/direct-commit-readers-posture.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/direction-rule-probe.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/direct-commit-readers-posture.test.ts | 0 | 3 |  |
+| signals/direction-rule-probe.test.ts | 0 | 1 |  |
 | signals/disposed-read-lifecycle.test.ts | 5 | 0 |  |
 | signals/dist-artifacts.test.ts | 1 | 21 |  |
 | signals/dormant-memo-chain-3554.test.ts | 2 | 4 |  |
-| signals/effect-error-phases.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/effect-mainline-ownership-3412.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/effect-phase-writes.test.ts | 0 | 1 | SyntaxError: Export named 'createTrackedEffect' not found |
+| signals/effect-error-phases.test.ts | 5 | 6 |  |
+| signals/effect-mainline-ownership-3412.test.ts | 0 | 4 |  |
+| signals/effect-phase-writes.test.ts | 0 | 10 |  |
 | signals/enableExternalSource.test.ts | 0 | 1 | Cannot find module '../src/core/index.js' |
-| signals/enforceLoadingBoundary.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/equals-comparator-errors.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/error-silent-recovery.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/errorHalt.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/falsy-error-identity.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
-| signals/finalize-reentry.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/first-observer-stale-reader.test.ts | 0 | 1 |  |
-| signals/flatten-async-iterable.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/flatten-needs-unwrap.test.ts | 0 | 1 | SyntaxError: Export named 'flatten' not found |
-| signals/flush-in-action.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/flush.test.ts | 0 | 1 | SyntaxError: Export named 'resetErrorHalt' not found |
-| signals/fuzz-findings-l2.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/gc.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/getOwner.test.ts | 1 | 1 |  |
+| signals/enforceLoadingBoundary.test.ts | 0 | 1 | SyntaxError: Export named 'enforceLoadingBoundary' not found |
+| signals/equals-comparator-errors.test.ts | 1 | 5 |  |
+| signals/error-silent-recovery.test.ts | 0 | 7 |  |
+| signals/errorHalt.test.ts | 2 | 7 |  |
+| signals/falsy-error-identity.test.ts | 18 | 2 |  |
+| signals/finalize-reentry.test.ts | 0 | 4 |  |
+| signals/first-observer-stale-reader.test.ts | 1 | 0 |  |
+| signals/flatten-async-iterable.test.ts | 3 | 8 |  |
+| signals/flatten-needs-unwrap.test.ts | 1 | 2 |  |
+| signals/flush-in-action.test.ts | 1 | 5 |  |
+| signals/flush.test.ts | 6 | 0 |  |
+| signals/fuzz-findings-l2.test.ts | 7 | 1 |  |
+| signals/gc.test.ts | 1 | 0 |  |
+| signals/getOwner.test.ts | 2 | 0 |  |
 | signals/graph-size-diagnostics.test.ts | 0 | 1 | Cannot find module '../src/core/dev.js' |
-| signals/graph.test.ts | 9 | 12 |  |
-| signals/heap-mark-incremental.test.ts | 2 | 0 |  |
+| signals/graph.test.ts | 21 | 0 |  |
+| signals/heap-mark-incremental.test.ts | 1 | 1 |  |
 | signals/held-conditional-effect.test.ts | 0 | 1 |  |
-| signals/held-conditional-memo.test.ts | 0 | 2 |  |
-| signals/held-derivation-not-a-proposal-3612.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/held-effect-restage-run-3802.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
+| signals/held-conditional-memo.test.ts | 1 | 1 |  |
+| signals/held-derivation-not-a-proposal-3612.test.ts | 8 | 11 |  |
+| signals/held-effect-restage-run-3802.test.ts | 0 | 2 |  |
 | signals/held-frame-dependencies.test.ts | 0 | 2 |  |
-| signals/held-restore.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
+| signals/held-restore.test.ts | 3 | 1 |  |
 | signals/held-truth-lane-only.test.ts | 0 | 1 | Cannot find module '../src/core/constants.js' |
-| signals/inv4-projection-dispose-shadow.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
+| signals/inv4-projection-dispose-shadow.test.ts | 1 | 0 |  |
 | signals/ispending-combined-atomic-3442.test.ts | 0 | 3 |  |
-| signals/isPending-held-sync-memo.test.ts | 0 | 1 |  |
-| signals/ispending-in-boundary-on-3528.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/isPending-memo-consistency.test.ts | 1 | 4 |  |
-| signals/ispending-memo-gate-3766.test.ts | 0 | 6 |  |
+| signals/isPending-held-sync-memo.test.ts | 1 | 0 |  |
+| signals/ispending-in-boundary-on-3528.test.ts | 1 | 5 |  |
+| signals/isPending-memo-consistency.test.ts | 2 | 3 |  |
+| signals/ispending-memo-gate-3766.test.ts | 6 | 0 |  |
 | signals/ispending-memo-unstamped-hold-3457.test.ts | 0 | 1 |  |
-| signals/issue-3800-repro.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/iterator-supersede-close.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/issue-3800-repro.test.ts | 5 | 3 |  |
+| signals/iterator-supersede-close.test.ts | 0 | 2 |  |
 | signals/l2-contract.test.ts | 0 | 1 | SyntaxError: Export named 'DEV' not found |
-| signals/l2-fuzz-existing-rules.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/l2-fuzz-existing-rules.test.ts | 0 | 5 |  |
 | signals/lane-ambient-write-replay.test.ts | 3 | 0 |  |
-| signals/lane-contract.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/lane-frame-deferred-run-3662.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/lane-frame-held-lane-3662.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/lane-hold-on-observation.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/lane-outside-view.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/lane-pass-stamped-effect-3662.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/lane-uninitialized-landing-3648.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/late-pending-equality.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/latest-async.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-created-inside-window.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-held-till-flush.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/latest-isPending-consistency.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/latest-lazy-companion-backfill.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-pending-probe-mid-flight.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-plain-write-purity.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-probe-order-independence.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-repeated-writes.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-shadow-owned-write.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/latest-unobserved-memo.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/loading-fallback-in-flush-3540.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/loading-fallback-release-3540.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/loading-on-frame-following-3540.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/loading-on-rearm-3540.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/loading-on-rearm-reveal-3540.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/loading-reset-collects-forwarded-3459.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/loading-value.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/mapArray-notready-safety.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/lane-contract.test.ts | 0 | 1 | SyntaxError: Export named 'DEV' not found |
+| signals/lane-frame-deferred-run-3662.test.ts | 0 | 3 |  |
+| signals/lane-frame-held-lane-3662.test.ts | 0 | 5 |  |
+| signals/lane-hold-on-observation.test.ts | 4 | 5 |  |
+| signals/lane-outside-view.test.ts | 1 | 7 |  |
+| signals/lane-pass-stamped-effect-3662.test.ts | 0 | 1 |  |
+| signals/lane-uninitialized-landing-3648.test.ts | 0 | 1 | SyntaxError: Export named 'OBSERVE' not found |
+| signals/late-pending-equality.test.ts | 4 | 4 |  |
+| signals/latest-async.test.ts | 1 | 0 |  |
+| signals/latest-created-inside-window.test.ts | 2 | 0 |  |
+| signals/latest-held-till-flush.test.ts | 13 | 9 |  |
+| signals/latest-isPending-consistency.test.ts | 5 | 3 |  |
+| signals/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |
+| signals/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |
+| signals/latest-plain-write-purity.test.ts | 4 | 0 |  |
+| signals/latest-probe-order-independence.test.ts | 1 | 1 |  |
+| signals/latest-repeated-writes.test.ts | 4 | 0 |  |
+| signals/latest-shadow-owned-write.test.ts | 0 | 2 |  |
+| signals/latest-unobserved-memo.test.ts | 3 | 0 |  |
+| signals/loading-fallback-in-flush-3540.test.ts | 8 | 1 |  |
+| signals/loading-fallback-release-3540.test.ts | 0 | 2 |  |
+| signals/loading-on-frame-following-3540.test.ts | 0 | 1 | SyntaxError: Export named 'OBSERVE' not found |
+| signals/loading-on-rearm-3540.test.ts | 0 | 7 |  |
+| signals/loading-on-rearm-reveal-3540.test.ts | 0 | 1 | SyntaxError: Export named 'OBSERVE' not found |
+| signals/loading-reset-collects-forwarded-3459.test.ts | 0 | 1 |  |
+| signals/loading-value.test.ts | 0 | 0 |  |
+| signals/mapArray-notready-safety.test.ts | 2 | 10 |  |
 | signals/mapArray-smallmove.test.ts | 0 | 1 | Cannot find module '../src/map.js' |
 | signals/maparray-store-nonkeyed.test.ts | 0 | 2 |  |
-| signals/mapArray.test.ts | 4 | 3 |  |
-| signals/mount-over-foreign-hold-3761.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/nested-render-effect-async-cleanup.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/mapArray.test.ts | 7 | 0 |  |
+| signals/mount-over-foreign-hold-3761.test.ts | 3 | 2 |  |
+| signals/nested-render-effect-async-cleanup.test.ts | 0 | 5 |  |
 | signals/observe-exclude.test.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
 | signals/observe-idle-cost.test.ts | 0 | 0 |  |
 | signals/observe-records.test.ts | 0 | 1 | SyntaxError: Export named 'OBSERVE' not found |
-| signals/oncleanup-reentrant-dispose-3601.test.ts | 0 | 1 | SyntaxError: Export named 'resetErrorHalt' not found |
-| signals/onCleanup.test.ts | 2 | 3 |  |
-| signals/onSettled.test.ts | 0 | 1 | SyntaxError: Export named 'resetErrorHalt' not found |
-| signals/optimistic-lane-release.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/optimistic-lane-transaction-ownership.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/optimistic-mount-binding-3835.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/optimistic-mount-nested-memo-3835.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/optimistic-move-duplicate-3548.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/optimistic-move-keyed-show-3662.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/optimistic-outside-refetch-619.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/optimistic-over-held-row-3796.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/optimistic-read-lane-not-transaction-3698.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/optimistic-refetch-longer-3568.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/optimistic-settle-verdicts.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/optimistic-signal-refetch-hold.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/optimistic-store-layer-scope.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/optimistic-store-refetch-hold.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/optimistic-undefined-override.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/overlapping-flights.test.ts | 0 | 3 |  |
-| signals/owned-scope-write-guard.test.ts | 0 | 1 | SyntaxError: Export named 'createTrackedEffect' not found |
-| signals/pending-companion-lane-parent.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/pending-gated-landing-replay.test.ts | 0 | 1 |  |
-| signals/pending-source-repark.test.ts | 0 | 2 |  |
-| signals/posture-born-held-and-observation.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
+| signals/oncleanup-reentrant-dispose-3601.test.ts | 5 | 0 |  |
+| signals/onCleanup.test.ts | 5 | 0 |  |
+| signals/onSettled.test.ts | 0 | 13 |  |
+| signals/optimistic-lane-release.test.ts | 1 | 3 |  |
+| signals/optimistic-lane-transaction-ownership.test.ts | 0 | 2 |  |
+| signals/optimistic-mount-binding-3835.test.ts | 0 | 2 |  |
+| signals/optimistic-mount-nested-memo-3835.test.ts | 0 | 4 |  |
+| signals/optimistic-move-duplicate-3548.test.ts | 0 | 1 |  |
+| signals/optimistic-move-keyed-show-3662.test.ts | 2 | 0 |  |
+| signals/optimistic-outside-refetch-619.test.ts | 0 | 5 |  |
+| signals/optimistic-over-held-row-3796.test.ts | 0 | 2 |  |
+| signals/optimistic-read-lane-not-transaction-3698.test.ts | 1 | 5 |  |
+| signals/optimistic-refetch-longer-3568.test.ts | 0 | 4 |  |
+| signals/optimistic-settle-verdicts.test.ts | 0 | 3 |  |
+| signals/optimistic-signal-refetch-hold.test.ts | 1 | 1 |  |
+| signals/optimistic-store-layer-scope.test.ts | 0 | 5 |  |
+| signals/optimistic-store-refetch-hold.test.ts | 0 | 5 |  |
+| signals/optimistic-undefined-override.test.ts | 0 | 6 |  |
+| signals/overlapping-flights.test.ts | 2 | 1 |  |
+| signals/owned-scope-write-guard.test.ts | 12 | 2 |  |
+| signals/pending-companion-lane-parent.test.ts | 0 | 1 |  |
+| signals/pending-gated-landing-replay.test.ts | 1 | 0 |  |
+| signals/pending-source-repark.test.ts | 1 | 1 |  |
+| signals/posture-born-held-and-observation.test.ts | 1 | 4 |  |
 | signals/posture-store-parity.test.ts | 0 | 1 | Cannot find module '../src/store/store.js' |
-| signals/propagation-isolation.test.ts | 0 | 2 |  |
-| signals/question-scoped-pending.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/recompute-missed-wake.test.ts | 0 | 2 |  |
+| signals/propagation-isolation.test.ts | 2 | 0 |  |
+| signals/question-scoped-pending.test.ts | 4 | 34 |  |
+| signals/recompute-missed-wake.test.ts | 2 | 0 |  |
 | signals/recompute-preserves-disposed-3621.test.ts | 0 | 1 | SyntaxError: Export named '$REFRESH' not found |
-| signals/refresh-await.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/repeat.test.ts | 0 | 1 | SyntaxError: Export named 'repeat' not found |
-| signals/resolve-in-action.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/resolve.test.ts | 0 | 1 | SyntaxError: Export named 'resolve' not found |
-| signals/reveal-carve-out.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/reveal-gating-contract.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
+| signals/refresh-await.test.ts | 0 | 0 |  |
+| signals/repeat.test.ts | 11 | 0 |  |
+| signals/resolve-in-action.test.ts | 3 | 2 |  |
+| signals/resolve.test.ts | 0 | 0 |  |
+| signals/reveal-carve-out.test.ts | 1 | 3 |  |
+| signals/reveal-gating-contract.test.ts | 1 | 1 |  |
 | signals/root-dispose-pending-action-3561.test.ts | 0 | 1 | SyntaxError: Export named 'DEV' not found |
-| signals/router-transition-error-commit.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
+| signals/router-transition-error-commit.test.ts | 1 | 0 |  |
 | signals/rules-index.test.ts | 0 | 3 |  |
-| signals/runWithOwner.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
+| signals/runWithOwner.test.ts | 3 | 0 |  |
 | signals/scheduler-livelock.test.ts | 0 | 1 | Cannot find module '../src/core/constants.js' |
 | signals/settle-folds-queued-writes.test.ts | 0 | 2 |  |
 | signals/settle-walk-invariant.test.ts | 0 | 1 | Cannot find module '../src/core/async.js' |
 | signals/shallow-store-proxy-children.test.ts | 0 | 1 | Cannot find module '../src/store/store.js' |
-| signals/shared-effect-no-entangle.test.ts | 0 | 4 |  |
-| signals/snapshot-derived-store-rows.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
+| signals/shared-effect-no-entangle.test.ts | 4 | 0 |  |
+| signals/snapshot-derived-store-rows.test.ts | 3 | 2 |  |
 | signals/snapshot.test.ts | 0 | 1 | SyntaxError: Export named 'clearSnapshots' not found |
-| signals/spec-async-semantics.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/stale-read-uninitialized-cross-transition.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/store-unchanged-read-independent-write-3688.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/store/adoption-lane-rollback.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/async-setter.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/child-companion-walk.test.ts | 0 | 2 |  |
-| signals/store/createOptimisticStore.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/store/createProjection.async.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/store/createProjection.jsdom.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/store/createProjection.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/store/createStore.test.ts | 0 | 1 | SyntaxError: Export named '$TARGET' not found |
+| signals/spec-async-semantics.test.ts | 11 | 41 |  |
+| signals/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
+| signals/store-unchanged-read-independent-write-3688.test.ts | 2 | 2 |  |
+| signals/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
+| signals/store/async-setter.test.ts | 0 | 1 | SyntaxError: Export named 'OBSERVE' not found |
+| signals/store/child-companion-walk.test.ts | 1 | 1 |  |
+| signals/store/createOptimisticStore.test.ts | 5 | 75 |  |
+| signals/store/createProjection.async.test.ts | 0 | 1 |  |
+| signals/store/createProjection.jsdom.test.ts | 1 | 0 |  |
+| signals/store/createProjection.test.ts | 3 | 17 |  |
+| signals/store/createStore.test.ts | 0 | 1 | SyntaxError: Export named 'storePath' not found |
 | signals/store/deep-chained-view.test.ts | 0 | 1 | Cannot find module '../../src/store/store.js' |
-| signals/store/deep-held-visibility.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/deep-overlay-rewalk.test.ts | 0 | 1 | SyntaxError: Export named 'deep' not found |
-| signals/store/derived-optimistic-retained-row-3859.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/derived-optimistic-shadow.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/derived-presence-async-3726.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/store/derived-retained-draft-row-3767.test.ts | 0 | 3 |  |
-| signals/store/enumerator-presence-nodes.test.ts | 0 | 1 | SyntaxError: Export named '$TARGET' not found |
-| signals/store/flight-owned-transaction.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/store/fold-3164.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/store/fold-privatization-order.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
+| signals/store/deep-held-visibility.test.ts | 0 | 1 |  |
+| signals/store/deep-overlay-rewalk.test.ts | 3 | 0 |  |
+| signals/store/derived-optimistic-retained-row-3859.test.ts | 0 | 2 |  |
+| signals/store/derived-optimistic-shadow.test.ts | 2 | 2 |  |
+| signals/store/derived-presence-async-3726.test.ts | 3 | 5 |  |
+| signals/store/derived-retained-draft-row-3767.test.ts | 2 | 1 |  |
+| signals/store/enumerator-presence-nodes.test.ts | 2 | 16 |  |
+| signals/store/flight-owned-transaction.test.ts | 1 | 3 |  |
+| signals/store/fold-3164.test.ts | 0 | 2 |  |
+| signals/store/fold-privatization-order.test.ts | 9 | 1 |  |
 | signals/store/fold-scheduling.test.ts | 0 | 1 | Cannot find module '../../src/store/store.js' |
-| signals/store/fold-slot-identity.test.ts | 0 | 1 | SyntaxError: Export named 'deep' not found |
-| signals/store/kanban-a17-fixture.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/lane-authority-twins.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/store/latest-read-after-write-3576.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
-| signals/store/native-collections.test.ts | 7 | 3 |  |
+| signals/store/fold-slot-identity.test.ts | 0 | 6 |  |
+| signals/store/kanban-a17-fixture.test.ts | 1 | 2 |  |
+| signals/store/lane-authority-twins.test.ts | 1 | 6 |  |
+| signals/store/latest-read-after-write-3576.test.ts | 0 | 1 |  |
+| signals/store/native-collections.test.ts | 8 | 2 |  |
 | signals/store/next-smoke.test.ts | 0 | 1 | Cannot find module '../../src/store/target.js' |
-| signals/store/optimistic-ambient-capture.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/optimistic-chained-revert-3672-memo.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/optimistic-chained-revert-3672.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/optimistic-draft-visibility-3665.test.ts | 0 | 1 | SyntaxError: Export named '$TARGET' not found |
-| signals/store/optimistic-list-mutation-matrix.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/optimistic-maparray-index-frame-f1.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/optimistic-observer-invariance.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/optimistic-removed-prop-3883.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/optimistic-untracked-reads-f3-f5.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
+| signals/store/optimistic-ambient-capture.test.ts | 0 | 1 |  |
+| signals/store/optimistic-chained-revert-3672-memo.test.ts | 1 | 5 |  |
+| signals/store/optimistic-chained-revert-3672.test.ts | 0 | 4 |  |
+| signals/store/optimistic-draft-visibility-3665.test.ts | 1 | 7 |  |
+| signals/store/optimistic-list-mutation-matrix.test.ts | 232 | 668 |  |
+| signals/store/optimistic-maparray-index-frame-f1.test.ts | 0 | 43 |  |
+| signals/store/optimistic-observer-invariance.test.ts | 0 | 2 |  |
+| signals/store/optimistic-removed-prop-3883.test.ts | 4 | 2 |  |
+| signals/store/optimistic-untracked-reads-f3-f5.test.ts | 2 | 9 |  |
 | signals/store/overlay-rebuild-3689.test.ts | 0 | 1 | Cannot find module '../../src/store/store.js' |
-| signals/store/overlay.test.ts | 0 | 1 | SyntaxError: Export named 'deep' not found |
+| signals/store/overlay.test.ts | 7 | 4 |  |
 | signals/store/owner-stamp.test.ts | 0 | 1 | Cannot find module '../../src/store/target.js' |
-| signals/store/pr3017-function-leaves.test.ts | 0 | 1 | SyntaxError: Export named 'reconcile' not found |
+| signals/store/pr3017-function-leaves.test.ts | 4 | 0 |  |
 | signals/store/privatization-observer-identity.test.ts | 0 | 2 |  |
-| signals/store/projection-absent-key-tracking.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/store/projection-root-overlay.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/store/projection-slot-release.test.ts | 0 | 1 | SyntaxError: Export named '$TARGET' not found |
-| signals/store/projection-transition-isolation.test.ts | 0 | 1 | SyntaxError: Export named 'createProjection' not found |
-| signals/store/reconcile-captured-proxies.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/reconcile-resend-identity.test.ts | 0 | 1 | SyntaxError: Export named 'reconcile' not found |
-| signals/store/reconcile.test.ts | 0 | 1 | SyntaxError: Export named 'reconcile' not found |
-| signals/store/recursive-effects.test.ts | 0 | 1 | SyntaxError: Export named 'snapshot' not found |
-| signals/store/retained-draft-row-3767.test.ts | 0 | 1 | SyntaxError: Export named 'snapshot' not found |
-| signals/store/shallow-loading.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
+| signals/store/projection-absent-key-tracking.test.ts | 3 | 1 |  |
+| signals/store/projection-root-overlay.test.ts | 3 | 3 |  |
+| signals/store/projection-slot-release.test.ts | 0 | 6 |  |
+| signals/store/projection-transition-isolation.test.ts | 1 | 3 |  |
+| signals/store/reconcile-captured-proxies.test.ts | 7 | 2 |  |
+| signals/store/reconcile-resend-identity.test.ts | 2 | 2 |  |
+| signals/store/reconcile.test.ts | 26 | 21 |  |
+| signals/store/recursive-effects.test.ts | 3 | 1 |  |
+| signals/store/retained-draft-row-3767.test.ts | 0 | 1 |  |
+| signals/store/shallow-loading.test.ts | 0 | 8 |  |
 | signals/store/shallow.test.ts | 0 | 1 | Cannot find module '../../src/store/store.js' |
-| signals/store/shared-child-multiparent.test.ts | 0 | 1 | SyntaxError: Export named 'snapshot' not found |
-| signals/store/sidecar-composition.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/signal-store-twins-qd.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/store/store-in-store-tracking.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
+| signals/store/shared-child-multiparent.test.ts | 1 | 2 |  |
+| signals/store/sidecar-composition.test.ts | 0 | 1 |  |
+| signals/store/signal-store-twins-qd.test.ts | 0 | 4 |  |
+| signals/store/store-in-store-tracking.test.ts | 0 | 7 |  |
 | signals/store/storePath.test.ts | 0 | 1 | SyntaxError: Export named 'storePath' not found |
-| signals/store/unchanged-presence-no-hold-3743.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/utilities-no-proxy.test.ts | 0 | 1 | SyntaxError: Export named '$PROXY' not found |
-| signals/store/utilities.test.ts | 0 | 1 | SyntaxError: Export named '$PROXY' not found |
-| signals/store/woken-transaction-adopts-staged-bump.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimisticStore' not found |
-| signals/store/write-floor.test.ts | 0 | 1 | SyntaxError: Export named 'snapshot' not found |
+| signals/store/unchanged-presence-no-hold-3743.test.ts | 0 | 0 |  |
+| signals/store/utilities-no-proxy.test.ts | 0 | 1 | SyntaxError: Export named 'hasStaticKeys' not found |
+| signals/store/utilities.test.ts | 0 | 1 | SyntaxError: Export named '$RECORD' not found |
+| signals/store/woken-transaction-adopts-staged-bump.test.ts | 0 | 1 |  |
+| signals/store/write-floor.test.ts | 6 | 3 |  |
 | signals/strict-read-pending-store.test.ts | 0 | 1 | Cannot find module '../src/core/error.js' |
 | signals/strict-read-snapshot-scope-3675.test.ts | 0 | 1 | Cannot find module '../src/core/core.js' |
-| signals/strictRead.test.ts | 0 | 1 | SyntaxError: Export named 'deep' not found |
-| signals/superseded-before-first-commit.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
+| signals/strictRead.test.ts | 5 | 7 |  |
+| signals/superseded-before-first-commit.test.ts | 0 | 1 |  |
 | signals/superseded-flight-pending-source.test.ts | 0 | 1 | SyntaxError: Export named 'OBSERVE' not found |
 | signals/superseded-source-blocks-3462.test.ts | 0 | 2 |  |
-| signals/syncThenable.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
+| signals/syncThenable.test.ts | 4 | 23 |  |
 | signals/tick-scoped-pass-transaction.test.ts | 0 | 2 |  |
 | signals/transition-corpse-revival.test.ts | 0 | 1 | Cannot find module '../src/core/index.js' |
-| signals/transition-orphan-recompute.test.ts | 1 | 1 |  |
-| signals/transitionEntanglement.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/transitionMerge.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
+| signals/transition-orphan-recompute.test.ts | 0 | 2 |  |
+| signals/transitionEntanglement.test.ts | 0 | 2 |  |
+| signals/transitionMerge.test.ts | 0 | 1 |  |
 | signals/treeshake.test.ts | 0 | 1 |  |
-| signals/uninitialized-visibility.test.ts | 0 | 1 | SyntaxError: Export named 'affects' not found |
-| signals/until-entanglement.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/until.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/untrack.test.ts | 1 | 2 |  |
-| signals/untracked-async-read.test.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
+| signals/uninitialized-visibility.test.ts | 1 | 6 |  |
+| signals/until-entanglement.test.ts | 0 | 6 |  |
+| signals/until.test.ts | 7 | 10 |  |
+| signals/untrack.test.ts | 3 | 0 |  |
+| signals/untracked-async-read.test.ts | 1 | 2 |  |
 | signals/untracked-read-after-await.test.ts | 0 | 1 | Cannot find module '../src/core/dev.js' |
-| signals/verdict-contract.test.ts | 0 | 1 | SyntaxError: Export named 'createOptimistic' not found |
-| signals/verdict-mount-first-pass-3851.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/verdict-mount-loading-flush-loop.test.ts | 0 | 1 | SyntaxError: Export named 'createLoadingBoundary' not found |
-| signals/visibility-oracle-posture.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/visibility-oracle-store.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/visibility-oracle.test.ts | 0 | 1 | SyntaxError: Export named 'NotReadyError' not found |
-| signals/write-proposals-3494.test.ts | 0 | 1 | SyntaxError: Export named 'latest' not found |
+| signals/verdict-contract.test.ts | 1 | 4 |  |
+| signals/verdict-mount-first-pass-3851.test.ts | 0 | 3 |  |
+| signals/verdict-mount-loading-flush-loop.test.ts | 0 | 0 |  |
+| signals/visibility-oracle-posture.test.ts | 1147 | 37 |  |
+| signals/visibility-oracle-store.test.ts | 101 | 52 |  |
+| signals/visibility-oracle.test.ts | 75 | 51 |  |
+| signals/write-proposals-3494.test.ts | 9 | 3 |  |
 | signals/zombie-create-path-keeps-flag.test.ts | 0 | 1 | SyntaxError: Export named 'DEV' not found |
 | signals/zombie-recompute-keeps-flag.test.ts | 0 | 1 | SyntaxError: Export named 'DEV' not found |
 | signals/zombie-rerun-after-commit-3546.test.ts | 0 | 1 | SyntaxError: Export named 'DEV' not found |
 | solid/client-hydration.spec.ts | 0 | 1 | Cannot find module '../src/client/hydration.js' |
 | solid/client-recovery-record.spec.ts | 0 | 1 | Cannot find module '../src/client/hydration.js' |
-| solid/component.spec.ts | 0 | 1 | SyntaxError: Export named 'createUniqueId' not found |
+| solid/component.spec.ts | 0 | 1 | SyntaxError: Export named 'createComponent' not found |
 | solid/container-trace.spec.ts | 0 | 1 | Cannot find module '../src/client/container-trace.js' |
 | solid/cross-package-fields.spec.ts | 0 | 0 |  |
 | solid/dev.spec.ts | 0 | 1 | Cannot find module '../src/attribution.js' |
@@ -376,7 +358,7 @@
 | solid/hydration-state-api.spec.ts | 0 | 1 | Cannot find module '../src/client/hydration.js' |
 | solid/id-parity.spec.ts | 0 | 1 | Cannot find module '../src/client/core.js' |
 | solid/internal-surface.spec.ts | 0 | 4 |  |
-| solid/lazy-strict-read-3675.spec.ts | 0 | 1 | SyntaxError: Export named 'lazy' not found |
+| solid/lazy-strict-read-3675.spec.ts | 0 | 1 | SyntaxError: Export named 'createComponent' not found |
 | solid/multi-root-hydration.spec.ts | 0 | 1 | Cannot find module '../src/client/hydration.js' |
 | solid/package-exports.spec.ts | 0 | 1 |  |
 | solid/public-boundary-exports.spec.ts | 0 | 1 | SyntaxError: Export named 'enableHydration' not found |
@@ -401,7 +383,7 @@
 | solid/server/ssr-scope-lazy-id.spec.ts | 0 | 1 | Cannot find module '../../src/server/index.js' |
 | solid/server/ssr-scope.spec.ts | 0 | 1 | Cannot find module '../../src/server/index.js' |
 | solid/shallow-hydration.spec.ts | 0 | 1 | Cannot find module '../src/client/hydration.js' |
-| solid/signals.spec.ts | 0 | 1 | SyntaxError: Export named 'createErrorBoundary' not found |
+| solid/signals.spec.ts | 33 | 3 |  |
 | web/async-landing-deps-3461.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web
 /jsx-dev-runtime' |
 | web/binding-names.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web' |
@@ -1037,7 +1019,7 @@
 /jsx-dev-runtime' |
 | web/show.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web
 /jsx-dev-runtime' |
-| web/spread-enumerate.spec.tsx | 0 | 1 | SyntaxError: Export named 'merge' not found |
+| web/spread-enumerate.spec.tsx | 0 | 1 | SyntaxError: Export named 'spread' not found |
 | web/spread-nodes.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web
 /jsx-dev-runtime' |
 | web/spread-nullish.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web
