@@ -42,6 +42,8 @@ type Ctx = {
   lastText: boolean;
   /** The components and elements being rendered, outermost first (React's component stack). */
   stack: string[];
+  /** The component stack where the render last suspended (told when its boundary is aborted). */
+  suspendedAt?: string;
   /** What a child suspended on while its siblings rendered on: thrown at the boundary around them. */
   suspended?: PromiseLike<any> | null;
   /** Float's resources and hoistables for this render (written into <head>, or before a later chunk). */
@@ -238,6 +240,7 @@ function render(node: any, ctx: Ctx, hooks: any): string {
     return renderFrame(node, ctx, hooks);
   } catch (e) {
     if (e && typeof e === "object" && typeof (e as any).then !== "function" && !stacks.has(e)) stacks.set(e, stackText(ctx.stack));
+    else if (e && typeof (e as any).then === "function" && ctx.suspendedAt === undefined) ctx.suspendedAt = stackText(ctx.stack);
     throw e;
   } finally {
     if (name) ctx.stack.pop();
@@ -327,7 +330,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         if (e && typeof e.then === "function") {
           if (stream) {
             const id = stream.shared.next++;
-            const b: Boundary = { id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps };
+            const b: Boundary = { id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
+            ctx.suspendedAt = undefined;
             stream.shared.boundaries.push(b);
             b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
             ctx.lastText = false;
@@ -410,6 +414,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
 
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   checkTagName(tag);
+  if (!ctx.svg && !tag.includes("-") && tag.toLowerCase() !== tag)
+    warn(`<${tag} /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.`);
   assertValidProps(tag, props);
   validateProps(tag, props, false);
   const hoisted = hoist(tag, props, ctx);
@@ -772,7 +778,27 @@ const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c
 /** A boundary as the shell writes it while it waits: its template, then its fallback. */
 const pendingMarkup = (b: Boundary) => `<!--$?--><template id="B:${b.id}"></template>${b.fallback}<!--/$-->`;
 
-type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string };
+type Boundary = { id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string };
+
+/** The hidden element a boundary's late content is sent in: one the parser keeps where the boundary is (React's). */
+function segmentWrap(ctx: Ctx): [string, string] {
+  if (ctx.svg) return ['<svg aria-hidden="true" style="display:none" id="', "</svg>"];
+  switch (ctx.parent) {
+    case "math":
+      return ['<math aria-hidden="true" style="display:none" id="', "</math>"];
+    case "table":
+      return ['<table hidden id="', "</table>"];
+    case "thead":
+    case "tbody":
+    case "tfoot":
+      return ['<table hidden><tbody id="', "</tbody></table>"];
+    case "tr":
+      return ['<table hidden><tr id="', "</tr></table>"];
+    case "colgroup":
+      return ['<table hidden><colgroup id="', "</colgroup></table>"];
+  }
+  return ['<div hidden id="', "</div>"];
+}
 
 /** One streamed render: the shell, then each boundary as it settles, written through `write`. */
 function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void, flowingAtStart = true) {
@@ -790,9 +816,10 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const scriptOpen = nonce ? `<script nonce="${escape(nonce)}">` : "<script>";
   const RUNTIME = RUNTIME_SOURCE.replace("<script>", scriptOpen);
   // A browser() bail-out is told to onBrowserBailout, its digest empty (the client reports nothing).
-  const onError = (e: unknown) => {
-    if (isBrowserOnly(e)) return options.onBrowserBailout?.(e, { componentStack: componentStackOf(e) }), "";
-    const digest = options.onError?.(e, { componentStack: componentStackOf(e) });
+  const onError = (e: unknown, at?: string) => {
+    const componentStack = at ?? componentStackOf(e);
+    if (isBrowserOnly(e)) return options.onBrowserBailout?.(e, { componentStack }), "";
+    const digest = options.onError?.(e, { componentStack });
     return digest === "" ? undefined : digest;
   };
   // The digest and (in development) the message, as script arguments.
@@ -851,6 +878,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         // Still waiting on something else: the boundary waits again; what it found so far is preloaded now,
         // as React flushes the resources of the parts that have rendered.
         b.waiting = e;
+        if (ctx.suspendedAt !== undefined) b.suspendedAt = ctx.suspendedAt;
         shared.boundaries.length = queued;
         shared.boundaries.push(b);
         if (flowing) {
@@ -877,7 +905,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       hoist || sheets.length
         ? `$SR("B:${b.id}","S:${b.id}",${jsArg(sheets.map((s) => (s[1] === "" ? [s[0]] : [s[0], s[1], ...Object.entries(s[2]).flat()])))})`
         : `$SC("B:${b.id}","S:${b.id}")`;
-    write(`${late}${runtimeSent ? "" : RUNTIME}<div hidden id="S:${b.id}">${inner}</div>${styleTags}${scriptOpen}${reveal}</script>`);
+    write(`${late}${runtimeSent ? "" : RUNTIME}${(b.wrap ?? segmentWrap(ctx))[0]}S:${b.id}">${inner}${(b.wrap ?? segmentWrap(ctx))[1]}${styleTags}${scriptOpen}${reveal}</script>`);
     runtimeSent = true;
     watch();
   };
@@ -950,7 +978,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       }
       for (const b of pending) {
         const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
-        const digest = onError(why);
+        const digest = onError(why, b.suspendedAt);
         if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, aborted((why as any)?.message ?? String(why)))}${b.fallback}<!--/$-->`)) continue;
         write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)))})</script>`);
         runtimeSent = true;
