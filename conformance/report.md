@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2234 pass, 1646 fail, 313 skipped (gated off for stable React 19).
+2277 pass, 1732 fail, 313 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -159,3 +159,16 @@
 | react/ReactStrictMode-test.internal.js | 1 | 4 | 0 |  |
 | react/ReactStrictMode-test.js | 3 | 20 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
+| redux-tests/components/connect.spec.tsx | 24 | 35 | 0 |  |
+| redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
+| redux-tests/components/Provider.spec.tsx | 4 | 4 | 0 |  |
+| redux-tests/connect/wrapMapToProps.spec.ts | 0 | 1 | 0 |  |
+| redux-tests/hooks/useDispatch.spec.tsx | 0 | 2 | 0 |  |
+| redux-tests/hooks/useReduxContext.spec.tsx | 0 | 1 | 0 |  |
+| redux-tests/hooks/useSelector.spec.tsx | 12 | 17 | 0 |  |
+| redux-tests/integration/dynamic-reducers.spec.tsx | 0 | 1 | 0 |  |
+| redux-tests/integration/server-rendering.spec.tsx | 3 | 2 | 0 |  |
+| redux-tests/integration/ssr.spec.tsx | 0 | 0 | 0 | TypeError: it.for is not a function. (In 'it.for([0, !1, ""])', 'it.for' is undefined) |
+| use-sync-external-store/useSyncExternalStoreNative-test.js | 0 | 2 | 0 |  |
+| use-sync-external-store/useSyncExternalStoreShared-test.js | 0 | 19 | 0 |  |
+| use-sync-external-store/useSyncExternalStoreShimServer-test.js | 0 | 1 | 0 |  |

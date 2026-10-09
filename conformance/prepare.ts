@@ -8,7 +8,7 @@ import { gateSource } from "./gates.ts";
 const REF = process.env.REACT_REF ?? "main";
 const here = import.meta.dir;
 const clone = join(tmpdir(), "sluurp-react-src");
-const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/react-dom/src/test-utils", "packages/internal-test-utils", "packages/shared", "scripts/jest"];
+const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/react-dom/src/test-utils", "packages/internal-test-utils", "packages/shared", "scripts/jest", "packages/use-sync-external-store/src/__tests__"];
 
 const git = (args: string[], cwd?: string) => {
   const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -90,6 +90,7 @@ copy(join(clone, "packages/react-dom/src/test-utils"), join(out, "test-utils"));
 copy(join(clone, "packages/internal-test-utils"), join(out, "internal-test-utils"));
 copy(join(clone, "scripts/jest"), join(out, "scripts", "jest"));
 copy(join(clone, "packages/shared"), join(out, "shared"));
+copy(join(clone, "packages/use-sync-external-store/src/__tests__"), join(out, "use-sync-external-store"));
 // Tests set flags on this module (Jest's CommonJS allows it; an ES module's exports are read-only): CommonJS here.
 const flagsFile = join(out, "shared", "ReactFeatureFlags.js");
 writeFileSync(
@@ -101,3 +102,19 @@ writeFileSync(
 );
 writeFileSync(join(out, "REF"), at + "\n");
 console.log(`React's tests at ${at} in react-tests/`);
+
+// react-redux's own suite (its public behaviour: hooks, components, integration), into redux-tests/. Its type
+// tests and its React Server Components test are left out; those reaching its internals (@internal/…) stay, failing.
+const REDUX_REF = process.env.REACT_REDUX_REF ?? "master";
+const rclone = join(tmpdir(), "sluurp-react-redux-src");
+if (!existsSync(join(rclone, ".git"))) git(["clone", "-q", "--depth", "1", "https://github.com/reduxjs/react-redux.git", rclone]);
+if (REDUX_REF !== "master") git(["fetch", "-q", "--depth", "1", "origin", REDUX_REF], rclone), git(["checkout", "-q", "FETCH_HEAD"], rclone);
+const rout = join(here, "redux-tests");
+rmSync(rout, { recursive: true, force: true });
+for (const part of ["components", "hooks", "integration", "connect"]) {
+  const from = join(rclone, "test", part);
+  mkdirSync(join(rout, part), { recursive: true });
+  for (const f of readdirSync(from)) if (!f.includes("-rsc")) writeFileSync(join(rout, part, f), readFileSync(join(from, f)));
+}
+writeFileSync(join(rout, "REF"), git(["rev-parse", "--short", "HEAD"], rclone) + "\n");
+console.log("react-redux's tests in redux-tests/");

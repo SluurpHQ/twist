@@ -10,11 +10,13 @@ const walk = (d: string) => {
   for (const f of readdirSync(d, { withFileTypes: true })) {
     const p = join(d, f.name);
     if (f.isDirectory()) walk(p);
-    else if (/-test(\.internal)?\.js$/.test(f.name) && p.includes(filter)) files.push(p);
+    else if (/(-test(\.internal)?\.js|\.spec\.tsx?)$/.test(f.name) && p.includes(filter)) files.push(p);
   }
 };
 walk(join(here, "react-tests", "react"));
 walk(join(here, "react-tests", "react-dom"));
+walk(join(here, "react-tests", "use-sync-external-store"));
+walk(join(here, "redux-tests"));
 
 type Row = { file: string; pass: number; fail: number; skip: number; note?: string };
 const rows: Row[] = [];
@@ -28,7 +30,7 @@ async function worker() {
     const timer = setTimeout(() => p.kill(), 30_000);
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
     clearTimeout(timer);
-    const row: Row = { file: relative(join(here, "react-tests"), f).replace(/\\/g, "/"), pass: count(out, "pass"), fail: count(out, "fail"), skip: count(out, "skip") };
+    const row: Row = { file: relative(here, f).replace(/\\/g, "/").replace(/^react-tests\//, ""), pass: count(out, "pass"), fail: count(out, "fail"), skip: count(out, "skip") };
     if (!row.pass && !row.fail && !row.skip) row.note = (/(\w*Error[^\n]*)/.exec(out)?.[1] ?? "did not run").slice(0, 160);
     rows.push(row);
     // What failed, by message: counted across files into errors.txt.

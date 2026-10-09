@@ -34,11 +34,17 @@ g.expect = expectLikeJest;
 // React's tests load React afresh for each test, so a warning given once is given again: our dedupe reset likewise.
 const { resetWarnings } = await import("../src/warnings.ts");
 (await import("bun:test")).beforeEach(() => resetWarnings());
-// React's jest config fakes timers in every test (fakeTimers.enableGlobally).
-{
+// React's jest config fakes timers in every test (fakeTimers.enableGlobally); react-redux's vitest does not.
+if (!process.argv.some((a) => a.includes("redux-tests"))) {
   const t = await import("bun:test");
   t.beforeEach(() => t.jest.useFakeTimers());
   t.afterEach(() => t.jest.useRealTimers());
+}
+
+// @testing-library/jest-dom's matchers, which react-redux's tests use (toBeInTheDocument…).
+{
+  const matchers = await import("@testing-library/jest-dom/matchers");
+  (await import("bun:test")).expect.extend(matchers as any);
 }
 
 // As React's setupTests has them, for development.
