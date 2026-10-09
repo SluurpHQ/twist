@@ -23,6 +23,27 @@ export function compile(source: string, filename = "file.tsx"): string {
 
   const text = (n: AnyNode) => source.slice(n.start, n.end);
 
+  /** Names a `ref` may assign to: declared with let or var (a const, a function or an import is only called). */
+  const assignable = new Set<string>();
+  const collect = (n: AnyNode | null | undefined) => {
+    if (!n || typeof n !== "object") return;
+    if (n.type === "VariableDeclaration" && n.kind !== "const") for (const d of n.declarations) names(d.id);
+    for (const k in n) {
+      if (k === "start" || k === "end") continue;
+      const v = n[k];
+      if (Array.isArray(v)) for (const x of v) x && typeof x === "object" && "type" in x && collect(x);
+      else if (v && typeof v === "object" && "type" in v) collect(v);
+    }
+  };
+  const names = (id: AnyNode | null) => {
+    if (!id) return;
+    if (id.type === "Identifier") assignable.add(id.name);
+    else if (id.type === "ObjectPattern") for (const pr of id.properties) names(pr.type === "RestElement" ? pr.argument : pr.value);
+    else if (id.type === "ArrayPattern") for (const e of id.elements) names(e && (e.type === "RestElement" ? e.argument : e));
+    else if (id.type === "AssignmentPattern") names(id.left);
+  };
+  collect(program as unknown as AnyNode);
+
   /** Whether an expression can change: it calls something or reads a property (functions and JSX aside). */
   const dynamic = (n: AnyNode | null | undefined): boolean => {
     if (!n || typeof n !== "object") return false;
@@ -77,7 +98,7 @@ export function compile(source: string, filename = "file.tsx"): string {
         continue;
       }
       const name = a.name.type === "JSXIdentifier" ? a.name.name : "";
-      if (name === "ref" && v.expression.type === "Identifier") {
+      if (name === "ref" && v.expression.type === "Identifier" && assignable.has(v.expression.name)) {
         used = true;
         const id = text(v.expression);
         edits.push({ start: v.expression.start, end: v.expression.end, text: `__twist_ref(${id}, (v) => (${id} = v))` });

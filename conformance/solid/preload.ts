@@ -9,6 +9,9 @@ GlobalRegistrator.register();
 // Vitest's globals, as Solid's tests use them without importing.
 import { vi } from "./vitest.ts";
 (globalThis as any).vi = vi;
+// And on Bun's own vi, which a test file may be given instead.
+import { vi as bunVi } from "bun:test";
+for (const [k, f] of Object.entries(vi)) if (!(k in bunVi)) (bunVi as any)[k] = f;
 const src = join(import.meta.dir, "..", "..", "src");
 const solid = join(src, "twist", "index.ts");
 

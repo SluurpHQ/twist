@@ -86,11 +86,19 @@ const readHandler: ProxyHandler<Raw> = {
     if (!desc || desc.get || !desc.configurable) return desc;
     return { ...desc, value: wrap(desc.value) };
   },
-  // Read-only from the outside: changes go through the setter.
-  set: () => true,
-  deleteProperty: () => true,
-  defineProperty: () => true,
+  // Read-only from the outside: changes go through the setter. (A frozen property must answer false: the proxy may
+  // not claim to have changed what cannot change.)
+  set: (t, k, v) => !frozen(t, k, v),
+  deleteProperty: (t, k) => !frozen(t, k),
+  defineProperty: (t, k) => !frozen(t, k),
 };
+
+/** Whether `key` cannot change on `target` (non-configurable, and non-writable or a different value). */
+function frozen(target: Raw, key: PropertyKey, value?: unknown): boolean {
+  const d = Object.getOwnPropertyDescriptor(target, key);
+  if (!d || d.configurable) return false;
+  return arguments.length < 3 || (!d.writable && !Object.is(d.value, value));
+}
 
 function node(target: Raw, key: PropertyKey): KeyNode {
   const r = recordOf(target);

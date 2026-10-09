@@ -98,3 +98,18 @@ export function Errored(props: { fallback: any; children: any }) {
   );
 }
 
+
+/** A component whose code loads when first rendered (its readers wait, as for any first load). */
+export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
+  let loaded: ((props: P) => any) | null = null;
+  let loading: Promise<unknown> | null = null;
+  const Comp = (props: P) => {
+    if (loaded) return loaded(props);
+    loading ??= load().then((m) => (loaded = m.default));
+    const ready = createMemo(() => loading!.then(() => true));
+    return createMemo(() => ((ready() as unknown as boolean) ? untrack(() => loaded!(props)) : undefined));
+  };
+  (Comp as any).preload = () => (loading ??= load().then((m) => (loaded = m.default)));
+  return Comp;
+}
+

@@ -2,6 +2,7 @@
 // calls. Elements are made at once; each marked part is bound to its node by an effect of its own; components run
 // once. Written from Solid 2's design (RFCs 03 and 07) and its tests, not its code.
 import {
+  flush,
   createMemo,
   createRenderEffect,
   createRoot,
@@ -259,14 +260,28 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
  * longest run still in order; nodes kept stay.
  */
 export function insert(parent: Node, value: any, marker: Node | null = null) {
+  // Children given as a list: static ones put in place; a part that can change, bound where it sits (before an empty
+  // anchor of its own when more follows it).
+  if (Array.isArray(value) && value.some((v) => typeof v === "function")) {
+    const last = value.length - 1;
+    value.forEach((v, i) => {
+      if (typeof v !== "function" || i === last) return insert(parent, v, marker);
+      const anchor = document.createTextNode("");
+      parent.insertBefore(anchor, marker);
+      bind(parent, v, anchor);
+    });
+    return;
+  }
   if (typeof value !== "function") {
     for (const n of nodesOf(value, [], [])) parent.insertBefore(n, marker);
     return;
   }
+  bind(parent, value, marker);
+}
+
+/** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
+function bind(parent: Node, value: () => any, end: Node | null) {
   let current: Node[] = [];
-  // A place for it, kept even while it renders nothing.
-  const anchor = document.createTextNode("");
-  parent.insertBefore(anchor, marker);
   createRenderEffect(
     () => {
       let v = value();
@@ -275,13 +290,13 @@ export function insert(parent: Node, value: any, marker: Node | null = null) {
     },
     (v: any) => {
       const next = untrack(() => nodesOf(v, [], current));
-      reconcile(parent, current, next, anchor);
+      reconcile(parent, current, next, end);
       current = next;
     },
   );
 }
 
-function reconcile(parent: Node, old: Node[], next: Node[], end: Node) {
+function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
   const keep = new Set(next);
   for (const n of old) if (!keep.has(n) && n.parentNode === parent) parent.removeChild(n);
   if (!old.length) {
@@ -291,7 +306,7 @@ function reconcile(parent: Node, old: Node[], next: Node[], end: Node) {
   const at = new Map<Node, number>();
   old.forEach((n, i) => at.set(n, i));
   const stay = inOrder(next, (n) => at.get(n));
-  let cursor: Node = end;
+  let cursor: Node | null = end;
   for (let j = next.length - 1; j >= 0; j--) {
     const n = next[j]!;
     if (!stay.has(j) || n.parentNode !== parent) parent.insertBefore(n, cursor);
@@ -310,6 +325,8 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
     disposer = dispose;
     insert(element, code());
   });
+  // Rendered by the time render returns.
+  flush();
   return () => {
     disposer();
     roots.delete(element);
@@ -355,18 +372,6 @@ function componentRaw(props: Record<string, any>) {
   return raw;
 }
 
-/** A component whose code loads when first rendered (its readers wait, as for any first load). */
-export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
-  let loaded: ((props: P) => any) | null = null;
-  let loading: Promise<unknown> | null = null;
-  const Comp = (props: P) => {
-    if (loaded) return loaded(props);
-    loading ??= load().then((m) => (loaded = m.default));
-    const ready = createMemo(() => loading!.then(() => true));
-    return createMemo(() => ((ready() as unknown as boolean) ? untrack(() => loaded!(props)) : undefined));
-  };
-  (Comp as any).preload = () => (loading ??= load().then((m) => (loaded = m.default)));
-  return Comp;
-}
-
 export { NotReadyError };
+export { assign as setProp };
+export { merge as mergeProps };

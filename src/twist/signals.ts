@@ -802,6 +802,11 @@ function effectOf<T>(kind: 1 | 2, compute: (prev?: T) => T, apply?: ((value: T, 
   else if (apply) (e.apply = apply.effect), (e.onError = apply.error);
   else e.apply = () => {};
   e.run();
+  // A render effect applies its first value as it is made (the DOM is built with it); others at the flush.
+  if (kind === RENDER && e.due && !e.tx && e.error === NONE) {
+    remove(applies[RENDER], e);
+    e.runApply();
+  }
   schedule();
 }
 
@@ -1093,6 +1098,7 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
       if (failed.value !== NONE) return false;
       failed.value = e;
       failed.bump();
+      reportCaught(e, m);
       return true;
     };
     const err = failed.read();
@@ -1102,6 +1108,7 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
     } catch (e) {
       if (e instanceof NotReadyError) throw e;
       failed.value = e;
+      reportCaught(e, m);
       return untrack(() => fallback(() => failed.value, () => ((failed.value = NONE), failed.bump())));
     }
   });
@@ -1210,3 +1217,64 @@ export function affects(target: unknown, _key?: PropertyKey) {
     statusChanged();
   });
 }
+
+// ---------------------------------------------------------------- the client error hook, ids, reactions
+
+/** Where a root keeps its own error hook (ahead of configureClientErrors'). */
+export const ROOT_ERROR_HOOK = Symbol("root-error-hook");
+type ErrorHook = (error: unknown, info: { ownerPath: string[]; boundaryPath: string[] }) => void;
+let clientHook: ErrorHook | undefined;
+const told = new WeakSet<object>();
+
+/** The hook told whenever an Errored boundary catches something (once per error object). */
+export function configureClientErrors(options: { onError?: ErrorHook }) {
+  if (options.onError !== undefined && typeof options.onError !== "function") throw new TypeError("configureClientErrors: onError must be a function");
+  clientHook = options.onError;
+}
+
+function reportCaught(e: unknown, boundary: Owner) {
+  if (e && typeof e === "object") {
+    if (told.has(e)) return;
+    told.add(e);
+  }
+  let hook: ErrorHook | undefined;
+  for (let o: Owner | null = boundary; o && !hook; o = o.parent) hook = (o as any)[ROOT_ERROR_HOOK];
+  hook ??= clientHook;
+  if (!hook) return;
+  try {
+    hook(e, { ownerPath: [], boundaryPath: [] });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+let idCount = 0;
+/** An id unique on this page. */
+export function createUniqueId(): string {
+  return "cl-" + idCount++;
+}
+
+/** `onChange` called once, the first time what the returned tracker's function reads changes. */
+export function createReaction(onChange: () => void) {
+  let stop: (() => void) | null = null;
+  return (fn: () => void) => {
+    stop?.();
+    let first = true;
+    stop = createRoot((dispose) => {
+      createEffect(
+        () => fn(),
+        () => {
+          if (first) return void (first = false);
+          dispose();
+          onChange();
+        },
+      );
+      return dispose;
+    });
+  };
+}
+
+/** Hydration (a server's HTML adopted): Twist renders on the client only, for now. */
+export const sharedConfig: { hydrating: boolean; context: unknown } = { hydrating: false, context: null };
+export const isHydrating = () => sharedConfig.hydrating;
+export function enableHydration() {}

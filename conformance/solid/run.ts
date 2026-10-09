@@ -17,6 +17,8 @@ for (const part of ["signals/tests", "solid/test", "web/test"]) walk(join(here, 
 
 type Row = { file: string; pass: number; fail: number; note?: string };
 const rows: Row[] = [];
+/** What failed, by message: counted across files into errors.txt. */
+const errors = new Map<string, number>();
 const count = (out: string, word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}$`, "m").exec(out)?.[1] ?? 0);
 const queue = [...files];
 async function worker() {
@@ -31,6 +33,10 @@ async function worker() {
     const load = /(Export named '[^']+' not found|Cannot find module '[^']+'|SyntaxError[^\n]*)/.exec(out)?.[1];
     if (!row.pass && load) row.note = load.replace(/ in module.*$/, "").slice(0, 120);
     rows.push(row);
+    for (const m of out.matchAll(/^(?:\w*Error|error):[^\n]*/gm)) {
+      const msg = m[0].replace(/\d+/g, "N").slice(0, 160);
+      errors.set(msg, (errors.get(msg) ?? 0) + 1);
+    }
   }
 }
 await Promise.all(Array.from({ length: 8 }, worker));
@@ -56,4 +62,5 @@ const md = [
   ...rows.map((r) => `| ${r.file} | ${r.pass} | ${r.fail} | ${r.note ?? ""} |`),
 ].join("\n");
 writeFileSync(join(here, "report.md"), md + "\n");
+writeFileSync(join(here, "errors.txt"), [...errors].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${n}\t${m}`).join("\n") + "\n");
 console.log(md.split("\n").slice(0, 30).join("\n"));

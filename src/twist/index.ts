@@ -2,4 +2,4 @@
 export * from "./signals.ts";
 export { $PROXY, $TARGET, $TRACK, createOptimisticStore, createProjection, createStore, deep, reconcile, snapshot } from "./store.ts";
 export { mapArray, merge, omit, repeat } from "./flow.ts";
-export { For, Repeat, Show, Switch, Match, Loading, Errored, createComponent } from "./control.ts";
+export { For, Repeat, Show, Switch, Match, Loading, Errored, createComponent, lazy } from "./control.ts";
