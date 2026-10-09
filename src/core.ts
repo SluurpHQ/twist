@@ -2425,6 +2425,8 @@ export const client = {
       box.reducer = reducer;
       box.dispatch = (a: any) => {
         updateWhileRendering(f);
+        // While its own component renders: kept for the next pass, reduced there with the reducer given then.
+        if (current === f) return void (box.rendering ??= []).push(a), ((f as any).again = true);
         const apply = () => box.put(strictTwice(f, () => box.reducer(box.v, a), true));
         const preview = (p: Preview) => p.states.set(box, box.reducer(p.states.has(box) ? p.states.get(box) : box.v, a));
         if (current === f || !inTransition(apply, preview, f)) apply();
@@ -2432,6 +2434,7 @@ export const client = {
       return box;
     });
     h.reducer = reducer;
+    if (h.rendering?.length) for (const a of h.rendering.splice(0)) h.v = insideHook(() => reducer(h.v, a));
     return [h.read(), h.dispatch];
   },
   useRef<T>(init: T) {
@@ -2474,8 +2477,15 @@ export const client = {
       "layout",
     );
   },
+  // dispatcher.readContext: a context read allowed anywhere React renders (a class's render method too).
+  readContext(ctx: any) {
+    if (!current) throw new Error(INVALID_HOOK_CALL);
+    return readContext(current, ctx);
+  },
   useContext(ctx: any) {
-    return readContext(current!, ctx);
+    // A hook like the others: not in a class's render (React's dispatcher there throws).
+    if (!current || current.inst) throw new Error(INVALID_HOOK_CALL);
+    return readContext(current, ctx);
   },
   useId() {
     const f = current!;
@@ -2999,6 +3009,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           // Told only if the root then renders without an error of its own (React reports it with the commit).
           (state as any).failed = false;
           draw();
+          (state as any).threw = false;
+          for (const tell of caughtThisRender.splice(0)) tell();
           if (!(state as any).failed) layoutQueue.push(() => (options?.onRecoverableError ?? report)(error, { componentStack: "" }));
         } else if (hydrate && hydrationWaits) {
           // Suspended with no boundary: nothing of this attempt is kept, the server's markup stays as it was.

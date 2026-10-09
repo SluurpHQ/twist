@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3466 pass, 558 fail, 314 skipped (gated off for stable React 19).
+3479 pass, 545 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -37,7 +37,7 @@
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 11 | 10 | 0 |  |
-| react-dom/ReactDOMFizzShellHydration-test.js | 5 | 7 | 0 |  |
+| react-dom/ReactDOMFizzShellHydration-test.js | 6 | 6 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 1 | 5 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 3 | 14 | 0 |  |
@@ -70,9 +70,9 @@
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 317 | 19 | 0 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 318 | 18 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 20 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 129 | 12 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 140 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 35 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 7 | 3 | 0 |  |

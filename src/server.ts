@@ -142,17 +142,36 @@ const isBrowserOnly = (e: any) => !!e && typeof e === "object" && e[RECOVERABLE]
 // ---------------------------------------------------------------- hooks while rendering a component on the server
 
 /** The function component rendering now: its hooks, kept across its re-renders (state set while it renders). */
-type ServerComponent = { hooks: any[]; at: number; again: boolean; ids: number };
+type ServerComponent = { hooks: any[]; at: number; again: boolean; ids: number; pass: number };
 let rendering: ServerComponent | null = null;
 
 const INVALID_HOOK =
   "Invalid hook call. Hooks can only be called inside of the body of a function component. This could happen for one of the following reasons:\n1. You might have mismatching versions of React and the renderer (such as React DOM)\n2. You might be breaking the Rules of Hooks\n3. You might have more than one copy of React in the same app\nSee https://react.dev/link/invalid-hook-call for tips about how to debug and fix this problem.";
 
+/** Inside a hook's own code (an initializer, a reducer, a memo): hooks called there are warned about (React's
+ * isInHookUserCodeInDev), and still counted as hooks. */
+let inHookCode = false;
+function inHook<T>(fn: () => T): T {
+  const was = inHookCode;
+  inHookCode = true;
+  try {
+    return fn();
+  } finally {
+    inHookCode = was;
+  }
+}
 function slot<T>(make: () => T): T {
   const c = rendering;
   if (!c) throw new Error(INVALID_HOOK);
+  if (inHookCode) warn("Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks");
   const i = c.at++;
-  if (i >= c.hooks.length) c.hooks.push(make());
+  if (i >= c.hooks.length) {
+    // A pass again (its own update) with more hooks than the first: React's error.
+    if (c.pass > 0) throw new Error("Rendered more hooks than during the previous render");
+    // Its place taken first: a hook its initializer calls comes after it, as React numbers them.
+    c.hooks.push(undefined);
+    c.hooks[i] = inHook(make);
+  }
   return c.hooks[i];
 }
 
@@ -172,23 +191,14 @@ function reducerHook(reducer: any, arg: any, init: any, isState: boolean) {
     };
     return box;
   });
-  // A reducer is no component: hooks called in it are invalid.
-  for (const a of h.queue.splice(0)) {
-    const was = rendering;
-    rendering = null;
-    try {
-      h.value = reducer(h.value, a);
-    } finally {
-      rendering = was;
-    }
-  }
+  for (const a of h.queue.splice(0)) h.value = inHook(() => reducer(h.value, a));
   return [h.value, h.dispatch];
 }
 
 function memoHook(fn: () => any, deps?: any[]) {
   const h = slot(() => ({ deps: undefined as any, value: undefined as any, set: false }));
   if (!h.set || !deps || !h.deps || deps.length !== h.deps.length || deps.some((d: any, i: number) => !Object.is(d, h.deps[i]))) {
-    h.value = fn();
+    h.value = inHook(fn);
     h.deps = deps;
     h.set = true;
   }
@@ -214,13 +224,14 @@ function renderOutput(out: any, ctx: Ctx, hooks: any) {
 const contextValue = (ctx: Ctx, c: any) => (ctx.values.has(c) ? ctx.values.get(c) : c._defaultValue);
 
 function renderFunction(type: any, props: any) {
-  const c: ServerComponent = { hooks: [], at: 0, again: false, ids: 0 };
+  const c: ServerComponent = { hooks: [], at: 0, again: false, ids: 0, pass: 0 };
   const was = rendering;
   rendering = c;
   try {
     for (let pass = 0; ; pass++) {
       if (pass >= 25) throw new Error("Too many re-renders. React limits the number of renders to prevent an infinite loop.");
       c.at = 0;
+      c.pass = pass;
       c.again = false;
       c.ids = 0;
       const out = type(props);
@@ -244,10 +255,15 @@ function serverHooks(ctx: Ctx) {
     useLayoutEffect: NOOP,
     useInsertionEffect: NOOP,
     useImperativeHandle: NOOP,
-    readContext: read,
+    readContext: (c: any) => {
+      if (inHookCode)
+        warn("Context can only be read while React is rendering. In classes, you can read it in the render method or getDerivedStateFromProps. In function components, you can read it directly in the function body, but not inside Hooks like useReducer() or useMemo().");
+      return read(c);
+    },
     // A hook: only inside a function component (a class render calling it is an invalid hook call).
     useContext: (c: any) => {
       if (!rendering) throw new Error(INVALID_HOOK);
+      if (inHookCode) warn("Do not call Hooks inside useEffect(...), useMemo(...), or other built-in Hooks. You can only call Hooks at the top level of your React function. For more information, see https://react.dev/link/rules-of-hooks");
       return read(c);
     },
     // From where it is in the tree (React's), so the client hydrating finds the same id.
