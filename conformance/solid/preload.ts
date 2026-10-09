@@ -6,8 +6,11 @@ import { join } from "node:path";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 GlobalRegistrator.register();
+// Vitest's globals, as Solid's tests use them without importing.
+import { vi } from "./vitest.ts";
+(globalThis as any).vi = vi;
 const src = join(import.meta.dir, "..", "..", "src");
-const solid = join(src, "solid.ts");
+const solid = join(src, "twist", "index.ts");
 
 plugin({
   name: "twist",
