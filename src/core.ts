@@ -1238,10 +1238,13 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
         const kept = fb.children.find((c) => c.key === "kc");
         if (kept) hideNodes(kept, waiting);
       });
-      return [
+      const out: any = [
         shown ? createElement(FRAGMENT, { key: "c" }, props.children) : null,
         waiting ? createElement(FRAGMENT, { key: "f" }, props.fallback) : null,
       ];
+      // Its own two slots are not a fork of the tree (React keeps them in fibers of its own).
+      out[LONE] = true;
+      return out;
     };
   }
   switch (type?.$$typeof) {
