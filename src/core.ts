@@ -539,7 +539,17 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
   current = f;
   hookAt = 0;
   try {
-    out = f.render!(f, f.props);
+    for (let pass = 0; ; pass++) {
+      (f as any).again = false;
+      out = f.render!(f, f.props);
+      if (!(f as any).again) break;
+      if (pass >= 24) throw new Error("Too many re-renders. React limits the number of renders to prevent an infinite loop.");
+      // Again, with what this render set: its hooks from the top, the effects it asked for asked again.
+      hookAt = 0;
+      f.insertion = [];
+      f.layout = [];
+      f.passive = [];
+    }
   } catch (e) {
     out = null;
     current = prevCurrent;
@@ -784,6 +794,25 @@ function runPassive(drawAfter: boolean) {
 
 // ---------------------------------------------------------------- hooks
 
+/**
+ * A component's state: its value, and a signal that says when it changed. Set by the component while it renders,
+ * the same render goes again at once (React's render-phase update); set from anywhere else, the signal tells.
+ */
+function state(f: Fiber, initial: any) {
+  const sig: Sig<number> = signal(0);
+  const box: any = {
+    v: initial,
+    read: () => (sig(), box.v),
+    put: (next: any) => {
+      if (Object.is(next, box.v)) return;
+      box.v = next;
+      if (current === f) (f as any).again = true;
+      else sig.set(sig.peek() + 1);
+    },
+  };
+  return box;
+}
+
 function hook<T>(make: () => T): T {
   const f = current;
   if (!f) throw new Error("Invalid hook call. Hooks can only be called inside of the body of a function component.");
@@ -798,21 +827,24 @@ export const depsChanged = (a: any[] | undefined, b: any[] | undefined) =>
 
 export const client = {
   useState<T>(init: T | (() => T)): [T, (v: T | ((p: T) => T)) => void] {
+    const f = current!;
     const h = hook(() => {
-      const s: Sig<T> = signal(typeof init === "function" ? (init as () => T)() : init);
-      return { s, set: (v: any) => s.set(typeof v === "function" ? v(s.peek()) : v) };
+      const box = state(f, typeof init === "function" ? (init as () => T)() : init);
+      box.set = (v: any) => box.put(typeof v === "function" ? v(box.v) : v);
+      return box;
     });
-    return [h.s(), h.set];
+    return [h.read(), h.set];
   },
   useReducer(reducer: any, arg: any, init?: any) {
+    const f = current!;
     const h = hook(() => {
-      const s: Sig = signal(init ? init(arg) : arg);
-      const box: any = { s, reducer };
-      box.dispatch = (a: any) => s.set(box.reducer(s.peek(), a));
+      const box = state(f, init ? init(arg) : arg);
+      box.reducer = reducer;
+      box.dispatch = (a: any) => box.put(box.reducer(box.v, a));
       return box;
     });
     h.reducer = reducer;
-    return [h.s(), h.dispatch];
+    return [h.read(), h.dispatch];
   },
   useRef<T>(init: T) {
     return hook(() => ({ current: init }));
