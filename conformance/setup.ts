@@ -35,6 +35,14 @@ GlobalRegistrator.register({ url: "http://localhost/" });
     if (focusable(this)) return focus.call(this, options);
   };
 }
+// jsdom's style keeps no priority ("display: none", not "display: none !important"), as React's tests expect.
+{
+  const proto: any = (globalThis as any).CSSStyleDeclaration?.prototype;
+  const set = proto?.setProperty;
+  if (set) proto.setProperty = function (name: string, value: string) {
+    return set.call(this, name, value);
+  };
+}
 for (const proto of [globalThis.Element?.prototype, globalThis.Node?.prototype]) {
   if (proto) Object.defineProperty(proto, "toString", { value: function (this: any) { return `[object ${this.constructor?.name ?? "Object"}]`; }, configurable: true, writable: true });
 }

@@ -220,19 +220,120 @@ const docOf = (host: Node): Document => (host.nodeType === 9 ? (host as Document
 
 /** A suspended tree's nodes hidden (React's display: none, text emptied) or shown again as they were. */
 function hideNodes(f: Fiber, hide: boolean) {
-  for (const n of domNodes(f)) {
-    const box = n as any;
-    if (hide === !!box.__hidden) continue;
-    if (n.nodeType === 3) {
-      if (hide) (box.__hidden = { text: (n as Text).data }), ((n as Text).data = "");
-      else ((n as Text).data = box.__hidden.text), (box.__hidden = null);
-    } else {
+  for (const n of domNodes(f)) hideNode(n, hide);
+}
+/** One node hidden (display none, a text emptied) or shown as it was; counted, as two things may hide it. */
+function hideNode(n: Node, hide: boolean) {
+  const box = n as any;
+  if (hide) {
+    if (box.__hidden) return void box.__hidden.count++;
+    if (n.nodeType === 3) (box.__hidden = { text: (n as Text).data, count: 1 }), ((n as Text).data = "");
+    else {
       const style = (n as HTMLElement).style;
-      if (!style) continue;
-      if (hide) (box.__hidden = { display: style.getPropertyValue("display"), priority: style.getPropertyPriority("display") }), style.setProperty("display", "none", "important");
-      else style.setProperty("display", box.__hidden.display, box.__hidden.priority), (box.__hidden = null);
+      if (!style) return;
+      box.__hidden = { display: style.getPropertyValue("display"), priority: style.getPropertyPriority("display"), count: 1 };
+      style.setProperty("display", "none", "important");
     }
+    return;
   }
+  if (!box.__hidden || --box.__hidden.count > 0) return;
+  if (n.nodeType === 3) (n as Text).data = box.__hidden.text;
+  else (n as HTMLElement).style?.setProperty("display", box.__hidden.display, box.__hidden.priority);
+  box.__hidden = null;
+}
+
+// ---------------------------------------------------------------- Activity
+
+/** Hidden Activities mounted: while there are none, nothing checks for them. */
+let hiddenActivities = 0;
+/** Whether `f` is inside a hidden Activity. */
+function insideHidden(f: Fiber): boolean {
+  for (let p = f.parent; p; p = p.parent) if ((p as any).hidden) return true;
+  return false;
+}
+/** Whether a host node is a top-level one of a hidden Activity (or of a portal inside one): hidden itself. */
+function topInHidden(f: Fiber): boolean {
+  for (let p = f.parent; p; p = p.parent) {
+    if ((p as any).hidden) return true;
+    if (p.kind === HOST) return false;
+    if (p.kind === PORTAL_F) return insideHidden(p);
+  }
+  return false;
+}
+/** An Activity's top-level nodes, and those of the portals in it (React hides a portal's children too). */
+function activityNodes(f: Fiber, out: Node[] = [], top = true): Node[] {
+  for (const c of f.children) {
+    if ((c as any).hidden) continue;
+    if (c.kind === HOST || c.kind === TEXT) {
+      if (top) out.push(c.dom);
+      // Portals anywhere below: their own top-level nodes too.
+      if (c.kind === HOST) activityNodes(c, out, false);
+    } else if (c.kind === PORTAL_F) activityNodes(c, out, true);
+    else activityNodes(c, out, top);
+  }
+  return out;
+}
+function hideActivity(f: Fiber, hide: boolean) {
+  for (const n of activityNodes(f)) hideNode(n, hide);
+}
+/** Hidden: the subtree's effects cleaned up, class components told they unmount, refs let go — at commit, outer first. */
+function disappear(f: Fiber) {
+  const each = (x: Fiber) => {
+    if (x.kind === COMP) {
+      for (const h of x.hooks ?? []) if (h && (h.phase === "layout" || h.phase === "passive") && typeof h.cleanup === "function") lifecycle(x, h.cleanup), (h.cleanup = null);
+      const inst = x.inst;
+      if (inst && (x as any).classRef != null) clearRef(x, (x as any).classRef);
+      if (inst?.componentWillUnmount) lifecycle(x, () => inst.componentWillUnmount());
+      (x as any).gone = true;
+    } else if ((x.kind === HOST || x.kind === HOIST) && x.props?.ref != null) clearRef(x, x.props.ref);
+    else if (x.kind === FRAG && (x as any).fragment && x.props?.ref != null) clearRef(x, x.props.ref);
+    if (x.kind === HOIST && !(x as any).resource) x.dom?.parentNode?.removeChild(x.dom);
+    for (const c of x.children) if (!(c as any).hidden) each(c);
+  };
+  layoutQueue.push(() => {
+    if (f.dead) return;
+    for (const c of f.children) each(c);
+  });
+}
+/** Shown again: refs, layout effects and componentDidMount at commit (inner first), then the effects after paint. */
+function reappear(f: Fiber) {
+  const passive: (() => void)[] = [];
+  const each = (x: Fiber) => {
+    for (const c of x.children) if (!(c as any).hidden) each(c);
+    if (x.kind === COMP) {
+      (x as any).gone = false;
+      (x as any).waitsToAppear = false;
+      for (const h of x.hooks ?? []) {
+        if (!h || typeof h.create !== "function") continue;
+        const run = () => {
+          if (x.dead) return;
+          h.first = false;
+          try {
+            if (typeof h.cleanup === "function") h.cleanup();
+            const back = h.create();
+            h.cleanup = typeof back === "function" ? back : null;
+          } catch (e) {
+            caught(x, e);
+          }
+        };
+        if (h.phase === "layout") run();
+        else if (h.phase === "passive") passive.push(run);
+      }
+      const inst = x.inst;
+      if (inst && (x as any).classRef != null) setRef(x, (x as any).classRef, inst);
+      if (inst?.componentDidMount) lifecycle(x, () => inst.componentDidMount());
+    } else if ((x.kind === HOST || x.kind === HOIST) && x.props?.ref != null && x.dom) setRef(x, x.props.ref, x.dom);
+    else if (x.kind === FRAG && (x as any).fragment && x.props?.ref != null) setRef(x, x.props.ref, (x as any).fragment);
+    if (x.kind === HOIST && !(x as any).resource) {
+      if (!x.dom) x.dom = placeHoistable((x as any).hoistRoot, x.type, x.props);
+      else if (!x.dom.parentNode) mountHoistable((x as any).hoistRoot, x.type, x.dom);
+    }
+  };
+  layoutQueue.push(() => {
+    if (f.dead) return;
+    for (const c of f.children) each(c);
+    passiveQueue.push(...passive);
+  });
 }
 
 // ---------------------------------------------------------------- reconciling
@@ -741,6 +842,7 @@ function mountHoist(f: Fiber, host: Node) {
   }
   layoutQueue.push(() => {
     if (f.dead) return;
+    if (!resource && hiddenActivities && insideHidden(f)) return;
     f.dom = resource ? acquireResource(root, resource, f.props) : placeHoistable(root, f.type, f.props);
     if (f.dom && !resource) hide(f.dom, "__fiber", f);
     if (f.props.ref != null) setRef(f, f.props.ref, f.dom);
@@ -992,14 +1094,25 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
     }
     toldFragmentsAdded(f);
-    if (props.ref != null) layoutQueue.push(() => !f.dead && setRef(f, props.ref, el));
+    // A new top-level node in a hidden Activity (or a portal's in one) is hidden as it comes.
+    if (hiddenActivities && topInHidden(f)) hideNode(el, true);
+    if (props.ref != null) layoutQueue.push(() => !f.dead && !(hiddenActivities && insideHidden(f)) && setRef(f, props.ref, el));
     return f;
   }
   if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
     const f = fiber(FRAG, type, key, props, parent);
     if (type === PROFILER) profilerBegins(f);
     if (type === ACTIVITY && props.mode !== "hidden" && hydrating) hydrateBoundary(f, host, before);
-    else if (!(type === ACTIVITY && props.mode === "hidden")) reconcile(f, toList(props.children), host, before);
+    else if (type === ACTIVITY && props.mode === "hidden") {
+      // Hidden: its children drawn (their state kept for when it is shown), out of sight, their effects not run.
+      if (hydrating) return f;
+      (f as any).hidden = true;
+      hiddenActivities++;
+      deferTransition(() => {
+        if (f.dead || !(f as any).hidden) return;
+        reconcile(f, toList(f.props?.children), hostParentOf(f), nextDomAfter(f));
+      });
+    } else reconcile(f, toList(props.children), host, before);
     return f;
   }
   if (type && type.$$typeof === CONTEXT) {
@@ -1069,7 +1182,27 @@ function update(f: Fiber, c: any) {
     const host = hostParentOf(f);
     const prev = f.props;
     if (f.type === PROFILER) (f.props = c.props), profilerBegins(f);
-    reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
+    const wasHidden = !!(f as any).hidden;
+    const nowHidden = f.type === ACTIVITY && c.props?.mode === "hidden";
+    if (wasHidden !== nowHidden) {
+      (f as any).hidden = nowHidden;
+      hiddenActivities += nowHidden ? 1 : -1;
+      // Hidden now: its effects and refs let go, at commit; its children then drawn as hidden ones are.
+      if (nowHidden) disappear(f);
+    }
+    if (nowHidden) {
+      // What is shown now hides at once; the hidden children are drawn after the visible work.
+      if (!wasHidden) hideActivity(f, true);
+      f.props = c.props;
+      deferTransition(() => {
+        if (f.dead || !(f as any).hidden) return;
+        reconcile(f, toList(f.props?.children), hostParentOf(f), nextDomAfter(f));
+      });
+    } else reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
+    if (wasHidden !== nowHidden && !nowHidden) {
+      hideActivity(f, false);
+      reappear(f);
+    }
     f.props = c.props;
     // A fragment ref: its new elements get its listeners; a changed ref is moved over at commit.
     const inst = (f as any).fragment as FragmentInstance | undefined;
@@ -1208,7 +1341,7 @@ function unmount(f: Fiber, removeDom: boolean) {
     const inst = f.inst;
     later(() => {
       if (inst && (f as any).classRef != null) clearRef(f, (f as any).classRef);
-      if (inst?.componentWillUnmount) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
+      if (inst?.componentWillUnmount && !(f as any).gone) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
       for (const h of f.hooks!) if (h && h.cleanup) untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
     });
   } else if (f.kind === HOST && f.props.ref != null) {
@@ -1221,6 +1354,7 @@ function unmount(f: Fiber, removeDom: boolean) {
   } else if (f.kind === FRAG && (f as any).fragment && f.props?.ref != null) {
     later(() => clearRef(f, f.props.ref));
   }
+  if ((f as any).hidden) hiddenActivities--;
   for (const c of f.children) unmount(c, f.kind === PORTAL_F);
 }
 
@@ -1440,8 +1574,11 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     nestedTime = outerNested + took;
   }
   insertionQueue.push(...f.insertion);
-  layoutQueue.push(...f.layout);
-  passiveQueue.push(...f.passive);
+  if (hiddenActivities && insideHidden(f)) (f as any).waitsToAppear = true;
+  else {
+    layoutQueue.push(...f.layout);
+    passiveQueue.push(...f.passive);
+  }
   if (--depth === 0) commit();
 }
 
@@ -2125,6 +2262,8 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
   const h = hook(() => ({ deps: undefined as any, cleanup: null as any, first: true }));
   // Compared with the deps of the effect that ran: a render that never committed (a render-phase pass) sets none.
   if (!h.first && deps && !depsChanged(h.deps, deps)) return;
+  h.phase = phase;
+  h.create = create;
   f[phase]!.push(() => {
     if (f.dead) return;
     h.first = false;
