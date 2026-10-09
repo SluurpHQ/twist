@@ -190,6 +190,8 @@ export class Transaction {
   open = 0;
   /** What runs when it commits (optimistic values revert). */
   ends: (() => void)[] = [];
+  /** Render effects that showed the committed frame over what it holds: run again when it commits. */
+  stale = new Set<Computation<any>>();
   merged: Transaction | null = null;
   get root(): Transaction {
     let t: Transaction = this;
@@ -215,8 +217,8 @@ abstract class Node<T = any> {
   current(): T {
     if (this.override !== NONE) return this.override as T;
     if (!inPass || this.staged === NONE) return this.value;
-    // A tracked effect sees the committed frame: what a transaction holds is never shown to it.
-    return this.tx && listener?.tracked ? this.value : (this.staged as T);
+    if (!this.tx) return this.staged as T;
+    return heldRead(this);
   }
   /** A new value staged: committed at the flush's end, or held by a transaction. */
   stage(next: T) {
@@ -232,6 +234,7 @@ abstract class Node<T = any> {
     this.staged = NONE;
     this.tx = null;
     (this as any).writtenIn = null;
+    (this as any).bornHeld = false;
   }
   subscribe(o: Computation<any>) {
     this.observers.push(o);
@@ -328,6 +331,10 @@ export class Computation<T> extends Node<T> implements Owner {
   fn: (prev?: T) => T;
   state = DIRTY;
   sources: Source[] = [];
+  /** The transaction whose held values its last run read: what it computed is held in it. */
+  readHeld: Transaction | null = null;
+  /** It asks isPending: it reads the screen, like a render effect. */
+  verdictReader = false;
   /** The version of each source when it was read. */
   seen: number[] = [];
   /** Sources read only through isPending/latest: what is shown ahead of a hold (they do not hold this). */
@@ -450,10 +457,17 @@ export class Computation<T> extends Node<T> implements Owner {
       // An unowned memo read outside any computation, with nothing subscribed: released at the next flush.
       if (!listener && this.kind === MEMO && !this.parent && !this.observers.length) untrackedReads.add(this);
     }
-    if (listener) listener.track(this);
+    if (listener) {
+      // A render effect first to observe a flight whose question a transaction holds: the transaction waits on it.
+      const first = this.flight && this.ready && !(this as any).bornHeld && listener.kind === RENDER && !rendered(this);
+      listener.track(this);
+      if (first) for (const s of this.sources) if (s.tx && !s.tx.done) s.tx.root.flights.add(this);
+    }
     if (this.error !== NONE) throw this.error;
     // Never had a value (a first load, or waiting on one): not ready.
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);
+    // Born held: nothing committed to serve outside a pass.
+    if ((this as any).bornHeld && !inPass && this.override === NONE) throw new NotReadyError(this);
     return this.current();
   }
   /** Brought up to date: run again if something it read changed (memos it read brought up to date first). */
@@ -492,6 +506,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.childCount = 0;
     if (this.attached) for (const s of this.sources) s.unsubscribe(this);
     this.sources = [];
+    this.readHeld = null;
     this.seen = [];
     this.verdict = null;
     this.attached = true;
@@ -552,14 +567,18 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
       if (changed || this.applied === NONE || this.equals === Object.is) {
-        if (flushing || this.tx) this.staged = next;
+        const joins = this.readHeld && !this.tx ? this.readHeld : null;
+        if (flushing || this.tx || joins) this.staged = next;
         else this.value = next;
-        if (flushing && !this.tx) staged.push(this);
+        if (flushing && !this.tx && !joins) staged.push(this);
         if (!this.due) (this.due = true), applies[this.kind as 1 | 2].push(this);
+        if (joins) hold(this, joins);
       }
       return;
     }
     if (!changed) return;
+    // Derived from a held world: held with it (born held when it never committed a value).
+    if (this.readHeld && !this.tx) hold(this, this.readHeld), first && ((this as any).bornHeld = true);
     if (flushing || this.tx) this.stage(next);
     else (this.value = next), this.version++, clock++;
   }
@@ -861,6 +880,32 @@ function settleRound() {
   if (held.size) statusChanged();
 }
 
+/**
+ * A pass reading a value a transaction holds. Frame readers (a tracked effect, an isPending probe, a render effect
+ * outside that transaction) see the committed value; a render effect re-runs when the transaction commits. Others
+ * (memos, effects) derive from the held world and join the hold. A node born held has no committed value: every
+ * pass reader joins it.
+ */
+function heldRead<T>(n: Node<T>): T {
+  const t = n.tx!.root;
+  if (t.done) return n.staged as T;
+  const l = listener;
+  if (!l) return n.staged as T;
+  if (l.tracked) return n.value;
+  const born = (n as any).bornHeld;
+  if (verdictReading) {
+    // An isPending probe sees the frame; latest() sees the newest world without joining it.
+    if (!born && !l.attached) return n.value;
+    return n.staged as T;
+  }
+  if (!born && (l.kind === RENDER || l.verdictReader) && l.tx?.root !== t && !(l.ranAt === -1 && l.tx)) {
+    t.stale.add(l);
+    return n.value;
+  }
+  l.readHeld = t;
+  return n.staged as T;
+}
+
 /** Whether a computation's value reaches the screen: an effect reads it, directly or through memos. */
 function rendered(c: Computation<any>, seen = new Set<Computation<any>>()): boolean {
   if (seen.has(c)) return false;
@@ -876,7 +921,9 @@ function newTransaction() {
 }
 
 function hold(n: Node, t: Transaction) {
-  if (n.tx === t) return;
+  t = t.root;
+  // (A transaction already committed holds nothing more.)
+  if (n.tx === t || t.done) return;
   n.tx = t;
   t.nodes.add(n);
   if (n instanceof Computation && n.due) {
@@ -903,7 +950,8 @@ function commitTransactions() {
       transactions.delete(t);
       continue;
     }
-    for (const f of t.flights) if (!f.flight || f.disposed) t.flights.delete(f);
+    // A flight nothing shows any more (its readers moved on) holds nothing.
+    for (const f of t.flights) if (!f.flight || f.disposed || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
     // A flight in progress at any node it holds keeps it.
     for (const n of t.nodes) if (n instanceof Computation && n.flight) t.flights.add(n);
     if (t.flights.size || t.open) continue;
@@ -912,6 +960,7 @@ function commitTransactions() {
     for (const n of t.nodes) n.promote();
     for (const end of t.ends.splice(0)) end();
     for (const e of t.effects) if (e.due) applies[e.kind as 1 | 2].push(e);
+    for (const e of t.stale) if (!e.disposed) e.mark(DIRTY);
     statusChanged();
   }
 }
@@ -1092,7 +1141,7 @@ export function isPending(fn: () => unknown): boolean {
   const probe = new Computation<unknown>(MEMO, () => undefined);
   probe.attached = false;
   const outer = listener;
-  if (outer) outer.track(status);
+  if (outer) outer.track(status), (outer.verdictReader = true);
   verdictReading++;
   listener = probe;
   try {
@@ -1353,7 +1402,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _opt
     try {
       return fn();
     } catch (e) {
-      if (e instanceof NotReadyError) return NOT_READY;
+      // Waiting: the pass is the boundary's (its fallback shows), not held with what it read.
+      if (e instanceof NotReadyError) return (content.readHeld = null), NOT_READY;
       throw e;
     }
   });
