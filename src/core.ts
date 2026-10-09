@@ -462,8 +462,16 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   const skipAfter = !syncing ? boundaryOf(parent) : null;
   for (let c of list) {
     if (skipAfter && (skipAfter as any).resuspend && !(skipAfter as any).shown) break;
-    // A lazy or a promise as a child: what it gives, once it has (suspending until then).
-    c = unwrapChild(c);
+    // A lazy or a promise as a child: what it gives, once it has (suspending until then, as a child of its own:
+    // its siblings go on).
+    try {
+      c = unwrapChild(c);
+    } catch (e: any) {
+      if (!e || typeof e.then !== "function") throw e;
+      caught(parent, e);
+      i++;
+      continue;
+    }
     // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
     const items = Array.isArray(c) ? null : iterated(c);
     if (items) checkKeys((c = items), parent.type);
