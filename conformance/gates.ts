@@ -64,4 +64,7 @@ export function gateSource(code: string): string {
 }
 
 g.__holds = holds;
+// The tests set aside as not ours, by name (the server integration helpers skip them as they make them).
+import { NOT_OURS } from "./not-ours.ts";
+g.__notOurs = new Set(Object.values(NOT_OURS).flatMap((t) => Object.keys(t)));
 g.gate = (fn: any) => (typeof fn === "function" ? !!fn(flags) : holds(String(fn)));

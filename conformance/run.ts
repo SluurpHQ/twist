@@ -3,7 +3,10 @@
 import { readdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { NOT_OURS } from "./not-ours.ts";
+
 const here = import.meta.dir;
+const notOurs = Object.values(NOT_OURS).reduce((n, t) => n + Object.keys(t).length, 0);
 const filter = process.argv[2] ?? "";
 const files: string[] = [];
 const walk = (d: string) => {
@@ -47,7 +50,7 @@ const total = rows.reduce((t, r) => ({ pass: t.pass + r.pass, fail: t.fail + r.f
 writeFileSync(join(here, "report.json"), JSON.stringify({ total, rows }, null, 1));
 writeFileSync(
   join(here, "report.md"),
-  `# React's tests on @sluurp/dom\n\n${total.pass} pass, ${total.fail} fail, ${total.skip} skipped (gated off for stable React 19).\n\n| File | Pass | Fail | Skip | |\n|---|---:|---:|---:|---|\n` +
+  `# React's tests on @sluurp/dom\n\n${total.pass} pass, ${total.fail} fail, ${total.skip - notOurs} skipped (gated off for stable React 19), ${notOurs} set aside as not ours (not-ours.ts).\n\n| File | Pass | Fail | Skip | |\n|---|---:|---:|---:|---|\n` +
     rows.map((r) => `| ${r.file} | ${r.pass} | ${r.fail} | ${r.skip} | ${r.note ?? ""} |`).join("\n") + "\n",
 );
 writeFileSync(join(here, "errors.txt"), [...errors].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${String(n).padStart(5)}  ${k}`).join("\n") + "\n");

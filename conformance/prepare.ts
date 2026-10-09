@@ -132,3 +132,6 @@ for (const part of ["components", "hooks", "integration", "connect"]) {
 }
 writeFileSync(join(rout, "REF"), git(["rev-parse", "--short", "HEAD"], rclone) + "\n");
 console.log("react-redux's tests in redux-tests/");
+
+// The tests set aside as not ours (not-ours.ts) marked skipped.
+await import("./apply-not-ours.ts");
