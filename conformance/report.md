@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3035 pass, 989 fail, 314 skipped (gated off for stable React 19).
+3037 pass, 988 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -9,6 +9,7 @@
 | react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
+| react-dom/Probe-test.js | 1 | 0 | 0 |  |
 | react-dom/quoteAttributeValueForBrowser-test.js | 0 | 8 | 0 |  |
 | react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 4 | 1 | 0 |  |
@@ -44,7 +45,7 @@
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 7 | 5 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
-| react-dom/ReactDOMFloat-test.js | 105 | 35 | 3 |  |
+| react-dom/ReactDOMFloat-test.js | 106 | 34 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 17 | 28 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 43 | 46 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 7 | 3 | 0 |  |

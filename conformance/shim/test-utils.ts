@@ -13,14 +13,17 @@ import { logLength, unstable_clearLog } from "./scheduler.ts";
  * Until nothing more happens: updates and effects flushed, between turns of microtasks (promises settling). No
  * timers: tests fake them (Bun fakes even ones kept earlier), and React's act does not wait on them either.
  */
+/** What is scheduled drawn, as the scheduler would (not as flushSync: a transition stays one). */
+const flushAll = () => (flushScheduled(), performWork());
+
 async function drain(transitions = true) {
   for (let i = 0; i < 30; i++) {
-    flushSync();
+    flushAll();
     flushPassiveEffects();
     if (transitions) flushTransitions();
     await Promise.resolve();
   }
-  flushSync();
+  flushAll();
   flushPassiveEffects();
 }
 

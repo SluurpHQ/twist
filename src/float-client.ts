@@ -186,8 +186,128 @@ function adoptForScript(props: any, pre: any) {
 /** Where a fiber's resources live: its container's document or shadow root. */
 export function hoistableRoot(container: Node): Document | ShadowRoot {
   const r = typeof (container as any).getRootNode === "function" ? (container as any).getRootNode() : null;
-  if (r && (r.nodeType === 9 || r.nodeType === 11)) return r;
+  // A shadow root holds its own; a plain fragment (a render off the page) is its document's.
+  if (r && (r.nodeType === 9 || (r.nodeType === 11 && (r as ShadowRoot).host))) return r;
   return container.nodeType === 9 ? (container as Document) : container.ownerDocument!;
+}
+
+// ---------------------------------------------------------------- commits that wait for stylesheets
+
+/** A render's stylesheets not yet in the document: its commit waits for them (React's suspensey CSS). */
+export type CommitWait = {
+  count: number;
+  stylesheets: Map<Resource, Document | ShadowRoot> | null;
+  unsuspend: (() => void) | null;
+};
+export const newCommitWait = (): CommitWait => ({ count: 0, stylesheets: null, unsuspend: null });
+
+/** A stylesheet the commit should wait on (React's suspendResource). */
+export function suspendResource(state: CommitWait, root: Document | ShadowRoot, r: Resource, props: any) {
+  if (r.type !== "stylesheet") return;
+  if (typeof props.media === "string" && typeof matchMedia === "function" && matchMedia(props.media).matches === false) return;
+  if ((r.state!.loading & INSERTED) !== NOT_LOADED) return;
+  if (r.instance === null) {
+    const key = styleKey(props.href);
+    const found: any = root.querySelector(stylesheetSelector(key));
+    if (found) {
+      const p = found._p;
+      if (p && typeof p === "object" && typeof p.then === "function") {
+        state.count++;
+        const done = () => unsuspended(state);
+        p.then(done, done);
+      }
+      r.state!.loading |= INSERTED;
+      r.instance = found;
+      markHoistable(found);
+      return;
+    }
+    const d: Document = (root as any).ownerDocument || root;
+    const sp = { ...props, "data-precedence": props.precedence, precedence: null };
+    const pre = preloadsOf(d).get(key);
+    if (pre) adoptForStylesheet(sp, pre);
+    r.instance = stylesheetLink(d, sp);
+  }
+  (state.stylesheets ??= new Map()).set(r, root);
+  const preload = r.state!.preload;
+  if (preload && (r.state!.loading & SETTLED) === NOT_LOADED) {
+    state.count++;
+    const done = () => unsuspended(state);
+    preload.addEventListener("load", done);
+    preload.addEventListener("error", done);
+  }
+}
+
+/** How the commit goes on: at once (null), or by `wait(commit)` once the stylesheets have loaded (a minute at most). */
+export function commitWhenReady(state: CommitWait): ((commit: () => void) => () => void) | null {
+  if (state.stylesheets && state.count === 0) insertSuspended(state);
+  if (state.count === 0) return null;
+  return (commit) => {
+    const timer = setTimeout(() => {
+      if (state.stylesheets) insertSuspended(state);
+      const go = state.unsuspend;
+      state.unsuspend = null;
+      go?.();
+    }, 60000);
+    state.unsuspend = commit;
+    return () => {
+      state.unsuspend = null;
+      clearTimeout(timer);
+    };
+  };
+}
+
+function unsuspended(state: CommitWait) {
+  state.count--;
+  if (state.count !== 0) return;
+  if (state.stylesheets) insertSuspended(state);
+  else if (state.unsuspend) {
+    const go = state.unsuspend;
+    state.unsuspend = null;
+    go();
+  }
+}
+
+/** The waited-for stylesheets put in place, by precedence; the commit goes on once they have loaded. */
+function insertSuspended(state: CommitWait) {
+  const resources = state.stylesheets!;
+  state.stylesheets = null;
+  // Nothing waiting (their preloads had all loaded): the commit goes on and puts them in itself.
+  if (state.unsuspend === null) return;
+  state.count++;
+  const byRoot = new Map<Node, Map<string | null, Element>>();
+  for (const [r, root] of resources) {
+    if (r.state!.loading & INSERTED) continue;
+    let precedences = byRoot.get(root);
+    let last: Element | null | undefined;
+    if (precedences) last = precedences.get(null);
+    else {
+      precedences = new Map();
+      byRoot.set(root, precedences);
+      for (const node of root.querySelectorAll("link[data-precedence],style[data-precedence]")) {
+        if (node.nodeName === "LINK" || node.getAttribute("media") !== "not all") {
+          precedences.set((node as HTMLElement).dataset.precedence!, node);
+          last = node;
+        }
+      }
+      if (last) precedences.set(null, last);
+    }
+    const el = r.instance!;
+    const precedence = el.getAttribute("data-precedence");
+    const prior = precedences.get(precedence) || last;
+    if (prior === last) precedences.set(null, el);
+    precedences.set(precedence, el);
+    state.count++;
+    const done = () => unsuspended(state);
+    el.addEventListener("load", done);
+    el.addEventListener("error", done);
+    if (prior) prior.parentNode!.insertBefore(el, prior.nextSibling);
+    else {
+      const parent = root.nodeType === 9 ? (root as Document).head : root;
+      parent.insertBefore(el, parent.firstChild);
+    }
+    r.state!.loading |= INSERTED;
+  }
+  unsuspended(state);
 }
 
 /** The shared resource an element stands for, or null for a hoistable (<title>, <meta>, other <link>s). */

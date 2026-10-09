@@ -11,7 +11,7 @@ import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from ".
 import { type Preview, tryTransition } from "./dryrun.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, warn } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
-import { HOISTABLE, type Resource, acquireResource, claimHoistable, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable } from "./float-client.ts";
+import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -679,6 +679,8 @@ function mountHoist(f: Fiber, host: Node) {
   const resource = getResource(root, f.type, f.props);
   (f as any).resource = resource;
   (f as any).hoistRoot = root;
+  // A stylesheet not in the document yet: a render that can wait commits once it has loaded.
+  if (resource && work) suspendResource(work.wait, root, resource, f.props);
   layoutQueue.push(() => {
     if (f.dead) return;
     f.dom = resource ? acquireResource(root, resource, f.props) : placeHoistable(root, f.type, f.props);
@@ -962,7 +964,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
  * fragment), able to stop between two components and go on later; committed, and put on the page, once all are
  * drawn. In the browser it runs to the end at once; a test's scheduler steps through it (waitFor).
  */
-type Work = { units: (() => void)[]; at: number; deferring: boolean; finish: () => void };
+type Work = { units: (() => void)[]; at: number; deferring: boolean; finish: () => void; wait: CommitWait };
 let work: Work | null = null;
 /** When the work loop runs: at once by default; a test's scheduler can take it over. */
 let scheduleWork: (run: () => void) => void = (run) => run();
@@ -2232,14 +2234,21 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   function renderConcurrently(children: any) {
     first = false;
     const frag = docOf(container).createDocumentFragment();
+    const wait = newCommitWait();
     const finish = () => {
-      top.dom = container;
-      (container as Element).replaceChildren?.();
-      container.appendChild(frag);
-      commit();
-      flushSignals();
+      const go = () => {
+        top.dom = container;
+        (container as Element).replaceChildren?.();
+        container.appendChild(frag);
+        commit();
+        flushSignals();
+      };
+      // Its stylesheets loaded first, when it has some that are not (React's suspensey commit).
+      const ready = commitWhenReady(wait);
+      if (ready) ready(go);
+      else go();
     };
-    work = { units: [], at: 0, deferring: true, finish };
+    work = { units: [], at: 0, deferring: true, finish, wait };
     top.dom = frag;
     depth++;
     rendering = true;
