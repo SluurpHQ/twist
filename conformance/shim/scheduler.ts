@@ -1,12 +1,18 @@
 // What React's tests use of its mock scheduler: a log they write to and check. Our runtime has no scheduler of its
 // own (updates run on microtasks), so the flushing calls only drain what is pending.
+import { setClock } from "../../src/core.ts";
+
 let log: unknown[] = [];
 /** A fresh log for each test, as React's tests get from loading the scheduler again (called by setup.ts). */
 export function resetLog() {
   log = [];
+  time = 0;
 }
 
-export const unstable_now = () => performance.now();
+// The mock scheduler's clock: time moves only when a test (or a component it renders) advances it.
+let time = 0;
+export const unstable_now = () => time;
+setClock(() => time);
 export function logValue(v: unknown) {
   log.push(v);
 }
@@ -20,7 +26,9 @@ export const unstable_flushAll = () => {};
 export const unstable_flushAllWithoutAsserting = () => false;
 export const unstable_flushNumberOfYields = () => {};
 export const unstable_flushUntilNextPaint = () => false;
-export const unstable_advanceTime = () => {};
+export const unstable_advanceTime = (ms: number) => {
+  time += ms;
+};
 export const unstable_hasPendingWork = () => false;
 export const unstable_scheduleCallback = (_p: number, cb: () => void) => queueMicrotask(cb);
 export const unstable_cancelCallback = () => {};

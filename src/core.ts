@@ -264,6 +264,65 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   }
 }
 
+// ---------------------------------------------------------------- profiling
+
+/** The clock React's Profiler reads (React's scheduler's now): replaceable, as a test's mock scheduler does. */
+let now: () => number = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+export function setClock(fn: () => number) {
+  now = fn;
+}
+/** When the render now under way began, and the time spent in nested draws of the draw running now. */
+let renderStart = 0;
+let nestedTime = 0;
+/** Profilers whose subtree rendered since the last commit, with the time their components took. */
+const profiled = new Map<Fiber, number>();
+/** An update set while committing (in componentDidMount, a layout effect): the next render is a nested update. */
+let nestedUpdate = false;
+let renderIsNested = false;
+export const scheduledInCommit = () => committing && (nestedUpdate = true);
+
+/** Renders counted, so a Profiler knows whether it began in the one now under way. */
+let renderSerial = 0;
+/** A Profiler rendered again (mounted, or given new props): its own start time in this render. */
+function profilerBegins(f: Fiber) {
+  (f as any).began = now();
+  (f as any).beganIn = renderSerial;
+}
+
+/** A component drawn in `self` time: counted in each Profiler around it. */
+function profile(f: Fiber, self: number) {
+  (f as any).selfTime = self;
+  for (let p = f.parent; p; p = p.parent) if (p.type === PROFILER) profiled.set(p, (profiled.get(p) ?? 0) + self);
+}
+
+/** The time every component under `f` took when it last rendered (React's base duration). */
+function baseOf(f: Fiber): number {
+  let sum = (f as any).selfTime ?? 0;
+  for (const c of f.children) sum += baseOf(c);
+  return sum;
+}
+
+/** Each Profiler that rendered told, innermost first, as React calls onRender in its commit. */
+function tellProfilers(commitTime: number) {
+  if (!profiled.size) return;
+  const depthOf = (f: Fiber) => {
+    let d = 0;
+    for (let p = f.parent; p; p = p.parent) d++;
+    return d;
+  };
+  const list = [...profiled].filter(([p]) => !p.dead).sort((a, b) => depthOf(b[0]) - depthOf(a[0]));
+  profiled.clear();
+  const phase0 = renderIsNested ? "nested-update" : "update";
+  for (const [p, actual] of list) {
+    const phase = (p as any).profiledOnce ? phase0 : "mount";
+    (p as any).profiledOnce = true;
+    const onRender = p.props?.onRender;
+    const start = (p as any).beganIn === renderSerial ? (p as any).began : renderStart;
+    // What it throws goes to the nearest boundary, as an error in the commit does.
+    if (typeof onRender === "function") lifecycle(p, () => onRender(p.props.id, phase, actual, baseOf(p), start, commitTime));
+  }
+}
+
 /** Unmount lifecycles of what a render took away, run first in the commit. */
 const deletions: (() => void)[] = [];
 /** A commit running: what it takes away goes at once. */
@@ -462,6 +521,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   }
   if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
     const f = fiber(FRAG, type, key, props, parent);
+    if (type === PROFILER) profilerBegins(f);
     if (!(type === ACTIVITY && props.mode === "hidden")) reconcile(f, toList(props.children), host, before);
     return f;
   }
@@ -486,6 +546,7 @@ function update(f: Fiber, c: any) {
   if (f.kind === FRAG) {
     const host = hostParentOf(f);
     const prev = f.props;
+    if (f.type === PROFILER) (f.props = c.props), profilerBegins(f);
     reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
     f.props = c.props;
     // A fragment ref: its new elements get its listeners; a changed ref is moved over at commit.
@@ -717,7 +778,13 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     if ((f as any).draws === LIMIT + 1) caught(f, new Error("Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops."));
     return;
   }
-  if (depth++ === 0) runPassive(false);
+  if (depth++ === 0) {
+    runPassive(false);
+    startRender();
+  }
+  const began = now();
+  const outerNested = nestedTime;
+  nestedTime = 0;
   f.insertion = [];
   f.layout = [];
   f.passive = [];
@@ -747,7 +814,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     current = prevCurrent;
     hookAt = prevAt;
   }
-  if (out === KEEP) out = f.out;
+  const kept = out === KEEP;
+  if (kept) out = f.out;
   f.out = out;
   // A component returning an array: its elements are a list, each needing a key (React checks at render).
   if (Array.isArray(out)) checkKeys(out, f.type);
@@ -787,10 +855,23 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     }
   }
   drawing.delete(f);
+  {
+    const took = now() - began;
+    if (!kept) profile(f, took - nestedTime);
+    nestedTime = outerNested + took;
+  }
   insertionQueue.push(...f.insertion);
   layoutQueue.push(...f.layout);
   passiveQueue.push(...f.passive);
   if (--depth === 0) commit();
+}
+
+/** A render beginning: its start time, and whether an update set in the last commit set it off. */
+function startRender() {
+  renderSerial++;
+  renderStart = now();
+  renderIsNested = nestedUpdate;
+  nestedUpdate = false;
 }
 
 /** A root's render in progress (not an update drawn later): errors caught in it are told after any retry. */
@@ -915,6 +996,7 @@ export class Component<P = any, S = any> {
       return;
     }
     this.__queue.push(partial);
+    scheduledInCommit();
     if (done) (this.__done ??= []).push(done);
     this.__f.tick!.set(this.__f.tick!.peek() + 1);
   }
@@ -1002,9 +1084,11 @@ function commit() {
       deletions.length = 0;
       for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
       insertionQueue.length = 0;
+      const commitTime = now();
       for (let i = 0; i < layoutQueue.length; i++) guard(layoutQueue[i]!);
       layoutQueue.length = 0;
       for (const f of fresh.splice(0)) f.committed = true;
+      tellProfilers(commitTime);
     });
   } finally {
     committing = wasCommitting;
@@ -1107,7 +1191,7 @@ function state(f: Fiber, initial: any) {
       if (Object.is(next, box.v)) return;
       box.v = next;
       if (current === f) (f as any).again = true;
-      else sig.set(sig.peek() + 1);
+      else scheduledInCommit(), sig.set(sig.peek() + 1);
     },
   };
   return box;
@@ -1386,6 +1470,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false);
       const wasRendering = rendering;
       rendering = true;
+      if (depth === 1) startRender();
       // What the root's own elements throw (no component between): uncaught, as React has it.
       const draw = () => {
         try {
