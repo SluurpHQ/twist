@@ -293,6 +293,27 @@ configureViewTransitions(
   (f) => topElements(f as Fiber),
 );
 
+/** The first node in `into` of what comes after the <html> holding `body`, among the root's children already there. */
+function afterSingleton(body: Fiber, into: Node): Node | null {
+  let html: Fiber | null = body.parent;
+  while (html && !(html as any).singleton) html = html.parent;
+  if (!html?.parent) return null;
+  const sibs = html.parent.children;
+  for (let i = sibs.indexOf(html) + 1; i < sibs.length; i++) {
+    if (!sibs[i]!.committed) continue;
+    const first = domNodes(sibs[i]!).find((n) => n.parentNode === into);
+    if (first) return first;
+  }
+  return null;
+}
+
+/** The nodes a fiber put on the page, through singletons (what <html>'s <body> holds). */
+function singletonNodes(f: Fiber, out: Node[] = []): Node[] {
+  if (!(f as any).singleton) return domNodes(f, out);
+  for (const c of f.children) if (c.committed) singletonNodes(c, out);
+  return out;
+}
+
 function domNodes(f: Fiber, out: Node[] = []): Node[] {
   // A singleton stays where the document has it: not moved or removed with its parent's nodes.
   if ((f as any).singleton) return out;
@@ -547,6 +568,29 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     else lastPlaced = oi;
   }
   const into = domParent(host);
+  // A document's children go in its <body>, beside what the <body> holds: each new one before the next sibling that
+  // was already there (React's getHostSibling, which passes over singletons and what is being placed).
+  if (into !== host) {
+    for (let j = 0; j < next.length; j++) {
+      const f = next[j]!;
+      if (oldIndex.has(f)) continue;
+      let anchor: Node | null = null;
+      for (let k = j + 1; k < next.length; k++) {
+        if (!oldIndex.has(next[k]!)) continue;
+        // (Through <html> and <body>: what the <body> holds comes next.)
+        const first = singletonNodes(next[k]!).find((n) => n.parentNode === into);
+        if (first && first.parentNode === into) {
+          anchor = first;
+          break;
+        }
+      }
+      // (None after it: it stays where it was put, after what came before.)
+      if (anchor) for (const n of domNodes(f)) into.insertBefore(n, anchor);
+    }
+    return;
+  }
+  // The <body>'s children: before what the document's children after <html> put in it (React climbs out of it).
+  if (before === null && (parent as any).singleton && host.nodeName === "BODY") before = afterSingleton(parent, into);
   let cursor = before;
   for (let j = next.length - 1; j >= 0; j--) {
     const f = next[j]!;
@@ -1227,17 +1271,19 @@ function clearContainer(container: Node) {
   else (container as Element).replaceChildren?.();
 }
 
-function clearSparingly(container: Node) {
+function clearSparingly(container: Node, root?: object) {
   let n = container.firstChild;
   if (n && n.nodeType === 10) n = n.nextSibling;
   while (n) {
     const node = n;
     n = n.nextSibling;
+    // Drawn by this root already (its nodes placed before the singleton was taken over): kept.
+    if (root && (node as any).__fiber?.root === root && !(node as any).__fiber.dead) continue;
     switch (node.nodeName) {
       case "HTML":
       case "HEAD":
       case "BODY":
-        clearSparingly(node);
+        clearSparingly(node, root);
         continue;
       case "SCRIPT":
       case "STYLE":
@@ -1550,7 +1596,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (single) (f as any).singleton = true;
     // Taken over while hydrating: what follows it in its parent comes next.
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
-    if (single && !hydrating && type !== "html") clearSparingly(single);
+    if (single && !hydrating && type !== "html") clearSparingly(single, f.root);
     // Taken over on a fresh render: its attributes go too (React's acquireSingletonInstance), the props set after.
     if (single && !hydrating) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);

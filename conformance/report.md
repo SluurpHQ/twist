@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3736 pass, 288 fail, 314 skipped (gated off for stable React 19).
+3737 pass, 287 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -19,7 +19,7 @@
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 4 | 4 | 1 |  |
-| react-dom/ReactDOM-test.js | 10 | 6 | 2 |  |
+| react-dom/ReactDOM-test.js | 11 | 5 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 3 | 4 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
