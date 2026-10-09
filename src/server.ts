@@ -764,15 +764,30 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     runtimeSent = true;
     watch();
   };
-  let shell: string;
-  try {
-    shell = once(node, ctxFor());
-  } catch (e) {
-    onError(e);
-    options.onShellError?.(e);
-    closed = true;
-    return { abort() {}, failed: e };
-  }
+  // The shell: when it suspends outside any boundary, rendered again once what it waits on settles (React waits).
+  let shellDone = false;
+  const tryShell = (): unknown => {
+    let shell: string;
+    try {
+      shell = once(node, ctxFor());
+    } catch (e: any) {
+      if (e && typeof e.then === "function") {
+        shared.boundaries.length = 0;
+        shared.ids = 0;
+        const again = () => (closed ? undefined : tryShell());
+        e.then(again, again);
+        return null;
+      }
+      onError(e);
+      options.onShellError?.(e);
+      closed = true;
+      return e;
+    }
+    shellDone = true;
+    writeShell(shell);
+    return null;
+  };
+  const writeShell = (shell: string) => {
   // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
   // bootstrap scripts after it, as React writes them.
   const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options), bootstrapPreloads(options, nonce, res)));
@@ -784,11 +799,23 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
   options.onShellReady?.();
   watch();
+  };
+  const failed = tryShell();
+  if (failed) return { abort() {}, failed };
   return {
     failed: null,
     /** Stop waiting: what is still pending is left for the client to render. */
     abort(reason?: unknown) {
       if (closed) return;
+      if (!shellDone) {
+        // Aborted before the shell: the shell fails with the reason.
+        const why = reason ?? new Error("The render was aborted by the server without a reason.");
+        onError(why);
+        options.onShellError?.(why);
+        closed = true;
+        finish();
+        return;
+      }
       for (const b of pending) {
         const why = reason ?? new Error("The render was aborted by the server without a reason.");
         const digest = onError(why);
