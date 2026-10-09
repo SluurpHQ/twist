@@ -121,6 +121,13 @@ function asReactEvent(e: any, el: Element) {
 }
 
 function listen(el: Element, prop: string, handler: any) {
+  // A listener that is no function: React's warning (and nothing listens).
+  if (dev() && handler != null && typeof handler !== "function" && REACT_EVENTS.has(prop.endsWith("Capture") ? prop.slice(0, -7) : prop))
+    warn(
+      handler === false
+        ? `Expected \`${prop}\` listener to be a function, instead got \`false\`.\n\nIf you used to conditionally omit it with ${prop}={condition && value}, pass ${prop}={condition ? value : undefined} instead.`
+        : `Expected \`${prop}\` listener to be a function, instead got a value of \`${typeof handler}\` type.`,
+    );
   const [type, capture] = eventOf(el, prop);
   // Most events: found at the root's listener from the element's props (React's delegation).
   if (delegated(type)) {

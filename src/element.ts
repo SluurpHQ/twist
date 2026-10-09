@@ -185,6 +185,8 @@ export function createContext<T>(defaultValue: T) {
 }
 
 export function createPortal(children: any, container: Node, key?: any) {
+  const t = (container as any)?.nodeType;
+  if (t !== 1 && t !== 9 && t !== 11) throw new Error("Target container is not a DOM element.");
   return { $$typeof: PORTAL, key: key == null ? null : "" + key, children, containerInfo: container, implementation: null };
 }
 

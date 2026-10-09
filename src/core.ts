@@ -371,6 +371,24 @@ function reappear(f: Fiber) {
 // ---------------------------------------------------------------- reconciling
 
 /** `parent`'s children made to be `list`: kept by key and type, the rest made or taken away, in order. */
+/** React's warnings for a function or a symbol given as a child. */
+function invalidChild(parent: Fiber, c: any) {
+  const atRoot = parent.kind === ROOT;
+  const parentName = atRoot ? "Component" : parent.kind === HOST ? parent.type : nameOf(parent.type) || "Component";
+  if (typeof c === "function") {
+    const n = c.displayName || c.name || "Component";
+    warn(
+      atRoot
+        ? `Functions are not valid as a React child. This may happen if you return ${n} instead of <${n} /> from render. Or maybe you meant to call this function rather than return it.\n  root.render(${n})`
+        : `Functions are not valid as a React child. This may happen if you return ${n} instead of <${n} /> from render. Or maybe you meant to call this function rather than return it.\n  <${parentName}>{${n}}</${parentName}>`,
+      "function-child:" + parentName,
+    );
+  } else {
+    const n = String(c);
+    warn(atRoot ? `Symbols are not valid as a React child.\n  root.render(${n})` : `Symbols are not valid as a React child.\n  <${parentName}>${n}</${parentName}>`, "symbol-child:" + parentName);
+  }
+}
+
 function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) {
   const old = parent.children;
   const byKey = new Map<string, Fiber>();
@@ -388,6 +406,12 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     if (items) checkKeys((c = items), parent.type);
     // A plain object is no child (an element, text, an array or an iterable is).
     if (c && typeof c === "object" && !Array.isArray(c) && !c.$$typeof) throw objectChild(c);
+    // A function or a symbol: no node, and React's warning (once per parent).
+    if (typeof c === "function" || typeof c === "symbol") {
+      if (dev()) invalidChild(parent, c);
+      i++;
+      continue;
+    }
     // Nothing, a boolean or an empty string: no node (React makes none for "").
     if (c == null || typeof c === "boolean" || c === "") {
       i++;
@@ -1320,9 +1344,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
     if (single && !hydrating && type !== "html") clearSparingly(single);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name)))) as Element | null) : null);
-    // A customized built-in (is="…") is made as one; an `is` that is not a string is warned about, as React does.
-    if (dev() && !server && !ns && props.is != null && typeof props.is !== "string")
-      warn(`Received a \`${typeof props.is}\` for a string attribute \`is\`. If this is expected, cast the value to a string.`);
+    // A customized built-in (is="…") is made as one.
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : typeof props.is === "string" ? docOf(host).createElement(type, { is: props.is }) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     hide(el, "__fiber", f);
@@ -1722,7 +1744,11 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
     case CONSUMER:
       return (fb, props) => props.children(readContext(fb, type._context));
   }
-  throw invalidType(type);
+  const error = invalidType(type);
+  // Naming the component whose render made the element, as React does (in development).
+  const owner: Fiber | undefined = (f as any).owner;
+  if (dev() && owner) error.message += `\n\nCheck the render method of \`${nameOf(owner.type)}\`.`;
+  throw error;
 }
 
 
@@ -1978,7 +2004,9 @@ function renderClass(f: Fiber, withRef: any) {
   let [state, force] = apply(prevState, props);
   if (C.getDerivedStateFromProps) state = { ...state, ...derived(f, C, props, state) };
   if (!force && prevProps === props && state === prevState && prevCtx === ctx) return KEEP;
-  if (!force && inst.shouldComponentUpdate && !untrack(() => shouldUpdate(f, C, inst, props, state, ctx))) {
+  // A PureComponent compares shallowly, unless it has a shouldComponentUpdate of its own (React's checkShouldComponentUpdate).
+  const skip = () => (inst.shouldComponentUpdate ? !untrack(() => shouldUpdate(f, C, inst, props, state, ctx)) : !!C.prototype?.isPureReactComponent && shallowEqual(prevProps, props) && shallowEqual(prevState, state));
+  if (!force && skip()) {
     inst.props = props;
     inst.state = state;
     inst.context = ctx;
@@ -2087,11 +2115,7 @@ export class Component<P = any, S = any> {
 }
 (Component.prototype as any).isReactComponent = {};
 
-export class PureComponent<P = any, S = any> extends Component<P, S> {
-  shouldComponentUpdate(props: P, state: S) {
-    return !shallowEqual(this.props, props) || !shallowEqual(this.state, state);
-  }
-}
+export class PureComponent<P = any, S = any> extends Component<P, S> {}
 (PureComponent.prototype as any).isPureReactComponent = true;
 
 /** React's default for an error a boundary caught: told on the console, naming where it came from and who caught it. */

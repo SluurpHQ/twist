@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3520 pass, 504 fail, 314 skipped (gated off for stable React 19).
+3534 pass, 490 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -11,9 +11,9 @@
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
 | react-dom/quoteAttributeValueForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
-| react-dom/ReactChildReconciler-test.js | 4 | 1 | 0 |  |
+| react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactComponent-test.js | 10 | 9 | 2 |  |
+| react-dom/ReactComponent-test.js | 15 | 4 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 22 | 4 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 36 | 4 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
@@ -23,13 +23,13 @@
 | react-dom/ReactDOMActivity-test.js | 3 | 4 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 11 | 2 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 160 | 4 | 1 |  |
+| react-dom/ReactDOMComponent-test.js | 161 | 3 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 3 | 4 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
 | react-dom/ReactDOMEventListener-test.js | 21 | 2 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 86 | 6 | 0 |  |
-| react-dom/ReactDOMFiber-test.js | 27 | 9 | 1 |  |
+| react-dom/ReactDOMFiber-test.js | 30 | 6 | 1 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
@@ -57,12 +57,12 @@
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
-| react-dom/ReactDOMLegacyFiber-test.js | 0 | 1 | 42 |  |
+| react-dom/ReactDOMLegacyFiber-test.js | 1 | 0 | 42 |  |
 | react-dom/ReactDOMLegacyFloat-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMNativeEventHeuristic-test.js | 5 | 3 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMOption-test.js | 10 | 2 | 0 |  |
-| react-dom/ReactDOMRoot-test.js | 22 | 5 | 0 |  |
+| react-dom/ReactDOMRoot-test.js | 24 | 3 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
 | react-dom/ReactDOMSelect-test.js | 54 | 6 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
@@ -145,7 +145,7 @@
 | react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
 | react/ReactElementClone-test.js | 17 | 4 | 0 |  |
-| react/ReactElementValidator-test.internal.js | 17 | 4 | 0 |  |
+| react/ReactElementValidator-test.internal.js | 18 | 3 | 0 |  |
 | react/ReactES6Class-test.js | 22 | 2 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 12 | 2 | 0 |  |
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
