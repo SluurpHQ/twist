@@ -1,6 +1,6 @@
 // `react-dom`.
 import { createPortal } from "./element.ts";
-import { findDOMNode, flushSync, useFormStatus, version } from "./core.ts";
+import { findDOMNode, flushSync, requestFormReset, useFormStatus, version } from "./core.ts";
 import { clientDispatcher } from "./float-client.ts";
 import { warn } from "./warnings.ts";
 export { useFormStatus };
@@ -11,7 +11,7 @@ export const __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = { fi
 const d = () => __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE.d;
 export const unstable_batchedUpdates = (fn: () => any) => fn();
 export const useFormState = (action: any, initial: any) => [initial, action, false];
-export const requestFormReset = (form: HTMLFormElement) => form.reset();
+export { requestFormReset };
 /** A value whose use() renders the rest of its Suspense boundary in the browser only (the server gives it up). */
 export const browser = (reason?: unknown) => ({ $$typeof: Symbol.for("react.recoverable"), _reason: reason });
 

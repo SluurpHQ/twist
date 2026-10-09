@@ -71,7 +71,10 @@ const wanted = new Set<string>(["input", "change", "click"]);
 /** What maps a native event and phase to the React props it runs: given by props.ts (it knows onChange's rules). */
 let propsFor: (el: Element, type: string, capture: boolean, props: any, native: Event) => string[] = () => [];
 let after: (el: Element, e: Event) => void = () => {};
-let onSubmit: (e: SubmitEvent) => void = () => {};
+let onSubmit: (e: SubmitEvent, startedTransition: boolean) => void = () => {};
+/** How many transitions have started (given by core): whether a submit's handlers started one. */
+let transitionsStarted: () => number = () => 0;
+export const countTransitionsWith = (fn: () => number) => void (transitionsStarted = fn);
 export function configure(match: typeof propsFor, done: typeof after, submitted: typeof onSubmit) {
   propsFor = match;
   after = done;
@@ -191,6 +194,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   }
   if (capture) path.reverse();
   const synthetic = wrap(native);
+  const transitionsBefore = !capture && native.type === "submit" ? transitionsStarted() : 0;
   for (const [el, names] of path) {
     if (synthetic.isPropagationStopped()) break;
     synthetic.__current = el;
@@ -202,7 +206,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   synthetic.__current = null;
   if (!capture && native.type in ENTER_LEAVE) enterLeave(native, roots);
   // A form's action, after its onSubmit handlers (they may prevent it).
-  if (!capture && native.type === "submit") onSubmit(native as SubmitEvent);
+  if (!capture && native.type === "submit") onSubmit(native as SubmitEvent, transitionsStarted() !== transitionsBefore);
   if (!capture) after((native.target as Element) ?? (container as Element), native);
   return synthetic.isPropagationStopped();
 }

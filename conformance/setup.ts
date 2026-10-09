@@ -19,6 +19,21 @@ GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframe
     });
   }
 }
+// An image button adds name.x and name.y when it submits, and nothing otherwise (happy-dom adds its name and value).
+{
+  const Native = globalThis.FormData;
+  globalThis.FormData = class FormData extends Native {
+    constructor(form?: any, submitter?: any) {
+      super(form, submitter);
+      if (!form?.elements) return;
+      for (const el of Array.from(form.elements) as any[]) {
+        if (el.localName !== "input" || el.type !== "image" || !el.name) continue;
+        this.delete(el.name);
+        if (el === submitter) this.append(el.name + ".x", "0"), this.append(el.name + ".y", "0");
+      }
+    }
+  } as any;
+}
 if (!("nonce" in HTMLElement.prototype)) {
   for (const proto of [HTMLElement.prototype, (globalThis as any).SVGElement?.prototype].filter(Boolean))
     Object.defineProperty(proto, "nonce", {

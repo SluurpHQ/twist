@@ -5,7 +5,7 @@ import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "..
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
-import { addContainer, listenOnElement } from "./events.ts";
+import { addContainer, countTransitionsWith, listenOnElement } from "./events.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
@@ -640,6 +640,9 @@ function serverDifferences(server: Element, had: Attrs, type: string, ns: string
     return propName(attr);
   };
   const skip = new Set(["value", "checked", "selected", "style"]);
+  // A function action: the client's URL that throws, the server's its own.
+  if (typeof props.action === "function") skip.add("action");
+  if (typeof props.formAction === "function") skip.add("formaction");
   const names = new Set([...had.names.keys(), ...probe.getAttributeNames()]);
   for (const n of names) if (!skip.has(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
   const want = props.style == null ? null : styleText(props.style) || null;
@@ -1602,7 +1605,9 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
     let shown = false;
     return (fb, props) => {
       const waiting = fb.pending!() > 0;
-      if (!waiting) shown = true;
+      if (!waiting) (shown = true), ((fb as any).warmed = false);
+      // Its fallback committed: its children are pre-warmed once after the commit.
+      else if (!(fb as any).warmed && !prewarming) ((fb as any).warmed = true), layoutQueue.push(() => prewarms.push(fb));
       layoutQueue.push(() => {
         const kept = fb.children.find((c) => c.key === "kc");
         if (kept) hideNodes(kept, waiting);
@@ -2009,6 +2014,8 @@ const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
 
 /** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
 function caught(f: Fiber, e: any) {
+  // A pre-warming render's: thrown away with it.
+  if (prewarming) return;
   if (e && typeof e.then === "function") {
     (f as any).suspended = true;
     // Its boundary is being hydrated: that boundary stays as the server drew it, and is hydrated again later.
@@ -2125,9 +2132,69 @@ function commit() {
     committing = wasCommitting;
     depth--;
   }
+  if (prewarms.length && depth === 0) prewarm();
   if (passiveQueue.length && !passiveBooked) {
     passiveBooked = true;
     afterPaint(() => runPassive(true));
+  }
+}
+
+/** Boundaries that have just shown their fallback: their children rendered once more off the page after the commit,
+ * and thrown away (React's pre-warming, which starts loading what they wait for). */
+const prewarms: Fiber[] = [];
+let prewarming = false;
+function prewarm() {
+  const list = prewarms.splice(0);
+  prewarming = true;
+  // Inside a render of its own: nothing it makes is committed.
+  depth++;
+  const freshBefore = fresh.length;
+  try {
+    for (const s of list) {
+      if (s.dead || !s.pending!.peek()) continue;
+      const kept = s.children.find((c) => c.key === "kc");
+      if (kept) {
+        // Its children are still there (hidden): what suspended in them renders again, its output dropped.
+        const waiting: Fiber[] = [];
+        const walk = (f: Fiber) => {
+          if (f.kind === COMP && (f as any).suspended && f.render) waiting.push(f);
+          for (const c of f.children) walk(c);
+        };
+        walk(kept);
+        for (const f of waiting) renderAgain(f);
+        continue;
+      }
+      const scratch: Fiber = fiber(FRAG, FRAGMENT, "prewarm", null, s);
+      try {
+        reconcile(scratch, toList(s.props?.children), docOf(hostParentOf(s)).createDocumentFragment(), null);
+      } catch {}
+      for (const c of scratch.children) unmount(c, false);
+      scratch.dead = true;
+    }
+  } finally {
+    fresh.length = freshBefore;
+    depth--;
+    prewarming = false;
+  }
+}
+
+/** A mounted component's render run again, its output and effects dropped (pre-warming). */
+function renderAgain(f: Fiber) {
+  const was = { current, hookAt, insertion: f.insertion, layout: f.layout, passive: f.passive };
+  current = f;
+  hookAt = 0;
+  f.insertion = [];
+  f.layout = [];
+  f.passive = [];
+  try {
+    untrack(() => f.render!(f, f.props));
+  } catch {
+  } finally {
+    current = was.current;
+    hookAt = was.hookAt;
+    f.insertion = was.insertion;
+    f.layout = was.layout;
+    f.passive = was.passive;
   }
 }
 
@@ -2158,8 +2225,8 @@ function settleAll() {
 /** Inside React.act: updates wait (events included) and are drawn when the outermost act ends. */
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
-/** No act open (a test that hung inside one leaves none behind: React reloads its modules for each test). */
-export const resetAct = () => void (actDepth = 0);
+/** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0));
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -2580,6 +2647,22 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
 let transitioning = 0;
 type TransitionUpdate = { apply: () => void; preview?: (p: Preview) => void; fiber?: Fiber };
 const transitionWork: TransitionUpdate[] = [];
+/** Transitions drawn that suspended, their data still awaited: their ends wait. */
+let transitionsSuspended = 0;
+/** Async actions running (React's async action scope): every transition's end waits for them all. */
+let actionsRunning = 0;
+let actionsEra = 0;
+/** An async action started: its end (and every transition's) waits until it settles. */
+function actionStarted(r: PromiseLike<any>) {
+  actionsRunning++;
+  const era = actionsEra;
+  const over = () => {
+    if (era !== actionsEra) return;
+    actionsRunning--;
+    if (!transitionBooked && transitionEnds.length) (transitionBooked = true), scheduleTransitions(flushTransitions);
+  };
+  r.then(over, over);
+}
 let transitionBooked = false;
 /** A transition's updates being drawn now. */
 let applyingTransition = false;
@@ -2673,14 +2756,17 @@ export function flushTransitions(): boolean {
       // Suspended: its end waits for the data, then the transition is drawn again.
       const waits = transitionWaits.splice(0);
       let left = waits.length;
+      transitionsSuspended++;
       const settled = () => {
         if (--left) return;
+        transitionsSuspended--;
         if (!transitionBooked && transitionEnds.length) (transitionBooked = true), scheduleTransitions(flushTransitions);
       };
       for (const p of waits) p.then(settled, settled);
       return true;
     }
-    for (const w of transitionEnds.splice(0)) w();
+    // A transition still suspended: the ends (pending states, form resets) wait for it.
+    if (!transitionsSuspended && !actionsRunning) for (const w of transitionEnds.splice(0)) w();
     flushSignals();
   } finally {
     applyingTransition = false;
@@ -2688,7 +2774,10 @@ export function flushTransitions(): boolean {
   return true;
 }
 
+/** Transitions started so far: a submit's handlers that start one make its form pending. */
+let transitionsStartedCount = 0;
 function startTransitionWith(fn: () => any, pending?: Sig<number>) {
+  transitionsStartedCount++;
   // Pending at once, as an urgent update; no longer pending with the transition's own updates (or when its action
   // settles, for an async one).
   if (pending) pending.set(pending.peek() + 1);
@@ -2699,9 +2788,11 @@ function startTransitionWith(fn: () => any, pending?: Sig<number>) {
   } finally {
     transitioning--;
   }
+  const async = r && typeof r.then === "function";
+  if (async) actionStarted(r);
   if (!pending) return;
   const done = () => endTransition(() => pending.set(pending.peek() - 1));
-  if (r && typeof r.then === "function") r.then(done, done);
+  if (async) r.then(done, done);
   else done();
 }
 export const startTransition = (fn: () => any) => startTransitionWith(fn);
@@ -2917,6 +3008,11 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       // Given in a transition: a first render that can stop between components (the work loop).
       pendingInTransition = transitioning > 0;
       if (depth > 0) return renderNow(children);
+      // An update in a transition: drawn with the transition (held while it suspends, its end after it).
+      if (transitioning > 0 && !first && top.children.length) {
+        deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)));
+        return;
+      }
       if (first && hydrating_ && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
       else pending = children;
       asked.set(asked.peek() + 1);
@@ -2958,8 +3054,8 @@ export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, 
   const f: Fiber | undefined = (form as any).__fiber;
   const status = f ? formStatus(f) : null;
   const method = ((submitter as any)?.getAttribute?.("formmethod") ?? form.getAttribute("method") ?? "get").toLowerCase();
+  // Drawn after the action has started, as React draws its optimistic pending state.
   status?.set({ pending: true, data, method, action: act });
-  flushSignals();
   // Done: no longer pending, with the action's own updates (a transition's), and the form reset.
   const settle = (error?: unknown, failed = false) => {
     endTransition(() => {
@@ -2978,8 +3074,28 @@ export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, 
   } finally {
     transitioning--;
   }
-  if (r && typeof r.then === "function") r.then(() => settle(), (e: unknown) => settle(e, true));
+  if (r && typeof r.then === "function") actionStarted(r), r.then(() => settle(), (e: unknown) => settle(e, true));
   else settle();
+}
+
+/** A form whose submit handlers started a transition: pending until that transition (and its actions) ends. */
+function formPendingWhile(form: HTMLFormElement, action: any, data: FormData, submitter?: HTMLElement | null) {
+  const f: Fiber | undefined = (form as any).__fiber;
+  if (!f) return;
+  const status = formStatus(f);
+  const method = ((submitter as any)?.getAttribute?.("formmethod") ?? form.getAttribute("method") ?? "get").toLowerCase();
+  status.set({ pending: true, data, method, action });
+  endTransition(() => status.set(IDLE_FORM));
+}
+
+/** React DOM's requestFormReset: the form reset once the transition it is called in is drawn. */
+export function requestFormReset(form: any) {
+  const f: Fiber | undefined = form?.__fiber;
+  if (!f || f.kind !== HOST || f.type !== "form") throw new Error("Invalid form element. requestFormReset must be passed a form that was rendered by React.");
+  if (transitioning) return endTransition(() => !f.dead && form.reset());
+  // Outside one: reset now, as React does with a synchronous update (almost certainly a mistake).
+  if (dev()) console.error("requestFormReset was called outside a transition or action. To fix, move to an action, or wrap with startTransition.");
+  form.reset();
 }
 
 /** The status of the form around the component rendering now (React DOM's useFormStatus). */
@@ -3035,7 +3151,8 @@ export { ELEMENT };
 setOwner(() => (current ? nameOf(current.type) : null));
 
 // A form's action runs through submitForm (its status, its reset, its boundary).
-onSubmitAction(submitForm);
+onSubmitAction(submitForm, formPendingWhile);
+countTransitionsWith(() => transitionsStartedCount);
 
 /** Whether the root rendering now is taking over server markup (hydrateRoot's first render). */
 export const isHydrating = () => hydrating !== null;

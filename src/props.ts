@@ -6,6 +6,7 @@ import { configure, delegated, enterLeaveSources, listenAt, want } from "./event
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
 import { valueChanged } from "./forms.ts";
+import { dev, warn } from "./warnings.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
 const noop = () => {};
@@ -158,11 +159,38 @@ function listen(el: Element, prop: string, handler: any) {
   el.addEventListener(type, entry.proxy, capture);
 }
 
-/** A form's or button's action as a function: React 19 calls it with the form's data. */
-/** A function given as action or formAction: run by React's submit dispatch (submitted, below), not written. */
-function setAction(_el: Element, _name: string, _fn: any) {
+/** A function given as action or formAction: run by React's submit dispatch (submitted, below). Written as React
+ * writes it: a URL that throws, should the form be submitted some other way (form.submit()). */
+const ACTION_URL = "javascript:throw new Error('A React form was unexpectedly submitted. If you called form.submit() manually, consider using form.requestSubmit() instead. If you\\'re trying to use event.stopPropagation() in a submit event handler, consider also calling event.preventDefault().')";
+function setAction(el: Element, name: string, _fn: any) {
   want("submit");
+  el.setAttribute(name, ACTION_URL);
 }
+
+/** React's warnings for an action or formAction where it does not belong, or with props it overrides. */
+function checkFormAction(tag: string, name: string, value: any, props: any) {
+  if (tag === "form") {
+    if (name === "formAction") return warn("You can only pass the formAction prop to <input> or <button>. Use the action prop on <form>.");
+    if (typeof value !== "function") return;
+    if (props.encType != null || props.method != null)
+      warn("Cannot specify a encType or method for a form that specifies a function as the action. React provides those automatically. They will get overridden.", "form-action-method");
+    if (props.target != null) warn("Cannot specify a target for a form that specifies a function as the action. The function will always be executed in the same window.", "form-action-target");
+    return;
+  }
+  if (tag !== "input" && tag !== "button") return warn(name === "action" ? "You can only pass the action prop to <form>." : "You can only pass the formAction prop to <input> or <button>.");
+  if (name === "action") return warn("You can only pass the action prop to <form>. Use the formAction prop on <input> or <button>.");
+  if (tag === "input" && props.type !== "submit" && props.type !== "image") return warn('An input can only specify a formAction along with type="submit" or type="image".', "form-action-type");
+  if (tag === "button" && props.type != null && props.type !== "submit") return warn('A button can only specify a formAction along with type="submit" or no type.', "form-action-type");
+  if (typeof value !== "function") return;
+  if (props.name != null)
+    warn('Cannot specify a "name" prop for a button that specifies a function as a formAction. React needs it to encode which action should be invoked. It will get overridden.', "form-action-name");
+  if (props.formEncType != null || props.formMethod != null)
+    warn("Cannot specify a formEncType or formMethod for a button that specifies a function as a formAction. React provides those automatically. They will get overridden.", "form-action-method");
+  if (props.formTarget != null) warn("Cannot specify a formTarget for a button that specifies a function as a formAction. The function will always be executed in the same window.", "form-action-target");
+}
+
+/** The action useFormStatus shows: nothing for what is no action, else as given (an object too, as a URL-like). */
+const statusAction = (v: any) => (v == null || typeof v === "symbol" || typeof v === "boolean" ? null : v);
 
 /** React's coerceFormActionProp: a function as it is, nothing for what is no URL, else the text. */
 function formActionOf(v: any): any {
@@ -171,12 +199,16 @@ function formActionOf(v: any): any {
 }
 
 /** A form submitted (after its onSubmit handlers): its action run, as React's form action plugin does. */
-function submitted(e: SubmitEvent) {
+function submitted(e: SubmitEvent, startedTransition: boolean) {
   const form = e.target as HTMLFormElement;
   const props = (form as any).__props;
   if (!props || form.localName !== "form") return;
+  // The button that submitted it (some DOMs give the form itself when requestSubmit() had none).
+  const submitter = e.submitter && e.submitter !== (form as any) ? e.submitter : null;
+  // Prevented, but its handlers started a transition: the form is pending while it runs (React's host transition).
+  if (e.defaultPrevented && startedTransition) return pendingWhile(form, statusAction(props.action), new FormData(form, (submitter ?? undefined) as any), submitter);
   let act = props.action;
-  let by: HTMLElement | null = e.submitter ?? null;
+  let by: HTMLElement | null = submitter;
   if (by) {
     const own = (by as any).__props;
     const theirs = own ? formActionOf(own.formAction) : by.getAttribute("formAction");
@@ -184,13 +216,15 @@ function submitted(e: SubmitEvent) {
   }
   if (e.defaultPrevented || typeof act !== "function") return;
   e.preventDefault();
-  submit(form, act, new FormData(form, (by ?? undefined) as any), e.submitter);
+  submit(form, act, new FormData(form, (by ?? undefined) as any), submitter);
 }
 
 /** How a form's action runs: given by core (it knows the form's fiber, its status and its boundary). */
 let submit: (form: HTMLFormElement, act: any, data: FormData, by?: HTMLElement | null) => void = (_f, act, data) => act(data);
-export function onSubmitAction(fn: typeof submit) {
+let pendingWhile: (form: HTMLFormElement, action: any, data: FormData, by?: HTMLElement | null) => void = () => {};
+export function onSubmitAction(fn: typeof submit, pending: typeof pendingWhile) {
   submit = fn;
+  pendingWhile = pending;
 }
 
 /** The event props React knows (its plugins' events): any other on* on a custom element is the element's own. */
@@ -220,6 +254,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     if (name === "onClick" && next != null) (el as HTMLElement).onclick ??= noop;
     return listen(el, name, next);
   }
+  if ((name === "action" || name === "formAction") && next != null && dev()) checkFormAction(el.localName, name, next, (el as any).__props ?? {});
   if ((name === "action" || name === "formAction") && typeof next === "function") return setAction(el, name, next);
   // A form field's value is its property; on any other element (progress, li, data…) it is an attribute.
   if ((name === "value" && /^(INPUT|TEXTAREA|SELECT)$/.test(el.nodeName)) || name === "checked" || name === "selected") {

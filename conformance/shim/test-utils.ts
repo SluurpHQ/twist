@@ -102,11 +102,17 @@ export async function waitForMicrotasks() {
   await Promise.resolve();
 }
 export async function waitForThrow(expected: unknown) {
+  // An error no boundary caught comes out of the work loop, as React's Scheduler.flush throws it.
+  const uncaught: unknown[] = [];
+  const off = onUncaught((e) => uncaught.push(e));
   try {
     await drain();
+    if (uncaught.length) throw uncaught[0];
   } catch (e: any) {
     if (expected == null || e === expected || e?.message === expected || (expected as any)?.message === e?.message) return e;
     throw e;
+  } finally {
+    off();
   }
   throw new Error("Expected something to throw");
 }
