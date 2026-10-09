@@ -87,6 +87,13 @@ for (const [proto, key] of [[Element.prototype, "innerHTML"], [Element.prototype
     },
   });
 }
+// Node's abort() with no reason gives "This operation was aborted" (Bun's says "signal is aborted without reason").
+{
+  const abort = AbortController.prototype.abort;
+  AbortController.prototype.abort = function (this: AbortController, reason?: any) {
+    return abort.call(this, reason === undefined ? new DOMException("This operation was aborted", "AbortError") : reason);
+  };
+}
 if (!("nonce" in HTMLElement.prototype)) {
   for (const proto of [HTMLElement.prototype, (globalThis as any).SVGElement?.prototype].filter(Boolean))
     Object.defineProperty(proto, "nonce", {

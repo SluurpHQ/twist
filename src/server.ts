@@ -870,15 +870,71 @@ async function complete(node: any) {
   }
 }
 
-// `react-dom/static`: the whole page, once everything it waits on has settled.
-export async function prerender(node: any, options: any = {}) {
-  return { prelude: await renderToReadableStream(node, options), postponed: null };
+/**
+ * `react-dom/static`: the whole page once everything it waits on has settled (or the render is aborted: what was
+ * not done is left to the client), as one prelude. A shell that fails rejects; aborted before the shell, it is empty.
+ */
+function prerenderHtml(node: any, options: any): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: string[] = [];
+    let settled = false;
+    // Aborting: a shell that cannot finish is an empty prelude, not a failure.
+    let aborting = false;
+    let abortNow: ((reason?: unknown) => void) | null = null;
+    let run: ReturnType<typeof startStream> | null = null;
+    const done = (html: string) => (settled ? undefined : ((settled = true), resolve(html)));
+    const begin = () => {
+      if (run || settled) return;
+      run = startStream(
+        node,
+        {
+          ...options,
+          onShellError: (e: unknown) => {
+            options.onShellError?.(e);
+            if (aborting) done("");
+            else if (!settled) (settled = true), reject(e);
+          },
+          onAllReady: () => {
+            options.onAllReady?.();
+            queueMicrotask(() => run?.flow());
+          },
+        },
+        (c) => chunks.push(c),
+        () => done(chunks.join("")),
+        false,
+        (a) => (abortNow = a),
+      );
+    };
+    const abort = (reason: unknown) => {
+      aborting = true;
+      // Not started yet: started now, and aborted at once (its errors told as React tells them).
+      if (!run) begin();
+      run?.abort(reason);
+    };
+    const signal = options.signal;
+    // Aborted before it began: nothing rendered, the reason told once.
+    if (signal?.aborted) return void (options.onError?.(signal.reason), done(""));
+    signal?.addEventListener?.("abort", () => abort(signal.reason), { once: true });
+    setImmediateOr(begin);
+  });
 }
 
-export async function prerenderToNodeStream(node: any, _options: any = {}) {
-  const html = await complete(node);
+export async function prerender(node: any, options: any = {}) {
+  const html = await prerenderHtml(node, options);
+  const bytes = new TextEncoder().encode(html);
+  const prelude = new ReadableStream<Uint8Array>({
+    start(c) {
+      if (bytes.length) c.enqueue(bytes);
+      c.close();
+    },
+  });
+  return { prelude, postponed: null };
+}
+
+export async function prerenderToNodeStream(node: any, options: any = {}) {
+  const html = await prerenderHtml(node, options);
   const { Readable } = await import("node:stream" as string);
-  return { prelude: Readable.from([html]), postponed: null };
+  return { prelude: Readable.from(html ? [html] : []), postponed: null };
 }
 
 // ---------------------------------------------------------------- streaming
