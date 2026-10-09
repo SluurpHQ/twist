@@ -5,6 +5,8 @@ const BOOLEAN = new Set(
   "allowFullScreen async autoPlay controls default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden inert loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope".split(" "),
 );
 const OVERLOADED_BOOLEAN = new Set(["capture", "download"]);
+// Written as the strings "true" and "false".
+const BOOLEANISH = new Set(["contentEditable", "draggable", "spellCheck", "autoReverse", "externalResourcesRequired", "focusable", "preserveAlpha"]);
 const POSITIVE_NUMBER = new Set(["cols", "rows", "size", "span"]);
 const NUMBER = new Set(["rowSpan", "start"]);
 // Known attributes whose value is a string: true/false/functions leave them out.
@@ -49,6 +51,10 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   if (BOOLEAN.has(name)) {
     if (t === "function" || t === "symbol") warn(`Invalid value for prop \`${name}\` on <${tag}> tag.`);
     return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
+  }
+  if (BOOLEANISH.has(name)) {
+    if (value == null || t === "function" || t === "symbol") return [name, null];
+    return [name, String(value)];
   }
   if (OVERLOADED_BOOLEAN.has(name)) {
     if (value === true) return [name, ""];

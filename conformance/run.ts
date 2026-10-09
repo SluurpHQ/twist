@@ -23,8 +23,8 @@ const count = (out: string, word: string) => Number(new RegExp(`^\\s*(\\d+) ${wo
 const queue = [...files];
 async function worker() {
   for (let f = queue.shift(); f; f = queue.shift()) {
-    const p = Bun.spawn([process.execPath, "test", "./" + relative(here, f).replace(/\\/g, "/"), "--timeout", "10000"], { cwd: here, stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => p.kill(), 120_000);
+    const p = Bun.spawn([process.execPath, "test", "./" + relative(here, f).replace(/\\/g, "/"), "--timeout", "2000"], { cwd: here, stdout: "pipe", stderr: "pipe" });
+    const timer = setTimeout(() => p.kill(), 30_000);
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
     clearTimeout(timer);
     const row: Row = { file: relative(join(here, "react-tests"), f).replace(/\\/g, "/"), pass: count(out, "pass"), fail: count(out, "fail"), skip: count(out, "skip") };

@@ -1,2 +1,3 @@
 [test]
 preload = ["./setup.ts"]
+timeout = 2000
