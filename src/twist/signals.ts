@@ -200,6 +200,8 @@ export class Transaction {
   }
 }
 const transactions = new Set<Transaction>();
+/** Flushes run so far. */
+let flushes = 0;
 
 /** What signals and computations share: a committed value, a staged one, and who reads them. */
 abstract class Node<T = any> {
@@ -333,6 +335,10 @@ export class Computation<T> extends Node<T> implements Owner {
   sources: Source[] = [];
   /** The transaction whose held values its last run read: what it computed is held in it. */
   readHeld: Transaction | null = null;
+  /** The flush it was made in (made in this one: a first mount, no reveal). */
+  born = flushes;
+  /** What its last run read (while it runs again). */
+  before: Source[] = [];
   /** It asks isPending: it reads the screen, like a render effect. */
   verdictReader = false;
   /** The version of each source when it was read. */
@@ -379,6 +385,8 @@ export class Computation<T> extends Node<T> implements Owner {
       this.loadingWindow = true;
     }
   }
+  /** Its answers come from an async iterator: shown as they land, never revealed as one. */
+  streaming = false;
   /** Serving its loading value until its first answer lands. */
   loadingWindow = false;
   /** Told each value it takes (a derived store reconciles an async answer into itself). */
@@ -505,6 +513,7 @@ export class Computation<T> extends Node<T> implements Owner {
     disposeOwned(this);
     this.childCount = 0;
     if (this.attached) for (const s of this.sources) s.unsubscribe(this);
+    this.before = this.sources;
     this.sources = [];
     this.readHeld = null;
     this.seen = [];
@@ -588,6 +597,7 @@ export class Computation<T> extends Node<T> implements Owner {
    */
   fly(p: PromiseLike<T>) {
     const flight = {};
+    this.streaming = false;
     let sync = true;
     let early: [boolean, unknown] | null = null;
     this.flight = flight;
@@ -612,6 +622,7 @@ export class Computation<T> extends Node<T> implements Owner {
   stream(iterable: AsyncIterable<T>) {
     const flight = {};
     this.flight = flight;
+    this.streaming = true;
     const it = iterable[Symbol.asyncIterator]();
     let yielded = false;
     let inRun = true;
@@ -844,6 +855,12 @@ function downstream(n: Node, out = new Set<Computation<any>>()): Set<Computation
   return out;
 }
 
+/** A flight a transaction already waits on (a reveal over it shows the committed value and catches up). */
+function heldFlight(c: Computation<any>) {
+  for (const t of transactions) if (t.flights.has(c)) return true;
+  return false;
+}
+
 /** This round's staged nodes committed, or held where they lead to a flight that something renders. */
 function settleRound() {
   const now = staged;
@@ -859,9 +876,13 @@ function settleRound() {
     const below = downstream(n);
     let holds = false;
     let joins: Transaction | null = null;
+    const revealed: Computation<any>[] = [];
     for (const c of below) {
       if (c.tx) joins = c.tx.root;
       if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO || rendered(c))) holds = true;
+      // A reveal: what the write brings on screen reads a flight already up — the write waits for its answer.
+      // (Nothing shown yet, a first mount, is no reveal.)
+      if (c.kind !== MEMO ? c.applied !== NONE : rendered(c)) for (const s of c.sources) if (s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !c.before.includes(s) && !heldFlight(s) && c.born !== flushes) (holds = true), revealed.push(s);
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
     if (n instanceof Computation) for (const s of n.sources) if (s.tx && !n.verdict?.has(s)) joins = s.tx.root;
@@ -871,6 +892,7 @@ function settleRound() {
     const t: Transaction = joins ?? (tx ??= newTransaction());
     hold(n, t);
     held.add(n);
+    for (const s of revealed) t.flights.add(s);
     for (const c of below) {
       // (An effect that read only overrides shows them: a guess is not held.)
       if ((c.staged !== NONE || c.due) && (c.kind === MEMO || !c.sources.every((s) => s.override !== NONE))) hold(c, t);
@@ -1005,6 +1027,7 @@ const statusDirty = () => false;
 export function flush<T>(fn?: () => T): T {
   if (inSettled) throw new Error("Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there.");
   let result!: T;
+  if (!flushing) flushes++;
   flushing++;
   try {
     if (fn) result = fn();
