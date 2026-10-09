@@ -1140,8 +1140,8 @@ const afterPaint: (fn: () => void) => void =
 function settleAll() {
   for (let i = 0; i < 50; i++) {
     flushSignals();
-    if (!passiveQueue.length) return;
-    runPassive(true);
+    if (passiveQueue.length) runPassive(true);
+    else if (!flushTransitions()) return;
   }
 }
 
@@ -1348,8 +1348,28 @@ export const client = {
     });
     return [h.p() > 0, h.start];
   },
-  useDeferredValue<T>(value: T, _initial?: T) {
-    return value;
+  useDeferredValue<T>(value: T, initial?: T) {
+    // The value shown so far in an urgent render, the new one drawn after as a transition (React's deferred lane).
+    const f = current!;
+    const h = hook(() => {
+      const box = state(f, initial !== undefined ? initial : value);
+      box.mounted = initial === undefined;
+      return box;
+    });
+    const shown = h.read();
+    if (Object.is(value, shown) || applyingTransition) {
+      if (!Object.is(value, shown)) h.v = value;
+      return value;
+    }
+    h.wanted = value;
+    if (!h.booked) {
+      h.booked = true;
+      deferTransition(() => {
+        h.booked = false;
+        h.put(h.wanted);
+      });
+    }
+    return shown;
   },
   useDebugValue() {},
   useActionState(action: (state: any, payload: any) => any, initial: any) {
@@ -1478,19 +1498,34 @@ function deferTransition(apply: () => void) {
   transitionWork.push(apply);
   if (transitionBooked) return;
   transitionBooked = true;
-  // After the urgent flush (booked on the microtask before this one), as React renders the transition lane later.
-  queueMicrotask(() =>
-    queueMicrotask(() => {
-      transitionBooked = false;
-      applyingTransition = true;
-      try {
-        for (const w of transitionWork.splice(0)) w();
-        flushSignals();
-      } finally {
-        applyingTransition = false;
-      }
-    }),
-  );
+  scheduleTransitions(flushTransitions);
+}
+
+/** When a transition's updates are drawn: in a task of their own, after what is urgent has been painted (as React's
+ * scheduler runs the transition lane); a test's scheduler can take this over. */
+let scheduleTransitions: (run: () => void) => void = (run) => {
+  if (typeof MessageChannel === "function") {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => run();
+    ch.port2.postMessage(null);
+  } else setTimeout(run, 0);
+};
+export function setTransitionScheduler(fn: typeof scheduleTransitions) {
+  scheduleTransitions = fn;
+}
+
+/** The transitions waiting, drawn now (act does, as React's act flushes every lane): whether there were any. */
+export function flushTransitions(): boolean {
+  transitionBooked = false;
+  if (!transitionWork.length) return false;
+  applyingTransition = true;
+  try {
+    for (const w of transitionWork.splice(0)) w();
+    flushSignals();
+  } finally {
+    applyingTransition = false;
+  }
+  return true;
 }
 
 function startTransitionWith(fn: () => any, pending?: Sig<number>) {

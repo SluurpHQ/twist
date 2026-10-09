@@ -160,7 +160,7 @@ function serverHooks(ctx: Ctx) {
     useId: () => `_r_${(ctx.streaming ? ctx.streaming.shared.ids++ : ctx.ids++).toString(32)}_`,
     useSyncExternalStore: (_s: any, get: any, getServer?: any) => (getServer ?? get)(),
     useTransition: () => [false, (fn: any) => fn()],
-    useDeferredValue: (v: any) => v,
+    useDeferredValue: (v: any, initial?: any) => (initial !== undefined ? initial : v),
     useActionState: (_a: any, init: any) => [init, NOOP, false],
     useOptimistic: (s: any) => [s, NOOP],
     useEffectEvent: (fn: any) => fn,

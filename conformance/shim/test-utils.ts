@@ -1,16 +1,21 @@
 // React's internal-test-utils, for a runtime that renders synchronously on microtasks: `act` and the waits drain
 // everything pending (updates, effects after paint, settled promises), then the log is checked as React's tests do.
-import { flushPassiveEffects, flushSync, onUncaught } from "../../src/core.ts";
+import { flushPassiveEffects, flushSync, flushTransitions, onUncaught, setTransitionScheduler } from "../../src/core.ts";
+
+// Transitions wait for the test to flush them (act and waitForAll do; waitForPaint stops before them), as with
+// React's mock scheduler.
+setTransitionScheduler(() => {});
 import { unstable_clearLog } from "./scheduler.ts";
 
 /**
  * Until nothing more happens: updates and effects flushed, between turns of microtasks (promises settling). No
  * timers: tests fake them (Bun fakes even ones kept earlier), and React's act does not wait on them either.
  */
-async function drain() {
+async function drain(transitions = true) {
   for (let i = 0; i < 30; i++) {
     flushSync();
     flushPassiveEffects();
+    if (transitions) flushTransitions();
     await Promise.resolve();
   }
   flushSync();
@@ -47,7 +52,11 @@ export async function waitForAll(expected: unknown[]) {
   await drain();
   assertLog(expected);
 }
-export const waitForPaint = waitForAll;
+/** What React draws before it yields to paint: the urgent updates and their effects, not transitions. */
+export async function waitForPaint(expected: unknown[]) {
+  await drain(false);
+  assertLog(expected);
+}
 export const waitForDiscrete = waitForAll;
 export async function waitFor(expected: unknown[]) {
   await drain();
