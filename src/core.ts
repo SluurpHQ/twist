@@ -5,7 +5,7 @@ import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "..
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
-import { addContainer, countTransitionsWith, listenOnElement } from "./events.ts";
+import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
@@ -949,7 +949,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
     // Still streaming (or its content here, its stylesheets loading): the server's fallback stays until the
     // stream's script says it is done.
     (raw as any)._reactRetry = () => deferTransition(() => retryBoundary(f));
-    (f as any).dehydrated = true;
+    setDehydrated(f, true);
     return;
   }
   if (kind === "$!") {
@@ -987,7 +987,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     const error: any = new Error("There was an error while hydrating but React was able to recover by instead client rendering from the nearest Suspense boundary.");
     error.cause = r.errored.error;
     layoutQueue.push(() => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" }));
-    (f as any).dehydrated = false;
+    setDehydrated(f, false);
     drawFresh(f, host, removeRegion(region));
     return;
   }
@@ -996,12 +996,12 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     for (const c of f.children) unmount(c, false);
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
-    (f as any).dehydrated = true;
+    setDehydrated(f, true);
     const again = () => deferTransition(() => retryBoundary(f));
     r.suspended.then(again, again);
     return;
   }
-  (f as any).dehydrated = false;
+  setDehydrated(f, false);
   if (r.mismatch) {
     const error = mismatchError(dev() ? r.diff : null, r.text);
     const at = r.diff.at ?? f;
@@ -1046,6 +1046,17 @@ function drawFresh(f: Fiber, host: Node, end: Node | null) {
     });
 }
 
+/** A boundary kept as the server drew it (or not any more): its start comment marked, so events in it are not
+ * dispatched until it hydrates (React blocks them). */
+function setDehydrated(f: Fiber, on: boolean) {
+  const was = !!(f as any).dehydrated;
+  (f as any).dehydrated = on;
+  const start: any = (f as any).region?.start;
+  if (on && !was) countDehydrated(1);
+  else if (!on && was) countDehydrated(-1);
+  if (start) start[DEHYDRATED] = on;
+}
+
 /** A dehydrated boundary hydrated again (its data is there, or its content streamed in). */
 function retryBoundary(f: Fiber) {
   const region = (f as any).region as { start: Comment; end: Comment } | undefined;
@@ -1056,7 +1067,7 @@ function retryBoundary(f: Fiber) {
     serverGaveUp(f, region);
     const after = removeRegion(region);
     (f as any).region = undefined;
-    (f as any).dehydrated = false;
+    setDehydrated(f, false);
     drawFresh(f, host, after);
     flushSignals();
     return;
@@ -1643,7 +1654,7 @@ function update(f: Fiber, c: any) {
       const host = region.start.parentNode;
       const after = removeRegion(region);
       (f as any).region = undefined;
-      (f as any).dehydrated = false;
+      setDehydrated(f, false);
       drawFresh(f, host, after);
     }
     return;
@@ -1678,7 +1689,7 @@ function unmount(f: Fiber, removeDom: boolean) {
   // A boundary still as the server drew it: its markup goes with it.
   if (removeDom && (f as any).dehydrated && (f as any).region) {
     removeRegion((f as any).region);
-    (f as any).dehydrated = false;
+    setDehydrated(f, false);
   }
   // A host or text node going from under fragment refs: they let go of it (listeners, observers) in the commit.
   if (fragmentRefs && (f.kind === HOST || f.kind === TEXT) && f.dom && f.committed) {

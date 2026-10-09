@@ -147,8 +147,33 @@ function listenOn(container: EventTarget, c: { roots: Set<object>; types: Set<st
 const HOST = 2;
 const done = new WeakMap<Event, Set<string>>();
 
+/** Boundaries still as the server drew them (counted by core), their start comments marked. */
+export const DEHYDRATED = Symbol.for("sluurp.dehydrated");
+let dehydrated = 0;
+export const countDehydrated = (d: number) => void (dehydrated += d);
+/** Whether a node is inside a boundary not hydrated yet: an event there reaches no handler (React blocks it). */
+function inDehydrated(target: Node | null): boolean {
+  if (!dehydrated) return false;
+  for (let n: any = target; n; n = n.parentNode) {
+    // A node React already owns: the boundaries around it have hydrated.
+    if (n.__fiber) return false;
+    let depth = 0;
+    for (let s: any = n.previousSibling; s; s = s.previousSibling) {
+      if (s.nodeType !== 8) continue;
+      const d = s.data;
+      if (d === "/$" || d === "/&") depth++;
+      else if (d === "$" || d === "$?" || d === "$!" || d === "$~" || d === "&") {
+        if (depth) depth--;
+        else if (s[DEHYDRATED]) return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** The nearest fiber of one of `roots` at or above the event's target. */
 function nearest(target: Node | null, roots: Set<object>): FiberLike | null {
+  if (inDehydrated(target)) return null;
   for (let n: any = target; n; n = n.parentNode) {
     const f: FiberLike | undefined = n.__fiber;
     if (f && roots.has(f.root)) return f;
