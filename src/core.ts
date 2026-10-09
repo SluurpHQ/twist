@@ -5,7 +5,7 @@ import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "..
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer, listenOnElement } from "./events.ts";
-import { FragmentInstance } from "./fragment-ref.ts";
+import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
@@ -346,6 +346,16 @@ function tellProfilers(commitTime: number) {
     // What it throws goes to the nearest boundary, as an error in the commit does.
     if (typeof onRender === "function") lifecycle(p, () => onRender(p.props.id, phase, actual, baseOf(p), start, commitTime));
   }
+}
+
+/** Fragment refs in use: while there are some, hosts coming and going tell the ones above them. */
+let fragmentRefs = 0;
+function toldFragmentsAdded(f: Fiber) {
+  if (!fragmentRefs) return;
+  layoutQueue.push(() => {
+    if (f.dead || !f.dom) return;
+    for (const inst of fragmentsAbove(f as any)) inst._childAdded(f.dom);
+  });
 }
 
 /** Unmount lifecycles of what a render took away, run first in the commit. */
@@ -885,6 +895,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       (hydrating ? host : domParent(host)).insertBefore(f.dom, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
     }
+    toldFragmentsAdded(f);
     return f;
   }
   if (type === FRAGMENT) {
@@ -893,8 +904,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     reconcile(f, props ? toList(props.children) : c, host, before);
     // A ref on a Fragment: an instance that treats its top-level elements as one (React 19.2's fragment refs).
     if (props?.ref != null) {
-      const inst = ((f as any).fragment = new FragmentInstance(() => topElements(f), () => hostParentOf(f) as Element));
-      layoutQueue.push(() => (inst.sync(), setRef(f, props.ref, inst)));
+      const inst = ((f as any).fragment = new FragmentInstance(f as any));
+      fragmentRefs++;
+      layoutQueue.push(() => (inst._attachHandles(), setRef(f, props.ref, inst)));
     }
     return f;
   }
@@ -967,6 +979,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       (hydrating ? host : domParent(host)).insertBefore(el, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
     }
+    toldFragmentsAdded(f);
     if (props.ref != null) layoutQueue.push(() => !f.dead && setRef(f, props.ref, el));
     return f;
   }
@@ -1049,7 +1062,6 @@ function update(f: Fiber, c: any) {
     // A fragment ref: its new elements get its listeners; a changed ref is moved over at commit.
     const inst = (f as any).fragment as FragmentInstance | undefined;
     if (inst) {
-      layoutQueue.push(() => inst.sync());
       if (prev?.ref !== c.props?.ref) {
         layoutQueue.push(() => {
           if (prev?.ref != null) clearRef(f, prev.ref);
@@ -1159,6 +1171,15 @@ function unmount(f: Fiber, removeDom: boolean) {
   if (removeDom && (f as any).dehydrated && (f as any).region) {
     removeRegion((f as any).region);
     (f as any).dehydrated = false;
+  }
+  // A host or text node going from under fragment refs: they let go of it (listeners, observers) in the commit.
+  if (fragmentRefs && (f.kind === HOST || f.kind === TEXT) && f.dom && f.committed) {
+    const node = f.dom;
+    const list = fragmentsAbove(f as any);
+    if (list.length) {
+      const tell = () => list.forEach((i) => i._childRemoved(node));
+      depth > 0 && !committing ? deletions.push(tell) : tell();
+    }
   }
   if (removeDom) for (const n of domNodes(f)) n.parentNode?.removeChild(n);
   f.dead = true;

@@ -1,152 +1,396 @@
-// What a ref on a Fragment gets (React's FragmentInstance): the fragment's top-level elements treated as one, for
-// listeners, focus, observers, geometry and document position. Its elements are found when asked, so they are
-// always the fragment's current ones; listeners and observers follow elements added later.
+// What a ref on a Fragment gets (React's FragmentInstance): the fragment's top-level host nodes (elements and text,
+// through components and portals, not inside hidden Activity) treated as one, for listeners, focus, observers,
+// geometry and document position. Children added or removed later get or lose its listeners and observers.
 
-type Listener = { type: string; listener: EventListenerOrEventListenerObject; options?: boolean | AddEventListenerOptions };
+/** The fiber shape this needs (core's): its kind, its node, its children, its parent. */
+export type FNode = { kind: number; type: any; props: any; dom: any; children: FNode[]; parent: FNode | null; dead?: boolean };
+/** Core's fiber kinds, as numbers. */
+export const K = { TEXT: 1, HOST: 2, FRAG: 4, PORTAL: 6, ROOT: 7 };
 
-const FOCUSABLE = "a[href],area[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),iframe,object,embed,[contenteditable],[tabindex],audio[controls],video[controls],summary";
-const capture = (o: Listener["options"]) => (typeof o === "boolean" ? o : !!o?.capture);
+const isHostOrText = (f: FNode) => f.kind === K.HOST || f.kind === K.TEXT;
+const hiddenActivity = (f: FNode) => f.type === Symbol.for("react.activity") && f.props?.mode === "hidden";
+
+/** Host and text nodes from `list`, depth first, not into hosts unless `deep`; `fn` true stops. */
+function visit(list: FNode[], deep: boolean, fn: (f: FNode) => boolean): boolean {
+  for (const c of list) {
+    if (c.dead) continue;
+    if (isHostOrText(c) && fn(c)) return true;
+    if (!hiddenActivity(c) && (deep || !isHostOrText(c)) && visit(c.children, deep, fn)) return true;
+  }
+  return false;
+}
+/** The nearest host or root above: where the fragment's nodes are drawn into. */
+function parentHost(f: FNode): FNode | null {
+  for (let p = f.parent; p; p = p.parent) if (p.kind === K.HOST || p.kind === K.ROOT) return p;
+  return null;
+}
+const nodeOf = (f: FNode): any => f.dom;
+function portaledIntoHost(f: FNode) {
+  let found = false;
+  for (let p = f.parent; p; p = p.parent) {
+    if (p.kind === K.PORTAL) found = true;
+    if (p.kind === K.HOST || p.kind === K.ROOT) break;
+  }
+  return found;
+}
+/** The host or text nodes just before and after the fragment within its parent host. */
+function siblings(f: FNode): [FNode | null, FNode | null] {
+  const out: [FNode | null, FNode | null] = [null, null];
+  const parent = parentHost(f);
+  if (!parent) return out;
+  let foundSelf = false;
+  const walk = (list: FNode[]): boolean => {
+    for (const c of list) {
+      if (c.dead) continue;
+      if (c === f) foundSelf = true;
+      else if (isHostOrText(c)) {
+        if (foundSelf) return (out[1] = c), true;
+        out[0] = c;
+      } else if (!hiddenActivity(c) && walk(c.children)) return true;
+    }
+    return false;
+  };
+  walk(parent.children);
+  return out;
+}
+/** The fiber a DOM node belongs to (its element's, or the nearest element's above it). */
+function fiberOfNode(node: any): FNode | null {
+  for (let n = node; n; n = n.parentNode) if (n.__fiber) return n.__fiber;
+  return null;
+}
+
+type Entry = { type: string; listener: any; options: any; attached: any; cleanup: (() => void) | null };
+const captureKey = (o: any) => (o == null ? "c=0" : typeof o === "boolean" ? "c=" + (o ? "1" : "0") : "c=" + (o.capture ? "1" : "0"));
+const attachOptions = (o: any) => (o != null && typeof o !== "boolean" && (o.once === true || (typeof AbortSignal !== "undefined" && o.signal instanceof AbortSignal)) ? { capture: o.capture, passive: o.passive } : o);
+
+/** Intersection observers keep a removed child until after paint (its exit is reported first). */
+let pendingUnobserves: { inst: FragmentInstance; observer: any; node: Element }[] = [];
+let unobserveScheduled = false;
+function scheduleUnobserve(inst: FragmentInstance, observer: any, node: Element) {
+  pendingUnobserves.push({ inst, observer, node });
+  if (unobserveScheduled) return;
+  unobserveScheduled = true;
+  const after = (fn: () => void) => (typeof requestAnimationFrame === "function" ? requestAnimationFrame(() => setTimeout(fn, 0)) : setTimeout(fn, 0));
+  after(() => {
+    unobserveScheduled = false;
+    const list = pendingUnobserves;
+    pendingUnobserves = [];
+    for (const p of list) p.observer.unobserve(p.node);
+  });
+}
 
 export class FragmentInstance {
-  #listeners: Listener[] = [];
-  #observers = new Set<IntersectionObserver | ResizeObserver | MutationObserver | any>();
-  #withListeners = new WeakSet<Element>();
-  #observed = new WeakMap<Element, Set<any>>();
+  _fragmentFiber: FNode;
+  _eventListeners: Entry[] | null = null;
+  _observers: Set<any> | null = null;
+  constructor(fiber: FNode) {
+    this._fragmentFiber = fiber;
+  }
 
-  /** `elements` gives the fragment's top-level elements now; `parent` the element it is drawn into. */
-  constructor(private elements: () => Element[], private parent: () => Element | null) {}
-
-  /** Called when the fragment's children changed: listeners and observers reach the new elements too. */
-  sync() {
-    for (const el of this.elements()) {
-      if (!this.#withListeners.has(el)) {
-        this.#withListeners.add(el);
-        for (const l of this.#listeners) el.addEventListener(l.type, l.listener, l.options);
-      }
-      for (const o of this.#observers) {
-        let seen = this.#observed.get(el);
-        if (!seen) this.#observed.set(el, (seen = new Set()));
-        if (!seen.has(o)) (seen.add(o), o.observe(el));
-      }
+  /** A host or text node put in under the fragment: its listeners and observers (and the fragment handle). */
+  _childAdded(node: any) {
+    for (const l of this._eventListeners ?? []) node.addEventListener(l.type, l.attached, attachOptions(l.options));
+    if (node.nodeType === 3) return;
+    for (const observer of this._observers ?? []) {
+      pendingUnobserves = pendingUnobserves.filter((p) => !(p.inst === this && p.observer === observer && p.node === node));
+      observer.observe(node);
     }
+    (node.reactFragments ??= new Set()).add(this);
+  }
+  /** A host or text node taken out from under the fragment. */
+  _childRemoved(node: any) {
+    for (const l of this._eventListeners ?? []) node.removeEventListener(l.type, l.attached, attachOptions(l.options));
+    if (node.nodeType === 3) return;
+    for (const observer of this._observers ?? []) typeof observer.rootMargin === "string" ? scheduleUnobserve(this, observer, node) : observer.unobserve(node);
+    node.reactFragments?.delete(this);
+  }
+  /** Every element under it gets the handle (on attach). */
+  _attachHandles() {
+    visit(this._fragmentFiber.children, false, (c) => (c.kind === K.HOST && (nodeOf(c).reactFragments ??= new Set()).add(this), false));
   }
 
-  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) {
-    if (typeof options === "object" && options?.signal?.aborted) return;
-    const same = this.#listeners.some((l) => l.type === type && l.listener === listener && capture(l.options) === capture(options));
-    if (same) return;
-    const entry = { type, listener, options };
-    this.#listeners.push(entry);
-    for (const el of this.elements()) el.addEventListener(type, listener, options);
-    if (typeof options === "object" && options?.signal) options.signal.addEventListener("abort", () => this.removeEventListener(type, listener, options), { once: true });
+  addEventListener(type: string, listener: any, options?: any) {
+    let signal: AbortSignal | null = null;
+    if (options != null && typeof options !== "boolean") {
+      signal = options.signal || null;
+      if (signal?.aborted) return;
+    }
+    const list = (this._eventListeners ??= []);
+    if (list.some((l) => l.type === type && l.listener === listener && captureKey(l.options) === captureKey(options))) return;
+    const self = this;
+    const attached =
+      options != null && typeof options !== "boolean" && options.once === true
+        ? function (this: any, e: Event) {
+            self.removeEventListener(type, listener, options);
+            typeof listener === "function" ? listener.call(this, e) : listener.handleEvent(e);
+          }
+        : listener;
+    let cleanup: (() => void) | null = null;
+    if (signal) {
+      const abort = () => this.removeEventListener(type, listener, options);
+      signal.addEventListener("abort", abort, { once: true });
+      cleanup = () => signal!.removeEventListener("abort", abort);
+    }
+    list.push({ type, listener, options, attached, cleanup });
+    const opts = attachOptions(options);
+    visit(this._fragmentFiber.children, false, (c) => (nodeOf(c).addEventListener(type, attached, opts), false));
   }
 
-  removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions) {
-    const i = this.#listeners.findIndex((l) => l.type === type && l.listener === listener && capture(l.options) === capture(options));
+  removeEventListener(type: string, listener: any, options?: any) {
+    const list = this._eventListeners;
+    if (!list) return;
+    const i = list.findIndex((l) => l.type === type && l.listener === listener && captureKey(l.options) === captureKey(options));
     if (i < 0) return;
-    this.#listeners.splice(i, 1);
-    for (const el of this.elements()) el.removeEventListener(type, listener, options);
+    const e = list[i]!;
+    const opts = attachOptions(e.options);
+    visit(this._fragmentFiber.children, false, (c) => (nodeOf(c).removeEventListener(type, e.attached, opts), false));
+    list.splice(i, 1);
+    e.cleanup?.();
   }
 
   /** Dispatched from the fragment's place: its listeners hear it, then it bubbles from the parent. */
   dispatchEvent(event: Event): boolean {
-    const parent = this.parent();
+    const parent = parentHost(this._fragmentFiber);
     if (!parent) return true;
-    if (!this.#listeners.length && event.bubbles) return parent.dispatchEvent(event);
-    const stand = (parent.ownerDocument ?? document).createTextNode("");
-    for (const l of this.#listeners) stand.addEventListener(l.type, l.listener, l.options);
-    parent.appendChild(stand);
-    try {
-      return stand.dispatchEvent(event);
-    } finally {
-      for (const l of this.#listeners) stand.removeEventListener(l.type, l.listener, l.options);
-      stand.remove();
+    const node = nodeOf(parent) as any;
+    const list = this._eventListeners;
+    if ((list && list.length) || !event.bubbles) {
+      const stand = node.nodeType === 9 ? node.createComment("") : (node.ownerDocument ?? document).createTextNode("");
+      for (const l of list ?? []) stand.addEventListener(l.type, l.attached, attachOptions(l.options));
+      node.appendChild(stand);
+      const r = stand.dispatchEvent(event);
+      for (const l of list ?? []) stand.removeEventListener(l.type, l.attached, attachOptions(l.options));
+      node.removeChild(stand);
+      return r;
     }
+    return node.dispatchEvent(event);
   }
 
-  /** Focus to the first focusable element in the fragment (depth first), as React's focus does. */
   focus(options?: FocusOptions) {
-    for (const el of this.#focusables()) if (tryFocus(el, options)) return;
+    visit(this._fragmentFiber.children, true, (c) => c.kind === K.HOST && tryFocus(nodeOf(c), options));
   }
 
   focusLast(options?: FocusOptions) {
-    const all = this.#focusables();
-    for (let i = all.length - 1; i >= 0; i--) if (tryFocus(all[i]!, options)) return;
+    const all: FNode[] = [];
+    visit(this._fragmentFiber.children, true, (c) => (all.push(c), false));
+    for (let i = all.length - 1; i >= 0; i--) if (all[i]!.kind === K.HOST && tryFocus(nodeOf(all[i]!), options)) return;
   }
 
   blur() {
-    const active = (this.parent()?.ownerDocument ?? document).activeElement as HTMLElement | null;
+    const parent = parentHost(this._fragmentFiber);
+    if (!parent) return;
+    const node = nodeOf(parent);
+    const active = (node.nodeType === 9 ? node : node.ownerDocument).activeElement;
     if (!active) return;
-    if (this.elements().some((el) => el === active || el.contains(active))) active.blur();
-  }
-
-  #focusables(): HTMLElement[] {
-    const out: HTMLElement[] = [];
-    for (const el of this.elements()) {
-      if (el.matches(FOCUSABLE)) out.push(el as HTMLElement);
-      out.push(...(el.querySelectorAll(FOCUSABLE) as NodeListOf<HTMLElement>));
-    }
-    return out;
+    visit(this._fragmentFiber.children, false, (c) => {
+      if (c.kind === K.TEXT) return false;
+      const el = nodeOf(c);
+      if (el === active || el.contains(active)) return active.blur(), true;
+      return false;
+    });
   }
 
   observeUsing(observer: any) {
-    this.#observers.add(observer);
-    this.sync();
+    let text = false, element = false;
+    visit(this._fragmentFiber.children, false, (c) => (c.kind === K.TEXT ? ((text = true), false) : ((element = true), true)));
+    if (text && !element) console.error("observeUsing() was called on a FragmentInstance with only text children. Observers do not work on text nodes.");
+    (this._observers ??= new Set()).add(observer);
+    visit(this._fragmentFiber.children, false, (c) => (c.kind === K.HOST && observer.observe(nodeOf(c)), false));
   }
 
   unobserveUsing(observer: any) {
-    if (!this.#observers.delete(observer)) return;
-    for (const el of this.elements()) {
-      const seen = this.#observed.get(el);
-      if (seen?.delete(observer)) observer.unobserve(el);
+    if (!this._observers?.has(observer)) {
+      console.error("You are calling unobserveUsing() with an observer that is not being observed with this fragment instance. First attach the observer with observeUsing()");
+      return;
     }
+    this._observers.delete(observer);
+    visit(this._fragmentFiber.children, false, (c) => (c.kind === K.HOST && observer.unobserve(nodeOf(c)), false));
+    pendingUnobserves = pendingUnobserves.filter((p) => {
+      if (p.inst === this && p.observer === observer) return observer.unobserve(p.node), false;
+      return true;
+    });
   }
 
   getClientRects(): DOMRect[] {
-    return this.elements().flatMap((el) => [...el.getClientRects()]);
+    const rects: DOMRect[] = [];
+    visit(this._fragmentFiber.children, false, (c) => {
+      const n = nodeOf(c);
+      if (c.kind === K.TEXT) {
+        const range = n.ownerDocument.createRange();
+        range.selectNodeContents(n);
+        rects.push(...range.getClientRects());
+      } else rects.push(...n.getClientRects());
+      return false;
+    });
+    return rects;
   }
 
   getRootNode(options?: GetRootNodeOptions): Node {
-    const parent = this.parent();
-    return parent ? parent.getRootNode(options) : (this as any);
+    const parent = parentHost(this._fragmentFiber);
+    return parent ? nodeOf(parent).getRootNode(options) : (this as any);
+  }
+
+  compareDocumentPosition(other: Node): number {
+    const N = Node;
+    const frag = this._fragmentFiber;
+    const parent = parentHost(frag);
+    if (!parent) return N.DOCUMENT_POSITION_DISCONNECTED;
+    const children: FNode[] = [];
+    visit(frag.children, false, (c) => (children.push(c), false));
+    const parentNode = nodeOf(parent);
+    if (!children.length) {
+      let anchor = parentNode;
+      if (portaledIntoHost(frag)) {
+        for (let p = frag.parent; p; p = p.parent) {
+          if (p.kind === K.PORTAL) {
+            anchor = p.dom;
+            break;
+          }
+          if (p.kind === K.HOST || p.kind === K.ROOT) break;
+        }
+      }
+      const pos = anchor.compareDocumentPosition(other);
+      let result = pos;
+      if (anchor === other) result = N.DOCUMENT_POSITION_CONTAINS;
+      else if (pos & N.DOCUMENT_POSITION_CONTAINED_BY) {
+        const next = siblings(frag)[1];
+        if (!next) result = N.DOCUMENT_POSITION_PRECEDING;
+        else {
+          const r = nodeOf(next).compareDocumentPosition(other);
+          result = r === 0 || r & N.DOCUMENT_POSITION_FOLLOWING ? N.DOCUMENT_POSITION_FOLLOWING : N.DOCUMENT_POSITION_PRECEDING;
+        }
+      }
+      return result | N.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
+    }
+    const first = nodeOf(children[0]!), last = nodeOf(children[children.length - 1]!);
+    const container = portaledIntoHost(frag) ? first.parentElement : parentNode;
+    if (container == null) return N.DOCUMENT_POSITION_DISCONNECTED;
+    const firstIn = container.compareDocumentPosition(first) & N.DOCUMENT_POSITION_CONTAINED_BY;
+    const lastIn = container.compareDocumentPosition(last) & N.DOCUMENT_POSITION_CONTAINED_BY;
+    const toFirst = first.compareDocumentPosition(other);
+    const toLast = last.compareDocumentPosition(other);
+    const within = toFirst & N.DOCUMENT_POSITION_CONTAINED_BY || toLast & N.DOCUMENT_POSITION_CONTAINED_BY;
+    const between = firstIn && lastIn && toFirst & N.DOCUMENT_POSITION_FOLLOWING && toLast & N.DOCUMENT_POSITION_PRECEDING;
+    const pos =
+      (firstIn && first === other) || (lastIn && last === other) || within || between
+        ? N.DOCUMENT_POSITION_CONTAINED_BY
+        : (!firstIn && first === other) || (!lastIn && last === other)
+          ? N.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC
+          : toFirst;
+    return pos & N.DOCUMENT_POSITION_DISCONNECTED || pos & N.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC || validPosition(pos, frag, children[0]!, children[children.length - 1]!, other)
+      ? pos
+      : N.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
   }
 
   scrollIntoView(alignToTop?: boolean) {
     if (typeof alignToTop === "object") throw new Error("FragmentInstance.scrollIntoView() does not support scrollIntoViewOptions. Use the alignToTop boolean instead.");
-    const els = this.elements();
+    const children: FNode[] = [];
+    visit(this._fragmentFiber.children, false, (c) => (children.push(c), false));
     const top = alignToTop !== false;
-    if (!els.length) {
-      this.parent()?.scrollIntoView(top);
+    if (!children.length) {
+      const [prev, next] = siblings(this._fragmentFiber);
+      const target = top ? next || prev || parentHost(this._fragmentFiber) : prev || next;
+      if (!target) return;
+      if (target.kind === K.TEXT) return scrollText(nodeOf(target), top);
+      const node = nodeOf(target);
+      if (node.nodeType === 9) return;
+      if (node.nodeType === 11) {
+        const host = "host" in node ? node.host : null;
+        if (host) host.scrollIntoView(alignToTop);
+        else console.warn("You are attempting to scroll a FragmentInstance that is only mounted inside a detached DocumentFragment. No scroll was performed.");
+        return;
+      }
+      node.scrollIntoView(alignToTop);
       return;
     }
-    // The way it moves: the end first when aligning to the top, so the first element ends up in view.
-    const order = top ? [...els].reverse() : els;
-    for (const el of order) el.scrollIntoView(top);
-  }
-
-  /** Where `other` is relative to the fragment's elements, as one range (React's compareDocumentPosition). */
-  compareDocumentPosition(other: Node): number {
-    const parent = this.parent();
-    if (!parent) return Node.DOCUMENT_POSITION_DISCONNECTED;
-    const els = this.elements();
-    if (!els.length) {
-      const p = parent.compareDocumentPosition(other);
-      return parent === other ? Node.DOCUMENT_POSITION_CONTAINS : p | Node.DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC;
+    for (let i = top ? children.length - 1 : 0; i !== (top ? -1 : children.length); i += top ? -1 : 1) {
+      const c = children[i]!;
+      c.kind === K.TEXT ? scrollText(nodeOf(c), top) : nodeOf(c).scrollIntoView(alignToTop);
     }
-    const first = els[0]!, last = els[els.length - 1]!;
-    const toFirst = first.compareDocumentPosition(other);
-    const toLast = last.compareDocumentPosition(other);
-    if (toFirst & Node.DOCUMENT_POSITION_DISCONNECTED) return toFirst;
-    const inside =
-      first === other || last === other || toFirst & Node.DOCUMENT_POSITION_CONTAINED_BY || toLast & Node.DOCUMENT_POSITION_CONTAINED_BY ||
-      (toFirst & Node.DOCUMENT_POSITION_FOLLOWING && toLast & Node.DOCUMENT_POSITION_PRECEDING);
-    if (inside) return Node.DOCUMENT_POSITION_CONTAINED_BY;
-    return toFirst & Node.DOCUMENT_POSITION_PRECEDING ? toFirst : toLast;
   }
 }
 
+/** Whether a position found from the DOM agrees with the fiber tree (React's validateDocumentPositionWithFiberTree). */
+function validPosition(pos: number, frag: FNode, firstChild: FNode, lastChild: FNode, other: Node): boolean {
+  const N = Node;
+  const otherFiber = fiberOfNode(other);
+  if (pos & N.DOCUMENT_POSITION_CONTAINED_BY) {
+    for (let f = otherFiber; f; f = f.parent) if (f === frag) return true;
+    return false;
+  }
+  if (pos & N.DOCUMENT_POSITION_CONTAINS) {
+    if (!otherFiber) {
+      const d = (other as any).ownerDocument;
+      return other === d || other === d?.documentElement || other === d?.body;
+    }
+    const parent = parentHost(frag);
+    for (let f: FNode | null = frag; f; f = f.parent) if ((f.kind === K.HOST || f.kind === K.ROOT) && f === parent) return true;
+    return false;
+  }
+  if (pos & (N.DOCUMENT_POSITION_PRECEDING | N.DOCUMENT_POSITION_FOLLOWING)) {
+    if (!otherFiber) return false;
+    const boundary = pos & N.DOCUMENT_POSITION_PRECEDING ? firstChild : lastChild;
+    if (otherFiber === boundary) return true;
+    const common = lowestCommonHost(boundary, otherFiber);
+    if (!common) return false;
+    let seenBoundary = false, found = false;
+    visit([common], true, (c) => {
+      if (pos & N.DOCUMENT_POSITION_PRECEDING) {
+        if (c === boundary) return true;
+        if (c === otherFiber) return (found = true), true;
+        return false;
+      }
+      if (c === boundary) return (seenBoundary = true), false;
+      if (c === otherFiber) return seenBoundary && (found = true), true;
+      return false;
+    });
+    return found;
+  }
+  return false;
+}
+function hostParent(f: FNode | null): FNode | null {
+  for (let p = f?.parent ?? null; p; p = p.parent) if (p.kind === K.HOST || p.kind === K.ROOT) return p;
+  return null;
+}
+function lowestCommonHost(a: FNode, b: FNode): FNode | null {
+  const depth = (f: FNode | null) => {
+    let d = 0;
+    for (let x = f; x; x = hostParent(x)) d++;
+    return d;
+  };
+  let da = depth(a), db = depth(b);
+  let x: FNode | null = a, y: FNode | null = b;
+  while (da > db) (x = hostParent(x)), da--;
+  while (db > da) (y = hostParent(y)), db--;
+  while (da--) {
+    if (x === y) return x;
+    x = hostParent(x);
+    y = hostParent(y);
+  }
+  return null;
+}
+
+function scrollText(text: Text, top: boolean) {
+  const range = text.ownerDocument.createRange();
+  range.selectNodeContents(text);
+  const r = range.getBoundingClientRect();
+  window.scrollTo(window.scrollX + r.left, top ? window.scrollY + r.top : window.scrollY + r.bottom - window.innerHeight);
+}
+
 function tryFocus(el: HTMLElement, options?: FocusOptions) {
+  if (typeof el.focus !== "function") return false;
   const doc = el.ownerDocument;
   el.focus(options);
   return doc.activeElement === el;
+}
+
+/** Fragment instances above a host or text fiber (up to its host parent): told when it comes or goes. */
+export function fragmentsAbove(f: FNode): FragmentInstance[] {
+  const out: FragmentInstance[] = [];
+  for (let p = f.parent; p; p = p.parent) {
+    const inst = (p as any).fragment;
+    if (p.kind === K.FRAG && inst) out.push(inst);
+    if (p.kind === K.HOST || p.kind === K.ROOT) break;
+  }
+  return out;
 }
