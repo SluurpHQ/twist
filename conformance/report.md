@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3702 pass, 322 fail, 314 skipped (gated off for stable React 19).
+3707 pass, 317 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -43,7 +43,7 @@
 | react-dom/ReactDOMFizzStaticNode-test.js | 14 | 3 | 0 |  |
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 11 | 1 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
-| react-dom/ReactDOMFizzViewTransition-test.js | 0 | 5 | 6 |  |
+| react-dom/ReactDOMFizzViewTransition-test.js | 5 | 0 | 6 |  |
 | react-dom/ReactDOMFloat-test.js | 123 | 17 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 37 | 8 | 0 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 83 | 6 | 0 |  |

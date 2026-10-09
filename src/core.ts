@@ -820,7 +820,8 @@ function serverDifferences(server: Element, had: Attrs, type: string, ns: string
     const v = props[keyFor(n)];
     return (v !== null && typeof v === "object") || typeof v === "function" || typeof v === "symbol";
   };
-  for (const n of names) if (!skip.has(n) && !unseen(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
+  // The server's view transition annotations (vt-*) are the client's to read, not props.
+  for (const n of names) if (!skip.has(n) && !n.startsWith("vt-") && !unseen(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
   const want = props.style == null ? null : styleText(props.style) || null;
   if ((had.names.get("style") ?? null) !== want) (out.style = had.names.has("style") ? had.style : null), (any = true);
   if (inner?.__html != null) {

@@ -1,6 +1,6 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, readThenable, unwrapChild, withOwner } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, VIEW_TRANSITION, createElement, invalidType, objectChild, readThenable, unwrapChild, withOwner } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
@@ -61,6 +61,9 @@ type Ctx = {
   noscript: boolean;
   picture: boolean;
   fallback: boolean;
+  /** The <ViewTransition> the next element belongs to (React's format context), and where it is (VT_* scopes). */
+  vt: VTContext | null;
+  scope: number;
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
   streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown }; chunk: number; inlined: number }; onError: (e: unknown, at?: string) => any };
 };
@@ -388,7 +391,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       };
       if (ctx.streaming?.shared.aborted) return abortedNow();
       try {
-        const out = suspendAfter(ctx, () => render(props.children, ctx, hooks));
+        const out = suspenseFrame(ctx, false, () => suspendAfter(ctx, () => render(props.children, ctx, hooks)));
         if (ctx.streaming?.shared.aborted) return abortedNow();
         ctx.lastText = false;
         const stream = ctx.streaming;
@@ -398,7 +401,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           const size = utf8Bytes(out);
           if (size > 500 && stream.shared.inlined + size > stream.shared.chunk && !/<(html|head|body)[\s>]/.test(out)) {
             const id = stream.shared.next++;
-            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: Promise.resolve(), stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), done: out };
+            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, vt: ctx.vt, scope: ctx.scope, waiting: Promise.resolve(), stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), done: out };
             stream.shared.boundaries.push(b);
             ctx.res.boundary = parentDeps;
             b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
@@ -423,7 +426,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         if (e && typeof e.then === "function") {
           if (stream) {
             const id = stream.shared.next++;
-            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
+            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, vt: ctx.vt, scope: ctx.scope, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
             ctx.suspendedAt = undefined;
             stream.shared.boundaries.push(b);
             b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
@@ -440,6 +443,18 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         return `<!--$!-->${errorTemplate(digest, errored(e), e)}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
       } finally {
         ctx.res.boundary = parentDeps;
+      }
+    }
+    // A <ViewTransition>: its children annotated; without a name of its own it takes a useId slot for one.
+    if (type === VIEW_TRANSITION) {
+      if (props.name != null && props.name !== "auto") return viewTransitionFrame(ctx, props, props.name, () => render(props.children, ctx, hooks));
+      const tree = ctx.tree;
+      const autoName = makeId(ctx.idPrefix, "R", tree, 0);
+      ctx.tree = pushTree(tree, 1, 0);
+      try {
+        return viewTransitionFrame(ctx, props, autoName, () => render(props.children, ctx, hooks));
+      } finally {
+        ctx.tree = tree;
       }
     }
     // Activity: a visible one between its markers (React's); a hidden one is left to the client.
@@ -575,7 +590,20 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
   ctx.lastText = false;
-  let open = `${tag === "html" && ctx.streaming ? "<!DOCTYPE html>" : ""}<${tag}${attrs(props, ctx, tag)}`;
+  let open = `${tag === "html" && ctx.streaming ? "<!DOCTYPE html>" : ""}<${tag}${attrs(props, ctx, tag)}${vtAttributes(ctx)}`;
+  // Below it, the view transition is used up, and so is where it can enter or exit.
+  const { vt, scope } = ctx;
+  ctx.vt = null;
+  ctx.scope = scope & ~(VT_ENTER | VT_EXIT);
+  try {
+    return hostRest(tag, props, ctx, hooks, open, svg);
+  } finally {
+    ctx.vt = vt;
+    ctx.scope = scope;
+  }
+}
+
+function hostRest(tag: string, props: any, ctx: Ctx, hooks: any, open: string, svg: boolean): string {
   if (tag === "option") {
     const chosen = ctx.select;
     const v = props.value ?? (typeof props.children === "string" ? props.children : undefined);
@@ -805,7 +833,87 @@ const fresh = (res = new Resources(writeTag)): Ctx => ({
   noscript: false,
   picture: false,
   fallback: false,
+  vt: null,
+  scope: 0,
 });
+
+// ---------------------------------------------------------------- view transitions (React's Fizz annotations)
+
+/** A <ViewTransition>'s classes for the elements it wraps, written as vt-* attributes for the client to animate. */
+type VTContext = { update: string; enter: string; exit: string; share: string; name: string; autoName: string; nameIdx: number };
+// Where an element is: right below a fallback (it can exit), right below content (it can enter), in a fallback,
+// in a subtree that updates.
+const VT_EXIT = 1;
+const VT_ENTER = 2;
+const VT_FALLBACK = 4;
+const VT_UPDATE = 8;
+const VT_APPEARING = 16;
+
+/** A class prop resolved for no transition type: a string, or the object's default ("auto" means none given). */
+const classOf = (c: any): string | null | undefined => (c == null || typeof c === "string" ? c : c.default);
+function vtClass(defaultClass: any, eventClass: any): string | null {
+  const d = classOf(defaultClass);
+  const e = classOf(eventClass);
+  if (e == null) return d === "auto" ? null : (d ?? null);
+  return e === "auto" ? null : e;
+}
+
+/** A Suspense boundary inside a <ViewTransition>: its fallback and content share a name (React's getSuspenseViewTransition). */
+const suspenseVT = (vt: VTContext | null): VTContext | null =>
+  vt && { update: vt.update, enter: "none", exit: "none", share: vt.update, name: vt.autoName, autoName: vt.autoName, nameIdx: 0 };
+
+/** `fn` rendered as a Suspense boundary's fallback (`fallback`) or content, in the view transition context it gives. */
+function suspenseFrame(ctx: Ctx, fallback: boolean, fn: () => string): string {
+  const { vt, scope } = ctx;
+  ctx.vt = suspenseVT(vt);
+  ctx.scope = fallback ? scope | VT_FALLBACK | VT_EXIT : scope | VT_ENTER | (ctx.vt && ctx.vt.share !== "none" ? VT_APPEARING : 0);
+  try {
+    return fn();
+  } finally {
+    ctx.vt = vt;
+    ctx.scope = scope;
+  }
+}
+
+/** A <ViewTransition>'s children, in its context (React's getViewTransitionFormatContext). */
+function viewTransitionFrame(ctx: Ctx, props: any, autoName: string, fn: () => string): string {
+  const { vt: parent, scope } = ctx;
+  let update = vtClass(props.default, props.update) ?? "auto";
+  let enter = vtClass(props.default, props.enter) ?? "auto";
+  let exit = vtClass(props.default, props.exit) ?? "auto";
+  let share = vtClass(props.default, props.share);
+  let name: string = props.name;
+  if (name == null) {
+    if (parent) (name = parent.name), (share = parent.share);
+    else (name = "auto"), (share = "none");
+  } else if (share == null) share = "auto";
+  if (!(scope & VT_EXIT)) exit = "none";
+  if (!(scope & VT_ENTER)) enter = "none";
+  let sub = scope & ~(VT_ENTER | VT_EXIT);
+  sub = update !== "none" ? sub | VT_UPDATE : sub & ~VT_UPDATE;
+  if (enter !== "none") sub |= VT_APPEARING;
+  ctx.vt = { update, enter, exit, share: share ?? "none", name, autoName, nameIdx: 0 };
+  ctx.scope = sub;
+  try {
+    return fn();
+  } finally {
+    ctx.vt = parent;
+    ctx.scope = scope;
+  }
+}
+
+/** The vt-* attributes of the first elements in a <ViewTransition> (React's pushViewTransitionAttributes). */
+function vtAttributes(ctx: Ctx): string {
+  const vt = ctx.vt;
+  if (!vt) return "";
+  let out = "";
+  if (vt.name !== "auto") out += ` vt-name="${escape(vt.nameIdx === 0 ? vt.name : vt.name + "_" + vt.nameIdx)}"`, vt.nameIdx++;
+  out += ` vt-update="${escape(vt.update)}"`;
+  if (vt.enter !== "none") out += ` vt-enter="${escape(vt.enter)}"`;
+  if (vt.exit !== "none") out += ` vt-exit="${escape(vt.exit)}"`;
+  if (vt.share !== "none") out += ` vt-share="${escape(vt.share)}"`;
+  return out;
+}
 
 /** Inline script content made safe as React makes it: the "s" of any "<script" or "</script" escaped. */
 const scriptSafe = (code: string) => code.replace(/(<\/|<)(s)(cript)/gi, (_m, a, b, c) => a + (b === "s" ? "\\u0073" : "\\u0053") + c);
@@ -853,6 +961,8 @@ function bootstrap(options: any, nonce?: string) {
 
 /** A boundary's fallback rendered under React's "Suspense Fallback" frame (in place of "Suspense"). */
 function fallbackFrame(ctx: Ctx, fn: () => string): string {
+  const inner = fn;
+  fn = () => suspenseFrame(ctx, true, inner);
   const i = ctx.stack.length - 1;
   const was = ctx.stack[i];
   const fallback = ctx.fallback;
@@ -998,7 +1108,7 @@ const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c
 /** A boundary as the shell writes it while it waits: its template, then its fallback. */
 const pendingMarkup = (b: Boundary) => `<!--$?--><template id="B:${b.id}"></template>${b.fallback}<!--/$-->`;
 
-type Boundary = { tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
+type Boundary = { tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; vt?: VTContext | null; scope?: number; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
 
 /** A string's size in UTF-8 bytes (what React measures a boundary by). */
 function utf8Bytes(s: string): number {
@@ -1081,6 +1191,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     values: b ? new Map(b.values) : new Map(),
     svg: b?.svg ?? false,
     select: b?.select,
+    vt: b?.vt ?? null,
+    scope: b?.scope ?? 0,
     stack: b ? b.stack.slice() : [],
     tree: b?.tree ?? ROOT_TREE,
     idPrefix: options.identifierPrefix ?? "",
@@ -1125,7 +1237,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     res.boundary = deps;
     const queued = shared.boundaries.length;
     try {
-      inner = once(b.children, ctx);
+      inner = suspenseFrame(ctx, false, () => once(b.children, ctx));
     } catch (e: any) {
       res.boundary = res.replay = null;
       if (e && typeof e.then === "function") {
