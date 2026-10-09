@@ -1,7 +1,11 @@
-// Twist's reactive core: signals, memos, split effects, owners. Written from Solid 2's public design (its RFCs and
-// tests), not its code. Writes are queued: reads return the committed value until the queue is flushed (the next
-// microtask, or flush()). A flush commits the writes, then runs what depends on them in dependency order (height, then
-// creation), pulling memos as they are read, then render effects' apply halves, then the other effects'.
+// Twist's reactive core: signals, memos, split effects, owners, async. Written from Solid 2's public design (its RFCs,
+// its async spec's statements, its tests), not its code.
+//
+// Writes are queued: reads return the committed value until a flush. A flush stages the writes, re-runs what depends
+// on them in dependency order (height, then creation) against the staged world, then commits. When something a write
+// leads to is still loading (an async memo in flight), the write and everything downstream of it are held in a
+// transaction instead: what is on screen keeps the committed values, and the transaction commits as one when its last
+// flight lands. Writes on graphs no flight touches commit at once.
 
 // ---------------------------------------------------------------- owners
 
@@ -15,6 +19,8 @@ export interface Owner {
 
 let owner: Owner | null = null;
 let listener: Computation<any> | null = null;
+/** Running a computation (or a latest() read): reads see the staged world. */
+let inPass = 0;
 
 class Root implements Owner {
   owned: Owner[] | null = null;
@@ -105,7 +111,7 @@ export function untrack<T>(fn: () => T): T {
   }
 }
 
-// ---------------------------------------------------------------- signals
+// ---------------------------------------------------------------- nodes
 
 type Equals<T> = false | ((a: T, b: T) => boolean);
 const NONE: unique symbol = Symbol("none");
@@ -113,24 +119,85 @@ const CLEAN = 0;
 const CHECK = 1;
 const DIRTY = 2;
 
-/** Ticks with every committed change: a memo nothing subscribes to is still valid if it ran at this tick. */
+/** Ticks with every change: a memo nothing subscribes to is still valid if it ran at this tick. */
 let clock = 0;
 let ids = 0;
 
 export type SignalOptions<T> = { equals?: Equals<T>; unobserved?: () => void; ownedWrite?: boolean; name?: string; lazy?: boolean };
 
-export class Signal<T> {
-  value: T;
-  /** A write waiting for the next flush. */
-  pending: T | typeof NONE = NONE;
+/** Thrown by a read of a value that has never been ready (an async memo's first load): Loading catches it. */
+export class NotReadyError extends Error {
+  constructor(public source?: unknown) {
+    super("Value not ready");
+  }
+}
+
+/** A hold: writes and what they led to, kept off screen until its last flight lands. */
+export class Transaction {
+  nodes = new Set<Node>();
+  effects = new Set<Computation<any>>();
+  flights = new Set<Computation<any>>();
+  /** Actions still running in it (it cannot commit before they end). */
+  open = 0;
+  merged: Transaction | null = null;
+  get root(): Transaction {
+    let t: Transaction = this;
+    while (t.merged) t = t.merged;
+    return t;
+  }
+}
+const transactions = new Set<Transaction>();
+
+/** What signals and computations share: a committed value, a staged one, and who reads them. */
+abstract class Node<T = any> {
+  value!: T;
+  staged: T | typeof NONE = NONE;
+  tx: Transaction | null = null;
   observers: Computation<any>[] = [];
-  equals: Equals<T>;
-  unobserved?: () => void;
-  ownedWrite: boolean;
   height = 0;
   /** Counts its changes: a reader compares it with the count it saw. */
   version = 0;
+  unobserved?: () => void;
+  /** The value in the world being read: staged while a pass runs, committed otherwise. */
+  current(): T {
+    return inPass && this.staged !== NONE ? (this.staged as T) : this.value;
+  }
+  /** A new value staged: committed at the flush's end, or held by a transaction. */
+  stage(next: T) {
+    this.staged = next;
+    this.version++;
+    clock++;
+    if (!this.tx) staged.push(this);
+    for (const o of this.observers) o.mark(DIRTY);
+  }
+  /** The staged value made the committed one. */
+  promote() {
+    if (this.staged !== NONE) this.value = this.staged as T;
+    this.staged = NONE;
+    this.tx = null;
+  }
+  subscribe(o: Computation<any>) {
+    this.observers.push(o);
+  }
+  unsubscribe(o: Computation<any>) {
+    remove(this.observers, o);
+    if (!this.observers.length) this.unobserved?.();
+  }
+  /** Changed in place (a store key): its readers told. */
+  bump() {
+    this.version++;
+    clock++;
+    for (const o of this.observers) o.mark(DIRTY);
+  }
+}
+
+export class Signal<T> extends Node<T> {
+  /** A write waiting for the next flush. */
+  pending: T | typeof NONE = NONE;
+  equals: Equals<T>;
+  ownedWrite: boolean;
   constructor(value: T, options?: SignalOptions<T>) {
+    super();
     this.value = value;
     this.equals = options?.equals ?? Object.is;
     this.unobserved = options?.unobserved;
@@ -138,7 +205,7 @@ export class Signal<T> {
   }
   read(): T {
     if (listener) listener.track(this);
-    return this.value;
+    return this.current();
   }
   write(next: T) {
     guardWrite(this.ownedWrite);
@@ -150,28 +217,13 @@ export class Signal<T> {
   settle() {
     this.pending = NONE;
   }
-  /** Changed in place: its readers told. */
-  bump() {
-    this.version++;
-    clock++;
-    for (const o of this.observers) o.mark(DIRTY);
-  }
-  /** The pending write applied: its observers go dirty if the value changed. */
+  /** The pending write staged, if it changes the value. */
   commit() {
     const next = this.pending as T;
     this.pending = NONE;
-    if (this.equals !== false && this.equals(this.value, next)) return;
-    this.value = next;
-    this.version++;
-    clock++;
-    for (const o of this.observers) o.mark(DIRTY);
-  }
-  subscribe(o: Computation<any>) {
-    this.observers.push(o);
-  }
-  unsubscribe(o: Computation<any>) {
-    remove(this.observers, o);
-    if (!this.observers.length) this.unobserved?.();
+    const now = this.staged !== NONE ? (this.staged as T) : this.value;
+    if (this.equals !== false && this.equals(now, next)) return;
+    this.stage(next);
   }
 }
 
@@ -198,31 +250,35 @@ const MEMO = 0;
 const EFFECT = 1;
 const RENDER = 2;
 
-type Source = Signal<any> | Computation<any>;
+type Source = Node<any>;
+const accessors = new WeakMap<Function, Computation<any>>();
 
-export class Computation<T> implements Owner {
+export class Computation<T> extends Node<T> implements Owner {
   parent: Owner | null;
   owned: Owner[] | null = null;
   cleanups: (() => void)[] | null = null;
   context: Record<symbol, unknown> | null;
   disposed = false;
   id = ids++;
-  height = 0;
   kind: number;
   fn: (prev?: T) => T;
-  value: T | undefined = undefined;
   state = DIRTY;
   sources: Source[] = [];
   /** The version of each source when it was read. */
   seen: number[] = [];
-  version = 0;
-  observers: Computation<any>[] = [];
-  /** Subscribed to its sources (a memo nothing reads, unowned or lazy, lets go of them and checks the clock instead). */
+  /** Sources read only through isPending/latest: what is shown ahead of a hold (they do not hold this). */
+  verdict: Set<Source> | null = null;
   attached = false;
   ranAt = -1;
   equals: Equals<T>;
   lazy: boolean;
-  unobserved?: () => void;
+  /** Has had a value (an async compute's first load has not). */
+  ready = false;
+  /** The flight in progress (its promise), and whether it is a quiet re-ask (refresh). */
+  flight: object | null = null;
+  quiet = false;
+  /** Why its last run failed (an error read rethrows it). */
+  error: unknown = NONE;
   /** An effect's apply half, what it last applied, and the cleanup it gave back. */
   apply?: (value: T, prev?: T) => void | (() => void);
   applied: T | typeof NONE = NONE;
@@ -231,6 +287,7 @@ export class Computation<T> implements Owner {
   /** An effect whose compute gave a new value: its apply is due. */
   due = false;
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
+    super();
     this.kind = kind;
     this.fn = fn;
     this.parent = owner;
@@ -248,24 +305,24 @@ export class Computation<T> implements Owner {
     return this.kind === MEMO && (this.lazy || !this.parent) && !this.observers.length;
   }
   track(source: Source) {
+    if (verdictReading) (this.verdict ??= new Set()).add(source);
     if (this.sources.includes(source)) return;
     this.sources.push(source);
     this.seen.push(source.version);
     if (source.height >= this.height) this.height = source.height + 1;
     if (this.attached) source.subscribe(this);
   }
-  subscribe(o: Computation<any>) {
+  override subscribe(o: Computation<any>) {
     this.observers.push(o);
     if (!this.attached) this.attach();
   }
-  unsubscribe(o: Computation<any>) {
+  override unsubscribe(o: Computation<any>) {
     remove(this.observers, o);
     if (this.observers.length) return;
     this.unobserved?.();
     // A lazy memo with no reader left is torn down (an unowned one stays subscribed: it is eager).
     if (this.lazy) this.detach(), (this.state = DIRTY);
   }
-  /** Subscribed again to what it read; stale if anything changed since it ran. */
   attach() {
     this.attached = true;
     if (this.ranAt !== clock && this.state === CLEAN) this.state = CHECK;
@@ -275,12 +332,14 @@ export class Computation<T> implements Owner {
     this.attached = false;
     for (const s of this.sources) s.unsubscribe(this);
   }
-  /** Disposed: its subscriptions and its effect's cleanup let go. */
+  /** Disposed: its subscriptions, its flight and its effect's cleanup let go. */
   end() {
     if (this.attached) this.detach();
     this.sources = [];
     this.seen = [];
     this.attached = false;
+    this.flight = null;
+    flights.delete(this);
     const c = this.cleanup;
     this.cleanup = undefined;
     c?.();
@@ -291,23 +350,23 @@ export class Computation<T> implements Owner {
     const was = this.state;
     this.state = state;
     if (was !== CLEAN) return;
-    // Every dirty node runs in the flush, in dependency order (a lazy memo nothing reads waits to be read).
     if (!(this.lazy && !this.observers.length)) queue(this);
     for (const o of this.observers) o.mark(CHECK);
   }
   read(): T {
     if (!this.disposed) {
-      // Autodisposed and read with nothing subscribed: from scratch, if anything changed since it ran.
       if (!listener && this.autodispose && this.ranAt !== clock) this.state = DIRTY;
       this.update();
     }
     if (listener) listener.track(this);
-    return this.value as T;
+    if (this.error !== NONE) throw this.error;
+    // Never had a value (a first load, or waiting on one): not ready.
+    if (!this.ready && !(inPass && this.staged !== NONE)) throw new NotReadyError(this);
+    return this.current();
   }
   /** Brought up to date: run again if something it read changed (memos it read brought up to date first). */
   update() {
     if (this.state === CHECK) {
-      // Each source brought up to date in turn: the first that changed since it was read makes this run again.
       for (let i = 0; i < this.sources.length; i++) {
         const s = this.sources[i]!;
         if (s instanceof Computation) s.update();
@@ -325,35 +384,112 @@ export class Computation<T> implements Owner {
     if (this.attached) for (const s of this.sources) s.unsubscribe(this);
     this.sources = [];
     this.seen = [];
+    this.verdict = null;
     this.attached = true;
     const prevOwner = owner;
     const prevListener = listener;
     owner = this;
     listener = this;
+    inPass++;
     let next: T;
+    let threw: unknown = NONE;
     try {
-      next = this.fn(this.value);
+      next = this.fn(this.current());
+    } catch (e) {
+      threw = e;
     } finally {
       owner = prevOwner;
       listener = prevListener;
+      inPass--;
     }
     this.state = CLEAN;
     this.ranAt = clock;
-    const first = this.applied === NONE && this.kind !== MEMO;
-    const changed = first || this.equals === false || !this.equals(this.value as T, next);
-    this.value = next;
-    if (!changed) return;
-    if (this.kind === MEMO) {
+    if (threw !== NONE) {
+      // Waiting on a first load upstream: still not ready (its readers wait too).
+      if (threw instanceof NotReadyError) return void (this.error = NONE);
+      this.error = threw;
       this.version++;
-    } else if (!this.due) {
-      this.due = true;
-      applies[this.kind as 1 | 2].push(this);
+      if (this.kind !== MEMO) handleError(this, threw);
+      return;
     }
+    this.error = NONE;
+    // An async answer: in flight, its old value kept meanwhile.
+    if (next! && typeof (next as any).then === "function") return this.fly(next as any);
+    if (next! && typeof (next as any)[Symbol.asyncIterator] === "function") return this.stream(next as any);
+    this.flight = null;
+    flights.delete(this);
+    this.take(next!);
+    // (After its own staging ticked the clock: it is current.)
+    this.ranAt = clock;
+  }
+  /** A value it computed or that landed: staged (or committed outside a flush), its readers told if it changed. */
+  take(next: T) {
+    const first = !this.ready;
+    this.ready = true;
+    const now = this.staged !== NONE ? (this.staged as T) : this.value;
+    const changed = first || this.equals === false || !this.equals(now, next);
+    if (this.kind !== MEMO) {
+      if (changed || this.applied === NONE) {
+        if (flushing || this.tx) this.staged = next;
+        else this.value = next;
+        if (flushing && !this.tx) staged.push(this);
+        if (!this.due) (this.due = true), applies[this.kind as 1 | 2].push(this);
+      }
+      return;
+    }
+    if (!changed) return;
+    if (flushing || this.tx) this.stage(next);
+    else (this.value = next), this.version++, clock++;
+  }
+  fly(p: PromiseLike<T>) {
+    const flight = {};
+    this.flight = flight;
+    flights.add(this);
+    statusChanged();
+    p.then(
+      (v) => this.flight === flight && this.land(v),
+      (e) => this.flight === flight && this.fail(e),
+    );
+  }
+  async stream(it: AsyncIterable<T>) {
+    const flight = {};
+    this.flight = flight;
+    flights.add(this);
+    statusChanged();
+    try {
+      for await (const v of it) {
+        if (this.flight !== flight) return;
+        landings.push([this, v]);
+        schedule();
+      }
+    } catch (e) {
+      if (this.flight === flight) this.fail(e);
+      return;
+    }
+    if (this.flight === flight) (this.flight = null), flights.delete(this), statusChanged();
+  }
+  land(v: T) {
+    this.flight = null;
+    flights.delete(this);
+    landings.push([this, v]);
+    statusChanged();
+    schedule();
+  }
+  fail(e: unknown) {
+    this.flight = null;
+    flights.delete(this);
+    this.error = e;
+    this.version++;
+    clock++;
+    for (const o of this.observers) o.mark(DIRTY);
+    statusChanged();
+    schedule();
   }
   /** An effect's apply half, untracked and unowned, after its last cleanup. */
   runApply() {
     if (!this.due || this.disposed) return;
     this.due = false;
+    this.promote();
     const prev = this.applied === NONE ? undefined : this.applied;
     this.applied = this.value as T;
     const c = this.cleanup;
@@ -365,14 +501,35 @@ export class Computation<T> implements Owner {
   }
 }
 
+/** An effect's compute threw: its error handler, the nearest boundary's, or the flush throws it. */
+function handleError(c: Computation<any>, e: unknown) {
+  if (c.onError) {
+    const handler = c.onError;
+    return void (pendingErrors.push(() => handler(e, () => c.cleanup?.())));
+  }
+  for (let o: Owner | null = c.parent; o; o = o.parent) {
+    const catcher = (o as any).catch as ((e: unknown) => boolean) | undefined;
+    if (catcher && catcher(e)) return;
+  }
+  uncaught.push(e);
+}
+
 // ---------------------------------------------------------------- scheduling
 
 /** Signals written since the last flush, in order. */
 const writes: Signal<any>[] = [];
-/** Computations to bring up to date: effects, and memos nothing reads (memos are eager unless lazy). */
+/** Async values that landed outside a hold: staged at the next flush. */
+const landings: [Computation<any>, any][] = [];
+/** Computations to bring up to date. */
 let dirty: Computation<any>[] = [];
+/** Nodes staged in this round and not held: committed (or held) at its end. */
+let staged: Node[] = [];
+/** Computations with a flight in progress. */
+const flights = new Set<Computation<any>>();
 /** Effects whose apply half is due: [unused, effects, render effects]. */
 const applies: [null, Computation<any>[], Computation<any>[]] = [null, [], []];
+const pendingErrors: (() => void)[] = [];
+const uncaught: unknown[] = [];
 
 const queue = (c: Computation<any>) => (dirty.push(c), schedule());
 
@@ -396,20 +553,142 @@ export function resetErrorHalt() {
 
 const byOrder = (a: Computation<any>, b: Computation<any>) => a.height - b.height || a.id - b.id;
 
+/** What isPending()/latest() readers follow: told whenever a hold or a flight starts or ends. */
+const status = new (class extends Node<number> {})();
+status.value = 0;
+function statusChanged() {
+  status.bump();
+}
+
+/** Whether `n`, or something it was derived from, is in flight (and has a value to show meanwhile) or held. */
+function waiting(n: Node, seen = new Set<Node>()): boolean {
+  if (seen.has(n)) return false;
+  seen.add(n);
+  if (n.tx && n.staged !== NONE) return true;
+  if (n instanceof Computation) {
+    if (n.flight && n.ready && !n.quiet) return true;
+    for (const s of n.sources) if (waiting(s, seen)) return true;
+  }
+  return false;
+}
+
+/** Whether a flight is in progress at `n` or upstream of it. */
+function inFlight(n: Node, seen = new Set<Node>()): boolean {
+  if (seen.has(n)) return false;
+  seen.add(n);
+  if (n instanceof Computation) {
+    if (n.flight) return true;
+    for (const s of n.sources) if (inFlight(s, seen)) return true;
+  }
+  return false;
+}
+
+/**
+ * What a staged node leads to: the computations downstream of it, not through readers that only probe it
+ * (isPending/latest show ahead of a hold).
+ */
+function downstream(n: Node, out = new Set<Computation<any>>()): Set<Computation<any>> {
+  for (const o of n.observers) {
+    if (out.has(o)) continue;
+    if (o.verdict?.has(n) && !o.sources.some((s) => s === n && !o.verdict!.has(s))) continue;
+    out.add(o);
+    downstream(o, out);
+  }
+  return out;
+}
+
+/** This round's staged nodes committed, or held where they lead to a flight that something renders. */
+function settleRound() {
+  const now = staged;
+  staged = [];
+  let tx: Transaction | null = null;
+  const held = new Set<Node>();
+  for (const n of now) {
+    if (n.tx || held.has(n)) continue;
+    const below = downstream(n);
+    let holds = false;
+    let joins: Transaction | null = null;
+    for (const c of below) {
+      if (c.tx) joins = c.tx.root;
+      if (c.flight && c.ready && (c.kind !== MEMO || rendered(c))) holds = true;
+    }
+    // Reading a node a transaction holds joins it.
+    if (n instanceof Computation) for (const s of n.sources) if (s.tx && !n.verdict?.has(s)) joins = s.tx.root;
+    if (!holds && !joins) continue;
+    const t: Transaction = joins ?? (tx ??= newTransaction());
+    hold(n, t);
+    held.add(n);
+    for (const c of below) {
+      if (c.staged !== NONE || c.due) hold(c, t);
+      if (c.flight) t.flights.add(c);
+    }
+  }
+  for (const n of now) if (!n.tx) n.promote();
+  if (held.size) statusChanged();
+}
+
+/** Whether a computation's value reaches the screen: an effect reads it, directly or through memos. */
+function rendered(c: Computation<any>, seen = new Set<Computation<any>>()): boolean {
+  if (seen.has(c)) return false;
+  seen.add(c);
+  for (const o of c.observers) if (o.kind !== MEMO || rendered(o, seen)) return true;
+  return false;
+}
+
+function newTransaction() {
+  const t = new Transaction();
+  transactions.add(t);
+  return t;
+}
+
+function hold(n: Node, t: Transaction) {
+  if (n.tx === t) return;
+  n.tx = t;
+  t.nodes.add(n);
+  if (n instanceof Computation && n.due) {
+    t.effects.add(n);
+    remove(applies[n.kind as 1 | 2], n);
+  }
+}
+
+/** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
+function commitTransactions() {
+  for (const t of [...transactions]) {
+    if (t.merged) {
+      transactions.delete(t);
+      continue;
+    }
+    for (const f of t.flights) if (!f.flight || f.disposed) t.flights.delete(f);
+    // A flight in progress at any node it holds keeps it.
+    for (const n of t.nodes) if (n instanceof Computation && n.flight) t.flights.add(n);
+    if (t.flights.size || t.open) continue;
+    transactions.delete(t);
+    for (const n of t.nodes) n.promote();
+    for (const e of t.effects) if (e.due) applies[e.kind as 1 | 2].push(e);
+    statusChanged();
+  }
+}
+
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; writes.length || dirty.length || applies[RENDER].length || applies[EFFECT].length; rounds++) {
+  for (let rounds = 0; writes.length || landings.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (writes.length) for (const s of writes.splice(0)) s.commit();
+    if (landings.length) for (const [c, v] of landings.splice(0)) if (!c.disposed) c.take(v);
     while (dirty.length) {
       const now = dirty.sort(byOrder);
       dirty = [];
       for (const c of now) if (!c.disposed) c.update();
     }
+    settleRound();
+    commitTransactions();
+    if (uncaught.length) throw uncaught.splice(0)[0];
+    if (pendingErrors.length) for (const f of pendingErrors.splice(0)) f();
     if (applies[RENDER].length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
     if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
   }
 }
+const statusDirty = () => false;
 
 /**
  * The queued writes applied and everything brought up to date now. Given a function, it runs first, and its writes
@@ -425,6 +704,7 @@ export function flush<T>(fn?: () => T): T {
     halted = true;
     writes.splice(0);
     dirty = [];
+    staged = [];
     applies[RENDER].splice(0);
     applies[EFFECT].splice(0);
     throw e;
@@ -438,16 +718,19 @@ export function flush<T>(fn?: () => T): T {
 
 type Accessor<T> = () => T;
 type Setter<T> = (next: T | ((prev: T) => T)) => T;
+export type SourceAccessor<T> = Accessor<T>;
 
 export function createSignal<T>(value: T | ((prev?: T) => T), options?: SignalOptions<T>): [Accessor<T>, Setter<T>] {
   if (typeof value === "function") return writableMemo(value as (prev?: T) => T, options);
   const s = new Signal(value as T, options);
   const set: Setter<T> = (next) => {
-    const v = typeof next === "function" ? (next as (prev: T) => T)(s.pending === NONE ? s.value : (s.pending as T)) : next;
+    const v = typeof next === "function" ? (next as (prev: T) => T)(s.pending !== NONE ? (s.pending as T) : s.staged !== NONE ? (s.staged as T) : s.value) : next;
     s.write(v);
     return v;
   };
-  return [() => s.read(), set];
+  const read = () => s.read();
+  accessors.set(read, s as any);
+  return [read, set];
 }
 
 /** A value worked out from what it reads, that can also be set: a write stays until what it reads changes. */
@@ -468,17 +751,21 @@ function writableMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): [Acce
   );
   if (!m.lazy) m.run();
   const set: Setter<T> = (next) => {
-    const v = typeof next === "function" ? (next as (prev: T) => T)(m.value as T) : next;
+    const v = typeof next === "function" ? (next as (prev: T) => T)(m.current() as T) : next;
     written.write({ v });
     return v;
   };
-  return [() => m.read(), set];
+  const read = () => m.read();
+  accessors.set(read, m);
+  return [read, set];
 }
 
 export function createMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): Accessor<T> {
   const m = new Computation<T>(MEMO, fn, options);
   if (!m.lazy) m.run();
-  return () => m.read();
+  const read = () => m.read();
+  accessors.set(read, m);
+  return read;
 }
 
 type EffectBundle<T> = { effect: (value: T, prev?: T) => void | (() => void); error?: (err: unknown, cleanup: () => void) => void };
@@ -498,6 +785,80 @@ export function createEffect<T>(compute: (prev?: T) => T, apply?: ((value: T, pr
 
 export function createRenderEffect<T>(compute: (prev?: T) => T, apply?: ((value: T, prev?: T) => void | (() => void)) | EffectBundle<T>, options?: SignalOptions<T>) {
   effectOf(RENDER, compute, apply, options);
+}
+
+// ---------------------------------------------------------------- isPending, latest, refresh, resolve
+
+/** Reading through isPending()/latest(): what is read is shown ahead of any hold. */
+let verdictReading = 0;
+
+/** Whether a change to what `fn` reads is on its way (in flight, or held), its value shown meanwhile. */
+export function isPending(fn: () => unknown): boolean {
+  const reads: Node[] = [];
+  const probe = new Computation<unknown>(MEMO, () => undefined);
+  probe.attached = false;
+  const outer = listener;
+  if (outer) outer.track(status);
+  verdictReading++;
+  listener = probe;
+  try {
+    fn();
+  } finally {
+    listener = outer;
+    verdictReading--;
+  }
+  reads.push(...probe.sources);
+  if (outer) {
+    verdictReading++;
+    for (const s of reads) outer.track(s);
+    verdictReading--;
+  }
+  return reads.some((s) => waiting(s));
+}
+
+/** `fn` read in the newest world: what is staged in a hold or in flight, ahead of what is shown. */
+export function latest<T>(fn: () => T): T {
+  verdictReading++;
+  inPass++;
+  try {
+    return fn();
+  } finally {
+    inPass--;
+    verdictReading--;
+  }
+}
+
+/** Run a derived value again (an async one re-asks quietly: isPending stays false). */
+export function refresh<T>(target: (() => T) | object): Promise<T> {
+  const c = (typeof target === "function" ? accessors.get(target) : undefined) ?? (typeof target === "object" && target ? accessors.get(refreshables.get(target)?.() as any) : undefined);
+  if (typeof target !== "function" && !c) throw new Error("refresh() expects a refreshable source (a memo, a derived signal or store)");
+  if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
+  c.quiet = true;
+  c.mark(DIRTY);
+  return resolve(() => (typeof target === "function" ? (target as () => T)() : (target as T)));
+}
+
+/** A promise for `fn`'s first settled value (not in flight, not held). */
+export function resolve<T>(fn: () => T): Promise<T> {
+  if (listener) throw new Error("resolve() cannot be called inside a reactive scope");
+  return new Promise<T>((ok, fail) => {
+    createRoot((dispose) => {
+      createEffect(
+        () => {
+          const v = fn();
+          return { v, settled: !isPending(() => fn()) };
+        },
+        {
+          effect: ({ v, settled }) => {
+            if (!settled) return;
+            dispose();
+            ok(v);
+          },
+          error: (e) => (dispose(), fail(e)),
+        },
+      );
+    });
+  });
 }
 
 // ---------------------------------------------------------------- context
