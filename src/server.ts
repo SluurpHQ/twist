@@ -353,13 +353,15 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       ctx.tree = tree;
     }
   }
-  if (typeof node === "object" && typeof node[Symbol.iterator] === "function" && !node.$$typeof) {
-    const it = node[Symbol.iterator]();
+  // An iterable (or an old `@@iterator` object, which React still accepts).
+  const iterate = typeof node === "object" && !node.$$typeof ? (node[Symbol.iterator] ?? node["@@iterator"]) : undefined;
+  if (typeof iterate === "function") {
+    const it = iterate.call(node);
     if (it === node)
       warnOnce(
         "Using Iterators as children is unsupported and will likely yield unexpected results because enumerating a generator mutates it. You may convert it to an array with `Array.from()` or the `[...spread]` operator before rendering. You can also use an Iterable that can iterate multiple times over the same items.",
       );
-    else if (node.entries === node[Symbol.iterator]) warnOnce("Using Maps as children is not supported. Use an array of keyed ReactElements instead.");
+    else if (node.entries === iterate) warnOnce("Using Maps as children is not supported. Use an array of keyed ReactElements instead.");
     const items: any[] = [];
     for (let r = it.next(); !r.done; r = it.next()) items.push(r.value);
     return render(items, ctx, hooks);
@@ -437,6 +439,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           if (ctx.static) return fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
           return `<!--$!-->${errorTemplate(undefined, aborted(RENDER_TO_STRING_SUSPENSE))}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
         }
+        // Asked for in the browser only: the fallback, left to the client (no error to tell).
+        if (!stream && isBrowserOnly(e)) return ctx.static ? fallbackFrame(ctx, () => render(props.fallback, ctx, hooks)) : `<!--$!-->${errorTemplate("", "")}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
         if (!stream) throw e;
         // An error inside a boundary: its fallback now, the client renders it again (React's behaviour).
         const digest = stream.onError(e);
@@ -791,6 +795,17 @@ function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
   return undefined;
 }
 
+/** A render that cannot wait (renderToString): what suspends outside any Suspense is an error, as React says. */
+function onceSync(node: any, ctx: Ctx): string {
+  try {
+    return once(node, ctx);
+  } catch (e: any) {
+    if (e && typeof e.then === "function")
+      throw new Error("A component suspended while responding to synchronous input. This will cause the UI to be replaced with a loading indicator. To fix, updates that suspend should be wrapped with startTransition.");
+    throw e;
+  }
+}
+
 function once(node: any, ctx: Ctx) {
   const hooks = serverHooks(ctx);
   const was = rendering_;
@@ -1002,7 +1017,7 @@ const frameName = (type: any): string =>
 export function renderToString(node: any, options?: any) {
   const ctx = fresh();
   ctx.idPrefix = options?.identifierPrefix ?? "";
-  const html = once(node, ctx);
+  const html = onceSync(node, ctx);
   return withPreamble(html, ctx.res.preamble("", ""));
 }
 /** Plain markup, for pages no client hydrates: no text separators and no Suspense or Activity comments. */
@@ -1010,7 +1025,7 @@ export function renderToStaticMarkup(node: any, options?: any) {
   const ctx = fresh();
   ctx.static = true;
   ctx.idPrefix = options?.identifierPrefix ?? "";
-  const html = once(node, ctx);
+  const html = onceSync(node, ctx);
   return withPreamble(html, ctx.res.preamble("", ""));
 }
 

@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3720 pass, 304 fail, 314 skipped (gated off for stable React 19).
+3726 pass, 298 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -67,7 +67,7 @@
 | react-dom/ReactDOMSelect-test.js | 59 | 1 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 546 | 4 | 0 |  |
-| react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
+| react-dom/ReactDOMServerIntegrationBasic-test.js | 55 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationElements-test.js | 326 | 10 | 0 |  |
@@ -92,7 +92,7 @@
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 23 | 14 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerSuspense-test.internal.js | 6 | 3 | 1 |  |
+| react-dom/ReactDOMServerSuspense-test.internal.js | 9 | 0 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSingletonComponents-test.js | 11 | 2 | 9 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
