@@ -252,18 +252,19 @@ function insideHidden(f: Fiber): boolean {
   return false;
 }
 /** Whether a host node is a top-level one of a hidden Activity (or of a portal inside one): hidden itself. */
-function topInHidden(f: Fiber): boolean {
+function topInHidden(f: Fiber): number {
+  // Each hidden Activity it is a top-level node of hides it once (a portal's children are top-level again).
+  let count = 0, top = true, portalChild = false;
   for (let p = f.parent; p; p = p.parent) {
-    if ((p as any).hidden) return true;
-    if (p.kind === HOST) return false;
-    if (p.kind === PORTAL_F) return insideHidden(p);
+    if ((p as any).hidden && (top || portalChild)) count++;
+    if (p.kind === PORTAL_F && top) portalChild = true;
+    if (p.kind === HOST) top = false;
   }
-  return false;
+  return count;
 }
 /** An Activity's top-level nodes, and those of the portals in it (React hides a portal's children too). */
 function activityNodes(f: Fiber, out: Node[] = [], top = true): Node[] {
   for (const c of f.children) {
-    if ((c as any).hidden) continue;
     if (c.kind === HOST || c.kind === TEXT) {
       if (top) out.push(c.dom);
       // Portals anywhere below: their own top-level nodes too.
@@ -306,7 +307,7 @@ function reappear(f: Fiber) {
       for (const h of x.hooks ?? []) {
         if (!h || typeof h.create !== "function") continue;
         const run = () => {
-          if (x.dead) return;
+          if (x.dead || h.ranIn === renderSerial) return;
           h.first = false;
           try {
             if (typeof h.cleanup === "function") h.cleanup();
@@ -1010,6 +1011,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
     }
     toldFragmentsAdded(f);
+    if (hiddenActivities) for (let k = topInHidden(f); k > 0; k--) hideNode(f.dom, true);
     return f;
   }
   if (type === FRAGMENT) {
@@ -1095,7 +1097,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     }
     toldFragmentsAdded(f);
     // A new top-level node in a hidden Activity (or a portal's in one) is hidden as it comes.
-    if (hiddenActivities && topInHidden(f)) hideNode(el, true);
+    if (hiddenActivities) for (let k = topInHidden(f); k > 0; k--) hideNode(el, true);
     if (props.ref != null) layoutQueue.push(() => !f.dead && !(hiddenActivities && insideHidden(f)) && setRef(f, props.ref, el));
     return f;
   }
@@ -1201,7 +1203,7 @@ function update(f: Fiber, c: any) {
     } else reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
     if (wasHidden !== nowHidden && !nowHidden) {
       hideActivity(f, false);
-      reappear(f);
+      if (!insideHidden(f)) reappear(f);
     }
     f.props = c.props;
     // A fragment ref: its new elements get its listeners; a changed ref is moved over at commit.
@@ -2266,6 +2268,7 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
   h.create = create;
   f[phase]!.push(() => {
     if (f.dead) return;
+    h.ranIn = renderSerial;
     h.first = false;
     h.deps = deps;
     try {
