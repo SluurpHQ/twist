@@ -187,7 +187,7 @@ const draftHandler: ProxyHandler<Raw> = {
   ownKeys(target) {
     const keys = new Set<string | symbol>(Reflect.ownKeys(target));
     const p = records.get(target)?.pending;
-    if (p) for (const [k, v] of p) v === DELETE ? keys.delete(k) : keys.add(k);
+    if (p) for (const [k, v] of p) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
     if (Array.isArray(target)) {
       // Indices at or past the pending length are gone.
       const len = pendingValue(target, "length");
