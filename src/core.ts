@@ -814,7 +814,10 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
       f.passive = [];
     }
   } catch (e) {
-    out = null;
+    // An update that suspends in a transition, or with no Suspense around it: what was on the page stays (React
+    // keeps the committed UI and tries again when the data is there), rather than its children going and coming.
+    const keep = f.committed && e && typeof (e as any).then === "function" && (applyingTransition || !suspenseAbove(f));
+    out = keep ? KEEP : null;
     current = prevCurrent;
     hookAt = prevAt;
     caught(f, e);
@@ -843,11 +846,13 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     f.layout = [];
     f.passive = [];
     // Mounting: mounted again; updating: updated again, with the error's state.
-    if (!f.committed) f.inst.__remount = true;
+    if (!f.committed && f.type.getDerivedStateFromError) f.inst.__remount = true;
     current = f;
     hookAt = 0;
     try {
-      out = f.render!(f, f.props);
+      // A boundary with componentDidCatch alone has no state for the error yet: it shows nothing until its
+      // componentDidCatch (in the commit) sets some, as React has it.
+      out = f.type.getDerivedStateFromError ? f.render!(f, f.props) : null;
     } catch (e) {
       out = null;
       caught(f, e);
@@ -1003,10 +1008,13 @@ export class Component<P = any, S = any> {
       this.state = { ...this.state, ...(typeof partial === "function" ? partial(this.state, this.props) : partial) };
       return;
     }
-    this.__queue.push(partial);
-    scheduledInCommit();
-    if (done) (this.__done ??= []).push(done);
-    this.__f.tick!.set(this.__f.tick!.peek() + 1);
+    const apply = () => {
+      this.__queue.push(partial);
+      scheduledInCommit();
+      if (done) (this.__done ??= []).push(done);
+      this.__f.tick!.set(this.__f.tick!.peek() + 1);
+    };
+    if (!inTransition(apply)) apply();
   }
   forceUpdate(done?: () => void) {
     if (!this.__f) return;
@@ -1041,6 +1049,11 @@ const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
 /** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
 function caught(f: Fiber, e: any) {
   if (e && typeof e.then === "function") {
+    // In a transition, an update keeps what is shown (no fallback) and is drawn again once the data is there.
+    if (applyingTransition && f.committed) {
+      e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
+      return;
+    }
     for (let p = f.parent; p; p = p.parent) {
       if (p.type === SUSPENSE && p.pending && !p.dead) {
         const s = p;
@@ -1227,7 +1240,10 @@ export const client = {
     const f = current!;
     const h = hook(() => {
       const box = state(f, typeof init === "function" ? (init as () => T)() : init);
-      box.set = (v: any) => box.put(typeof v === "function" ? v(box.v) : v);
+      box.set = (v: any) => {
+        const apply = () => box.put(typeof v === "function" ? v(box.v) : v);
+        if (current === f || !inTransition(apply)) apply();
+      };
       return box;
     });
     return [h.read(), h.set];
@@ -1237,7 +1253,10 @@ export const client = {
     const h = hook(() => {
       const box = state(f, init ? init(arg) : arg);
       box.reducer = reducer;
-      box.dispatch = (a: any) => box.put(box.reducer(box.v, a));
+      box.dispatch = (a: any) => {
+        const apply = () => box.put(box.reducer(box.v, a));
+        if (current === f || !inTransition(apply)) apply();
+      };
       return box;
     });
     h.reducer = reducer;
@@ -1436,13 +1455,59 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
   });
 }
 
+// ---------------------------------------------------------------- transitions
+
+/** Inside startTransition: the updates set are a transition's, drawn after what is urgent. */
+let transitioning = 0;
+const transitionWork: (() => void)[] = [];
+let transitionBooked = false;
+/** A transition's updates being drawn now. */
+let applyingTransition = false;
+/** Whether a Suspense boundary is around `f`. */
+const suspenseAbove = (f: Fiber) => {
+  for (let p = f.parent; p; p = p.parent) if (p.type === SUSPENSE) return true;
+  return false;
+};
+/** An update of a transition: applied once the urgent updates set with it have been drawn. */
+export function inTransition(apply: () => void): boolean {
+  if (!transitioning) return false;
+  deferTransition(apply);
+  return true;
+}
+function deferTransition(apply: () => void) {
+  transitionWork.push(apply);
+  if (transitionBooked) return;
+  transitionBooked = true;
+  // After the urgent flush (booked on the microtask before this one), as React renders the transition lane later.
+  queueMicrotask(() =>
+    queueMicrotask(() => {
+      transitionBooked = false;
+      applyingTransition = true;
+      try {
+        for (const w of transitionWork.splice(0)) w();
+        flushSignals();
+      } finally {
+        applyingTransition = false;
+      }
+    }),
+  );
+}
+
 function startTransitionWith(fn: () => any, pending?: Sig<number>) {
-  const r = fn();
-  if (pending && r && typeof r.then === "function") {
-    pending.set(pending.peek() + 1);
-    const done = () => pending.set(pending.peek() - 1);
-    r.then(done, done);
+  // Pending at once, as an urgent update; no longer pending with the transition's own updates (or when its action
+  // settles, for an async one).
+  if (pending) pending.set(pending.peek() + 1);
+  transitioning++;
+  let r: any;
+  try {
+    r = fn();
+  } finally {
+    transitioning--;
   }
+  if (!pending) return;
+  const done = () => deferTransition(() => pending.set(pending.peek() - 1));
+  if (r && typeof r.then === "function") r.then(done, done);
+  else done();
 }
 export const startTransition = (fn: () => any) => startTransitionWith(fn);
 

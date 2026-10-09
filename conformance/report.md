@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2828 pass, 1196 fail, 314 skipped (gated off for stable React 19).
+2832 pass, 1192 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -29,7 +29,7 @@
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
 | react-dom/ReactDOMEventListener-test.js | 21 | 2 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 86 | 6 | 0 |  |
-| react-dom/ReactDOMFiber-test.js | 25 | 11 | 1 |  |
+| react-dom/ReactDOMFiber-test.js | 27 | 9 | 1 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
@@ -136,7 +136,7 @@
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 2 | 1 | 0 |  |
 | react/createReactClassIntegration-test.js | 17 | 9 | 2 |  |
-| react/forwardRef-test.internal.js | 5 | 1 | 0 |  |
+| react/forwardRef-test.internal.js | 6 | 0 | 0 |  |
 | react/forwardRef-test.js | 16 | 3 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
 | react/ReactChildren-test.js | 38 | 4 | 0 |  |
@@ -151,7 +151,7 @@
 | react/ReactJSXRuntime-test.js | 8 | 7 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 12 | 7 | 0 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
-| react/ReactProfiler-test.internal.js | 8 | 25 | 1 |  |
+| react/ReactProfiler-test.internal.js | 9 | 24 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 6 | 1 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
 | react/ReactPureComponent-test.js | 2 | 2 | 0 |  |
