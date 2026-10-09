@@ -10,6 +10,7 @@ const map: Record<string, string> = {
   "react-dom": "react-dom.ts",
   "react-dom/client": "client.ts",
   "react-dom/server": "server.ts",
+  "react-redux": "react-redux.ts",
 };
 const out = await Bun.build({
   entrypoints: [join(import.meta.dir, "suite.tsx")],
@@ -20,7 +21,7 @@ const out = await Bun.build({
     {
       name: "sluurp-dom",
       setup(b) {
-        b.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (a) => (map[a.path] ? { path: join(src, map[a.path]!) } : undefined));
+        b.onResolve({ filter: /^react(-dom|-redux)?(\/.*)?$/ }, (a) => (map[a.path] ? { path: join(src, map[a.path]!) } : undefined));
         // Libraries checked against it (Base UI), from the kit's packages.
         b.onResolve({ filter: /^@base-ui\// }, (a) => (/node_modules/.test(a.importer) ? undefined : { path: Bun.resolveSync(a.path, kit) }));
       },

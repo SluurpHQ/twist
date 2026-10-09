@@ -411,6 +411,28 @@ test("form action: status while pending, state after, form reset", async (box) =
   eq([box.querySelector("b")!.textContent, box.querySelector("i")!.textContent, (box.querySelector("input") as HTMLInputElement).value], ["5", "idle", "2"]);
 });
 
+test("react-redux: a dispatch re-renders only what selects the changed part", async (box) => {
+  const { Provider, useSelector, useDispatch, connect } = await import("react-redux");
+  // A minimal Redux store: the binding needs only getState, dispatch and subscribe.
+  const reducer = (s = { a: 0, b: 0 }, action: any) => (action.type === "a" ? { ...s, a: s.a + 1 } : action.type === "b" ? { ...s, b: s.b + 1 } : s);
+  let state = reducer(undefined, { type: "init" });
+  const subs = new Set<() => void>();
+  const store = { getState: () => state, dispatch: (a: any) => ((state = reducer(state, a)), subs.forEach((f) => f()), a), subscribe: (f: () => void) => (subs.add(f), () => subs.delete(f)) };
+  const renders = { A: 0, B: 0 };
+  const A = () => (renders.A++, <i>{useSelector((s: any) => s.a)}</i>);
+  const B = () => (renders.B++, <b>{useSelector((s: any) => s.b)}</b>);
+  const C = connect((s: any) => ({ total: s.a + s.b }))(({ total }: any) => <u>{total}</u>);
+  function Go() {
+    const dispatch = useDispatch();
+    return <button onClick={() => dispatch({ type: "a" })}>a</button>;
+  }
+  mount(box, <Provider store={store}><A /><B /><C /><Go /></Provider>);
+  click(box.querySelector("button")!);
+  await tick();
+  eq([box.querySelector("i")!.textContent, box.querySelector("b")!.textContent, box.querySelector("u")!.textContent], ["1", "0", "1"]);
+  eq(renders, { A: 2, B: 1 }, "renders");
+});
+
 test("server render", () => {
   const Ctx = createContext(1);
   const C = () => {
