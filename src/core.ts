@@ -3472,6 +3472,9 @@ function effectsDone() {
   syncInEffects = false;
 }
 export function flushSync<T>(fn?: () => T): T {
+  // Inside a render or a commit (a lifecycle): React cannot flush there, and says so (what fn does still happens).
+  if (dev() && (depth > 0 || committing) && !inPassive)
+    console.error("flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.");
   if (inEffects) {
     syncInEffects = true;
     if (++nestedSync > 50) {

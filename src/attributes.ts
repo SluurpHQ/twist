@@ -85,7 +85,7 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   }
   // data is a URL only on <object> (React sanitizes it there alone).
   if (URL.has(name) && (name !== "data" || tag === "object")) {
-    if (value === "" && !(tag === "a" && name === "href") && (name === "src" || name === "href")) {
+    if (value === "" && !(tag === "a" && name === "href") && (name === "src" || name === "href" || name === "data")) {
       warn(`An empty string ("") was passed to the ${name} attribute. ${name === "src" ? "This may cause the browser to download the whole page again over the network. " : ""}To fix this, either do not render the element at all or pass null to ${name} instead of an empty string.`);
       return [name, null];
     }

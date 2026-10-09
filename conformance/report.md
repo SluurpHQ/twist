@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3591 pass, 433 fail, 314 skipped (gated off for stable React 19).
+3597 pass, 427 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -30,7 +30,7 @@
 | react-dom/ReactDOMEventListener-test.js | 21 | 2 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 86 | 6 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 30 | 6 | 1 |  |
-| react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
+| react-dom/ReactDOMFiberAsync-test.js | 14 | 4 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServer-test.js | 118 | 55 | 11 |  |
@@ -78,7 +78,7 @@
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 9 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 51 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationObject-test.js | 5 | 5 | 0 |  |
+| react-dom/ReactDOMServerIntegrationObject-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMserverIntegrationProgress-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationReconnecting-test.js | 52 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationRefs-test.js | 4 | 0 | 0 |  |
