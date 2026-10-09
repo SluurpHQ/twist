@@ -1,6 +1,6 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, readThenable, unwrapChild } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, createElement, invalidType, objectChild, readThenable, unwrapChild, withOwner } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
@@ -225,6 +225,9 @@ function renderOutput(out: any, ctx: Ctx, hooks: any) {
 }
 /** A context's value where the render is (its provider's, or its default). */
 const contextValue = (ctx: Ctx, c: any) => (ctx.values.has(c) ? ctx.values.get(c) : c._defaultValue);
+
+/** The component (its owner frame) whose render threw last: onError is told from it. */
+let failedIn: any = null;
 
 function renderFunction(type: any, props: any) {
   const c: ServerComponent = { hooks: [], at: 0, again: false, ids: 0, pass: 0 };
@@ -510,7 +513,16 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       warn(
         `The <${type.displayName || type.name || "Component"} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${type.displayName || type.name || "Component"} to extend React.Component instead.`,
       );
-    return renderOutput(renderFunction(type, props), ctx, hooks);
+    // (Its element's owner and its type: what it makes is owned by it, an owner stack starts from it.)
+    const frame = dev() ? { type, owner: node?._owner ?? null } : null;
+    let out: any;
+    try {
+      out = frame ? withOwner(frame, () => renderFunction(type, props)) : renderFunction(type, props);
+    } catch (e) {
+      if (frame && failedIn === null && !(e && typeof (e as any).then === "function")) failedIn = frame;
+      throw e;
+    }
+    return renderOutput(out, ctx, hooks);
   }
   if (type == null) throw invalidType(type);
   switch (type.$$typeof) {
@@ -1052,7 +1064,10 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const onError = (e: unknown, at?: string) => {
     const componentStack = at ?? componentStackOf(e);
     if (isBrowserOnly(e)) return options.onBrowserBailout?.(e, { componentStack }), "";
-    const digest = options.onError ? options.onError(e, { componentStack }) : (console.error(e), undefined);
+    // Told from the component that threw, so captureOwnerStack gives the components that rendered it.
+    const from = failedIn;
+    failedIn = null;
+    const digest = options.onError ? withOwner(from, () => options.onError(e, { componentStack })) : (console.error(e), undefined);
     return digest === "" ? undefined : digest;
   };
   // The digest and (in development) the message, as script arguments.

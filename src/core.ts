@@ -2,7 +2,7 @@
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
-import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
+import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
@@ -155,7 +155,14 @@ const BUILT_IN = new Set<any>([SUSPENSE, SUSPENSE_LIST, ACTIVITY]);
 export function captureOwnerStack(): string | null {
   if (!dev()) return null;
   let f = toldFor ?? current;
-  if (!f) return null;
+  if (!f) {
+    // A server render's component: the components that rendered it.
+    const o = ownerNow();
+    if (!o) return null;
+    let out = "";
+    for (let p = o.owner; p; p = p.owner) out += "\n    at " + nameOf(p.type) + " (<anonymous>)";
+    return out;
+  }
   if (f.kind === TEXT && f.parent) f = f.parent;
   const frame = (name: string) => "\n    at " + name + " (<anonymous>)";
   let out = "";
