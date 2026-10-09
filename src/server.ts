@@ -263,7 +263,10 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       ctx.res.boundary = deps;
       try {
         const out = suspendAfter(ctx, () => render(props.children, ctx, hooks));
-        if (parentDeps) for (const k of ["sheets", "styles"] as const) for (const x of deps[k]) parentDeps[k].add(x);
+        if (parentDeps) {
+          for (const k of ["sheets", "styles"] as const) for (const x of deps[k]) parentDeps[k].add(x);
+          if ((deps as any).emitted) ((parentDeps as any).emitted ??= []).push(...(deps as any).emitted);
+        }
         return `<!--$-->${out}<!--/$-->`;
       } catch (e: any) {
         ctx.res.boundary = parentDeps;
@@ -439,7 +442,7 @@ function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
       if (!ctx.fallback) {
         const child = single(props.children);
         const text = child == null || typeof child === "function" || typeof child === "symbol" || typeof child === "boolean" ? "" : escape(String(child));
-        r.hoistables.push(writeTag("title", { ...props, children: undefined }, props.dangerouslySetInnerHTML?.__html ?? text));
+        r.hoistInto(r.hoistables, writeTag("title", { ...props, children: undefined }, props.dangerouslySetInnerHTML?.__html ?? text));
       }
       return "";
     }
@@ -473,7 +476,7 @@ function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
       }
       if (props.onLoad || props.onError) return undefined;
       const sep = separator();
-      if (!ctx.fallback) r.hoistables.push(writeTag("link", props));
+      if (!ctx.fallback) r.hoistInto(r.hoistables, writeTag("link", props));
       return sep;
     }
     case "script": {
@@ -500,7 +503,7 @@ function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
       const sep = separator();
       if (!ctx.fallback) {
         const html = writeTag("meta", props);
-        (typeof props.charSet === "string" ? r.charset : props.name === "viewport" ? r.viewport : r.hoistables).push(html);
+        r.hoistInto(typeof props.charSet === "string" ? r.charset : props.name === "viewport" ? r.viewport : r.hoistables, html);
       }
       return sep;
     }
@@ -720,12 +723,16 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     let inner: string;
     // Its stylesheets and style rules, kept across its renders (each retry meets what the last one did).
     const deps = (b.deps ??= { sheets: new Set<any>(), styles: new Set<any>() });
+    // What it sent before is sent once only; this render records it all again.
+    res.replay = new Map();
+    for (const h of (deps as any).emitted ?? []) res.replay.set(h, (res.replay.get(h) ?? 0) + 1);
+    (deps as any).emitted = [];
     res.boundary = deps;
     const queued = shared.boundaries.length;
     try {
       inner = once(b.children, ctx);
     } catch (e: any) {
-      res.boundary = null;
+      res.boundary = res.replay = null;
       if (e && typeof e.then === "function") {
         // Still waiting on something else: the boundary waits again; what it found so far is preloaded now,
         // as React flushes the resources of the parts that have rendered.
@@ -741,7 +748,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       runtimeSent = true;
       return watch();
     }
-    res.boundary = null;
+    res.boundary = res.replay = null;
     const late = res.late();
     const { styleTags, sheets } = res.boundaryStyles(deps);
     // With stylesheets (or style rules) of its own, the boundary is revealed once they have loaded ($SR).

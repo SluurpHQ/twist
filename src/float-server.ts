@@ -40,7 +40,17 @@ export class Resources {
   hoistables: string[] = [];
   preloads = { images: new Map<string, Chunk>(), stylesheets: new Map<string, Chunk>(), scripts: new Map<string, Chunk>(), moduleScripts: new Map<string, Chunk>() };
   /** Stylesheets and style rules met in the boundary being rendered: sent with it when it completes. */
-  boundary: { sheets: Set<Sheet>; styles: Set<StyleQueue> } | null = null;
+  boundary: { sheets: Set<Sheet>; styles: Set<StyleQueue>; emitted?: string[] } | null = null;
+  /** Hoistables a boundary sent in an earlier render of it: not sent again when it renders once more. */
+  replay: Map<string, number> | null = null;
+
+  /** A hoistable queued once: skipped if this boundary already sent it, remembered for the next time. */
+  hoistInto(list: string[], html: string) {
+    this.boundary && (this.boundary.emitted ??= []).push(html);
+    const left = this.replay?.get(html);
+    if (left) return void this.replay!.set(html, left - 1);
+    list.push(html);
+  }
 
   constructor(
     private tag: TagWriter,
@@ -373,7 +383,8 @@ function adopt(target: any, state: readonly any[]) {
 }
 const flush = (chunks: Chunk[]) => {
   let out = "";
-  for (const c of chunks) out += c.html;
+  // Written chunks are emptied, as React's are: a preload already sent is not sent again.
+  for (const c of chunks) (out += c.html), (c.html = "");
   chunks.length = 0;
   return out;
 };
