@@ -403,6 +403,8 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** Released: subscribed to nothing, built again from scratch when next read. */
   released = false;
+  /** Holds state across runs (a mapped list): never released. */
+  kept = false;
   attach() {
     this.attached = true;
     if (this.ranAt !== clock && this.state === CLEAN) this.state = CHECK;
@@ -597,12 +599,12 @@ export class Computation<T> extends Node<T> implements Owner {
           flights.delete(this);
           if (!yielded) inRun ? this.take(undefined as T) : landings.push([this, undefined]);
           statusChanged();
-          schedule();
+          landNow();
           return;
         }
         yielded = true;
         if (inRun) this.take(r.value);
-        else landings.push([this, r.value]), schedule();
+        else landings.push([this, r.value]), landNow();
         step();
       };
       const onError = (e: unknown) => {
@@ -636,7 +638,7 @@ export class Computation<T> extends Node<T> implements Owner {
     flights.delete(this);
     landings.push([this, v]);
     statusChanged();
-    schedule();
+    landNow();
   }
   fail(e: unknown) {
     this.flight = null;
@@ -646,7 +648,7 @@ export class Computation<T> extends Node<T> implements Owner {
     clock++;
     for (const o of this.observers) o.mark(DIRTY);
     statusChanged();
-    schedule();
+    landNow();
   }
   /** An effect's apply half, untracked and unowned, after its last cleanup. */
   runApply() {
@@ -678,7 +680,7 @@ let releasing = false;
 
 /** An unowned memo nothing reads let go of its sources (they may go too): dormant until read again. */
 function release(m: Computation<any>) {
-  if (m.released || m.disposed || m.observers.length) return;
+  if (m.released || m.kept || m.disposed || m.observers.length) return;
   m.released = true;
   const was = releasing;
   releasing = true;
@@ -740,6 +742,12 @@ function schedule() {
     scheduled = false;
     if (!halted && !flushing) flush();
   });
+}
+
+/** An async answer landed: applied at once (in the microtask it arrived in), or by the flush under way. */
+function landNow() {
+  if (flushing || halted) return schedule();
+  flush();
 }
 
 /** An uncaught error stopped the scheduler (flush threw it): let it run again. */
@@ -1003,6 +1011,13 @@ export function createMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): 
   return read;
 }
 
+/** A memo that holds state across its runs (its rows): never released when read untracked. */
+export function keepMemo<T>(read: Accessor<T>): Accessor<T> {
+  const m = accessors.get(read);
+  if (m) m.kept = true;
+  return read;
+}
+
 type EffectBundle<T> = { effect: (value: T, prev?: T) => void | (() => void); error?: (err: unknown, cleanup: () => void) => void };
 
 function effectOf<T>(kind: 1 | 2, compute: (prev?: T) => T, apply?: ((value: T, prev?: T) => void | (() => void)) | EffectBundle<T>, options?: SignalOptions<T>) {
@@ -1051,6 +1066,9 @@ export function isPending(fn: () => unknown): boolean {
   listener = probe;
   try {
     fn();
+  } catch (e) {
+    // Never loaded: nothing stale is shown, so not pending.
+    if (!(e instanceof NotReadyError)) throw e;
   } finally {
     listener = outer;
     verdictReading--;
@@ -1089,7 +1107,7 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
 
 /** A promise for `fn`'s first settled value (not in flight, not held). */
 export function resolve<T>(fn: () => T): Promise<T> {
-  if (listener) throw new Error("resolve() cannot be called inside a reactive scope");
+  if (listener) throw new Error("Cannot call resolve inside a reactive scope; it only resolves the current value and does not track updates.");
   return new Promise<T>((ok, fail) => {
     createRoot((dispose) => {
       createEffect(

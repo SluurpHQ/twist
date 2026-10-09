@@ -1,5 +1,5 @@
 // Lists and props helpers: mapArray (by identity, by position or by key), repeat, merge, omit.
-import { createMemo, createOwner, getOwner, runWithOwner, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
+import { createMemo, keepMemo, createOwner, getOwner, runWithOwner, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
 
 type Accessor<T> = () => T;
 type Keyed<T> = boolean | ((item: T) => unknown) | undefined;
@@ -60,7 +60,7 @@ export function mapArray<T, U>(
     for (const end of ends) end();
     fallbackEnd?.();
   });
-  return createMemo(() => {
+  return keepMemo(createMemo(() => {
     // Every item read here, tracked (a store list keeps its identity while its items move); mapped untracked.
     const source = (list() || []) as T[];
     const next = Array.from(source);
@@ -136,7 +136,7 @@ export function mapArray<T, U>(
       items = outItems;
       return (rows = out);
     });
-  });
+  }));
 }
 
 /** `fn(index)` for each index from `from` (0 unless given) up to `from + count`: rows kept, none diffed. */
@@ -148,7 +148,7 @@ export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, opt
     for (const [, end] of made.values()) end();
     fallback?.[1]();
   });
-  return createMemo(() => {
+  return keepMemo(createMemo(() => {
     const n = Math.max(0, count() | 0);
     const from = options.from ? options.from() | 0 : 0;
     return untrack(() => {
@@ -168,7 +168,7 @@ export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, opt
       }
       return out;
     });
-  });
+  }));
 }
 
 // ---------------------------------------------------------------- props
