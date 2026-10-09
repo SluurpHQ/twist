@@ -410,6 +410,8 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   }
   let inner: string;
   if (props.dangerouslySetInnerHTML?.__html != null) inner = props.dangerouslySetInnerHTML.__html;
+  else if ((tag === "script" || tag === "style") && !ctx.svg && (typeof props.children === "string" || typeof props.children === "number"))
+    inner = tag === "script" ? scriptSafe(String(props.children)) : styleSafe(String(props.children));
   else if (tag === "textarea") inner = escape(String(props.value ?? props.defaultValue ?? props.children ?? ""));
   else if (tag === "select") {
     const was = ctx.select;
@@ -602,12 +604,13 @@ const scriptSafe = (code: string) => code.replace(/(<\/|<)(s)(cript)/gi, (_m, a,
 function scriptAttrs(s: any, nonce?: string) {
   const src = typeof s === "string" ? s : s.src;
   let out = ` src="${escape(src)}"`;
-  if (typeof s === "object" && s.integrity) out += ` integrity="${escape(s.integrity)}"`;
-  if (typeof s === "object" && s.crossOrigin != null) out += ` crossorigin="${s.crossOrigin === "use-credentials" ? "use-credentials" : ""}"`;
   if (nonce) out += ` nonce="${escape(nonce)}"`;
+  if (typeof s === "object" && typeof s.integrity === "string") out += ` integrity="${escape(s.integrity)}"`;
+  if (typeof s === "object" && s.crossOrigin != null) out += ` crossorigin="${s.crossOrigin === "use-credentials" ? "use-credentials" : ""}"`;
   return out;
 }
-const importMap = (options: any) => (options.importMap ? `<script type="importmap">${scriptSafe(JSON.stringify(options.importMap))}</script>` : "");
+const importMap = (options: any, nonce?: string) =>
+  options.importMap ? `<script type="importmap"${nonce ? ` nonce="${escape(nonce)}"` : ""}>${scriptSafe(JSON.stringify(options.importMap))}</script>` : "";
 /** The preloads of the bootstrap scripts and modules (written with the preamble; never preloaded again). */
 function bootstrapPreloads(options: any, nonce: string | undefined, res: Resources) {
   let out = "";
@@ -626,10 +629,16 @@ function bootstrapPreloads(options: any, nonce: string | undefined, res: Resourc
 }
 /** The bootstrap: its inline content, then its scripts and modules, each async. */
 function bootstrap(options: any, nonce?: string) {
-  const open = nonce ? `<script nonce="${escape(nonce)}">` : "<script>";
-  let out = options.bootstrapScriptContent ? `${open}${scriptSafe(String(options.bootstrapScriptContent))}</script>` : "";
-  for (const s of options.bootstrapScripts ?? []) out += `<script${scriptAttrs(s, nonce)} async=""></script>`;
-  for (const s of options.bootstrapModules ?? []) out += `<script type="module"${scriptAttrs(s, nonce)} async=""></script>`;
+  // The first carries the completed shell's id (React's, which its client looks for).
+  let id = ` id="${escape("_" + (options.identifierPrefix ?? "") + "R_")}"`;
+  const takeId = () => {
+    const out = id;
+    id = "";
+    return out;
+  };
+  let out = options.bootstrapScriptContent !== undefined ? `<script${nonce ? ` nonce="${escape(nonce)}"` : ""}${takeId()}>${scriptSafe(String(options.bootstrapScriptContent))}</script>` : "";
+  for (const s of options.bootstrapScripts ?? []) out += `<script${scriptAttrs(s, nonce)}${takeId()} async=""></script>`;
+  for (const s of options.bootstrapModules ?? []) out += `<script type="module"${scriptAttrs(s, nonce)}${takeId()} async=""></script>`;
   return out;
 }
 
@@ -828,7 +837,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const writeShell = (shell: string) => {
   // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
   // bootstrap scripts after it, as React writes them.
-  const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options), bootstrapPreloads(options, nonce, res)));
+  const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res)));
   // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
   const paint = !shared.boundaries.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
   // The document's closing tags come last, once everything has streamed (React's postamble).
