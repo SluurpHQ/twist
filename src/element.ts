@@ -50,7 +50,9 @@ export const unstable_SuspenseList = SUSPENSE_LIST;
 export function addTransitionType(_type: string) {}
 
 function element(type: any, key: any, props: any): Element {
-  const el: any = { $$typeof: ELEMENT, type, key, props, _owner: null };
+  // Production: a plain object, as React's (no checks to keep).
+  if (!dev()) return { $$typeof: ELEMENT, type, key, ref: props.ref ?? null, props } as any;
+  const el: any ={ $$typeof: ELEMENT, type, key, props, _owner: null };
   // Its owner (development): not enumerable, so deep equality does not walk into the fiber tree.
   if (dev()) Object.defineProperty(el, "_owner", { value: ownerOverride ?? ownerSource(), writable: true, enumerable: false });
   // Not enumerable, as React's: elements compare equal whatever was checked on them.
@@ -97,6 +99,7 @@ export function jsxs(type: any, config: any, maybeKey?: any): Element {
 /** A child as written: an array's elements need keys; an element is marked checked (passed on later in an array,
  * as a Provider passes its children, it needs none), as React marks it. */
 function validate(c: any, type: any) {
+  if (!dev()) return;
   if (Array.isArray(c)) checkKeys(c, type);
   else if (c?._store) c._store.validated = 1;
 }

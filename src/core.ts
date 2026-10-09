@@ -331,7 +331,8 @@ function domNodes(f: Fiber, out: Node[] = []): Node[] {
 /** Where a node goes in `host`: a document's (or a root <html>'s) children go in its <body>, as React's do. */
 function domParent(host: Node): Node {
   if (host.nodeType === 9) return (host as Document).body ?? host;
-  if ((host as Element).localName === "html" && rootContainers.has(host)) return host.ownerDocument!.body ?? host;
+  // (The set first: reading localName crosses into the DOM.)
+  if (rootContainers.has(host) && (host as Element).localName === "html") return host.ownerDocument!.body ?? host;
   return host;
 }
 
@@ -556,6 +557,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // In order, back to front: each node before the one after it, moved only when it is not already there.
   // Taking over server markup, nodes are claimed or made in place: nothing to move.
   if (hydrating) return;
+  // All new: each was put in place as it was made.
+  if (!old.length && !((parent as any).singleton && host.nodeName === "BODY") && domParent(host) === host) return;
   // What moves (React's lastPlacedIndex): new children, and kept ones now before a child that was after them; the
   // others stay where they are (other nodes may sit between them, as a sibling portal's in the same container).
   const oldIndex = new Map<Fiber, number>();
@@ -567,6 +570,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     if (oi === undefined || oi < lastPlaced) placed.add(f);
     else lastPlaced = oi;
   }
+  // Nothing new and nothing moved: every node is where it was.
+  if (!placed.size) return;
   const into = domParent(host);
   // A document's children go in its <body>, beside what the <body> holds: each new one before the next sibling that
   // was already there (React's getHostSibling, which passes over singletons and what is being placed).
@@ -1425,25 +1430,20 @@ function singleton(host: Node, type: string): Element | null {
  * Our own fields on a DOM node, kept out of enumeration (snapshot serializers, devtools listing its keys): an
  * accessor on the node's prototype, once, over a symbol field (defineProperty per node is slow, and slows the node).
  */
-const hidden = new WeakMap<object, Set<string>>();
 const hide = (node: any, key: string, value: any) => {
-  const proto = Object.getPrototypeOf(node) ?? node;
-  let keys = hidden.get(proto);
-  if (!keys) hidden.set(proto, (keys = new Set()));
-  if (!keys.has(key)) {
-    keys.add(key);
+  if (!(key in node)) {
+    const proto = Object.getPrototypeOf(node) ?? node;
     const sym = Symbol.for("sluurp." + key);
-    if (!Object.getOwnPropertyDescriptor(proto, key))
-      Object.defineProperty(proto, key, {
-        get() {
-          return this[sym];
-        },
-        set(v) {
-          this[sym] = v;
-        },
-        configurable: true,
-        enumerable: false,
-      });
+    Object.defineProperty(proto, key, {
+      get() {
+        return this[sym];
+      },
+      set(v) {
+        this[sym] = v;
+      },
+      configurable: true,
+      enumerable: false,
+    });
   }
   node[key] = value;
 };
@@ -2132,7 +2132,8 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     runPassive(false);
     startRender();
   }
-  const began = now();
+  // Timed only once a Profiler is about (two clock reads and a walk up per component otherwise).
+  const began = profilersMounted ? now() : 0;
   const outerNested = nestedTime;
   nestedTime = 0;
   f.insertion = [];
@@ -2239,7 +2240,7 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     }
   }
   drawing.delete(f);
-  {
+  if (profilersMounted) {
     const took = now() - began;
     if (!kept) profile(f, took - nestedTime);
     nestedTime = outerNested + took;
