@@ -407,6 +407,12 @@ function reappear(f: Fiber) {
 // ---------------------------------------------------------------- reconciling
 
 /** `parent`'s children made to be `list`: kept by key and type, the rest made or taken away, in order. */
+/** The Suspense boundary a fiber is in (its nearest), if any. */
+function boundaryOf(f: Fiber): Fiber | null {
+  for (let p: Fiber | null = f; p; p = p.parent) if (p.type === SUSPENSE) return p;
+  return null;
+}
+
 /** React's warnings for a function or a symbol given as a child. */
 function invalidChild(parent: Fiber, c: any) {
   const atRoot = parent.kind === ROOT;
@@ -434,7 +440,9 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   if (hydrating && dev()) (parent as any).building = next;
   const seenKeys = new Set<string>();
   let i = 0;
+  const skipAfter = !syncing ? boundaryOf(parent) : null;
   for (let c of list) {
+    if (skipAfter && (skipAfter as any).resuspend && !(skipAfter as any).shown) break;
     // A lazy or a promise as a child: what it gives, once it has (suspending until then).
     c = unwrapChild(c);
     // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
@@ -1773,9 +1781,14 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
     // Children once shown stay mounted while it waits again, hidden beside the fallback (their state kept, as React
     // keeps it); before they were ever shown, only the fallback.
     let shown = false;
+    let last: { waiting: boolean; props: any; out: any } | null = null;
     return (fb, props) => {
       const waiting = fb.pending!() > 0;
-      if (!waiting) (shown = true), ((fb as any).warmed = false);
+      (fb as any).shown = shown;
+      if (last && last.waiting === waiting && last.props === props && waiting) return last.out;
+      // Shown once its children are committed without waiting: children that suspend before that are dropped
+      // (React keeps nothing of a first mount that suspends), not kept hidden.
+      if (!waiting) ((fb as any).warmed = false), layoutQueue.push(() => !fb.dead && fb.pending!.peek() === 0 && (shown = true));
       // Its fallback committed: its children are pre-warmed once after the commit.
       else if (!(fb as any).warmed && !prewarming) ((fb as any).warmed = true), layoutQueue.push(() => prewarms.push(fb));
       layoutQueue.push(() => {
@@ -1783,11 +1796,12 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
         if (kept) hideNodes(kept, waiting);
       });
       const out: any = [
-        shown ? createElement(FRAGMENT, { key: "c" }, props.children) : null,
+        shown || !waiting ? createElement(FRAGMENT, { key: "c" }, props.children) : null,
         waiting ? createElement(FRAGMENT, { key: "f" }, props.fallback) : null,
       ];
       // Its own two slots are not a fork of the tree (React keeps them in fibers of its own).
       out[LONE] = true;
+      last = { waiting, props, out };
       return out;
     };
   }
@@ -1922,6 +1936,24 @@ function draw(f: Fiber, place: [Node, Node | null] | null) {
     reconcile(f, toList(out), host, before);
   } catch (e) {
     caught(f, e);
+  }
+  // A Suspense whose children suspended as it drew them: drawn again now, its fallback in place.
+  if ((f as any).resuspend) {
+    (f as any).resuspend = false;
+    current = f;
+    hookAt = 0;
+    try {
+      out = f.render!(f, f.props);
+    } finally {
+      current = prevCurrent;
+      hookAt = prevAt;
+    }
+    f.out = out;
+    try {
+      reconcile(f, toList(out), host, before);
+    } catch (e) {
+      caught(f, e);
+    }
   }
   // A boundary that caught while mounting: its children dropped, and mounted again in its error state.
   for (let tries = 0; (f as any).redo && tries < 3; tries++) {
@@ -2252,6 +2284,9 @@ function caught(f: Fiber, e: any) {
       if (p.type === SUSPENSE && p.pending && !p.dead) {
         const s = p;
         s.pending!.set(s.pending!.peek() + 1);
+        // Drawing now: it draws again at once with its fallback (React shows it in the same render); before its
+        // children were ever shown, the siblings after this one are not rendered (React skips them).
+        if (drawing.has(s)) (s as any).resuspend = true;
         // Settled: the boundary shows its children again, and this component (kept, if the children kept
         // their shape) tries again.
         const done = () => {
@@ -2364,9 +2399,10 @@ let prewarming = false;
 function prewarm() {
   const list = prewarms.splice(0);
   prewarming = true;
-  // Inside a render of its own: nothing it makes is committed.
+  // Inside a render of its own: nothing it makes is committed, none of its effects run.
   depth++;
   const freshBefore = fresh.length;
+  const queued = [layoutQueue.length, passiveQueue.length, insertionQueue.length];
   try {
     for (const s of list) {
       if (s.dead || !s.pending!.peek()) continue;
@@ -2391,6 +2427,9 @@ function prewarm() {
     }
   } finally {
     fresh.length = freshBefore;
+    layoutQueue.length = queued[0]!;
+    passiveQueue.length = queued[1]!;
+    insertionQueue.length = queued[2]!;
     depth--;
     prewarming = false;
   }

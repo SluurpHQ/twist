@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3562 pass, 462 fail, 314 skipped (gated off for stable React 19).
+3565 pass, 459 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -33,7 +33,7 @@
 | react-dom/ReactDOMFiberAsync-test.js | 13 | 5 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 116 | 57 | 11 |  |
+| react-dom/ReactDOMFizzServer-test.js | 118 | 55 | 11 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 14 | 7 | 0 |  |
@@ -96,7 +96,7 @@
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSingletonComponents-test.js | 6 | 7 | 9 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMSuspensePlaceholder-test.js | 1 | 1 | 3 |  |
+| react-dom/ReactDOMSuspensePlaceholder-test.js | 2 | 0 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
 | react-dom/ReactDOMTextarea-test.js | 51 | 2 | 0 |  |
