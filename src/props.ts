@@ -2,7 +2,7 @@
 // element itself (no delegation), each event given what React's handlers expect of it.
 
 import { XLINK_NS, XML_NS, attribute, customAttribute, isCustomElement } from "./attributes.ts";
-import { configure, delegated, want } from "./events.ts";
+import { configure, delegated, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { valueChanged } from "./forms.ts";
 
@@ -105,7 +105,11 @@ function listen(el: Element, prop: string, handler: any) {
   const [type, capture] = eventOf(el, prop);
   // Most events: found at the root's listener from the element's props (React's delegation).
   if (delegated(type)) {
-    if (handler != null && handler !== false) want(type);
+    if (handler != null && handler !== false) {
+      want(type);
+      // Scrolling and a popover's toggle are heard on the element itself, as React listens for them there.
+      if (type === "scroll" || type === "scrollend" || type === "toggle" || type === "beforetoggle") listenAt(el, type);
+    }
     return;
   }
   const key = type + (capture ? "!" : "");

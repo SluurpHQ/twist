@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2717 pass, 1307 fail, 314 skipped (gated off for stable React 19).
+2749 pass, 1275 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -27,8 +27,8 @@
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 1 | 6 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
-| react-dom/ReactDOMEventListener-test.js | 14 | 9 | 0 |  |
-| react-dom/ReactDOMEventPropagation-test.js | 47 | 45 | 0 |  |
+| react-dom/ReactDOMEventListener-test.js | 16 | 7 | 0 |  |
+| react-dom/ReactDOMEventPropagation-test.js | 77 | 15 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 23 | 13 | 1 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 9 | 9 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |

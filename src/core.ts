@@ -4,7 +4,7 @@
 import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
-import { addContainer } from "./events.ts";
+import { addContainer, listenOnElement } from "./events.ts";
 import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
@@ -415,6 +415,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const el = (f.dom = server ?? (ns ? docOf(host).createElementNS(ns, type) : docOf(host).createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     (el as any).__fiber = f;
+    listenOnElement(el, type);
     if (!server) {
       if (hydrating) mismatched = true;
       checkTag(el, type);

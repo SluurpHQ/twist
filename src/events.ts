@@ -2,11 +2,16 @@
 // handlers then found along the component tree, not the DOM: a portal's events reach its React ancestors, React's
 // capture handlers run before native ones further down, and nested roots each answer for their own part.
 
-// Events that do not bubble, listened to on the element itself (as React does).
-const NOT_DELEGATED = new Set(
-  "cancel close invalid load scroll scrollend toggle beforetoggle abort canplay canplaythrough durationchange emptied encrypted ended error loadeddata loadedmetadata loadstart pause play playing progress ratechange resize seeked seeking stalled suspend timeupdate volumechange waiting mouseenter mouseleave pointerenter pointerleave".split(" "),
+// Events that do not bubble natively. React bubbles most of them along the component tree of the element's own
+// root; they still pass the container on their way down, so it hears them in the capture phase.
+const NOT_BUBBLING = new Set(
+  "cancel close invalid load scroll scrollend toggle beforetoggle abort canplay canplaythrough durationchange emptied encrypted ended error loadeddata loadedmetadata loadstart pause play playing progress ratechange resize seeked seeking stalled suspend timeupdate volumechange waiting".split(" "),
 );
-export const delegated = (type: string) => !NOT_DELEGATED.has(type);
+// Not bubbled by React either: only the target's own handlers.
+const TARGET_ONLY = new Set(["scroll", "scrollend"]);
+// Fired on each element entered or left: listened to on the element itself.
+const ON_ELEMENT = new Set(["mouseenter", "mouseleave", "pointerenter", "pointerleave"]);
+export const delegated = (type: string) => !ON_ELEMENT.has(type);
 
 type FiberLike = { kind: number; props: any; parent: FiberLike | null; dom: any; root: object };
 
@@ -31,6 +36,41 @@ export function addContainer(container: EventTarget, root: object) {
   for (const t of wanted) listenOn(container, c, t);
 }
 
+// The non-bubbling events React listens for on an element itself, by tag, from when it is made.
+const MEDIA = "abort canplay canplaythrough durationchange emptied encrypted ended error loadeddata loadedmetadata loadstart pause play playing progress ratechange resize seeked seeking stalled suspend timeupdate volumechange waiting".split(" ");
+const BY_TAG: Record<string, string[]> = {
+  dialog: ["cancel", "close"],
+  iframe: ["load"],
+  object: ["load"],
+  embed: ["load"],
+  video: MEDIA,
+  audio: MEDIA,
+  source: ["error"],
+  img: ["error", "load"],
+  image: ["error", "load"],
+  link: ["error", "load"],
+  details: ["toggle"],
+  input: ["invalid"],
+  select: ["invalid"],
+  textarea: ["invalid"],
+};
+
+/** An element just made: React's own listeners for the non-bubbling events its tag fires, bubbled in its root. */
+export function listenOnElement(el: Element, tag: string) {
+  for (const type of BY_TAG[tag] ?? []) listenAt(el, type);
+}
+
+/** A listener on the element for a non-bubbling `type` (onScroll's, a popover's toggle), once. */
+export function listenAt(el: Element, type: string) {
+  const had: Set<string> = ((el as any).__nb ??= new Set());
+  if (had.has(type)) return;
+  had.add(type);
+  el.addEventListener(type, (e) => {
+    const f = (el as any).__fiber;
+    if (f && e.target === el) dispatch(e, el, new Set([f.root]), false);
+  });
+}
+
 /** Events of `type` handled from now on, in every container. */
 export function want(type: string) {
   if (wanted.has(type)) return;
@@ -41,6 +81,12 @@ export function want(type: string) {
 function listenOn(container: EventTarget, c: { roots: Set<object>; types: Set<string> }, type: string) {
   if (c.types.has(type)) return;
   c.types.add(type);
+  if (NOT_BUBBLING.has(type)) {
+    // Both phases at once, from the capture listener: the event will not come back up.
+    // The capture phase here; the bubbling React emulates from the element's own listener (listenOnElement).
+    container.addEventListener(type, (e) => dispatch(e, container, c.roots, true), true);
+    return;
+  }
   container.addEventListener(type, (e) => dispatch(e, container, c.roots, true), true);
   container.addEventListener(type, (e) => dispatch(e, container, c.roots, false), false);
 }
@@ -57,6 +103,12 @@ function nearest(target: Node | null, roots: Set<object>): FiberLike | null {
   return null;
 }
 
+/** The nearest fiber at or above a node, of any root. */
+function nearestAny(target: Node | null): FiberLike | null {
+  for (let n: any = target; n; n = n.parentNode) if (n.__fiber) return n.__fiber;
+  return null;
+}
+
 let rootIds = new WeakMap<object, number>();
 let nextId = 0;
 const idOf = (o: object) => {
@@ -65,18 +117,25 @@ const idOf = (o: object) => {
   return id;
 };
 
-function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean) {
+/** Runs the handlers for one phase; true when one of them stopped propagation. */
+function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean): boolean {
   const from = nearest(native.target as Node, roots);
-  if (!from) return;
+  if (!from) return false;
+  // A non-bubbling event bubbles only in the root that drew its target: an outer root hears its capture phase alone.
+  if (!capture && NOT_BUBBLING.has(native.type)) {
+    const owner = nearestAny(native.target as Node);
+    if (owner && owner.root !== from.root) return false;
+  }
   // A portal's container and its root's may both hear the event: each root runs it once per phase.
   const key = idOf(from.root) + (capture ? "c" : "b");
   let seen = done.get(native);
   if (!seen) done.set(native, (seen = new Set()));
-  if (seen.has(key)) return;
+  if (seen.has(key)) return false;
   seen.add(key);
   const path: [Element, string[]][] = [];
   for (let f: FiberLike | null = from; f; f = f.parent) {
     if (f.kind !== HOST) continue;
+    if (TARGET_ONLY.has(native.type) && f.dom !== native.target) continue;
     const names = propsFor(f.dom, native.type, capture, f.props, native);
     if (names.length) path.push([f.dom, names]);
   }
@@ -92,7 +151,10 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   }
   synthetic.__current = null;
   if (!capture) after((native.target as Element) ?? (container as Element), native);
+  return synthetic.isPropagationStopped();
 }
+
+const SYNTHETIC_TYPE: Record<string, string> = { focusin: "focus", focusout: "blur" };
 
 /** React's synthetic event: the native one, with React's currentTarget, nativeEvent and propagation flags. */
 function wrap(native: Event): any {
@@ -111,6 +173,7 @@ function wrap(native: Event): any {
   return new Proxy(native, {
     get(t, k) {
       if (k === "currentTarget") return own.__current;
+      if (k === "type") return SYNTHETIC_TYPE[t.type] ?? t.type;
       if (k in own) return own[k as string];
       const v = Reflect.get(t, k, t);
       return typeof v === "function" ? v.bind(t) : v;
