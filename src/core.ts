@@ -1605,7 +1605,8 @@ function update(f: Fiber, c: any) {
   if (f.kind === FRAG) {
     const host = hostParentOf(f);
     const prev = f.props;
-    if (f.type === PROFILER) (f.props = c.props), profilerBegins(f);
+    // The same element again (a parent that bailed out on its children): nothing of it renders again.
+    if (f.type === PROFILER && c.props !== prev) (f.props = c.props), profilerBegins(f);
     const wasHidden = !!(f as any).hidden;
     const nowHidden = f.type === ACTIVITY && c.props?.mode === "hidden";
     if (wasHidden !== nowHidden) {
@@ -2444,7 +2445,7 @@ function caught(f: Fiber, e: any) {
       else tell();
       // Rendering now (its draw under way): it renders again when its own render is done, in its error state.
       if (drawing.has(p)) (p as any).redo = true;
-      else p.tick!.set(p.tick!.peek() + 1);
+      else scheduledInCommit(), p.tick!.set(p.tick!.peek() + 1);
       return;
     }
   }
@@ -3023,8 +3024,17 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
     h.deps = deps;
     const wasFiber = effectFiber;
     effectFiber = f;
+    // A cleanup runs once, and one that throws does not keep the effect from running (React's separate passes).
+    const cleanup = h.cleanup;
+    h.cleanup = null;
+    if (typeof cleanup === "function") {
+      try {
+        cleanup();
+      } catch (e) {
+        caught(f, e);
+      }
+    }
     try {
-      if (typeof h.cleanup === "function") h.cleanup();
       const back = create();
       h.cleanup = typeof back === "function" ? back : null;
     } catch (e) {
