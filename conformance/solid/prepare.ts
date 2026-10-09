@@ -31,6 +31,10 @@ for (const f of walk(out)) {
   if (!/\.tsx?$/.test(f)) continue;
   const s = readFileSync(f, "utf8");
   let t = s.replace(/\r\n/g, "\n").replace(/\)\.to\.(to[A-Z]|not\.)/g, ").$1");
+  // `expect(() => x).not.toThrow()`: Bun's toThrow waits for a promise the function returns (Vitest's does not), so a
+  // call answering a promise that never settles would hang the file. The value made void: the same check, the call
+  // not throwing.
+  t = t.replace(/expect\(\(\) => (?!\{)([^;\n]*?)\)\.not\.toThrow\(\)/g, "expect(() => void ($1)).not.toThrow()");
   // The JSX import source in a comment of its own (Bun reads the line break after it, inside a longer block comment,
   // into the module's name).
   if (/@jsxImportSource\s+(\S+)/.test(t)) {

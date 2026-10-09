@@ -7,6 +7,12 @@
 // transaction instead: what is on screen keeps the committed values, and the transaction commits as one when its last
 // flight lands. Writes on graphs no flight touches commit at once.
 
+/** TWIST_TRACE=1: a runaway loop reports itself (every 100,000 runs or rounds, with where it is). */
+const TRACE = typeof process !== "undefined" && !!process.env?.TWIST_TRACE;
+let runs = 0;
+let microFlushes = 0;
+const trace = (what: string) => console.error(`[twist] ${what}`, new Error().stack?.split("\n").slice(2, 9).join(" | "));
+
 // ---------------------------------------------------------------- owners
 
 export interface Owner {
@@ -437,6 +443,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.state === DIRTY) this.run();
   }
   run() {
+    if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
     disposeOwned(this);
     this.childCount = 0;
     if (this.attached) for (const s of this.sources) s.unsubscribe(this);
@@ -526,6 +533,9 @@ export class Computation<T> extends Node<T> implements Owner {
       return this.failNow(v);
     }
     flights.add(this);
+    // Asked again by an action (a refresh there): the action's transaction waits for this answer.
+    const joins = (this as any).joins as Transaction | undefined;
+    if (joins && !joins.done) joins.flights.add(this), ((this as any).joins = undefined);
     statusChanged();
   }
   /** Values to come from an async iterator: each taken when it lands (at once, when it answers synchronously). */
@@ -651,6 +661,7 @@ let halted = false;
 function schedule() {
   if (scheduled || flushing || halted) return;
   scheduled = true;
+  if (TRACE && ++microFlushes % 10000 === 0) trace(`scheduled flushes ${microFlushes} writes ${writes.length} dirty ${dirty.length} landings ${landings.length} guesses ${guesses.length}/${guessWork.length} ambient ${ambient.length}/${ambientEnds.length} status ${statusMoved}`);
   queueMicrotask(() => {
     scheduled = false;
     if (!halted && !flushing) flush();
@@ -674,7 +685,15 @@ function ownersFirst(c: Computation<any>) {
 /** What isPending()/latest() readers follow: told whenever a hold or a flight starts or ends. */
 const status = new (class extends Node<number> {})();
 status.value = 0;
+let statusMoved = false;
 function statusChanged() {
+  if (flushing) statusMoved = true;
+  else status.bump();
+}
+/** Readers of pending status told, once per round. */
+function tellStatus() {
+  if (!statusMoved) return;
+  statusMoved = false;
   status.bump();
 }
 
@@ -800,19 +819,22 @@ function commitTransactions() {
 
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; writes.length || landings.length || guesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
+  for (let rounds = 0; statusMoved || writes.length || landings.length || guesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
+    if (TRACE && rounds && rounds % 10000 === 0) trace(`round ${rounds} writes ${writes.length} dirty ${dirty.length} tx ${transactions.size}`);
     if (writes.length) for (const s of writes.splice(0)) s.commit();
     if (landings.length) for (const [c, v] of landings.splice(0)) if (!c.disposed) c.take(v);
     if (guesses.length) installGuesses();
     if (guessWork.length) for (const [install, tx] of guessWork.splice(0)) install(tx && !tx.done ? tx : null);
-    while (dirty.length) {
+    for (let passes = 0; dirty.length; passes++) {
+      if (passes > 1e5) throw new Error("Potential infinite loop detected.");
       const now = dirty.sort(byOrder);
       dirty = [];
       for (const c of now) if (!c.disposed) ownersFirst(c), c.disposed || c.update();
     }
     settleRound();
     commitTransactions();
+    tellStatus();
     if (uncaught.length) throw uncaught.splice(0)[0];
     if (pendingErrors.length) for (const f of pendingErrors.splice(0)) f();
     if (applies[RENDER].length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
@@ -983,6 +1005,7 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
   if (typeof target !== "function" && !c) throw new Error("refresh() expects a refreshable source (a memo, a derived signal or store)");
   if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
   c.quiet = true;
+  if (acting) (c as any).joins = acting.tx;
   c.mark(DIRTY);
   return resolve(() => (typeof target === "function" ? (target as () => T)() : (target as T)));
 }

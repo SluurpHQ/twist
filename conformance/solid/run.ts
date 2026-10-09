@@ -24,7 +24,8 @@ const queue = [...files];
 async function worker() {
   for (let f = queue.shift(); f; f = queue.shift()) {
     const rel = relative(here, f).replace(/\\/g, "/");
-    const p = Bun.spawn([process.execPath, "test", "./" + rel, "--timeout", "2000"], { cwd: here, stdout: "pipe", stderr: "pipe" });
+    // JavaScriptCore's watchdog ends runaway synchronous code (a loop no test timeout can interrupt) after 10 s.
+    const p = Bun.spawn([process.execPath, "test", "./" + rel, "--timeout", "2000"], { cwd: here, stdout: "pipe", stderr: "pipe", env: { ...process.env, BUN_JSC_watchdog: "10000" } });
     const timer = setTimeout(() => p.kill(), 30_000);
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
     clearTimeout(timer);
