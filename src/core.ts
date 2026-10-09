@@ -1770,7 +1770,7 @@ function unmount(f: Fiber, removeDom: boolean) {
     f.stop?.();
     const inst = f.inst;
     later(() => {
-      if (inst && (f as any).classRef != null) clearRef(f, (f as any).classRef);
+      if (inst && (f as any).classRef != null) lifecycle(f, () => clearRef(f, (f as any).classRef));
       if (inst?.componentWillUnmount && !(f as any).gone) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
       for (const h of f.hooks!) if (h && h.cleanup && h.phase !== "passive") untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
     });
@@ -1781,14 +1781,14 @@ function unmount(f: Fiber, removeDom: boolean) {
     if (inRender) (profilersMounted && ((passive as any).owner = f), passiveUnmounts.push(passive));
     else passive();
   } else if (f.kind === HOST && f.props.ref != null) {
-    later(() => clearRef(f, f.props.ref));
+    later(() => lifecycle(f, () => clearRef(f, f.props.ref)));
   } else if (f.kind === HOIST) {
     later(() => {
-      if (f.props.ref != null) clearRef(f, f.props.ref);
+      if (f.props.ref != null) lifecycle(f, () => clearRef(f, f.props.ref));
       releaseHoist(f);
     });
   } else if (f.kind === FRAG && (f as any).fragment && f.props?.ref != null) {
-    later(() => clearRef(f, f.props.ref));
+    later(() => lifecycle(f, () => clearRef(f, f.props.ref)));
   }
   if ((f as any).hidden) hiddenActivities--;
   for (const c of f.children) unmount(c, f.kind === PORTAL_F);
@@ -2426,7 +2426,16 @@ function caught(f: Fiber, e: any) {
   for (let p = f.parent; p; p = p.parent) {
     const inst = p.inst;
     // (Not one rendering its error state now: what fails there goes further up, as React does.)
-    if (inst && !p.dead && !(p as any).retrying && (p.type.getDerivedStateFromError || inst.componentDidCatch)) {
+    if (!inst || p.dead || (p as any).retrying) continue;
+    // A boundary that fails while asked (a throwing componentDidCatch getter): its error goes to the next one up.
+    let handles: boolean;
+    try {
+      handles = !!(p.type.getDerivedStateFromError || inst.componentDidCatch);
+    } catch (x) {
+      (e = x), (f = p);
+      continue;
+    }
+    if (handles) {
       lastCaughtByBoundary = e;
       // From the commit: asked when the boundary renders again (React's error update), after the other effects.
       if (p.type.getDerivedStateFromError) inst.__queue.push(committing ? () => p.type.getDerivedStateFromError(e) : p.type.getDerivedStateFromError(e));
@@ -2441,7 +2450,14 @@ function caught(f: Fiber, e: any) {
             withFiber(p, () => warn(`${nameOf(p.type)}: Error boundaries should implement getDerivedStateFromError(). In that method, return a state update to display an error message or fallback UI.`));
         });
       if (rendering) (p.root as any).threw = true;
-      const tell = () => (p.root.onCaughtError ?? toldCaught(f, p))(e, { componentStack: componentStackOf(f), errorBoundary: inst });
+      // What fails while telling it (a name getter that throws) is an error of its own, reported.
+      const tell = () => {
+        try {
+          (p.root.onCaughtError ?? toldCaught(f, p))(e, { componentStack: componentStackOf(f), errorBoundary: inst });
+        } catch (x) {
+          uncaughtListener ? uncaughtListener(x) : report(x);
+        }
+      };
       if (rendering) caughtThisRender.push(() => !p.dead && tell());
       else tell();
       // Rendering now (its draw under way): it renders again when its own render is done, in its error state.
