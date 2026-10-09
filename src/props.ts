@@ -4,6 +4,7 @@
 import { XLINK_NS, XML_NS, attribute, customAttribute, isCustomElement } from "./attributes.ts";
 import { configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
+import { cssString } from "./coercion.ts";
 import { valueChanged } from "./forms.ts";
 
 export const SVG_NS = "http://www.w3.org/2000/svg";
@@ -22,7 +23,7 @@ const UNITLESS = new Set(
 function styleValue(name: string, value: any) {
   if (value == null || typeof value === "boolean" || value === "") return "";
   if (typeof value === "number" && value !== 0 && !UNITLESS.has(name) && !name.startsWith("--")) return value + "px";
-  return String(value).trim();
+  return cssString(value, name).trim();
 }
 const cssName = (n: string) => (n.startsWith("--") ? n : n.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()).replace(/^ms-/, "-ms-"));
 

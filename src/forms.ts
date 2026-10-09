@@ -2,8 +2,9 @@
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
 import { setProp } from "./props.ts";
-import { checkControlled, checkControlledSwitch } from "./warnings.ts";
+import { checkControlled, checkControlledSwitch, dev, warn } from "./warnings.ts";
 import { validateProps } from "./validate-props.ts";
+import { fieldString } from "./coercion.ts";
 
 export const FORM_TAGS = new Set(["input", "textarea", "select", "option"]);
 
@@ -15,7 +16,10 @@ function toStringValue(v: any): any {
     case "number":
     case "string":
     case "undefined":
+      return v;
     case "object":
+      // Coerced as React does: warned about, then thrown, when it cannot be.
+      if (v !== null) fieldString(v);
       return v;
     default:
       return "";
@@ -144,6 +148,16 @@ function updateOptions(node: HTMLSelectElement, multiple: boolean, value: any, s
 }
 
 function initSelect(node: HTMLSelectElement, p: any) {
+  if (dev()) {
+    for (const name of ["value", "defaultValue"]) {
+      if (p[name] == null) continue;
+      if (p.multiple && !Array.isArray(p[name])) warn(`The \`${name}\` prop supplied to <select> must be an array if \`multiple\` is true.`);
+      else if (!p.multiple && Array.isArray(p[name])) warn(`The \`${name}\` prop supplied to <select> must be a scalar value if \`multiple\` is false.`);
+    }
+    if (p.value !== undefined && p.defaultValue !== undefined) {
+      warn("Select elements must be either controlled or uncontrolled (specify either the value prop, or the defaultValue prop, but not both). Decide between using a controlled or uncontrolled select element and remove one of these props. More info: https://react.dev/link/controlled-components", "select-value-default");
+    }
+  }
   node.multiple = !!p.multiple;
   if (p.value != null) updateOptions(node, !!p.multiple, p.value, false);
   else if (p.defaultValue != null) updateOptions(node, !!p.multiple, p.defaultValue, true);

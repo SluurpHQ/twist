@@ -1,4 +1,5 @@
 import { checkKeys, warn } from "./warnings.ts";
+import { keyString } from "./coercion.ts";
 
 // Elements as React 19 makes them: what JSX and createElement return, and what libraries inspect
 // (`$$typeof`, `type`, `key`, `props`, the ref among the props).
@@ -34,7 +35,7 @@ export const unstable_SuspenseList = SUSPENSE_LIST;
 export function addTransitionType(_type: string) {}
 
 function element(type: any, key: any, props: any): Element {
-  const el: any = { $$typeof: ELEMENT, type, key: key == null ? null : "" + key, props, _owner: null };
+  const el: any = { $$typeof: ELEMENT, type, key: key == null ? null : keyString(key), props, _owner: null };
   // Not enumerable, as React's: elements compare equal whatever was checked on them.
   Object.defineProperty(el, "_store", { value: {}, writable: true, configurable: false, enumerable: false });
   return el;

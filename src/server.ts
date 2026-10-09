@@ -4,6 +4,7 @@ import { CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, 
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
+import { cssString, fieldString } from "./coercion.ts";
 import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 
 const VOID = new Set("area base br col embed hr img input link meta param source track wbr".split(" "));
@@ -20,7 +21,7 @@ function style(s: any) {
     validateStyle(k, v);
     if (v == null || typeof v === "boolean" || v === "") continue;
     const name = k.startsWith("--") ? k : k.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()).replace(/^ms-/, "-ms-");
-    out += `${out ? ";" : ""}${name}:${typeof v === "number" && v !== 0 && !UNITLESS.has(k) && !k.startsWith("--") ? v + "px" : String(v).trim()}`;
+    out += `${out ? ";" : ""}${name}:${typeof v === "number" && v !== 0 && !UNITLESS.has(k) && !k.startsWith("--") ? v + "px" : cssString(v, k).trim()}`;
   }
   return out;
 }
@@ -51,7 +52,7 @@ function attrs(props: any, ctx: Ctx, tag: string) {
       continue;
     }
     if (k === "defaultValue") {
-      if (tag === "input" && props.value == null && v != null) put("value", String(v));
+      if (tag === "input" && props.value == null && v != null) put("value", fieldString(v));
       continue;
     }
     if (k === "defaultChecked") {
@@ -59,7 +60,7 @@ function attrs(props: any, ctx: Ctx, tag: string) {
       continue;
     }
     if (k === "value") {
-      if (tag !== "textarea" && tag !== "select" && v != null && typeof v !== "function" && typeof v !== "symbol") put("value", String(v));
+      if (tag !== "textarea" && tag !== "select" && v != null && typeof v !== "function" && typeof v !== "symbol") put("value", fieldString(v));
       continue;
     }
     if (k === "checked" || k === "selected" || k === "muted") {

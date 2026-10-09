@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2773 pass, 1251 fail, 314 skipped (gated off for stable React 19).
+2779 pass, 1245 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -64,7 +64,7 @@
 | react-dom/ReactDOMOption-test.js | 9 | 3 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 13 | 14 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
-| react-dom/ReactDOMSelect-test.js | 30 | 30 | 1 |  |
+| react-dom/ReactDOMSelect-test.js | 33 | 27 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 538 | 12 | 0 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 52 | 3 | 0 |  |
@@ -85,7 +85,7 @@
 | react-dom/ReactDOMServerIntegrationSelect-test.js | 64 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationTextarea-test.js | 33 | 7 | 0 |  |
-| react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 66 | 11 | 0 |  |
+| react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 68 | 9 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 11 | 9 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 3 | 7 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 0 | 57 | 10 |  |
@@ -109,7 +109,7 @@
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactFunctionComponent-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactIdentity-test.js | 6 | 5 | 0 |  |
+| react-dom/ReactIdentity-test.js | 7 | 4 | 0 |  |
 | react-dom/ReactLegacyCompositeComponent-test.js | 0 | 2 | 14 |  |
 | react-dom/ReactLegacyContextDisabled-test.internal.js | 1 | 1 | 0 |  |
 | react-dom/ReactLegacyErrorBoundaries-test.internal.js | 0 | 0 | 41 |  |

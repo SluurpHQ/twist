@@ -32,6 +32,7 @@ const JAVASCRIPT = /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[
 export const sanitizeURL = (v: string) => (JAVASCRIPT.test(v) ? BLOCKED : v);
 
 import { warn } from "./warnings.ts";
+import { attributeString } from "./coercion.ts";
 export { warn };
 
 const dataOrAria = (n: string) => /^(data|aria)-/i.test(n);
@@ -48,7 +49,7 @@ export function customAttribute(tag: string, name: string, value: any): [string,
   if (t === "function" || t === "symbol") return null;
   const attr = name === "className" ? "class" : name === "htmlFor" && !tag.includes("-") ? "for" : name;
   if (value == null || value === false) return [attr, null];
-  return [attr, value === true ? "" : String(value)];
+  return [attr, value === true ? "" : attributeString(value, name)];
 }
 
 /**
@@ -62,18 +63,18 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   }
   if (BOOLEANISH.has(name)) {
     if (value == null || t === "function" || t === "symbol") return [name, null];
-    return [name, String(value)];
+    return [name, attributeString(value, name)];
   }
   if (OVERLOADED_BOOLEAN.has(name)) {
     if (value === true) return [name, ""];
     if (value == null || value === false || t === "function" || t === "symbol") return [name, null];
-    return [name, String(value)];
+    return [name, attributeString(value, name)];
   }
-  if (POSITIVE_NUMBER.has(name)) return [name, value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) && value >= 1 ? String(value) : null];
-  if (NUMBER.has(name)) return [name.toLowerCase(), value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) ? String(value) : null];
+  if (POSITIVE_NUMBER.has(name)) return [name, value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) && value >= 1 ? attributeString(value, name) : null];
+  if (NUMBER.has(name)) return [name.toLowerCase(), value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) ? attributeString(value, name) : null];
   if (name in XML) {
     if (value == null || t === "function" || t === "symbol" || t === "boolean") return [XML[name]!, null];
-    return [XML[name]!, name === "xlinkHref" ? sanitizeURL(String(value)) : String(value)];
+    return [XML[name]!, name === "xlinkHref" ? sanitizeURL(attributeString(value, name)) : attributeString(value, name)];
   }
   if (URL.has(name)) {
     if (value === "" && !(tag === "a" && name === "href") && (name === "src" || name === "href")) {
@@ -83,14 +84,14 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
     if (value == null || t === "function" || t === "symbol" || t === "boolean") {
       return [name, null];
     }
-    return [name, sanitizeURL(String(value))];
+    return [name, sanitizeURL(attributeString(value, name))];
   }
   if (KNOWN.has(name)) {
     const attr = ALIASES[name] ?? name;
     if (value == null || t === "function" || t === "symbol" || t === "boolean") {
       return [attr, null];
     }
-    return [attr, String(value)];
+    return [attr, attributeString(value, name)];
   }
   // Everything else: data- and aria- take booleans as text; any other attribute leaves booleans out.
   if (!attributeNameSafe(name)) return null;
@@ -99,7 +100,7 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   if (value == null) return [attr, null];
   if (t === "function" || t === "symbol") return [attr, null];
   if (t === "boolean" && !dataOrAria(name)) return [attr, null];
-  return [attr, String(value)];
+  return [attr, attributeString(value, name)];
 }
 
 // ---------------------------------------------------------------- validation (React DOM's assertValidProps and friends)
