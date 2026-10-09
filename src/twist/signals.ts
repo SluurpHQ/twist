@@ -127,6 +127,7 @@ export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
 }
 
 export function onCleanup<T extends () => void>(fn: T): T {
+  if (inSettled) throw new Error("Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead");
   if (owner) (owner.cleanups ??= []).push(fn);
   return fn;
 }
@@ -295,7 +296,7 @@ export const refreshTarget = (target: object, memo: () => () => unknown) => void
 
 /** Writes in a reactive scope (a component body, a memo, a root being built) throw: they would re-run what read. */
 function guardWrite(allowed: boolean) {
-  if (allowed || !owner) return;
+  if (allowed || !owner || (owner as any).allowWrites) return;
   throw new Error(
     "[REACTIVE_WRITE_IN_OWNED_SCOPE] Writing to reactive state inside an owned scope is not allowed. Write in an event handler, an effect's apply half, or untracked code; or create the signal with { ownedWrite: true }.",
   );
@@ -828,7 +829,7 @@ function commitTransactions() {
 
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; statusMoved || writes.length || landings.length || guesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
+  for (let rounds = 0; settledQueue.length || statusMoved || writes.length || landings.length || guesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (TRACE && rounds && rounds % 10000 === 0) trace(`round ${rounds} writes ${writes.length} dirty ${dirty.length} tx ${transactions.size}`);
     if (writes.length) for (const s of writes.splice(0)) s.commit();
@@ -848,6 +849,7 @@ function drain() {
     if (pendingErrors.length) for (const f of pendingErrors.splice(0)) f();
     if (applies[RENDER].length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
     if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
+    if (settledQueue.length && !writes.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) for (const f of settledQueue.splice(0)) f();
     // Optimistic values written outside an action: shown for this flush, then the truth again.
     if ((ambient.length || ambientEnds.length) && !writes.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) {
       for (const n of ambient.splice(0)) n.override !== NONE && ((n.override = NONE), n.bump());
@@ -862,6 +864,7 @@ const statusDirty = () => false;
  * are drained before flush returns (at each level, when nested). Called while flushing, it drains what is queued.
  */
 export function flush<T>(fn?: () => T): T {
+  if (inSettled) throw new Error("Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there.");
   let result!: T;
   flushing++;
   try {
@@ -1335,31 +1338,78 @@ export function createOptimistic<T>(value: T | ((prev?: T) => T), options?: Sign
   return [read, set];
 }
 
-/** What is being built when `fn` was created (an effect run once what it builds is on the page). */
+/** Callbacks for the next flush, once everything else in it is done. */
+const settledQueue: (() => void)[] = [];
+/** Inside an onSettled or tracked-effect callback: flush() and onCleanup() are not allowed there. */
+let inSettled = 0;
+
+/**
+ * `fn` run once the next flush has settled: untracked, but if it reads something not ready yet it runs again when that
+ * lands. What it returns runs when its owner ends (an error with no owner to bind it to).
+ */
 export function onSettled(fn: () => void | (() => void)) {
   const o = owner;
   let ended = false;
-  if (o) (o.cleanups ??= []).push(() => (ended = true));
-  queueMicrotask(() => {
+  let clean: (() => void) | undefined;
+  if (o) (o.cleanups ??= []).push(() => ((ended = true), clean?.()));
+  // Waiting on what was not ready: a computation that runs the callback again when it lands.
+  const waiter = new Computation<void>(EFFECT, () => {});
+  waiter.parent = null;
+  waiter.apply = () => {};
+  const attempt = () => {
     if (ended) return;
-    flush();
-    const done = runWithOwner(null, fn);
-    if (typeof done === "function") {
-      if (o && !o.disposed) (o.cleanups ??= []).push(done);
+    let done: unknown;
+    inSettled++;
+    try {
+      done = runWithOwner(null, fn);
+    } catch (e) {
+      if (!(e instanceof NotReadyError)) throw e;
+      const source = e.source as Node | undefined;
+      if (source) {
+        waiter.fn = () => {
+          (source as any).read?.call(source);
+        };
+        waiter.sources = [];
+        waiter.seen = [];
+        waiter.attached = true;
+        waiter.track(source);
+        waiter.fn = () => void settledQueue.push(attempt);
+        waiter.state = CLEAN;
+      }
+      return;
+    } finally {
+      inSettled--;
     }
-  });
+    if (done === undefined) return;
+    if (typeof done !== "function") throw new Error("onSettled callback returned an invalid cleanup value. Return a cleanup function or undefined.");
+    if (!o || o.disposed) throw new Error("[SETTLED_CLEANUP_UNOWNED] onSettled returned a cleanup with no owner to run it: call onSettled from an owned scope.");
+    clean?.();
+    clean = done as () => void;
+  };
+  settledQueue.push(attempt);
+  schedule();
 }
 
-/** A single-function effect: it tracks and does its work in the same run (it may run again in async situations). */
+/**
+ * A single-function effect: it runs at the flush, tracked (it may write), runs again when what it read changes, and
+ * what it returns runs before the next run and when it ends.
+ */
 export function createTrackedEffect(fn: () => void | (() => void)) {
   let clean: void | (() => void);
-  createEffect(
-    () => {
-      if (typeof clean === "function") clean();
+  const e = new Computation<void>(EFFECT, () => {
+    if (typeof clean === "function") clean();
+    inSettled++;
+    try {
       clean = fn();
-    },
-    () => {},
-  );
+    } finally {
+      inSettled--;
+    }
+  });
+  (e as any).allowWrites = true;
+  e.apply = () => {};
+  // Not run now: queued for the flush.
+  e.state = DIRTY;
+  queue(e);
   onCleanup(() => typeof clean === "function" && clean());
 }
 
