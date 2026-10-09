@@ -25,6 +25,8 @@ export const useLayoutEffect: Hooks["useLayoutEffect"] = (fn, deps) => cur().use
 export const useInsertionEffect: Hooks["useInsertionEffect"] = (fn, deps) => cur().useInsertionEffect(fn, deps);
 export const useImperativeHandle: Hooks["useImperativeHandle"] = (r, fn, deps) => cur().useImperativeHandle(r, fn, deps);
 export const useContext: Hooks["useContext"] = (c) => cur().useContext(c);
+/** A context read outside the hook rules (React's dispatcher.readContext: class render methods may call it). */
+export const readContext = (c: any) => ((cur() as any).readContext ?? cur().useContext)(c);
 export const useId: Hooks["useId"] = () => cur().useId();
 export const useSyncExternalStore = (sub: any, get: any, getServer?: any) => (cur() as any).useSyncExternalStore(sub, get, getServer);
 export const useTransition: Hooks["useTransition"] = () => cur().useTransition();

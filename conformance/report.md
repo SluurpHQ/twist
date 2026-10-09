@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3341 pass, 683 fail, 314 skipped (gated off for stable React 19).
+3342 pass, 682 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -72,7 +72,7 @@
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationElements-test.js | 313 | 23 | 0 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 20 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 126 | 15 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 127 | 14 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 33 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 7 | 3 | 0 |  |

@@ -172,7 +172,16 @@ function reducerHook(reducer: any, arg: any, init: any, isState: boolean) {
     };
     return box;
   });
-  for (const a of h.queue.splice(0)) h.value = reducer(h.value, a);
+  // A reducer is no component: hooks called in it are invalid.
+  for (const a of h.queue.splice(0)) {
+    const was = rendering;
+    rendering = null;
+    try {
+      h.value = reducer(h.value, a);
+    } finally {
+      rendering = was;
+    }
+  }
   return [h.value, h.dispatch];
 }
 
@@ -201,6 +210,9 @@ function renderOutput(out: any, ctx: Ctx, hooks: any) {
     ctx.tree = tree;
   }
 }
+/** A context's value where the render is (its provider's, or its default). */
+const contextValue = (ctx: Ctx, c: any) => (ctx.values.has(c) ? ctx.values.get(c) : c._defaultValue);
+
 function renderFunction(type: any, props: any) {
   const c: ServerComponent = { hooks: [], at: 0, again: false, ids: 0 };
   const was = rendering;
@@ -232,7 +244,12 @@ function serverHooks(ctx: Ctx) {
     useLayoutEffect: NOOP,
     useInsertionEffect: NOOP,
     useImperativeHandle: NOOP,
-    useContext: read,
+    readContext: read,
+    // A hook: only inside a function component (a class render calling it is an invalid hook call).
+    useContext: (c: any) => {
+      if (!rendering) throw new Error(INVALID_HOOK);
+      return read(c);
+    },
     // From where it is in the tree (React's), so the client hydrating finds the same id.
     useId: () => makeId(ctx.idPrefix, "R", ctx.tree, rendering ? rendering.ids++ : 0),
     useSyncExternalStore: (_s: any, get: any, getServer?: any) => (getServer ?? get)(),
@@ -403,7 +420,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           `${type.displayName || type.name || "Component"} defines an invalid contextType. contextType should point to the Context object returned by React.createContext(). ${ct?.$$typeof === CONSUMER ? "Did you accidentally pass the Context.Consumer instead?" : typeof ct !== "object" ? `However, it is set to a ${typeof ct}.` : `However, it is set to an object with keys {${Object.keys(ct).join(", ")}}.`}`,
         );
       // No context type: an empty context object, as React gives.
-      const c = validCt ? hooks.useContext(ct) : {};
+      const c = validCt ? contextValue(ctx, ct) : {};
       const inst = new type(props, c);
       inst.props = props;
       inst.context = c;
@@ -447,7 +464,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       }
     }
     case CONSUMER:
-      return render(props.children(hooks.useContext(type._context)), ctx, hooks);
+      return render(props.children(contextValue(ctx, type._context)), ctx, hooks);
     case FORWARD_REF: {
       const { ref, ...rest } = props;
       return renderOutput(renderFunction(() => type.render(rest, ref ?? null), props), ctx, hooks);
