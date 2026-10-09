@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3252 pass, 772 fail, 314 skipped (gated off for stable React 19).
+3292 pass, 732 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -14,8 +14,8 @@
 | react-dom/ReactChildReconciler-test.js | 4 | 1 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 10 | 9 | 2 |  |
-| react-dom/ReactComponentLifeCycle-test.js | 10 | 16 | 0 |  |
-| react-dom/ReactCompositeComponent-test.js | 24 | 16 | 0 |  |
+| react-dom/ReactComponentLifeCycle-test.js | 22 | 4 | 0 |  |
+| react-dom/ReactCompositeComponent-test.js | 32 | 8 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 3 | 5 | 1 |  |
@@ -135,7 +135,7 @@
 | react-dom/refs-test.js | 9 | 3 | 0 |  |
 | react-dom/refsLegacy-test.js | 0 | 0 | 1 |  |
 | react-dom/validateDOMNesting-test.js | 3 | 0 | 0 |  |
-| react/createReactClassIntegration-test.js | 18 | 8 | 2 |  |
+| react/createReactClassIntegration-test.js | 24 | 2 | 2 |  |
 | react/forwardRef-test.internal.js | 6 | 0 | 0 |  |
 | react/forwardRef-test.js | 16 | 3 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
@@ -146,7 +146,7 @@
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
 | react/ReactElementClone-test.js | 15 | 6 | 0 |  |
 | react/ReactElementValidator-test.internal.js | 17 | 4 | 0 |  |
-| react/ReactES6Class-test.js | 14 | 10 | 0 |  |
+| react/ReactES6Class-test.js | 22 | 2 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 12 | 2 | 0 |  |
 | react/ReactJSXRuntime-test.js | 8 | 7 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 12 | 7 | 0 |  |
@@ -154,10 +154,10 @@
 | react/ReactProfiler-test.internal.js | 10 | 23 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 6 | 1 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
-| react/ReactPureComponent-test.js | 2 | 2 | 0 |  |
+| react/ReactPureComponent-test.js | 4 | 0 | 0 |  |
 | react/ReactStartTransition-test.js | 0 | 1 | 0 |  |
 | react/ReactStrictMode-test.internal.js | 3 | 2 | 0 |  |
-| react/ReactStrictMode-test.js | 19 | 4 | 3 |  |
+| react/ReactStrictMode-test.js | 23 | 0 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
 | redux-tests/components/connect.spec.tsx | 66 | 1 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |

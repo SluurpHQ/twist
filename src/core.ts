@@ -6,6 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { MATH_NS, SVG_NS, styleText, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer, listenOnElement } from "./events.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
+import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
@@ -1709,13 +1710,15 @@ function renderClass(f: Fiber, withRef: any) {
     else {
       if ((f as any).strict && dev()) new C(props, ctx);
       inst = f.inst = new C(props, ctx);
+      checkClassInstance(C, inst, props);
+      recordUnsafeLifecycles(C, inst, !!(f as any).strict);
       inst.props = props;
       inst.context = ctx;
       if (inst.state === undefined) inst.state = null;
       inst.__f = f;
       inst.__queue = [];
     }
-    if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...strictTwice(f, () => C.getDerivedStateFromProps(props, inst.state), true) };
+    if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...derived(f, C, props, inst.state) };
     call("componentWillMount");
     // setState in componentWillMount: taken into this first render.
     inst.state = apply(inst.state, props)[0];
@@ -1740,9 +1743,9 @@ function renderClass(f: Fiber, withRef: any) {
   }
   if (prevProps !== props || prevCtx !== ctx) call("componentWillReceiveProps", props, ctx);
   let [state, force] = apply(prevState, props);
-  if (C.getDerivedStateFromProps) state = { ...state, ...strictTwice(f, () => C.getDerivedStateFromProps(props, state), true) };
+  if (C.getDerivedStateFromProps) state = { ...state, ...derived(f, C, props, state) };
   if (!force && prevProps === props && state === prevState && prevCtx === ctx) return KEEP;
-  if (!force && inst.shouldComponentUpdate && !untrack(() => strictTwice(f, () => inst.shouldComponentUpdate(props, state, ctx), true))) {
+  if (!force && inst.shouldComponentUpdate && !untrack(() => shouldUpdate(f, C, inst, props, state, ctx))) {
     inst.props = props;
     inst.state = state;
     inst.context = ctx;
@@ -1753,6 +1756,7 @@ function renderClass(f: Fiber, withRef: any) {
   inst.state = state;
   inst.context = ctx;
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
+  if (inst.getSnapshotBeforeUpdate) checkSnapshot(C, snapshot);
   const out = strictTwice(f, () => inst.render(), true);
   if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
@@ -1760,6 +1764,26 @@ function renderClass(f: Fiber, withRef: any) {
   return out;
 }
 const FORCE = Symbol("force");
+/** getDerivedStateFromProps' partial state (twice in StrictMode), checked as React checks it. */
+function derived(f: Fiber, C: any, props: any, state: any) {
+  const partial = strictTwice(f, () => C.getDerivedStateFromProps(props, state), true);
+  checkDerivedState(C, partial);
+  return partial;
+}
+function shouldUpdate(f: Fiber, C: any, inst: any, props: any, state: any, ctx: any) {
+  const r = strictTwice(f, () => inst.shouldComponentUpdate(props, state, ctx), true);
+  checkShouldUpdate(C, r);
+  return r;
+}
+
+/** setState or forceUpdate on an instance React has not mounted: nothing, and React's warning (once per class). */
+function notMounted(inst: any, what: string) {
+  const name = inst.constructor?.displayName || inst.constructor?.name || "ReactClass";
+  warn(
+    `Can't call ${what} on a component that is not yet mounted. This is a no-op, but it might indicate a bug in your application. Instead, assign to \`this.state\` directly or define a \`state = {};\` class property with the desired state in the ${name} component.`,
+    "notMounted:" + name + "." + what,
+  );
+}
 
 export class Component<P = any, S = any> {
   props: P;
@@ -1774,10 +1798,7 @@ export class Component<P = any, S = any> {
     this.context = context;
   }
   setState(partial: any, done?: () => void) {
-    if (!this.__f) {
-      this.state = { ...this.state, ...(typeof partial === "function" ? partial(this.state, this.props) : partial) };
-      return;
-    }
+    if (!this.__f) return notMounted(this, "setState");
     const apply = () => {
       this.__queue.push(partial);
       scheduledInCommit();
@@ -1792,7 +1813,7 @@ export class Component<P = any, S = any> {
     if (!inTransition(apply, preview, this.__f)) apply();
   }
   forceUpdate(done?: () => void) {
-    if (!this.__f) return;
+    if (!this.__f) return notMounted(this, "forceUpdate");
     this.__queue.push(FORCE);
     if (done) (this.__done ??= []).push(done);
     this.__f.tick!.set(this.__f.tick!.peek() + 1);
@@ -1916,6 +1937,7 @@ function commit() {
   depth++;
   const wasCommitting = committing;
   committing = true;
+  if (dev()) flushUnsafeLifecycleWarnings();
   try {
     untrack(() => {
       // What was taken away first (componentWillUnmount, effect cleanups, refs let go), then what was made.

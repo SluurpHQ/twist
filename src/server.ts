@@ -414,6 +414,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           inst.state = { ...inst.state, ...(typeof s === "function" ? s(inst.state, inst.props) : s) };
           cb?.();
         };
+        // forceUpdate while mounting: nothing to do (it renders right after).
+        inst.forceUpdate = (cb?: () => void) => cb?.();
         (inst.UNSAFE_componentWillMount ?? inst.componentWillMount).call(inst);
       }
       const out = inst.render();
