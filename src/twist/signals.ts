@@ -348,8 +348,11 @@ export class Computation<T> extends Node<T> implements Owner {
   onError?: (err: unknown, cleanup: () => void) => void;
   /** An effect whose compute gave a new value: its apply is due. */
   due = false;
+  /** A tracked effect (createTrackedEffect): its single function runs in the effect phase. */
+  tracked = false;
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
     super();
+    if ((owner as any)?.tracked) throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
     this.kind = kind;
     this.fn = fn;
     this.parent = owner;
@@ -438,6 +441,21 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** Brought up to date: run again if something it read changed (memos it read brought up to date first). */
   update() {
+    if (this.tracked && this.state !== CLEAN) {
+      if (this.state === CHECK) {
+        for (let i = 0; i < this.sources.length; i++) {
+          const s = this.sources[i]!;
+          if (s instanceof Computation) s.update();
+          if (s.version !== this.seen[i]) {
+            this.state = DIRTY;
+            break;
+          }
+        }
+        if (this.state === CHECK) return void (this.state = CLEAN);
+      }
+      if (!this.due) (this.due = true), applies[EFFECT].push(this);
+      return;
+    }
     if (this.state === CHECK) {
       for (let i = 0; i < this.sources.length; i++) {
         const s = this.sources[i]!;
@@ -619,6 +637,14 @@ export class Computation<T> extends Node<T> implements Owner {
   /** An effect's apply half, untracked and unowned, after its last cleanup. */
   runApply() {
     if (!this.due || this.disposed) return;
+    if (this.tracked) {
+      this.due = false;
+      this.state = DIRTY;
+      this.run();
+      this.due = false;
+      remove(applies[EFFECT], this);
+      return;
+    }
     this.due = false;
     this.promote();
     const prev = this.applied === NONE ? undefined : this.applied;
@@ -1400,14 +1426,17 @@ export function createTrackedEffect(fn: () => void | (() => void)) {
     if (typeof clean === "function") clean();
     inSettled++;
     try {
-      clean = fn();
+      const done = fn();
+      if (done !== undefined && typeof done !== "function") throw new Error("trackedEffect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
+      clean = done;
     } finally {
       inSettled--;
     }
   });
   (e as any).allowWrites = true;
+  // It runs in the effect phase (after render effects apply), tracked: its run is its apply.
+  e.tracked = true;
   e.apply = () => {};
-  // Not run now: queued for the flush.
   e.state = DIRTY;
   queue(e);
   onCleanup(() => typeof clean === "function" && clean());
