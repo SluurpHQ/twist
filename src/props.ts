@@ -193,10 +193,28 @@ export function onSubmitAction(fn: typeof submit) {
   submit = fn;
 }
 
+/** The event props React knows (its plugins' events): any other on* on a custom element is the element's own. */
+const REACT_EVENTS = new Set(
+  ("abort auxClick beforeToggle cancel canPlay canPlayThrough click close contextMenu copy cut drag dragEnd dragEnter dragExit dragLeave dragOver dragStart drop durationChange emptied encrypted ended error fullscreenChange fullscreenError gotPointerCapture input invalid keyDown keyPress keyUp load loadedData loadedMetadata loadStart lostPointerCapture mouseDown mouseMove mouseOut mouseOver mouseUp paste pause play playing pointerCancel pointerDown pointerMove pointerOut pointerOver pointerUp progress rateChange reset resize seeked seeking stalled submit suspend timeUpdate touchCancel touchEnd touchStart volumeChange scroll scrollEnd toggle touchMove waiting wheel " +
+    "change select beforeInput compositionEnd compositionStart compositionUpdate mouseEnter mouseLeave pointerEnter pointerLeave focus blur doubleClick animationEnd animationIteration animationStart transitionEnd transitionRun transitionStart transitionCancel focusIn focusOut")
+    .split(" ")
+    .map((e) => "on" + e[0]!.toUpperCase() + e.slice(1)),
+);
+
 /** One prop set on `el`, from `prev` to `next`. */
 export function setProp(el: Element, name: string, next: any, prev: any, svg: boolean) {
   if (SKIP.has(name)) return;
   if (name === "style") return setStyle(el as HTMLElement, next, prev);
+  // A custom element's own events (any on* React does not know): listened to on it, the name as written.
+  if (name[0] === "o" && name[1] === "n" && name.length > 2 && el.localName.includes("-") && !REACT_EVENTS.has(name.endsWith("Capture") ? name.slice(0, -7) : name)) {
+    const capture = name.endsWith("Capture");
+    const type = name.slice(2, capture ? name.length - 7 : undefined);
+    if (typeof prev === "function") el.removeEventListener(type, prev, capture);
+    if (typeof next === "function") {
+      if (typeof prev !== "function" && prev != null) name in el ? ((el as any)[name] = null) : el.removeAttribute(name);
+      return el.addEventListener(type, next, capture);
+    }
+  }
   if (name[0] === "o" && name[1] === "n" && name.length > 2 && name[2] === name[2]!.toUpperCase()) {
     // iOS Safari only sends clicks to elements it thinks are clickable: React gives them an onclick that does nothing.
     if (name === "onClick" && next != null) (el as HTMLElement).onclick ??= noop;

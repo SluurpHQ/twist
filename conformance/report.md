@@ -1,11 +1,11 @@
 # React's tests on @sluurp/dom
 
-3105 pass, 919 fail, 314 skipped (gated off for stable React 19).
+3112 pass, 912 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
 | react-dom/CSSPropertyOperations-test.js | 15 | 0 | 0 |  |
-| react-dom/DOMPropertyOperations-test.js | 30 | 19 | 0 |  |
+| react-dom/DOMPropertyOperations-test.js | 37 | 12 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 5 | 3 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
 | react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
