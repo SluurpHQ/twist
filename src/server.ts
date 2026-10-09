@@ -480,3 +480,6 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
 const setImmediateOr = (fn: () => void) => ((globalThis as any).setImmediate ? (globalThis as any).setImmediate(fn) : setTimeout(fn, 0));
 
 export const version = "19.3.0";
+
+// The module as one object too: `import ReactDOMServer from "react-dom/server"`.
+export default { renderToString, renderToStaticMarkup, renderToReadableStream, renderToPipeableStream, prerender, prerenderToNodeStream, version };

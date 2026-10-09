@@ -26,6 +26,7 @@
       "use-sync-external-store/shim/with-selector.js": ["../src/external-store.ts"],
       "react-redux": ["../src/react-redux.ts"],
       "vitest": ["./shim/vitest.ts"],
+      "@internal/hooks/useReduxContext": ["../src/react-redux.ts"],
       "@internal/utils/react-is": ["./shim/redux-react-is.ts"],
       "@internal/utils/react-is.js": ["./shim/redux-react-is.ts"],
       "scheduler": ["./shim/scheduler.ts"],

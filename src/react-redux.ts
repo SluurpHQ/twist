@@ -5,23 +5,36 @@
 import { computed, signal } from "../../signals/index.js";
 import { createElement, forwardRef as forwardRefOf } from "./element.ts";
 import { createContext } from "./element.ts";
-import { useContext, useMemo, useRef } from "./hooks.ts";
+import { useContext, useLayoutEffect, useMemo, useRef } from "./hooks.ts";
 
 type Store = { getState(): any; dispatch(action: any): any; subscribe(fn: () => void): () => void };
 type Equality = (a: any, b: any) => boolean;
 
 export const ReactReduxContext: any = createContext<{ store: Store } | null>(null);
 
-/** The store's state as a signal: one subscription however many components read it. */
-const states = new WeakMap<Store, { (): any; set(v: any): void; peek(): any }>();
-function stateOf(store: Store) {
-  let s = states.get(store);
-  if (!s) {
-    const sig = signal(store.getState());
-    store.subscribe(() => sig.set(store.getState()));
-    states.set(store, (s = sig as any));
+/** The store's state as a signal, and its one subscription to the store, held while a Provider is mounted. */
+type Held = { state: { (): any; set(v: any): void; peek(): any }; holders: number; off: (() => void) | null };
+const states = new WeakMap<Store, Held>();
+function heldOf(store: Store): Held {
+  let h = states.get(store);
+  if (!h) states.set(store, (h = { state: signal(store.getState()) as any, holders: 0, off: null }));
+  return h;
+}
+const stateOf = (store: Store) => heldOf(store).state;
+
+/** Subscribed while held: the first holder subscribes, the last one to let go unsubscribes. */
+function hold(store: Store) {
+  const h = heldOf(store);
+  if (h.holders++ === 0) {
+    h.state.set(store.getState());
+    h.off = store.subscribe(() => h.state.set(store.getState()));
   }
-  return s!;
+  return () => {
+    if (--h.holders === 0) {
+      h.off?.();
+      h.off = null;
+    }
+  };
 }
 
 /** What react-redux's context holds besides the store: a subscription libraries reach for (Recharts subscribes
@@ -29,6 +42,12 @@ function stateOf(store: Store) {
 function subscriptionOf(store: Store) {
   const subs = new Set<() => void>();
   return {
+    /** A mounted useSelector, counted (react-redux's listener count); the returned function forgets it. */
+    track: () => {
+      const token = () => {};
+      subs.add(token);
+      return () => void subs.delete(token);
+    },
     addNestedSub: (listener: () => void) => store.subscribe(listener),
     notifyNestedSubs: () => subs.forEach((f) => f()),
     handleChangeWrapper: () => {},
@@ -39,11 +58,13 @@ function subscriptionOf(store: Store) {
   };
 }
 
-export function Provider({ store, context, children, serverState }: { store: Store; context?: any; children?: any; serverState?: any }) {
+export function Provider({ store, context, children, serverState, stabilityCheck = "once", identityFunctionCheck = "once" }: { store: Store; context?: any; children?: any; serverState?: any; stabilityCheck?: string; identityFunctionCheck?: string }) {
   const value = useMemo(
-    () => ({ store, subscription: subscriptionOf(store), getServerState: serverState ? () => serverState : undefined, stabilityCheck: "once", identityFunctionCheck: "once" }),
-    [store, serverState],
+    () => ({ store, subscription: subscriptionOf(store), getServerState: serverState ? () => serverState : undefined, stabilityCheck, identityFunctionCheck }),
+    [store, serverState, stabilityCheck, identityFunctionCheck],
   );
+  // Subscribed to the store while mounted (before its children's effects run; let go when it unmounts).
+  useLayoutEffect(() => hold(store), [store]);
   return createElement(context ?? ReactReduxContext, { value }, children);
 }
 
@@ -67,18 +88,83 @@ export function createDispatchHook(context: any = ReactReduxContext) {
 }
 
 export function createSelectorHook(context: any = ReactReduxContext) {
-  const useStoreHere = createStoreHook(context);
-  return function useSelector<T>(selector: (state: any) => T, options?: Equality | { equalityFn?: Equality }): T {
-    const store = useStoreHere();
-    const equals = (typeof options === "function" ? options : options?.equalityFn) ?? Object.is;
-    // The newest selector, read by the computed (an inline selector is a new function every render).
-    const latest = useRef(selector);
-    latest.current = selector;
-    const selection = useMemo(() => {
+  const useContextHere = createReduxContextHook(context);
+  return function useSelector<T>(selector: (state: any) => T, options: Equality | { equalityFn?: Equality; devModeChecks?: any } = {}): T {
+    const dev = (globalThis as any).process?.env?.NODE_ENV !== "production";
+    const equals = (typeof options === "function" ? options : options.equalityFn) ?? Object.is;
+    if (dev) {
+      if (!selector) throw new Error("You must pass a selector to useSelector");
+      if (typeof selector !== "function") throw new Error("You must pass a function as a selector to useSelector");
+      if (typeof equals !== "function") throw new Error("You must pass a function as an equality function to useSelector");
+    }
+    const ctx: any = useContextHere();
+    const store: Store = ctx.store;
+    const firstRun = useRef(true);
+    // react-redux's development checks: a selector that answers differently twice, or returns the whole state.
+    const checked = (state: any): T => {
+      const selected = selector(state);
+      if (dev) {
+        const checks = { stabilityCheck: ctx.stabilityCheck, identityFunctionCheck: ctx.identityFunctionCheck, ...(typeof options === "function" ? {} : options.devModeChecks) };
+        const name = selector.name || "unknown";
+        if (checks.stabilityCheck === "always" || (checks.stabilityCheck === "once" && firstRun.current)) {
+          const again = selector(state);
+          if (!equals(selected, again)) {
+            console.warn(
+              `Selector ${name} returned a different result when called with the same parameters. This can lead to unnecessary rerenders.\nSelectors that return a new reference (such as an object or an array) should be memoized: https://redux.js.org/usage/deriving-data-selectors#optimizing-selectors-with-memoization`,
+              { state, selected, selected2: again, stack: new Error().stack },
+            );
+          }
+        }
+        if ((checks.identityFunctionCheck === "always" || (checks.identityFunctionCheck === "once" && firstRun.current)) && selected === state) {
+          console.warn(
+            `Selector ${name} returned the root state when called. This can lead to unnecessary rerenders.\nSelectors that return the entire state are almost certainly a mistake, as they will cause a rerender whenever *anything* in state changes.`,
+            { stack: new Error().stack },
+          );
+        }
+        firstRun.current = false;
+      }
+      return selected;
+    };
+    // The newest selector, run by the computed when the state changes (an inline selector is new every render).
+    const latest = useRef(checked);
+    latest.current = checked;
+    const box = useMemo(() => {
       const state = stateOf(store);
-      return computed(() => latest.current(state()), { equals });
+      const b: any = { state, rendered: undefined, has: false, lastState: undefined, lastSelector: undefined };
+      // Wakes the component only when what it selects differs from what it last rendered. Its selection is kept
+      // with the state and selector it came from, so the render does not select again.
+      const NONE = {};
+      b.wake = computed(
+        () => {
+          const st = state();
+          if (!b.has) return NONE;
+          const v = latest.current(st);
+          b.cState = st;
+          b.cSelector = b.lastSelector;
+          b.cValue = v;
+          return v;
+        },
+        { equals: (_old: any, next: any) => next === NONE || (b.has && equals(b.rendered, next)) },
+      );
+      return b;
     }, [store, equals]);
-    return selection();
+    box.wake();
+    // What it renders: reused while the state and the selector are the ones it was taken with.
+    const now = box.state.peek();
+    let out: T;
+    if (box.has && box.lastState === now && box.lastSelector === selector) out = box.rendered;
+    else if (box.has && box.cState === now && box.cSelector === selector) out = equals(box.rendered, box.cValue) ? box.rendered : box.cValue;
+    else {
+      out = checked(now);
+      if (box.has && equals(box.rendered, out)) out = box.rendered;
+    }
+    box.lastState = now;
+    box.lastSelector = selector;
+    box.rendered = out;
+    box.has = true;
+    // Counted on the Provider's subscription while mounted (react-redux keeps one listener per useSelector).
+    useLayoutEffect(() => ctx.subscription?.track?.(), [ctx.subscription]);
+    return out;
   };
 }
 
@@ -108,9 +194,17 @@ export function connect(mapState?: any, mapDispatch?: any, mergeProps?: any, opt
     function Connected(props: any) {
       const store = useStoreHere();
       const own = props;
+      const ownSeen = useRef<any>(null);
+      if (!ownSeen.current || !shallowEqual(ownSeen.current, own)) ownSeen.current = own;
+      const ownStable = ownSeen.current;
+      const select = useMemo(
+        () => (state: any) => (mapState ? (mapState.length !== 1 ? mapState(state, ownStable) : mapState(state)) : {}),
+        [ownStable],
+      );
       const stateProps = useSelectorHere(
-        (state: any) => (mapState ? (mapState.length !== 1 ? mapState(state, own) : mapState(state)) : {}),
-        options.areStatePropsEqual ?? shallowEqual,
+        select,
+        // connect's mapState returns a new object each call (compared shallowly): no useSelector checks on it.
+        { equalityFn: options.areStatePropsEqual ?? shallowEqual, devModeChecks: { stabilityCheck: "never", identityFunctionCheck: "never" } },
       );
       const dispatchProps = useMemo(() => {
         if (!mapDispatch) return { dispatch: store.dispatch };
@@ -127,3 +221,13 @@ export function connect(mapState?: any, mapDispatch?: any, mergeProps?: any, opt
     return options.forwardRef ? forwardRefOf((p: any, ref: any) => createElement(Connected, { ...p, ref })) : Connected;
   };
 }
+
+/** The context value react-redux's components read (its store and subscription): the hook its own code uses. */
+export function createReduxContextHook(context: any = ReactReduxContext) {
+  return function useReduxContext() {
+    const v = useContext(context);
+    if (!v) missing();
+    return v;
+  };
+}
+export const useReduxContext = createReduxContextHook();

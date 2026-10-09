@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-2326 pass, 1682 fail, 314 skipped (gated off for stable React 19).
+2336 pass, 1674 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -164,9 +164,9 @@
 | redux-tests/components/Provider.spec.tsx | 7 | 1 | 0 |  |
 | redux-tests/connect/wrapMapToProps.spec.ts | 0 | 1 | 0 |  |
 | redux-tests/hooks/useDispatch.spec.tsx | 2 | 0 | 0 |  |
-| redux-tests/hooks/useReduxContext.spec.tsx | 0 | 1 | 0 |  |
-| redux-tests/hooks/useSelector.spec.tsx | 19 | 10 | 0 |  |
-| redux-tests/integration/dynamic-reducers.spec.tsx | 0 | 1 | 0 |  |
+| redux-tests/hooks/useReduxContext.spec.tsx | 2 | 0 | 0 |  |
+| redux-tests/hooks/useSelector.spec.tsx | 27 | 2 | 0 |  |
+| redux-tests/integration/dynamic-reducers.spec.tsx | 0 | 2 | 0 |  |
 | redux-tests/integration/server-rendering.spec.tsx | 3 | 2 | 0 |  |
 | redux-tests/integration/ssr.spec.tsx | 0 | 0 | 0 | TypeError: it.for is not a function. (In 'it.for([0, !1, ""])', 'it.for' is undefined) |
 | use-sync-external-store/useSyncExternalStoreNative-test.js | 0 | 2 | 0 |  |
