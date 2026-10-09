@@ -1051,6 +1051,17 @@ function caught(f: Fiber, e: any) {
   if (e && typeof e.then === "function") {
     // In a transition, an update keeps what is shown (no fallback) and is drawn again once the data is there.
     if (applyingTransition && f.committed) {
+      // React still renders the boundary's fallback, then throws that attempt away: so do we, off the page.
+      for (let p = f.parent; p; p = p.parent) {
+        if (p.type !== SUSPENSE || p.dead) continue;
+        const scratch: Fiber = fiber(FRAG, FRAGMENT, "scratch", null, p);
+        try {
+          reconcile(scratch, toList(p.props?.fallback), docOf(hostParentOf(f)).createDocumentFragment(), null);
+        } catch {}
+        for (const c of scratch.children) unmount(c, false);
+        break;
+      }
+      transitionWaits.push(e);
       e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
       return;
     }
@@ -1514,13 +1525,38 @@ export function setTransitionScheduler(fn: typeof scheduleTransitions) {
   scheduleTransitions = fn;
 }
 
+/** What ends a transition (isPending going false, a form's status reset): only once it has rendered without
+ * suspending, as React holds the whole transition until its data is there. */
+const transitionEnds: (() => void)[] = [];
+/** What the transition being drawn suspended on. */
+const transitionWaits: PromiseLike<any>[] = [];
+function endTransition(fn: () => void) {
+  transitionEnds.push(fn);
+  if (transitionBooked) return;
+  transitionBooked = true;
+  scheduleTransitions(flushTransitions);
+}
+
 /** The transitions waiting, drawn now (act does, as React's act flushes every lane): whether there were any. */
 export function flushTransitions(): boolean {
   transitionBooked = false;
-  if (!transitionWork.length) return false;
+  if (!transitionWork.length && !transitionEnds.length) return false;
   applyingTransition = true;
   try {
     for (const w of transitionWork.splice(0)) w();
+    flushSignals();
+    if (transitionWaits.length) {
+      // Suspended: its end waits for the data, then the transition is drawn again.
+      const waits = transitionWaits.splice(0);
+      let left = waits.length;
+      const settled = () => {
+        if (--left) return;
+        if (!transitionBooked && transitionEnds.length) (transitionBooked = true), scheduleTransitions(flushTransitions);
+      };
+      for (const p of waits) p.then(settled, settled);
+      return true;
+    }
+    for (const w of transitionEnds.splice(0)) w();
     flushSignals();
   } finally {
     applyingTransition = false;
@@ -1540,7 +1576,7 @@ function startTransitionWith(fn: () => any, pending?: Sig<number>) {
     transitioning--;
   }
   if (!pending) return;
-  const done = () => deferTransition(() => pending.set(pending.peek() - 1));
+  const done = () => endTransition(() => pending.set(pending.peek() - 1));
   if (r && typeof r.then === "function") r.then(done, done);
   else done();
 }
@@ -1696,17 +1732,23 @@ export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, 
   const method = ((submitter as any)?.getAttribute?.("formmethod") ?? form.getAttribute("method") ?? "get").toLowerCase();
   status?.set({ pending: true, data, method, action: act });
   flushSignals();
+  // Done: no longer pending, with the action's own updates (a transition's), and the form reset.
   const settle = (error?: unknown, failed = false) => {
-    status?.set(IDLE_FORM);
-    if (failed) f ? caught(f, error) : report(error);
-    else form.reset();
-    flushSignals();
+    endTransition(() => {
+      status?.set(IDLE_FORM);
+      if (failed) f ? caught(f, error) : report(error);
+      else form.reset();
+    });
   };
   let r: any;
+  // The action runs as a transition, as React wraps it in one.
+  transitioning++;
   try {
     r = act(data);
   } catch (e) {
     return settle(e, true);
+  } finally {
+    transitioning--;
   }
   if (r && typeof r.then === "function") r.then(() => settle(), (e: unknown) => settle(e, true));
   else settle();
@@ -1714,7 +1756,10 @@ export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, 
 
 /** The status of the form around the component rendering now (React DOM's useFormStatus). */
 export function useFormStatus() {
-  for (let p = current?.parent ?? null; p; p = p.parent) if (p.kind === HOST && p.type === "form") return formStatus(p)();
+  for (let p = current?.parent ?? null; p; p = p.parent) {
+    if (p.kind !== HOST || p.type !== "form") continue;
+    return formStatus(p)();
+  }
   return IDLE_FORM;
 }
 
