@@ -200,6 +200,13 @@ function domNodes(f: Fiber, out: Node[] = []): Node[] {
   return out;
 }
 
+/** Where a node goes in `host`: a document's (or a root <html>'s) children go in its <body>, as React's do. */
+function domParent(host: Node): Node {
+  if (host.nodeType === 9) return (host as Document).body ?? host;
+  if ((host as Element).localName === "html" && rootContainers.has(host)) return host.ownerDocument!.body ?? host;
+  return host;
+}
+
 /** The document nodes are made in: the container's own (a test's jsdom, an iframe), else the page's. */
 const docOf = (host: Node): Document => (host.nodeType === 9 ? (host as Document) : host.ownerDocument) ?? document;
 
@@ -260,12 +267,13 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // In order, back to front: each node before the one after it, moved only when it is not already there.
   // Taking over server markup, nodes are claimed or made in place: nothing to move.
   if (hydrating) return;
+  const into = domParent(host);
   let cursor = before;
   for (let j = next.length - 1; j >= 0; j--) {
     const nodes = domNodes(next[j]!);
     for (let k = nodes.length - 1; k >= 0; k--) {
       const n = nodes[k]!;
-      if (n.parentNode !== host || pastComments(n.nextSibling) !== cursor) host.insertBefore(n, cursor);
+      if (n.parentNode !== into || pastComments(n.nextSibling) !== cursor) into.insertBefore(n, cursor);
       cursor = n;
     }
   }
@@ -434,7 +442,7 @@ function boundaryEnd(start: Comment): Comment | null {
     if (d === close) {
       if (depth === 0) return n as Comment;
       depth--;
-    } else if (activity ? d === "&" : d === "$" || d === "$?" || d === "$!") depth++;
+    } else if (activity ? d === "&" : d === "$" || d === "$?" || d === "$!" || d === "$~") depth++;
   }
   return null;
 }
@@ -479,7 +487,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   let raw: Node | null = hydrating!.has(host) ? hydrating!.get(host)! : host.firstChild;
   while (raw && raw.nodeType === 3 && !(raw as Text).data.trim()) raw = raw.nextSibling;
   const kind = raw && raw.nodeType === 8 ? (raw as Comment).data : null;
-  const expected = f.type === ACTIVITY ? kind === "&" : kind === "$" || kind === "$?" || kind === "$!";
+  const expected = f.type === ACTIVITY ? kind === "&" : kind === "$" || kind === "$?" || kind === "$!" || kind === "$~";
   const end = expected ? boundaryEnd(raw as Comment) : null;
   if (!end) {
     // Not the server's boundary here: drawn as any other (a mismatch, found by what it holds).
@@ -490,8 +498,9 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   const region = { start: raw as Comment, end };
   hydrating!.set(host, end.nextSibling);
   (f as any).region = region;
-  if (kind === "$?") {
-    // Still streaming: the server's fallback stays until its content arrives (the stream's script says so).
+  if (kind === "$?" || kind === "$~") {
+    // Still streaming (or its content here, its stylesheets loading): the server's fallback stays until the
+    // stream's script says it is done.
     (raw as any)._reactRetry = () => deferTransition(() => retryBoundary(f));
     (f as any).dehydrated = true;
     return;
@@ -826,7 +835,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     } else {
       if (hydrating && text !== "") markMismatch(nextServerNode(host)?.nodeType === 3);
       f.dom = docOf(host).createTextNode(text);
-      host.insertBefore(f.dom, hydrating ? serverCursor(host) : before);
+      (hydrating ? host : domParent(host)).insertBefore(f.dom, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
     }
     return f;
@@ -857,12 +866,13 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     f.ns = ns;
     checkTagName(type);
     assertValidProps(type, props);
+    const hoisted = ns !== MATH_NS && isHoistable(type, props, ns === SVG_NS, inContainer(parent), warn);
     if (dev()) {
       const around = nestingAt(parent);
-      checkNesting(type, around, (tag) => behindComponents(f, tag));
+      if (!hoisted) checkNesting(type, around, (tag) => behindComponents(f, tag));
       f.nesting = ancestorsWith(around, type);
     }
-    if (ns !== MATH_NS && isHoistable(type, props, ns === SVG_NS, inContainer(parent), warn)) {
+    if (hoisted) {
       f.kind = HOIST;
       mountHoist(f, host);
       return f;
@@ -902,7 +912,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (server) {
       if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !single && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el);
     } else {
-      host.insertBefore(el, hydrating ? serverCursor(host) : before);
+      (hydrating ? host : domParent(host)).insertBefore(el, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
     }
     if (props.ref != null) layoutQueue.push(() => !f.dead && setRef(f, props.ref, el));

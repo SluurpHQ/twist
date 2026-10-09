@@ -33,6 +33,9 @@ const make = (d: Document, tag: string, props: any) => {
   const el = d.createElement(tag);
   (el as any)[HOISTABLE] = true;
   setProps(el, props, {}, false);
+  // A <style>'s or <script>'s one text child is its content.
+  const c = Array.isArray(props.children) ? (props.children.length < 2 ? props.children[0] : null) : props.children;
+  if (typeof c === "string" || typeof c === "number" || typeof c === "bigint") el.textContent = String(c);
   return el;
 };
 export const markHoistable = (el: Element) => ((el as any)[HOISTABLE] = true);

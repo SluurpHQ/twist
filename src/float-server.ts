@@ -32,6 +32,8 @@ export class Resources {
   fontPreloads: Chunk[] = [];
   highImages: Chunk[] = [];
   styles = new Map<string, StyleQueue>();
+  /** Every stylesheet met, by href (a boundary rendered again finds the ones it uses). */
+  sheetByHref = new Map<string, Sheet>();
   bootstrap: Chunk[] = [];
   scripts: Chunk[] = [];
   bulk: Chunk[] = [];
@@ -162,6 +164,7 @@ export class Resources {
     const sheet: Sheet = { state: PENDING, props: { rel: "stylesheet", href, "data-precedence": precedence, ...options } };
     if (state) this.fromPreload(href, state, sheet);
     this.queue(precedence).sheets.set(href, sheet);
+    this.sheetByHref.set(href, sheet);
   }
 
   // ------------------------------------------------------------ elements rendered as resources or hoistables
@@ -177,9 +180,10 @@ export class Resources {
       const sheet: Sheet = { state: PENDING, props: { ...props, "data-precedence": precedence, precedence: null } };
       if (state) this.fromPreload(href, state, sheet);
       q.sheets.set(href, sheet);
+      this.sheetByHref.set(href, sheet);
       this.boundary?.sheets.add(sheet);
-    } else if (queue) {
-      const sheet = queue.sheets.get(href);
+    } else {
+      const sheet = this.sheetByHref.get(href);
       if (sheet) this.boundary?.sheets.add(sheet);
     }
   }
@@ -305,7 +309,11 @@ export class Resources {
     for (const q of state.styles) if (q.hrefs.length) styleTags += this.styleElement(q, true);
     const sheets: [string, string, Record<string, string>][] = [];
     for (const s of state.sheets) {
-      if (s.state === PREAMBLE || s.state === LATE) continue;
+      if (s.state === PREAMBLE) continue;
+      if (s.state === LATE) {
+        sheets.push([String(s.props.href), "", {}]);
+        continue;
+      }
       const attrs: Record<string, string> = {};
       for (const k in s.props) {
         const v = s.props[k];

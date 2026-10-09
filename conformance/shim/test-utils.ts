@@ -88,6 +88,8 @@ const seen: Record<string, string[]> = { error: [], warn: [], log: [] };
 for (const kind of ["error", "warn", "log"] as const) {
   const original = console[kind].bind(console);
   console[kind] = (...args: any[]) => {
+    // jsdom's own note about CSS it cannot parse (React's jsdom does not print it): not React's output.
+    if (kind === "error" && String(args[0]).includes("Could not parse CSS stylesheet")) return;
     seen[kind]!.push(args.map(String).join(" "));
     if (kind !== "log") original(...args);
   };
