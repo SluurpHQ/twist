@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3726 pass, 298 fail, 314 skipped (gated off for stable React 19).
+3730 pass, 294 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -15,7 +15,7 @@
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 17 | 2 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 23 | 3 | 0 |  |
-| react-dom/ReactCompositeComponent-test.js | 36 | 4 | 0 |  |
+| react-dom/ReactCompositeComponent-test.js | 39 | 1 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 4 | 4 | 1 |  |
@@ -146,7 +146,7 @@
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
 | react/ReactElementClone-test.js | 21 | 0 | 0 |  |
 | react/ReactElementValidator-test.internal.js | 18 | 3 | 0 |  |
-| react/ReactES6Class-test.js | 22 | 2 | 0 |  |
+| react/ReactES6Class-test.js | 23 | 1 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 12 | 2 | 0 |  |
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 18 | 1 | 0 |  |

@@ -2318,6 +2318,9 @@ function renderClass(f: Fiber, withRef: any) {
     inst.props = props;
     inst.state = state;
     inst.context = ctx;
+    // Its setState callbacks are called even so (React's).
+    const skipped = inst.__done?.splice(0);
+    if (skipped?.length) f.layout!.push(() => lifecycle(f, () => skipped.forEach((cb: any) => callCallback(cb, inst))));
     return KEEP;
   }
   call("componentWillUpdate", props, state, ctx);
@@ -2432,9 +2435,8 @@ export class Component<P = any, S = any> {
     if (done) (this.__done ??= []).push(done);
     this.__f.tick!.set(this.__f.tick!.peek() + 1);
   }
-  render(): any {
-    return null;
-  }
+  /** Each class gives its own (React's Component has none: a class without one fails to render). */
+  declare render: () => any;
 }
 (Component.prototype as any).isReactComponent = {};
 
@@ -3625,6 +3627,13 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         if (typeof rest[0] === "function") console.error("does not support the second callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
         else if (validContainer(rest[0])) console.error("You passed a container to the second argument of root.render(...). You don't need to pass it again since you already passed it to create the root.");
         else if (rest.length && rest[0] !== undefined) console.error("You passed a second argument to root.render(...) but it only accepts one argument.");
+        // Asked for while a component renders: React warns (the render goes ahead).
+        if (current) {
+          const owner = current;
+          withFiber(owner, () => console.error(`Render methods should be a pure function of props and state; triggering nested component updates from render is not allowed. If necessary, trigger nested updates in componentDidUpdate.
+
+Check the render method of ${nameOf(owner.type)}.`));
+        }
         // An array as the root's children: its elements need keys.
         if (Array.isArray(children)) checkKeys(children, ROOT_NAME);
       }
