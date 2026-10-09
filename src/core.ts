@@ -355,7 +355,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     if (items) checkKeys((c = items), parent.type);
     // A plain object is no child (an element, text, an array or an iterable is).
     if (c && typeof c === "object" && !Array.isArray(c) && !c.$$typeof) throw objectChild(c);
-    if (c == null || typeof c === "boolean") {
+    // Nothing, a boolean or an empty string: no node (React makes none for "").
+    if (c == null || typeof c === "boolean" || c === "") {
       i++;
       continue;
     }
