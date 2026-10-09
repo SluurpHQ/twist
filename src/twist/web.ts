@@ -19,7 +19,7 @@ import {
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic, spreadSource } from "./control.ts";
 
 export * from "./control.ts";
 import { inOrder } from "../shared/in-order.ts";
@@ -79,7 +79,7 @@ function element(tag: string, props: Record<string, any>): Element {
   for (const k of Object.keys(props)) {
     if (k === "children") continue;
     const v = props[k];
-    if (k.startsWith("$spread$")) spread(el, v());
+    if (k.startsWith("$spread$")) spread(el, spreadSource(v));
     else set(el, k, v);
   }
   if ("children" in props) insert(el, props.children);
@@ -91,10 +91,25 @@ function set(el: Element, name: string, value: any) {
   if (name === "ref") return applyRef(value, el);
   if (/^on[A-Z]/.test(name)) return addEvent(el, name.slice(2).toLowerCase(), value);
   if (isDynamic(value)) {
-    // (A binding takes no id: the server makes none for it.)
-    createRenderEffect(value, (v: any, prev: any) => assign(el, name, v, prev), BINDING);
+    // (A binding takes no id: the server makes none for it.) Hydrating, its first value is what the page shows already:
+    // nothing written (what the user typed, styles the page has, stay).
+    let adopt = !!hydrating;
+    createRenderEffect(
+      value,
+      (v: any, prev: any) => {
+        if (adopt) {
+          adopt = false;
+          if (name === "class") (el as any).$$cls = classes(v);
+          return;
+        }
+        assign(el, name, v, prev);
+      },
+      BINDING,
+    );
     return;
   }
+  // Hydrating: a static value is in the page already.
+  if (hydrating) return;
   assign(el, name, value, undefined);
 }
 
@@ -123,8 +138,8 @@ export function className(el: Element, value: any, prev?: any) {
   if (typeof prev === "number") prev = String(prev);
   const now = classes(value);
   // What it applied last (an object changed in place is not what it was): the diff is against that.
-  const before: Set<string> = (el as any).$cls ?? classes(prev);
-  (el as any).$cls = now;
+  const before: Set<string> = (el as any).$$cls ?? classes(prev);
+  (el as any).$$cls = now;
   if (typeof value === "string" || value == null || value === false) {
     if (value == null || value === false || value === "") return el.removeAttribute("class");
     return el.setAttribute("class", value);
@@ -158,7 +173,12 @@ export function applyRef(r: any, el: Element) {
 }
 
 /** Props given as a whole: each applied, kept current. */
-export function spread(el: Element, props: any, claiming?: boolean) {
+export function spread(el: Element, props: any, skipChildren?: boolean) {
+  spreadOn(el, props, !!skipChildren, false);
+}
+
+/** A spread applied: `claiming` the server's element, its first value is what the page shows already. */
+function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: boolean) {
   if (!props) return;
   let prev: Record<string, any> = {};
   createRenderEffect(
@@ -168,6 +188,13 @@ export function spread(el: Element, props: any, claiming?: boolean) {
       return next;
     },
     (next: Record<string, any>) => {
+      // Claiming the server's element: what it shows already is the first value (nothing written).
+      if (claiming) {
+        claiming = false;
+        if ("class" in next) (el as any).$$cls = classes(next.class);
+        prev = next;
+        return;
+      }
       for (const k of Object.keys(prev)) if (!(k in next)) assign(el, k, undefined, prev[k]);
       for (const k of Object.keys(next)) if (next[k] !== prev[k]) assign(el, k, next[k], prev[k]);
       prev = next;
@@ -175,7 +202,9 @@ export function spread(el: Element, props: any, claiming?: boolean) {
   );
   for (const k of Object.keys(props)) if (/^on[A-Z]/.test(k)) addEvent(el, k.slice(2).toLowerCase(), props[k]);
   if (props.ref) applyRef(props.ref, el);
-  if ("children" in props) claiming ? claimChildren(props.children, { parent: el, next: el.firstChild }) : insert(el, () => props.children);
+  if (skipChildren || !("children" in props)) return;
+  if (claiming) claimChildren(props.children, { parent: el, next: el.firstChild });
+  else insert(el, () => props.children);
 }
 
 // ---------------------------------------------------------------- events, delegated per render root
@@ -281,8 +310,21 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
       if (first) {
         const at = first;
         first = undefined;
+        // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
+        const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
+        if (open) at.next = open.nextSibling;
         current = untrack(() => claimList(Array.isArray(v) ? v : [v], false, false, true, at));
-        end = at.next;
+        if (open) {
+          let n = at.next;
+          while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
+            // Not what it renders (the server's page differed): gone.
+            const x = n.nextSibling;
+            if (!current.includes(n)) n.parentNode!.removeChild(n);
+            n = x;
+          }
+          end = n;
+          at.next = n ? n.nextSibling : null;
+        } else end = at.next;
         return CLAIMED;
       }
       return v;
@@ -512,7 +554,7 @@ function claimElement(d: { tag: string; props: Record<string, any> }, keyed: boo
   for (const k of Object.keys(props)) {
     if (k === "children") continue;
     const v = props[k];
-    if (k.startsWith("$spread$")) spread(el, v(), true);
+    if (k.startsWith("$spread$")) spreadOn(el, spreadSource(v), false, true);
     else set(el, k, v);
   }
   if ("children" in props) claimChildren(props.children, { parent: el, next: el.firstChild });
@@ -540,16 +582,6 @@ export function clientOnly<P extends object>(load: () => Promise<any>, options: 
       return C ? untrack(() => C(rest)) : props.fallback;
     });
   };
-}
-
-/** Its children are not hydrated: what the server rendered stays as it is. */
-export function NoHydration(props: { children?: any }) {
-  return hydrating ? undefined : props.children;
-}
-
-/** Its children hydrate again (inside NoHydration). */
-export function Hydration(props: { children?: any }) {
-  return props.children;
 }
 
 export { NotReadyError };

@@ -298,6 +298,11 @@ function list(items: any[], own: boolean, inTemplate: boolean): string {
 function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, parts: Part[]) {
   for (let x of items) {
     let fn = viaFn;
+    // A hole beside other children: between markers the client claims it by.
+    if (typeof x === "function" && own && !viaFn && items.length > 1 && !(x as any).$esc) {
+      parts.push({ s: "<!--$-->" + list([x], false, inTemplate) + "<!--/-->", text: false, split: false });
+      continue;
+    }
     if (typeof x === "function") {
       const f = x;
       const rr = render;

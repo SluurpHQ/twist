@@ -1,6 +1,6 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
-import { createErrorBoundary, createLoadingBoundary, createMemo, flatten, untrack } from "./signals.ts";
+import { createErrorBoundary, createLoadingBoundary, createMemo, flatten, sharedConfig, untrack } from "./signals.ts";
 import { mapArray, merge, repeat } from "./flow.ts";
 
 // ---------------------------------------------------------------- marks from the pass
@@ -47,14 +47,15 @@ export function componentProps(raw: Record<string, any>): Record<string, any> {
 }
 
 /** A spread's object, read each time a key is read (so a props object's getters keep working). */
-function spreadSource(read: () => any) {
+export function spreadSource(read: () => any) {
   return new Proxy({}, {
     get: (_t, k) => read()?.[k],
     has: (_t, k) => k in (read() ?? {}),
     ownKeys: () => Reflect.ownKeys(read() ?? {}),
     getOwnPropertyDescriptor: (_t, k) => {
       const s = read();
-      return s && k in s ? { enumerable: true, configurable: true, value: s[k] } : undefined;
+      // (A getter, not the value: listing keys reads none of them.)
+      return s && k in s ? { enumerable: true, configurable: true, get: () => read()?.[k] } : undefined;
     },
   });
 }
@@ -176,3 +177,13 @@ export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
   return Comp;
 }
 
+
+/** Its children are not hydrated: what the server rendered stays as it is. */
+export function NoHydration(props: { children?: any }) {
+  return sharedConfig.hydrating ? undefined : props.children;
+}
+
+/** Its children hydrate again (inside NoHydration). */
+export function Hydration(props: { children?: any }) {
+  return props.children;
+}
