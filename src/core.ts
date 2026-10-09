@@ -5,6 +5,7 @@ import { effect, flush as flushSignals, signal, untrack } from "../../signals/in
 import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
 import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer } from "./events.ts";
+import { FragmentInstance } from "./fragment-ref.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { checkTag, duplicateKey, setOwner } from "./warnings.ts";
 import { assertValidProps, checkTagName } from "./attributes.ts";
@@ -151,6 +152,15 @@ function nextDomAfter(f: Fiber): Node | null {
   return null;
 }
 
+/** A fragment's top-level elements: hosts directly in it, through components but not into elements or portals. */
+function topElements(f: Fiber, out: Element[] = []): Element[] {
+  for (const c of f.children) {
+    if (c.kind === HOST) out.push(c.dom);
+    else if (c.kind !== TEXT && c.kind !== PORTAL_F) topElements(c, out);
+  }
+  return out;
+}
+
 function domNodes(f: Fiber, out: Node[] = []): Node[] {
   if (f.kind === HOST || f.kind === TEXT) out.push(f.dom);
   else if (f.kind !== PORTAL_F) for (const c of f.children) domNodes(c, out);
@@ -270,8 +280,14 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     return f;
   }
   if (type === FRAGMENT) {
-    const f = fiber(FRAG, type, key, null, parent);
-    reconcile(f, Array.isArray(c) ? c : toList(c.props.children), host, before);
+    const props = Array.isArray(c) ? null : c.props;
+    const f = fiber(FRAG, type, key, props, parent);
+    reconcile(f, props ? toList(props.children) : c, host, before);
+    // A ref on a Fragment: an instance that treats its top-level elements as one (React 19.2's fragment refs).
+    if (props?.ref != null) {
+      const inst = ((f as any).fragment = new FragmentInstance(() => topElements(f), () => hostParentOf(f) as Element));
+      layoutQueue.push(() => (inst.sync(), setRef(f, props.ref, inst)));
+    }
     return f;
   }
   if (type === PORTAL) {
@@ -335,8 +351,20 @@ function update(f: Fiber, c: any) {
   }
   if (f.kind === FRAG) {
     const host = hostParentOf(f);
+    const prev = f.props;
     reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
     f.props = c.props;
+    // A fragment ref: its new elements get its listeners; a changed ref is moved over at commit.
+    const inst = (f as any).fragment as FragmentInstance | undefined;
+    if (inst) {
+      layoutQueue.push(() => inst.sync());
+      if (prev?.ref !== c.props?.ref) {
+        layoutQueue.push(() => {
+          if (prev?.ref != null) clearRef(f, prev.ref);
+          if (c.props?.ref != null) setRef(f, c.props.ref, inst);
+        });
+      }
+    }
     return;
   }
   if (f.kind === PORTAL_F) {
@@ -414,6 +442,8 @@ function unmount(f: Fiber, removeDom: boolean) {
     if (inst?.componentWillUnmount) untrack(() => lifecycle(f, () => inst.componentWillUnmount()));
     for (const h of f.hooks!) if (h && h.cleanup) untrack(() => lifecycle(f, h.cleanup)), (h.cleanup = null);
   } else if (f.kind === HOST && f.props.ref != null) {
+    clearRef(f, f.props.ref);
+  } else if (f.kind === FRAG && (f as any).fragment && f.props?.ref != null) {
     clearRef(f, f.props.ref);
   }
   for (const c of f.children) unmount(c, f.kind === PORTAL_F);
