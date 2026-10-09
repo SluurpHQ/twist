@@ -414,6 +414,8 @@ function reappear(f: Fiber) {
     if (x.kind === HOIST && !(x as any).resource) {
       if (!x.dom) x.dom = placeHoistable((x as any).hoistRoot, x.type, x.props);
       else if (!x.dom.parentNode) mountHoistable((x as any).hoistRoot, x.type, x.dom);
+      // Shown again as React shows what it hid: its display unset, an empty style left behind.
+      if (x.dom && !x.dom.hasAttribute("style")) x.dom.setAttribute("style", "");
     }
   };
   layoutQueue.push(() => {
@@ -1241,7 +1243,13 @@ function inContainer(parent: Fiber): boolean {
 
 /** A hoistable or resource fiber: its element found or made, and put in place, when the render commits. */
 function mountHoist(f: Fiber, host: Node) {
-  const root = hoistableRoot(host);
+  // Its container's (a portal's, or the root's): the host may not be on the page yet.
+  let container: Node = host;
+  for (let p: Fiber | null = f.parent; p; p = p.parent) if (p.kind === ROOT || p.kind === PORTAL_F) {
+    container = p.dom as Node;
+    break;
+  }
+  const root = hoistableRoot(container);
   const resource = getResource(root, f.type, f.props);
   (f as any).resource = resource;
   (f as any).hoistRoot = root;
