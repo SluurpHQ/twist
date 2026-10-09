@@ -80,6 +80,12 @@ class Root implements Owner {
   }
 }
 
+/** An owner made to run again: what it owned and its cleanups gone, its child ids from the start. */
+export function resetOwner(o: Owner) {
+  disposeOwned(o);
+  (o as any).childCount = 0;
+}
+
 /** What `o` owns disposed: its children first (last made first), then its cleanups (last registered first). */
 function disposeOwned(o: Owner) {
   const owned = o.owned;
@@ -174,6 +180,29 @@ let ids = 0;
 export type SignalOptions<T> = { equals?: Equals<T>; unobserved?: () => void; ownedWrite?: boolean; name?: string; lazy?: boolean; defer?: boolean; schedule?: boolean; transparent?: boolean; loadingValue?: T };
 
 /** Thrown by a read of a value that has never been ready (an async memo's first load): Loading catches it. */
+const noop = () => {};
+
+/** Rendering on a server: promises that settled are remembered, and read again they answer at once. */
+let serverRender = false;
+const answered = new WeakMap<object, [boolean, unknown]>();
+export const setServerRender = (on: boolean) => void (serverRender = on);
+
+/** What a not-ready read waits on: the flight of the node it read, upstream of it, or nothing known. */
+export function settlesOf(e: NotReadyError): Promise<void> | null {
+  const seen = new Set<unknown>();
+  const find = (n: any): Promise<void> | null => {
+    if (!n || seen.has(n)) return null;
+    seen.add(n);
+    if (n.flight && n.settles) return n.settles;
+    for (const s of n.sources ?? []) {
+      const p = find(s);
+      if (p) return p;
+    }
+    return null;
+  };
+  return find(e.source);
+}
+
 export class NotReadyError extends Error {
   constructor(public source?: unknown) {
     super("Value not ready");
@@ -385,6 +414,8 @@ export class Computation<T> extends Node<T> implements Owner {
       this.loadingWindow = true;
     }
   }
+  /** Settles when the answer in flight lands or fails (what a server render waits on). */
+  settles: Promise<void> | null = null;
   /** Its answers come from an async iterator: shown as they land, never revealed as one. */
   streaming = false;
   /** Serving its loading value until its first answer lands. */
@@ -596,8 +627,14 @@ export class Computation<T> extends Node<T> implements Owner {
    * thenable) is not in flight at all: its value is taken at once.
    */
   fly(p: PromiseLike<T>) {
+    // On a server, a promise already settled answers at once (a render tried again reads what landed).
+    const known = serverRender ? answered.get(p as object) : undefined;
+    if (known) return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
     const flight = {};
     this.streaming = false;
+    this.settles = serverRender
+      ? Promise.resolve(p).then((v) => void answered.set(p as object, [true, v]), (e) => void answered.set(p as object, [false, e]))
+      : Promise.resolve(p).then(noop, noop);
     let sync = true;
     let early: [boolean, unknown] | null = null;
     this.flight = flight;
@@ -623,6 +660,8 @@ export class Computation<T> extends Node<T> implements Owner {
     const flight = {};
     this.flight = flight;
     this.streaming = true;
+    let first = noop;
+    this.settles = new Promise<void>((r) => (first = r));
     const it = iterable[Symbol.asyncIterator]();
     let yielded = false;
     let inRun = true;
@@ -630,6 +669,7 @@ export class Computation<T> extends Node<T> implements Owner {
       let sync = true;
       let early: [boolean, unknown] | null = null;
       const onValue = (r: IteratorResult<T>) => {
+        first();
         if (this.flight !== flight) return;
         if (r.done) {
           this.flight = null;
@@ -645,6 +685,7 @@ export class Computation<T> extends Node<T> implements Owner {
         step();
       };
       const onError = (e: unknown) => {
+        first();
         if (this.flight !== flight) return;
         this.flight = null;
         flights.delete(this);

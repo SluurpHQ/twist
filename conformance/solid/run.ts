@@ -55,6 +55,9 @@ const BUILD = /(^|\/)(dist-[^/]*|exports-server-conditions)\.(test|spec)\.tsx?$/
 for (const r of rows) if (BUILD.test(r.file)) r.note = "not ours: Solid's published build";
 // The deprecated <Dynamic> wrapper (kept in 2.0 for Solid 1 code): left out of Twist, dynamic() replaces it.
 for (const r of rows) if (r.note && /Export named 'Dynamic'/.test(r.note)) r.note = "not ours: <Dynamic> (deprecated; dynamic() replaces it)";
+// Solid's server functions (its RPC) and frames (its server components): Sluurp has its own RPC and server components.
+const OWN_LAYER = /server-functions|(^|\/)frames?[-/]|frame-sink|frames\/src/;
+for (const r of rows) if (OWN_LAYER.test(r.file) || (r.note && OWN_LAYER.test(r.note))) r.note = "not ours: Solid's server functions / frames (Sluurp has its own RPC and server components)";
 const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
 const sum = (k: "pass" | "fail") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + r[k], 0);
 const unloaded = rows.filter((r) => r.note && !r.note.startsWith("not ours"));
