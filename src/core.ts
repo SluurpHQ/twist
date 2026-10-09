@@ -1638,7 +1638,25 @@ export function readContext(f: Fiber, ctx: any) {
 
 // ---------------------------------------------------------------- roots
 
+/** What React accepts as a root's container: an element, a document, a fragment, or its mount-point comment. */
+const validContainer = (n: any) =>
+  !!n && (n.nodeType === 1 || n.nodeType === 9 || n.nodeType === 11 || (n.nodeType === 8 && n.nodeValue === " react-mount-point-unstable "));
+const HYDRATE = Symbol("hydrate");
+
 export function createRoot(container: Element | DocumentFragment, options?: any) {
+  if (!validContainer(container)) throw new Error("Target container is not a DOM element.");
+  const hydrating_ = !!options?.[HYDRATE];
+  if (dev()) {
+    if ((container as any).__root) {
+      console.error("You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before. Instead, call root.render() on the existing root instead if you want to update it.");
+    }
+    if (!hydrating_ && options?.hydrate) console.warn("hydrate through createRoot is deprecated. Use ReactDOMClient.hydrateRoot(container, <App />) instead.");
+    else if (options && typeof options === "object" && options.$$typeof === Symbol.for("react.transitional.element")) {
+      console.error("You passed a JSX element to createRoot. You probably meant to call root.render instead. Example usage:\n\n  let root = createRoot(domContainer);\n  root.render(<App />);");
+    }
+  }
+  (container as any).__root = true;
+  let unmounted = false;
   const state: RootState = { ids: 0, container };
   const top: Fiber = { kind: ROOT, type: null, key: "", props: null, parent: null, children: [], dom: container, ns: nsOf(container), root: state };
   addContainer(container, state);
@@ -1678,7 +1696,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         }
         if (nested === 1) queueMicrotask(() => (nested = 0));
       }
-      const hydrate = first && options?.hydrate;
+      const hydrate = first && hydrating_;
       if (first) {
         first = false;
         if (!hydrate) (container as Element).replaceChildren?.();
@@ -1740,15 +1758,26 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       if (depth === 0) flushSignals();
   }
   return {
-    render(children: any) {
+    render(children: any, ...rest: any[]) {
+      if (unmounted) throw new Error("Cannot update an unmounted root.");
+      if (dev()) {
+        if (typeof rest[0] === "function") console.error("does not support the second callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
+        else if (validContainer(rest[0])) console.error("You passed a container to the second argument of root.render(...). You don't need to pass it again since you already passed it to create the root.");
+        else if (rest.length && rest[0] !== undefined) console.error("You passed a second argument to root.render(...) but it only accepts one argument.");
+      }
       // Inside a render or a commit (a root made in componentDidMount): drawn with it, as before.
       latest = children;
       if (depth > 0) return renderNow(children);
-      if (first && options?.hydrate && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
+      if (first && hydrating_ && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
       else pending = children;
       asked.set(asked.peek() + 1);
     },
-    unmount() {
+    unmount(...rest: any[]) {
+      if (dev() && typeof rest[0] === "function") console.error("does not support a callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
+      if (unmounted) return;
+      if (dev() && depth > 0) console.error("Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition.");
+      unmounted = true;
+      (container as any).__root = false;
       pending = NONE;
       for (const c of top.children) unmount(c, true);
       top.children = [];
@@ -1758,7 +1787,9 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
 
 /** Taken over as the server drew it: its nodes claimed in order and kept, what differs drawn anew. */
 export function hydrateRoot(container: Element, children: any, options?: any) {
-  const root = createRoot(container, { ...options, hydrate: true });
+  if (!validContainer(container)) throw new Error("Target container is not a DOM element.");
+  if (dev() && children === undefined) console.error("Must provide initial children as second argument to hydrateRoot. Example usage: hydrateRoot(domContainer, <App />)");
+  const root = createRoot(container, { ...options, [HYDRATE]: true });
   root.render(children);
   return root;
 }
