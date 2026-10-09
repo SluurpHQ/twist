@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3292 pass, 732 fail, 314 skipped (gated off for stable React 19).
+3296 pass, 728 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -15,7 +15,7 @@
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 10 | 9 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 22 | 4 | 0 |  |
-| react-dom/ReactCompositeComponent-test.js | 32 | 8 | 0 |  |
+| react-dom/ReactCompositeComponent-test.js | 36 | 4 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 3 | 5 | 1 |  |

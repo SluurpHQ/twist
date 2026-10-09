@@ -1457,6 +1457,10 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       f.tick = signal(0);
       return renderClass;
     }
+    if (dev() && type.prototype && typeof type.prototype.render === "function") {
+      const n = type.displayName || type.name || "Component";
+      warn(`The <${n} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${n} to extend React.Component instead.`, "render-not-extended:" + n);
+    }
     return (_f, props) => type(props);
   }
   if (type === SUSPENSE) {
@@ -1723,6 +1727,7 @@ function renderClass(f: Fiber, withRef: any) {
     // setState in componentWillMount: taken into this first render.
     inst.state = apply(inst.state, props)[0];
     const out = strictTwice(f, () => inst.render(), true);
+    propsReassigned(C, inst, props);
     if (inst.componentDidMount) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidMount()));
     if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
     (f as any).classRef = ref;
@@ -1758,12 +1763,17 @@ function renderClass(f: Fiber, withRef: any) {
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
   if (inst.getSnapshotBeforeUpdate) checkSnapshot(C, snapshot);
   const out = strictTwice(f, () => inst.render(), true);
+  propsReassigned(C, inst, props);
   if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
   if (done?.length) f.layout!.push(() => done.forEach((cb: any) => cb.call(inst)));
   return out;
 }
 const FORCE = Symbol("force");
+function propsReassigned(C: any, inst: any, props: any) {
+  if (dev() && inst.props !== props)
+    warn(`It looks like ${C.displayName || C.name || "Component"} is reassigning its own \`this.props\` while rendering. This is not supported and can lead to confusing bugs.`, "props-reassigned:" + (C.displayName || C.name));
+}
 /** getDerivedStateFromProps' partial state (twice in StrictMode), checked as React checks it. */
 function derived(f: Fiber, C: any, props: any, state: any) {
   const partial = strictTwice(f, () => C.getDerivedStateFromProps(props, state), true);
@@ -1777,6 +1787,21 @@ function shouldUpdate(f: Fiber, C: any, inst: any, props: any, state: any, ctx: 
 }
 
 /** setState or forceUpdate on an instance React has not mounted: nothing, and React's warning (once per class). */
+/** An update asked while a component renders: React's warnings (another function component, or any class). */
+function updateWhileRendering(target: Fiber) {
+  if (!current || !dev()) return;
+  if (target.inst) {
+    warn("Cannot update during an existing state transition (such as within `render`). Render methods should be a pure function of props and state.", "update-in-render");
+    return;
+  }
+  if (current === target) return;
+  const rendering = nameOf(current.type) || "Unknown";
+  warn(
+    `Cannot update a component (\`${nameOf(target.type) || "Unknown"}\`) while rendering a different component (\`${rendering}\`). To locate the bad setState() call inside \`${rendering}\`, follow the stack trace as described in https://react.dev/link/setstate-in-render`,
+    "update-other:" + rendering,
+  );
+}
+
 function notMounted(inst: any, what: string) {
   const name = inst.constructor?.displayName || inst.constructor?.name || "ReactClass";
   warn(
@@ -1799,6 +1824,7 @@ export class Component<P = any, S = any> {
   }
   setState(partial: any, done?: () => void) {
     if (!this.__f) return notMounted(this, "setState");
+    updateWhileRendering(this.__f);
     const apply = () => {
       this.__queue.push(partial);
       scheduledInCommit();
@@ -2100,6 +2126,7 @@ export const client = {
     const h = hook(() => {
       const box = state(f, typeof init === "function" ? strictTwice(f, init as () => T) : init);
       box.set = (v: any) => {
+        updateWhileRendering(f);
         const apply = () => box.put(typeof v === "function" ? strictTwice(f, () => v(box.v), true) : v);
         const preview = (p: Preview) => {
           const was = p.states.has(box) ? p.states.get(box) : box.v;
@@ -2117,6 +2144,7 @@ export const client = {
       const box = state(f, init ? strictTwice(f, () => init(arg)) : arg);
       box.reducer = reducer;
       box.dispatch = (a: any) => {
+        updateWhileRendering(f);
         const apply = () => box.put(strictTwice(f, () => box.reducer(box.v, a), true));
         const preview = (p: Preview) => p.states.set(box, box.reducer(p.states.has(box) ? p.states.get(box) : box.v, a));
         if (current === f || !inTransition(apply, preview, f)) apply();
