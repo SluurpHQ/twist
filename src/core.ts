@@ -1657,7 +1657,8 @@ function update(f: Fiber, c: any) {
     assertValidProps(f.type, props, true);
     f.props = props;
     const el = f.dom as Element;
-    (el as any).__props = props;
+    // Its handlers change at commit: an event during the render still reaches the committed ones.
+    insertionQueue.push(() => ((el as any).__props = props));
     if (FORM_TAGS.has(f.type) && !f.ns) {
       if (f.type !== "textarea" && f.type !== "input") reconcile(f, toList(props.children), el, null);
       updateForm(el, f.type, props, prev, false);

@@ -215,7 +215,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   for (let f: FiberLike | null = from; f; f = f.parent) {
     if (f.kind !== HOST) continue;
     if (!capture && TARGET_ONLY.has(native.type) && f.dom !== native.target) continue;
-    const names = propsFor(f.dom, native.type, capture, f.props, native);
+    const names = propsFor(f.dom, native.type, capture, f.dom.__props ?? f.props, native);
     if (names.length) path.push([f.dom, names]);
   }
   if (capture) path.reverse();
