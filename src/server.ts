@@ -50,6 +50,8 @@ type Ctx = {
   /** Where in the tree rendering is (React's tree context, which useId's ids are made of), and the ids' prefix. */
   tree: TreeContext;
   idPrefix: string;
+  /** renderToStaticMarkup: markup no client will hydrate (no separators, no boundary comments). */
+  static?: boolean;
   /** Float's resources and hoistables for this render (written into <head>, or before a later chunk). */
   res: Resources;
   /** The enclosing element's tag (null at the top): <html>, <head> and <body> are the document's only at the top. */
@@ -293,7 +295,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     const text = String(node);
     // Nothing for an empty string; between two texts a comment, so the browser keeps them two nodes (as React's).
     if (text === "") return "";
-    const sep = ctx.lastText ? "<!-- -->" : "";
+    // (Static markup is never hydrated: no separators.)
+    const sep = ctx.lastText && !ctx.static ? "<!-- -->" : "";
     ctx.lastText = true;
     return sep + escape(text);
   }
@@ -350,7 +353,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           for (const k of ["sheets", "styles"] as const) for (const x of deps[k]) parentDeps[k].add(x);
           if ((deps as any).emitted) ((parentDeps as any).emitted ??= []).push(...(deps as any).emitted);
         }
-        return `<!--$-->${out}<!--/$-->`;
+        return ctx.static ? out : `<!--$-->${out}<!--/$-->`;
       } catch (e: any) {
         // Aborted meanwhile: whatever it threw, it is an aborted boundary.
         if (ctx.streaming?.shared.aborted) return abortedNow();
@@ -370,6 +373,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
             return pendingMarkup(b);
           }
           ctx.waiting.push(e);
+          if (ctx.static) return fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
           return `<!--$!-->${errorTemplate(undefined, aborted(RENDER_TO_STRING_SUSPENSE))}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
         }
         if (!stream) throw e;
@@ -386,13 +390,20 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       ctx.lastText = false;
       const inner = render(props.children, ctx, hooks);
       ctx.lastText = false;
-      return `<!--&-->${inner}<!--/&-->`;
+      return ctx.static ? inner : `<!--&-->${inner}<!--/&-->`;
     }
     return render(props.children, ctx, hooks);
   }
   if (typeof type === "function") {
     if (type.prototype?.isReactComponent) {
-      const c = type.contextType ? hooks.useContext(type.contextType) : undefined;
+      const ct = type.contextType;
+      const validCt = ct != null && ct.$$typeof === CONTEXT;
+      if (dev() && ct !== undefined && !validCt && ct !== null)
+        warn(
+          `${type.displayName || type.name || "Component"} defines an invalid contextType. contextType should point to the Context object returned by React.createContext(). ${ct?.$$typeof === CONSUMER ? "Did you accidentally pass the Context.Consumer instead?" : typeof ct !== "object" ? `However, it is set to a ${typeof ct}.` : `However, it is set to an object with keys {${Object.keys(ct).join(", ")}}.`}`,
+        );
+      // No context type: an empty context object, as React gives.
+      const c = validCt ? hooks.useContext(ct) : {};
       const inst = new type(props, c);
       inst.props = props;
       inst.context = c;
@@ -405,8 +416,20 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         };
         (inst.UNSAFE_componentWillMount ?? inst.componentWillMount).call(inst);
       }
-      return render(inst.render(), ctx, hooks);
+      const out = inst.render();
+      // Rendered once on the server: an update asked later does nothing (React says so).
+      const name = type.displayName || type.name || "Component";
+      const noop = (what: string) => () =>
+        warn(`Can only update a mounting component. This usually means you called ${what}() outside componentWillMount() on the server. This is a no-op.\n\nPlease check the code for the ${name} component.`);
+      inst.setState = noop("setState");
+      inst.forceUpdate = noop("forceUpdate");
+      return render(out, ctx, hooks);
     }
+    // A class with a render method that is not a Component: React warns, and calls it as a function.
+    if (dev() && type.prototype && typeof type.prototype.render === "function")
+      warn(
+        `The <${type.displayName || type.name || "Component"} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${type.displayName || type.name || "Component"} to extend React.Component instead.`,
+      );
     return renderOutput(renderFunction(type, props), ctx, hooks);
   }
   switch (type.$$typeof) {
@@ -553,7 +576,7 @@ function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
   const r = ctx.res;
   const inline = ctx.svg || ctx.noscript || props.itemProp != null;
   const separator = () => {
-    const sep = ctx.lastText ? "<!-- -->" : "";
+    const sep = ctx.lastText && !ctx.static ? "<!-- -->" : "";
     ctx.lastText = false;
     return sep;
   };
@@ -776,7 +799,14 @@ export function renderToString(node: any, options?: any) {
   const html = once(node, ctx);
   return withPreamble(html, ctx.res.preamble("", ""));
 }
-export const renderToStaticMarkup = renderToString;
+/** Plain markup, for pages no client hydrates: no text separators and no Suspense or Activity comments. */
+export function renderToStaticMarkup(node: any, options?: any) {
+  const ctx = fresh();
+  ctx.static = true;
+  ctx.idPrefix = options?.identifierPrefix ?? "";
+  const html = once(node, ctx);
+  return withPreamble(html, ctx.res.preamble("", ""));
+}
 
 /** Rendered again until nothing it waits on is pending (each wait settles one more Suspense). */
 async function complete(node: any) {

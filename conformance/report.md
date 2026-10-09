@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3223 pass, 801 fail, 314 skipped (gated off for stable React 19).
+3233 pass, 791 fail, 314 skipped (gated off for stable React 19).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -75,7 +75,7 @@
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 126 | 15 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 33 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 5 | 5 | 0 |  |
+| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 7 | 3 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 51 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 5 | 5 | 0 |  |
@@ -87,7 +87,7 @@
 | react-dom/ReactDOMServerIntegrationTextarea-test.js | 33 | 7 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 68 | 9 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 11 | 9 | 7 |  |
-| react-dom/ReactDOMServerLifecycles-test.js | 3 | 7 | 0 |  |
+| react-dom/ReactDOMServerLifecycles-test.js | 4 | 6 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 32 | 25 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 13 | 24 | 3 |  |
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 3 | 1 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 8 | 3 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 29 | 16 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 36 | 9 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 14 | 10 | 0 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
