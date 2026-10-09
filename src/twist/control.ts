@@ -1,7 +1,7 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
 import { createErrorBoundary, createLoadingBoundary, createMemo, flatten, untrack } from "./signals.ts";
-import { mapArray, repeat } from "./flow.ts";
+import { mapArray, merge, repeat } from "./flow.ts";
 
 // ---------------------------------------------------------------- marks from the pass
 
@@ -26,6 +26,38 @@ export function createComponent<P>(Comp: (props: P) => any, props: P) {
   return untrack(() => Comp(props));
 }
 
+
+/** A component's props: marked parts as getters, spreads read where used, children lazy. */
+export function componentProps(raw: Record<string, any>): Record<string, any> {
+  const sources: any[] = [];
+  let own: Record<string, any> = {};
+  for (const k of Object.keys(raw)) {
+    const v = raw[k];
+    if (k.startsWith("$spread$")) {
+      if (Object.keys(own).length) sources.push(own), (own = {});
+      sources.push(spreadSource(v));
+      continue;
+    }
+    if (isDynamic(v) || (k === "children" && isChildren(v))) Object.defineProperty(own, k, { enumerable: true, configurable: true, get: v });
+    else own[k] = v;
+  }
+  if (!sources.length) return own;
+  if (Object.keys(own).length) sources.push(own);
+  return merge(...sources);
+}
+
+/** A spread's object, read each time a key is read (so a props object's getters keep working). */
+function spreadSource(read: () => any) {
+  return new Proxy({}, {
+    get: (_t, k) => read()?.[k],
+    has: (_t, k) => k in (read() ?? {}),
+    ownKeys: () => Reflect.ownKeys(read() ?? {}),
+    getOwnPropertyDescriptor: (_t, k) => {
+      const s = read();
+      return s && k in s ? { enumerable: true, configurable: true, value: s[k] } : undefined;
+    },
+  });
+}
 
 // ---------------------------------------------------------------- control flow
 

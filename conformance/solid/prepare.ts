@@ -43,6 +43,8 @@ for (const f of walk(out)) {
   }
   // JSX files through Twist's pass (Bun's JSX transform runs after, when the test loads).
   if (f.endsWith(".tsx")) t = compile(t, f);
+  // Server tests: the web runtime and Solid itself in their server builds.
+  if (/[\\/]web[\\/]test[\\/]server[\\/]/.test(f)) t = t.replace(/(["'])@solidjs\/web\1/g, '"@twist/web-server"').replace(/(@jsxImportSource\s+)@solidjs\/web\b/g, "$1@twist/web-server").replace(/(["'])solid-js\1/g, '"@twist/solid-server"');
   if (t !== s) writeFileSync(f, t);
 }
 // Where the tests reach for their package itself (../src/index.js): Twist's module for it.
@@ -77,4 +79,11 @@ await Bun.write(
   JSON.stringify({ name: "@solidjs/web", type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js" } }),
 );
 await Bun.write(join(webDir, "index.js"), `export * from ${JSON.stringify(web)};\n`);
+// The server builds: Twist's server runtime, and Solid's API as it runs on a server.
+for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-server", "server-solid.ts"]]) {
+  const dir = join(here, "node_modules", ...name.split("/"));
+  mkdirSync(dir, { recursive: true });
+  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js" } }));
+  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(twist(file))};\n`);
+}
 console.log(`Solid's tests at ${REF} (${git(["rev-parse", "--short", "HEAD"], clone)}) in solid-tests/`);

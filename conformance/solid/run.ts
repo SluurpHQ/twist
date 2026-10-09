@@ -10,7 +10,7 @@ const walk = (d: string) => {
   for (const f of readdirSync(d, { withFileTypes: true })) {
     const p = join(d, f.name);
     if (f.isDirectory()) walk(p);
-    else if (/\.(test|spec)\.tsx?$/.test(f.name) && p.includes(filter)) files.push(p);
+    else if (/\.(test|spec)\.tsx?$/.test(f.name) && p.replace(/\\/g, "/").includes(filter)) files.push(p);
   }
 };
 for (const part of ["signals/tests", "solid/test", "web/test"]) walk(join(here, "solid-tests", part));

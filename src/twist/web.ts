@@ -16,7 +16,7 @@ import {
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, createComponent, isChildren, isDynamic } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic } from "./control.ts";
 
 export * from "./control.ts";
 import { inOrder } from "../shared/in-order.ts";
@@ -39,38 +39,6 @@ const childrenOf = (props: Record<string, any>) => {
   const c = props.children;
   return isChildren(c) || isDynamic(c) ? c : c;
 };
-
-/** A component's props: marked parts as getters, spreads read where used, children lazy. */
-function componentProps(raw: Record<string, any>): Record<string, any> {
-  const sources: any[] = [];
-  let own: Record<string, any> = {};
-  for (const k of Object.keys(raw)) {
-    const v = raw[k];
-    if (k.startsWith("$spread$")) {
-      if (Object.keys(own).length) sources.push(own), (own = {});
-      sources.push(spreadSource(v));
-      continue;
-    }
-    if (isDynamic(v) || (k === "children" && isChildren(v))) Object.defineProperty(own, k, { enumerable: true, configurable: true, get: v });
-    else own[k] = v;
-  }
-  if (!sources.length) return own;
-  if (Object.keys(own).length) sources.push(own);
-  return merge(...sources);
-}
-
-/** A spread's object, read each time a key is read (so a props object's getters keep working). */
-function spreadSource(read: () => any) {
-  return new Proxy({}, {
-    get: (_t, k) => read()?.[k],
-    has: (_t, k) => k in (read() ?? {}),
-    ownKeys: () => Reflect.ownKeys(read() ?? {}),
-    getOwnPropertyDescriptor: (_t, k) => {
-      const s = read();
-      return s && k in s ? { enumerable: true, configurable: true, value: s[k] } : undefined;
-    },
-  });
-}
 
 // ---------------------------------------------------------------- elements
 
