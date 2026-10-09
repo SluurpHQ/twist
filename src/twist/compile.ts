@@ -140,6 +140,13 @@ export function compile(source: string, filename = "file.tsx"): string {
   /** Every JSX element in a subtree, outermost first. */
   const visit = (n: AnyNode | null | undefined) => {
     if (!n || typeof n !== "object") return;
+    // JSX as a statement runs for what it does (a component that renders, say): kept, though its value is unused
+    // (the JSX transform marks its call pure, and a bundler drops pure calls nobody reads).
+    if (n.type === "ExpressionStatement" && (n.expression.type === "JSXElement" || n.expression.type === "JSXFragment")) {
+      used = true;
+      edits.push({ start: n.expression.start, end: n.expression.start, text: "__twist_k(" });
+      edits.push({ start: n.expression.end, end: n.expression.end, text: ")" });
+    }
     if (n.type === "JSXElement") return visitElement(n);
     if (n.type === "JSXFragment") return visitFragment(n);
     for (const k in n) {
@@ -154,7 +161,7 @@ export function compile(source: string, filename = "file.tsx"): string {
   if (!edits.length) return source;
   // Applied back to front, nested edits included (an outer wrap re-reads its inner edits' text).
   let out = applyEdits(source, edits);
-  if (used) out = `import { __twist_d, __twist_c, __twist_ref } from "${RUNTIME}";\n` + out;
+  if (used) out = `import { __twist_d, __twist_c, __twist_ref, __twist_k } from "${RUNTIME}";\n` + out;
   return out;
 }
 

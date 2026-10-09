@@ -12,6 +12,8 @@ const CHILDREN = Symbol("twist.children");
 export const __twist_d = <T>(fn: () => T) => ((fn as any)[DYNAMIC] = true, fn);
 /** A component's children: built when the component reads them. */
 export const __twist_c = <T>(fn: () => T) => ((fn as any)[CHILDREN] = true, fn);
+/** JSX used as a statement: its value passed through, so the call is kept. */
+export const __twist_k = <T>(v: T) => v;
 /** `ref={el}` with a bare variable: called when it is a function, else assigned. */
 export const __twist_ref = (current: unknown, assign: (el: unknown) => void) => (typeof current === "function" ? current : assign);
 
