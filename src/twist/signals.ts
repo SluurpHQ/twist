@@ -397,9 +397,12 @@ export class Computation<T> extends Node<T> implements Owner {
     remove(this.observers, o);
     if (this.observers.length) return;
     this.unobserved?.();
-    // A lazy memo with no reader left is torn down (an unowned one stays subscribed: it is eager).
+    // A lazy memo with no reader left is torn down; an unowned one whose last reader was released goes with it.
     if (this.lazy) this.detach(), (this.state = DIRTY);
+    else if (releasing && this.kind === MEMO && !this.parent) release(this);
   }
+  /** Released: subscribed to nothing, built again from scratch when next read. */
+  released = false;
   attach() {
     this.attached = true;
     if (this.ranAt !== clock && this.state === CLEAN) this.state = CHECK;
@@ -432,8 +435,16 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   read(): T {
     if (!this.disposed) {
-      if (!listener && this.autodispose && this.ranAt !== clock) this.state = DIRTY;
+      // Released at a flush (read with nothing subscribed): built again from scratch.
+      // (Nothing changed since it ran: subscribed again as it was.)
+      if (this.released) {
+        this.released = false;
+        if (this.ranAt === clock && this.state !== DIRTY) this.attach();
+        else this.state = DIRTY;
+      }
       this.update();
+      // An unowned memo read outside any computation, with nothing subscribed: released at the next flush.
+      if (!listener && this.kind === MEMO && !this.parent && !this.observers.length) untrackedReads.add(this);
     }
     if (listener) listener.track(this);
     if (this.error !== NONE) throw this.error;
@@ -661,6 +672,30 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 
+/** Unowned memos read outside any computation since the last flush. */
+const untrackedReads = new Set<Computation<any>>();
+let releasing = false;
+
+/** An unowned memo nothing reads let go of its sources (they may go too): dormant until read again. */
+function release(m: Computation<any>) {
+  if (m.released || m.disposed || m.observers.length) return;
+  m.released = true;
+  const was = releasing;
+  releasing = true;
+  try {
+    if (m.attached) m.detach();
+  } finally {
+    releasing = was;
+  }
+}
+
+/** At a flush's start: the unowned memos read since the last one, with nothing subscribed, released. */
+function sweepUntracked() {
+  if (!untrackedReads.size) return;
+  for (const m of [...untrackedReads]) release(m);
+  untrackedReads.clear();
+}
+
 /** An effect's compute threw: its error handler, the nearest boundary's, or the flush throws it. */
 function handleError(c: Computation<any>, e: unknown) {
   if (c.onError) {
@@ -869,7 +904,7 @@ function drain() {
       if (passes > 1e5) throw new Error("Potential infinite loop detected.");
       const now = dirty.sort(byOrder);
       dirty = [];
-      for (const c of now) if (!c.disposed) ownersFirst(c), c.disposed || c.update();
+      for (const c of now) if (!c.disposed && !c.released) ownersFirst(c), c.disposed || c.update();
     }
     settleRound();
     commitTransactions();
@@ -898,6 +933,7 @@ export function flush<T>(fn?: () => T): T {
   flushing++;
   try {
     if (fn) result = fn();
+    sweepUntracked();
     drain();
   } catch (e) {
     halted = true;
