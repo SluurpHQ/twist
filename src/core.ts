@@ -1788,7 +1788,16 @@ function shouldUpdate(f: Fiber, C: any, inst: any, props: any, state: any, ctx: 
 
 /** setState or forceUpdate on an instance React has not mounted: nothing, and React's warning (once per class). */
 /** An update asked while a component renders: React's warnings (another function component, or any class). */
+/** An update made outside act where the test said it uses act (IS_REACT_ACT_ENVIRONMENT): React's warning. */
+function updateOutsideAct(target: Fiber) {
+  if (actDepth > 0 || current || !dev() || (globalThis as any).IS_REACT_ACT_ENVIRONMENT !== true) return;
+  warn(
+    `An update to ${nameOf(target.type) || "Component"} inside a test was not wrapped in act(...).\n\nWhen testing, code that causes React state updates should be wrapped into act(...):\n\nact(() => {\n  /* fire events that update state */\n});\n/* assert on the output */\n\nThis ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act`,
+  );
+}
+
 function updateWhileRendering(target: Fiber) {
+  updateOutsideAct(target);
   if (!current || !dev()) return;
   if (target.inst) {
     warn("Cannot update during an existing state transition (such as within `render`). Render methods should be a pure function of props and state.", "update-in-render");
@@ -2016,6 +2025,10 @@ function settleAll() {
  * React's act: runs `fn`, then everything it set off (updates, effects after paint), so a test sees the result.
  * Returns a thenable either way, as React's does; for an async `fn`, settled once it has.
  */
+/** Inside React.act: updates wait (events included) and are drawn when the outermost act ends. */
+let actDepth = 0;
+export const insideAct = () => actDepth > 0;
+
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
   const errors: unknown[] = [];
@@ -2026,35 +2039,52 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
     if (errors.length > 1) throw new AggregateError(errors);
   };
   let r: T | Promise<T>;
+  actDepth++;
   try {
     r = fn();
   } catch (e) {
+    actDepth--;
     off();
     throw e;
   }
   if (r && typeof (r as any).then === "function") {
     return (r as Promise<T>).then(
-      (v) => {
+      async (v) => {
         try {
-          settleAll();
+          // What it set off, then what that sets off (promises settling, effects updating), until nothing is left
+          // (still inside act while it does).
+          if (actDepth === 1)
+            for (let i = 0; i < 20; i++) {
+              const before = renderSerial;
+              settleAll();
+              for (let k = 0; k < 5; k++) await Promise.resolve();
+              if (renderSerial === before && !somethingPending()) break;
+            }
+          if (actDepth === 1) settleAll();
         } finally {
+          actDepth--;
           done();
         }
         return v;
       },
       (e) => {
+        actDepth--;
         off();
         throw e;
       },
     );
   }
   try {
-    settleAll();
+    if (actDepth === 1) settleAll();
   } finally {
+    actDepth--;
     done();
   }
   return { then: (ok?: any, no?: any) => Promise.resolve(r as T).then(ok, no) };
 }
+
+/** Whether updates, effects or transitions are still waiting to be drawn. */
+const somethingPending = () => passiveQueue.length > 0 || transitionWork.length > 0;
 
 /** Effects waiting for after paint, run now (React's act does this): for tests and tools. */
 export function flushPassiveEffects() {
@@ -2833,7 +2863,7 @@ export function flushSync<T>(fn?: () => T): T {
 // After a handler: what it changed drawn now (React draws a discrete event's updates before the next one), and a
 // controlled field put back to what its state says when the handler did not take what was typed.
 onAfterEvent((el, e) => {
-  if (depth > 0) return;
+  if (depth > 0 || actDepth > 0) return;
   flushSignals();
   // Only once the field's own change has been told: a checkbox's click comes before its change, and putting it
   // back then would undo the toggle the change is about to report.
