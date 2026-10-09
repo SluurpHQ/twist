@@ -168,6 +168,11 @@ function pendingHas(target: Raw, key: PropertyKey): boolean {
 /** Records with pending writes, committed at the next flush. */
 const dirtyRecords = new Set<Record_>();
 
+/** The records written since `before` was taken, committed now (their readers told). */
+function promoteWrites(before: Set<Record_>) {
+  for (const r of [...dirtyRecords]) if (!before.has(r)) r.keys.commit();
+}
+
 function stage(target: Raw, key: PropertyKey, value: any) {
   const r = recordOf(target);
   (r.pending ??= new Map()).set(key, value);
@@ -315,6 +320,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   let runs = 0;
   const m = createMemo(() => {
     const d = draftOf(target);
+    const before = new Set(dirtyRecords);
     const r = fn(d as T);
     const run = ++runs;
     if (r && typeof (r as any).then === "function")
@@ -323,6 +329,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
         return run;
       });
     if (r !== undefined) reconcile(r, key)(d);
+    // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
+    promoteWrites(before);
     return run;
   });
   const proxy = new Proxy(target, {

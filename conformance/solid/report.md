@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-2949 pass, 1693 fail, 703 files (176 did not load, 237 test Solid's internals)
+3033 pass, 1809 fail, 703 files (176 did not load, 237 test Solid's internals)
 
 ## Why files did not load
 
@@ -94,8 +94,8 @@
 | signals/tests/createErrorBoundary.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
 | signals/tests/createLoadingBoundary.on.test.ts | 2 | 5 |  |
 | signals/tests/createLoadingBoundary.test.ts | 10 | 16 |  |
-| signals/tests/createMemo.test.ts | 0 | 0 |  |
-| signals/tests/createOptimistic.test.ts | 0 | 0 |  |
+| signals/tests/createMemo.test.ts | 40 | 40 |  |
+| signals/tests/createOptimistic.test.ts | 35 | 33 |  |
 | signals/tests/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
 | signals/tests/createReaction.test.ts | 2 | 3 |  |
 | signals/tests/createRevealOrder.test.ts | 0 | 1 | SyntaxError: Export named 'createRevealOrder' not found |
@@ -162,7 +162,7 @@
 | signals/tests/latest-created-inside-window.test.ts | 2 | 0 |  |
 | signals/tests/latest-held-till-flush.test.ts | 14 | 8 |  |
 | signals/tests/latest-isPending-consistency.test.ts | 5 | 3 |  |
-| signals/tests/latest-lazy-companion-backfill.test.ts | 0 | 2 |  |
+| signals/tests/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |
 | signals/tests/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |
 | signals/tests/latest-plain-write-purity.test.ts | 4 | 0 |  |
 | signals/tests/latest-probe-order-independence.test.ts | 1 | 1 |  |
@@ -175,7 +175,7 @@
 | signals/tests/loading-on-rearm-3540.test.ts | 1 | 6 |  |
 | signals/tests/loading-on-rearm-reveal-3540.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'OBSERVE' not found |
 | signals/tests/loading-reset-collects-forwarded-3459.test.ts | 0 | 1 |  |
-| signals/tests/loading-value.test.ts | 0 | 0 |  |
+| signals/tests/loading-value.test.ts | 0 | 36 |  |
 | signals/tests/mapArray-notready-safety.test.ts | 2 | 10 |  |
 | signals/tests/mapArray-smallmove.test.ts | 0 | 1 | Cannot find module '../src/map.js' |
 | signals/tests/maparray-store-nonkeyed.test.ts | 0 | 2 |  |
@@ -201,7 +201,7 @@
 | signals/tests/optimistic-settle-verdicts.test.ts | 0 | 3 |  |
 | signals/tests/optimistic-signal-refetch-hold.test.ts | 1 | 1 |  |
 | signals/tests/optimistic-store-layer-scope.test.ts | 4 | 1 |  |
-| signals/tests/optimistic-store-refetch-hold.test.ts | 1 | 4 |  |
+| signals/tests/optimistic-store-refetch-hold.test.ts | 2 | 3 |  |
 | signals/tests/optimistic-undefined-override.test.ts | 6 | 0 |  |
 | signals/tests/overlapping-flights.test.ts | 2 | 1 |  |
 | signals/tests/owned-scope-write-guard.test.ts | 12 | 2 |  |
@@ -214,12 +214,12 @@
 | signals/tests/question-scoped-pending.test.ts | 15 | 23 |  |
 | signals/tests/recompute-missed-wake.test.ts | 2 | 0 |  |
 | signals/tests/recompute-preserves-disposed-3621.test.ts | 0 | 1 | SyntaxError: Export named '$REFRESH' not found |
-| signals/tests/refresh-await.test.ts | 0 | 0 |  |
+| signals/tests/refresh-await.test.ts | 2 | 10 |  |
 | signals/tests/repeat.test.ts | 11 | 0 |  |
 | signals/tests/resolve-in-action.test.ts | 3 | 2 |  |
-| signals/tests/resolve.test.ts | 0 | 0 |  |
+| signals/tests/resolve.test.ts | 3 | 1 |  |
 | signals/tests/reveal-carve-out.test.ts | 1 | 3 |  |
-| signals/tests/reveal-gating-contract.test.ts | 1 | 1 |  |
+| signals/tests/reveal-gating-contract.test.ts | 2 | 0 |  |
 | signals/tests/root-dispose-pending-action-3561.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'DEV' not found |
 | signals/tests/router-transition-error-commit.test.ts | 1 | 0 |  |
 | signals/tests/rules-index.test.ts | 0 | 3 |  |

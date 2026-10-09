@@ -61,7 +61,9 @@ export function mapArray<T, U>(
     fallbackEnd?.();
   });
   return createMemo(() => {
-    const next = (list() || []) as T[];
+    // Every item read here, tracked (a store list keeps its identity while its items move); mapped untracked.
+    const source = (list() || []) as T[];
+    const next = Array.from(source);
     return untrack(() => {
       if (!next.length) {
         for (const end of ends) end();

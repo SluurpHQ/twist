@@ -47,6 +47,9 @@ rows.sort((a, b) => a.file.localeCompare(b.file));
 // implementation, not its behaviour, and cannot run against another.
 const INTERNAL = /Cannot find module 'solid-js\/(internal|attribution|refresh)'|Cannot find module '(\.\.\/)+(src\/(attribution|core\/|client\/|client\.js|store\/(store|target)\.js|server\/)|dist\/|frames\/src|server-functions\/src)|Export named '(DEV|OBSERVE|\$RECORD|clearSnapshots|markSnapshotScope|setSnapshotCapture|releaseSnapshotScope)'/;
 for (const r of rows) if (r.note && INTERNAL.test(r.note)) r.note = "not ours: " + r.note;
+// Files that test only what Twist leaves out on purpose (Solid 1 compat helpers).
+const LEFT_OUT = /store\/storePath\.test\.ts$/;
+for (const r of rows) if (LEFT_OUT.test(r.file)) r.note = "not ours: a Solid 1 compat helper";
 const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
 const sum = (k: "pass" | "fail") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + r[k], 0);
 const unloaded = rows.filter((r) => r.note && !r.note.startsWith("not ours"));

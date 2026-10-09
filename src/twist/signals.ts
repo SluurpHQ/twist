@@ -8,7 +8,7 @@
 // flight lands. Writes on graphs no flight touches commit at once.
 
 /** TWIST_TRACE=1: a runaway loop reports itself (every 100,000 runs or rounds, with where it is). */
-const TRACE = typeof process !== "undefined" && !!process.env?.TWIST_TRACE;
+const TRACE = !!(globalThis as any).process?.env?.TWIST_TRACE;
 let runs = 0;
 let microFlushes = 0;
 const trace = (what: string) => console.error(`[twist] ${what}`, new Error().stack?.split("\n").slice(2, 9).join(" | "));
