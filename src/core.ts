@@ -3,7 +3,7 @@
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 import { effect, flush as flushSignals, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, readLazy, readThenable, unwrapChild } from "./element.ts";
-import { MATH_NS, SVG_NS, eventOf, onAfterEvent, setDefaults, setProps } from "./props.ts";
+import { MATH_NS, SVG_NS, eventOf, onAfterEvent, onSubmitAction, setDefaults, setProps } from "./props.ts";
 import { addContainer } from "./events.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { checkTag, duplicateKey, setOwner } from "./warnings.ts";
@@ -927,21 +927,62 @@ export const client = {
   useDebugValue() {},
   useActionState(action: (state: any, payload: any) => any, initial: any) {
     const h = hook(() => {
-      const s: Sig = signal(initial);
-      const going: Sig<number> = signal(0);
-      let chain: Promise<any> = Promise.resolve();
-      const box: any = { s, going, action };
+      const box: any = { v: initial, changed: signal(0), going: signal(0), queue: [] as any[], running: false, error: undefined, action };
+      const bump = () => box.changed.set(box.changed.peek() + 1);
+      const next = () => {
+        box.going.set(box.going.peek() - 1);
+        if (box.queue.length) run();
+        else box.running = false;
+        flushSignals();
+      };
+      const fail = (e: unknown) => {
+        // Thrown where the state is read, so the component's boundary gets it (React's behaviour).
+        box.error = e;
+        box.going.set(0);
+        box.current?.done();
+        for (const q of box.queue.splice(0)) q.done();
+        box.running = false;
+        bump();
+        flushSignals();
+      };
+      // One after another, each with the state the last one left; the first one at once.
+      const run = () => {
+        box.running = true;
+        const entry = (box.current = box.queue.shift());
+        let r: any;
+        try {
+          r = box.action(box.v, entry.payload);
+        } catch (e) {
+          return fail(e);
+        }
+        const take = (v: any) => {
+          if (!Object.is(v, box.v)) (box.v = v), bump();
+          box.current = null;
+          entry.done();
+          next();
+        };
+        if (r && typeof r.then === "function") r.then(take, fail);
+        else take(r);
+      };
+      // Settles once this action has run: a form whose action this is stays pending until then.
       box.dispatch = (payload: any) => {
-        going.set(going.peek() + 1);
-        chain = chain
-          .then(() => box.action(s.peek(), payload))
-          .then((v) => s.set(v), report)
-          .finally(() => going.set(going.peek() - 1));
+        let done!: () => void;
+        const settled = new Promise<void>((r) => (done = r));
+        box.going.set(box.going.peek() + 1);
+        box.queue.push({ payload, done });
+        if (!box.running) run();
+        return settled;
       };
       return box;
     });
     h.action = action;
-    return [h.s(), h.dispatch, h.going() > 0];
+    h.changed();
+    if (h.error !== undefined) {
+      const e = h.error;
+      h.error = undefined;
+      throw e;
+    }
+    return [h.v, h.dispatch, h.going() > 0];
   },
   useOptimistic(state: any, change?: (s: any, a: any) => any) {
     const h = hook(() => ({ base: state, list: signal([]) as Sig<any[]> }));
@@ -1055,6 +1096,45 @@ export function hydrateRoot(container: Element, children: any, options?: any) {
   return root;
 }
 
+// ---------------------------------------------------------------- form actions
+
+const IDLE_FORM = Object.freeze({ pending: false, data: null, method: null, action: null });
+
+/** A form's status, kept on its fiber: what useFormStatus reads below it. */
+const formStatus = (f: Fiber): Sig<any> => ((f as any).formStatus ??= signal(IDLE_FORM));
+
+/**
+ * A form submitted to a function (React 19's form actions): its status pending while the action runs, the form
+ * reset once it is done, an error handed to the nearest boundary.
+ */
+export function submitForm(form: HTMLFormElement, act: (data: FormData) => any, data: FormData, submitter?: HTMLElement | null) {
+  const f: Fiber | undefined = (form as any).__fiber;
+  const status = f ? formStatus(f) : null;
+  const method = ((submitter as any)?.getAttribute?.("formmethod") ?? form.getAttribute("method") ?? "get").toLowerCase();
+  status?.set({ pending: true, data, method, action: act });
+  flushSignals();
+  const settle = (error?: unknown, failed = false) => {
+    status?.set(IDLE_FORM);
+    if (failed) f ? caught(f, error) : report(error);
+    else form.reset();
+    flushSignals();
+  };
+  let r: any;
+  try {
+    r = act(data);
+  } catch (e) {
+    return settle(e, true);
+  }
+  if (r && typeof r.then === "function") r.then(() => settle(), (e: unknown) => settle(e, true));
+  else settle();
+}
+
+/** The status of the form around the component rendering now (React DOM's useFormStatus). */
+export function useFormStatus() {
+  for (let p = current?.parent ?? null; p; p = p.parent) if (p.kind === HOST && p.type === "form") return formStatus(p)();
+  return IDLE_FORM;
+}
+
 export function flushSync<T>(fn?: () => T): T {
   const r = fn ? fn() : (undefined as T);
   if (depth === 0) flushSignals();
@@ -1086,3 +1166,6 @@ export { ELEMENT };
 
 // Which component is rendering, for "Check the render method of `X`." in warnings.
 setOwner(() => (current ? nameOf(current.type) : null));
+
+// A form's action runs through submitForm (its status, its reset, its boundary).
+onSubmitAction(submitForm);

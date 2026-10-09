@@ -379,6 +379,38 @@ test("Base UI select opens and picks", async (box) => {
   eq(trigger.textContent, "Banana", "picked");
 });
 
+test("form action: status while pending, state after, form reset", async (box) => {
+  const { useActionState } = await import("react");
+  const { useFormStatus } = await import("react-dom");
+  let finish: () => void = () => {};
+  function Status() {
+    const { pending } = useFormStatus();
+    return <i>{pending ? "sending" : "idle"}</i>;
+  }
+  function F() {
+    const [count, add] = useActionState(async (n: number, data: FormData) => {
+      await new Promise<void>((r) => (finish = r));
+      return n + Number(data.get("by"));
+    }, 0);
+    return (
+      <form action={add}>
+        <input name="by" defaultValue="2" />
+        <b>{count}</b>
+        <Status />
+        <button>go</button>
+      </form>
+    );
+  }
+  mount(box, <F />);
+  (box.querySelector("input") as HTMLInputElement).value = "5";
+  click(box.querySelector("button")!);
+  await tick();
+  eq(box.querySelector("i")!.textContent, "sending", "pending");
+  finish();
+  await frame();
+  eq([box.querySelector("b")!.textContent, box.querySelector("i")!.textContent, (box.querySelector("input") as HTMLInputElement).value], ["5", "idle", "2"]);
+});
+
 test("server render", () => {
   const Ctx = createContext(1);
   const C = () => {

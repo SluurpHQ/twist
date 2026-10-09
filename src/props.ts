@@ -143,11 +143,16 @@ function setAction(el: Element, name: string, fn: any) {
   form.addEventListener("submit", (e: any) => {
     const by = e.submitter;
     const act = by?.__formAction ?? (form as any).__action;
-    if (typeof act !== "function") return;
+    if (typeof act !== "function" || e.defaultPrevented) return;
     e.preventDefault();
-    const data = new FormData(form, by ?? undefined);
-    Promise.resolve(act(data)).then(() => (form as HTMLFormElement).reset());
+    submit(form as HTMLFormElement, act, new FormData(form as HTMLFormElement, by ?? undefined), by);
   });
+}
+
+/** How a form's action runs: given by core (it knows the form's fiber, its status and its boundary). */
+let submit: (form: HTMLFormElement, act: any, data: FormData, by?: HTMLElement | null) => void = (_f, act, data) => act(data);
+export function onSubmitAction(fn: typeof submit) {
+  submit = fn;
 }
 
 /** One prop set on `el`, from `prev` to `next`. */
