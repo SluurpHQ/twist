@@ -3,7 +3,7 @@
 
 import { effect, runWithOwner, untrack } from "../../signals/index.js";
 import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
-import { SELECT_SOURCES, configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
+import { BEFORE_INPUT_SOURCES, SELECT_SOURCES, configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
 import { shorthandToLonghand } from "./css-shorthand.ts";
@@ -160,7 +160,9 @@ function listen(el: Element, prop: string, handler: any) {
   // Most events: found at the root's listener from the element's props (React's delegation).
   if (delegated(type)) {
     if (handler != null && handler !== false) {
-      want(type);
+      // onBeforeInput is made from textInput, or keypress (React's plugin), not the native beforeinput.
+      if (type === "beforeinput") for (const t of BEFORE_INPUT_SOURCES) want(t);
+      else want(type);
       // onChange on an element that is not a field hears its fields' changes, typed or picked.
       if (type === "change") want("input");
       // Entering and leaving are made from over and out events.

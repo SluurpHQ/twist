@@ -23,6 +23,32 @@ const ENTER_LEAVE: Record<string, [string, string, boolean]> = {
 export const enterLeaveSources = (type: string) =>
   type === "mouseenter" || type === "mouseleave" ? ["mouseover", "mouseout"] : type === "pointerenter" || type === "pointerleave" ? ["pointerover", "pointerout"] : null;
 
+/** What React's BeforeInputEventPlugin makes onBeforeInput from. */
+export const BEFORE_INPUT_SOURCES = ["textInput", "keypress"];
+/** The characters a native event types, as React's plugin reads them (textInput's data, or a keypress's character
+ * where the browser has no TextEvent). */
+function beforeInputChars(native: any): string | null {
+  const textEvents = typeof window !== "undefined" && "TextEvent" in window;
+  if (native.type === "textInput") return textEvents ? native.data ?? null : null;
+  if (native.type === "keypress" && !textEvents) {
+    if (native.ctrlKey || native.altKey || native.metaKey) return null;
+    const code = native.charCode ?? native.which;
+    return code && code >= 32 ? String.fromCharCode(code) : null;
+  }
+  return null;
+}
+/** onBeforeInput fired for a native event that types characters: on its target's path, as a polyfilled event. */
+function beforeInputPlugin(native: Event, container: EventTarget, roots: Set<object>) {
+  const chars = beforeInputChars(native);
+  if (!chars) return;
+  const ev: any = new Event("beforeinput", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "target", { value: native.target });
+  ev.data = chars;
+  // preventDefault on it prevents the typing (React's synthetic event reaches the native one).
+  ev.preventDefault = () => native.preventDefault();
+  dispatch(ev, container, roots, false, true);
+}
+
 /** What React's SelectEventPlugin watches to tell a selection changed. */
 export const SELECT_SOURCES = ["focusin", "focusout", "keydown", "keyup", "mousedown", "mouseup", "dragend", "contextmenu"];
 let selectFocus: HTMLElement | null = null;
@@ -288,6 +314,7 @@ export const replaysWaiting = () => queued.size > 0;
 function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean, replay = native === replaying): boolean {
   // (The select plugin hears each event once, at its bubbling listener.)
   if (!capture && !replay && native.type !== "select" && SELECT_SOURCES.includes(native.type)) selectPlugin(native);
+  if (!capture && !replay && (native.type === "textInput" || native.type === "keypress")) beforeInputPlugin(native, container, roots);
   if (native.target && !replay) {
     const continuous = CONTINUOUS.has(native.type);
     const blocked = hydrateFor(native.target as Node, roots, native, continuous);
