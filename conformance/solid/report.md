@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5375 pass, 1324 fail, 714 files (37 did not load, 121 test Solid's internals)
+5393 pass, 1306 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -568,8 +568,8 @@
 | web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-treeshake.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/document-face-arg-tiers.spec.tsx | 2 | 2 |  |
-| web/test/server/document-live-channel-artifact.spec.tsx | 0 | 1 |  |
-| web/test/server/document-live-holes.spec.tsx | 0 | 7 |  |
+| web/test/server/document-live-channel-artifact.spec.tsx | 1 | 0 |  |
+| web/test/server/document-live-holes.spec.tsx | 4 | 3 |  |
 | web/test/server/document-shell.spec.tsx | 1 | 3 |  |
 | web/test/server/dynamic-async-component-diagnostic.spec.tsx | 3 | 2 |  |
 | web/test/server/dynamic-async-loading-3666.spec.tsx | 2 | 0 |  |
@@ -582,7 +582,7 @@
 | web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
-| web/test/server/frame-binding-slots.spec.tsx | 14 | 18 |  |
+| web/test/server/frame-binding-slots.spec.tsx | 23 | 9 |  |
 | web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 6 |  |
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-hn.spec.tsx | 0 | 2 |  |
@@ -596,7 +596,7 @@
 | web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |
 | web/test/server/frame-plain-bound.spec.tsx | 11 | 1 |  |
 | web/test/server/frame-server-component.spec.tsx | 6 | 3 |  |
-| web/test/server/frame-ssr-seam.spec.tsx | 1 | 1 |  |
+| web/test/server/frame-ssr-seam.spec.tsx | 2 | 0 |  |
 | web/test/server/frame-sweep-ops.spec.tsx | 1 | 1 |  |
 | web/test/server/frame-teardown.spec.tsx | 4 | 1 |  |
 | web/test/server/generic-hydration.gen.spec.tsx | 0 | 2 |  |
@@ -623,7 +623,7 @@
 | web/test/server/retry-robustness.spec.tsx | 1 | 4 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
-| web/test/server/server-component-context.spec.tsx | 3 | 3 |  |
+| web/test/server/server-component-context.spec.tsx | 4 | 2 |  |
 | web/test/server/server-diagnostics.spec.tsx | 1 | 16 |  |
 | web/test/server/server-error-hook.spec.tsx | 10 | 14 |  |
 | web/test/server/server-frame-records.spec.tsx | 3 | 4 |  |
@@ -712,7 +712,7 @@
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 2 | 8 |  |
-| web/test/server/tier-announce.spec.tsx | 6 | 8 |  |
+| web/test/server/tier-announce.spec.tsx | 8 | 6 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
 | web/test/server/welcome-status-parity.spec.tsx | 0 | 2 |  |

@@ -4,6 +4,7 @@ import { createOwner, creationStamp, getOwner, NotReadyError, runWithOwner, shar
 
 export { creationStamp, sharedConfig };
 export { ssrSanitizeError } from "./request.ts";
+import { html } from "./server.ts";
 
 const SERVER_COMPONENT = Symbol("server component");
 const LIVE_SERVER_COMPONENT = Symbol("live server component");
@@ -22,7 +23,8 @@ export function runInServerComponentScope<T>(fn: () => T, options?: { live?: boo
   if (options?.live || inherited[LIVE_SERVER_COMPONENT] === true) scoped[LIVE_SERVER_COMPONENT] = true;
   for (const key of Object.getOwnPropertySymbols(inherited)) if (crossing.includes(key)) scoped[key] = inherited[key];
   o.context = scoped;
-  return runWithOwner(o, fn);
+  // Rendered here, as Solid's eager templates are: under the scope and the render context it was called in.
+  return runWithOwner(o, () => ({ t: html(fn(), false) })) as T;
 }
 
 /** Whether `o` is inside a server component's render scope. */

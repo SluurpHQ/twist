@@ -214,11 +214,22 @@ export function NoHydration(props: { children?: any }) {
 }
 
 /** Its children hydrate (inside NoHydration). */
-export function Hydration(props: { children?: any }) {
+export function Hydration(props: { id?: string; children?: any }) {
+  // Hydrating already: its children as they are.
+  if (noHydration === 0) return props.children;
   const was = noHydration;
   noHydration = 0;
   try {
-    return { t: html(props.children, false) };
+    // Keys from `id` on (a server component's client content claims under its occurrence's prefix).
+    return runWithOwner(ownerUnder(getOwner(), { id: props.id ?? "" }), () => {
+      const v = props.children;
+      // A slot's range keeps itself (its caller reads it): its parts rendered in place.
+      if (Array.isArray(v) && (v as any).$slot) {
+        for (let i = 0; i < v.length; i++) v[i] = { t: html(v[i], false) };
+        return v;
+      }
+      return { t: html(v, false) };
+    });
   } finally {
     noHydration = was;
   }
