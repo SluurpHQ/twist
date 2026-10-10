@@ -66,6 +66,9 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
   "react-dom/ReactDOMSingletonComponents-test.js": {
     "renders into html, head, and body persistently so the node identities never change and extraneous styles are retained": V8_FORMAT,
   },
+  "use-sync-external-store/useSyncExternalStoreShared-test.js": {
+    "handles errors thrown by getSnapshot": RETRY,
+  },
   "use-sync-external-store/useSyncExternalStoreShimServer-test.js": {
     "basic server render": SHIM_FALLBACK,
   },
