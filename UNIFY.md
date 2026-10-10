@@ -51,7 +51,8 @@ Batteries included, 80/20: what real apps use, no chasing Solid's edge rulings.
   Any React: `__twist_mark` returns a component React can call (it draws the bridge's host; Twist unwraps it to the
   component), so React itself works as ours does and our React has no special case for it (SLUURP_SOLID=twist
   without SLUURP_REACT: proven on server-components with React 19.3, `test/bridge/real-react.test.ts`).
-  Left: the compile pass in Rust in the core (oxc's native parser cannot ride in a compiled host).
+  The compile pass is in the core (`src/twist_compile.rs`, napi `twistCompile`), output byte-identical to
+  `src/twist/compile.ts` on 438 files; the TypeScript one stays as the package's own (tests, other bundlers).
 
 - Step 2 (2026-10-10): `src/twist/signals-bridge.ts` (`installSignalsBridge()`): a signal of either core read where the
   other tracks is followed there (a mirror counter per node); hooks `setForeignRead` in both cores.
