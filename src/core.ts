@@ -3049,6 +3049,17 @@ function classRender(inst: any) {
 
 function updateWhileRendering(target: Fiber) {
   updateOutsideAct(target);
+  // A render thrown away before it committed (a hydration that suspended): React warns, from what is mounted above.
+  let b: Fiber | null = target.dead ? target.parent : null;
+  while (b && !(b as any).dehydrated && b.type !== SUSPENSE) b = b.parent;
+  if (b && !(b as any).dehydrated) b = null;
+  if (dev() && !current && target.dead && (!target.committed || b)) {
+    let at: Fiber | null = target.parent;
+    while (at && !(at.kind === COMP && at.committed && !at.dead)) at = at.parent;
+    notYetMounted(at ?? target);
+  }
+  // (Its boundary, still as the server drew it, tries hydrating again for it.)
+  if (b && !b.dead) scheduleHydration(b);
   if (!current || !dev()) return;
   if (target.inst) {
     // Only from a render method (React's isRendering): a will-lifecycle may set state.
@@ -3060,6 +3071,15 @@ function updateWhileRendering(target: Fiber) {
   warn(
     `Cannot update a component (\`${nameOf(target.type) || "Unknown"}\`) while rendering a different component (\`${rendering}\`). To locate the bad setState() call inside \`${rendering}\`, follow the stack trace as described in https://react.dev/link/setstate-in-render`,
     "update-other:" + rendering,
+  );
+}
+
+function notYetMounted(f: Fiber) {
+  withFiber(f, () =>
+    warn(
+      "Can't perform a React state update on a component that hasn't mounted yet. This indicates that you have a side-effect in your render function that asynchronously tries to update the component. Move this work to useEffect instead.",
+      "not-yet-mounted:" + nameOf(f.type),
+    ),
   );
 }
 
@@ -3087,13 +3107,7 @@ export class Component<P = any, S = any> {
     warnOnInvalidCallback(done);
     if (!this.__f) return notMounted(this, "setState");
     // Drawn but not committed yet, set from the commit (a sibling's componentWillUnmount): React warns.
-    if (dev() && inDeletions && !current && !this.__f.committed && !this.__f.dead)
-      withFiber(this.__f, () =>
-        warn(
-          "Can't perform a React state update on a component that hasn't mounted yet. This indicates that you have a side-effect in your render function that asynchronously tries to update the component. Move this work to useEffect instead.",
-          "not-yet-mounted:" + nameOf(this.__f.type),
-        ),
-      );
+    if (dev() && inDeletions && !current && !this.__f.committed && !this.__f.dead) notYetMounted(this.__f);
     updateWhileRendering(this.__f);
     const apply = () => {
       this.__queue.push(partial);
