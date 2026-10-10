@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4008 pass, 63 fail, 362 skipped (gated off for stable React 19), 55 set aside as not ours (not-ours.ts).
+4009 pass, 62 fail, 362 skipped (gated off for stable React 19), 55 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -39,7 +39,7 @@
 | react-dom/ReactDOMFizzServerNode-test.js | 20 | 1 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 6 | 0 | 0 |  |
-| react-dom/ReactDOMFizzStaticBrowser-test.js | 31 | 1 | 2 |  |
+| react-dom/ReactDOMFizzStaticBrowser-test.js | 32 | 0 | 2 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 16 | 1 | 0 |  |
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |

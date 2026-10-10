@@ -2002,7 +2002,12 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     if (inFlight !== undefined || why === null) tell(true, inFlight);
     // (A prerender whose shell could not finish: the whole render is left to a resume.)
     if (options.prerendering) options.onPostponed?.({ root: true, next: 0, boundaries: [] });
-    options.onShellError?.(why);
+    // (Resuming: the shell went out with the prelude, so this is no shell error; the resume just ends, as React's
+    // replay abort does.)
+    if (resumed && !options.prerendering) {
+      shellDone = shellWritten = true;
+      options.onShellReady?.();
+    } else options.onShellError?.(why);
     closed = true;
     finish();
   };
