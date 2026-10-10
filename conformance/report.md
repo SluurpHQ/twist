@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3969 pass, 113 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3971 pass, 111 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -49,7 +49,7 @@
 | react-dom/ReactDOMFragmentRefs-test.js | 89 | 0 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMHooks-test.js | 2 | 0 | 2 |  |
-| react-dom/ReactDOMHostComponentTransitions-test.js | 0 | 2 | 0 |  |
+| react-dom/ReactDOMHostComponentTransitions-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMHydrationDiff-test.js | 39 | 0 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 8 | 2 | 0 |  |

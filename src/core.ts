@@ -1738,12 +1738,37 @@ function titleText(el: Element, children: any) {
   if (el.textContent !== text) el.textContent = text;
 }
 
+/** A <link> as React describes it in its resource errors: rel, href and precedence, "..." for the rest. */
+function describeLink(props: any): string {
+  let shown = 0;
+  let out = "<link";
+  for (const k of ["rel", "href", "precedence"]) {
+    if (typeof props[k] === "string") shown++, (out += ` ${k}="${props[k]}"`);
+    else if (Object.hasOwn(props, k)) {
+      shown++;
+      const v = props[k] === null ? "null" : "invalid type " + typeof props[k];
+      out += k === "precedence" ? ` precedence={${v}}` : ` ${k}="${v}"`;
+    }
+  }
+  if (Object.getOwnPropertyNames(props).length > shown) out += " ...";
+  return out + " />";
+}
+
 function updateHoist(f: Fiber, props: any) {
   const prev = f.props;
   if (prev === props) return;
   const root = (f as any).hoistRoot as Document | ShadowRoot;
   const was = (f as any).resource as Resource | null;
   const next = getResource(root, f.type, props);
+  // A <link> that changes between an element and a stylesheet resource: React does not support it, and says so.
+  if (f.type === "link" && !was !== !next && (was?.type === "stylesheet" || next?.type === "stylesheet")) {
+    const diff = dev() ? `\n\n  - ${describeLink(prev)}\n  + ${describeLink(props)}` : "";
+    throw new Error(
+      (was ? "Expected stylesheet with precedence to not be updated to a different kind of <link>." : "Expected <link> not to update to be updated to a stylesheet with precedence.") +
+        " Check the `rel`, `href`, and `precedence` props of this component. Alternatively, check whether two different <link> components render in the same slot or share the same key." +
+        diff,
+    );
+  }
   f.props = props;
   if (was !== next) {
     // Another resource, or a hoistable that becomes one (or the other way): let go of the old, take the new.
@@ -2049,10 +2074,10 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     toldFragmentsAdded(f);
     // A new top-level node in a hidden Activity (or a portal's in one) is hidden as it comes.
     if (hiddenActivities) for (let k = topInHidden(f); k > 0; k--) hideNode(el, true);
-    // An image loaded again once committed: a load it fired before then reached no handler (React's commitMount).
     if (props.autoFocus && !ns && !server && (type === "input" || type === "button" || type === "select" || type === "textarea")) {
       insertionQueue.push(() => !f.dead && (el as HTMLElement).focus());
     }
+    // An image loaded again once committed: a load it fired before then reached no handler (React's commitMount).
     if (type === "img" && !ns && !server && (props.src || props.srcSet)) {
       insertionQueue.push(() => {
         if (f.dead) return;
