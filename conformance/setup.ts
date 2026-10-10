@@ -3,8 +3,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { plugin } from "bun";
 import { isAbsolute, join } from "node:path";
-import { readFileSync } from "node:fs";
-
 import "./gates.ts";
 
 // jsdom loads no frames (React's tests render <iframe src="https://…">), and has `nonce` on every element.
@@ -390,12 +388,6 @@ plugin({
     b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils|react-noop-renderer|react-reconciler|web-streams-polyfill)(\/.*)?$/ }, (a) => {
       const to = ours[a.path];
       return to ? { path: to } : undefined;
-    });
-    // A test using `this` at module level is taken by Bun for CommonJS, where its injected JSX import does not parse:
-    // marked as a module.
-    b.onLoad({ filter: /[\\/]react-tests[\\/].*-test(\.internal)?\.js$/ }, (a) => {
-      const text = readFileSync(a.path, "utf8");
-      return { contents: /\bthis\b/.test(text) && !/^\s*(import|export)\s/m.test(text) ? text + "\nexport {};\n" : text, loader: "jsx" };
     });
   },
 });

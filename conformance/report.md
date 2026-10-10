@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3893 pass, 165 fail, 349 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3893 pass, 165 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -114,7 +114,7 @@
 | react-dom/ReactLegacyContextDisabled-test.internal.js | 2 | 0 | 0 |  |
 | react-dom/ReactLegacyErrorBoundaries-test.internal.js | 0 | 0 | 41 |  |
 | react-dom/ReactLegacyMount-test.js | 0 | 0 | 19 |  |
-| react-dom/ReactLegacyRootWarnings-test.js | 0 | 0 | 0 | did not run |
+| react-dom/ReactLegacyRootWarnings-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactLegacyUpdates-test.js | 1 | 0 | 39 |  |
 | react-dom/ReactMockedComponent-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactMountDestruction-test.js | 1 | 0 | 2 |  |

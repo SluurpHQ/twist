@@ -98,6 +98,8 @@ function copy(from: string, to: string) {
       for (const [re, to] of SETUP_ONLY) code = code.replace(re, to);
       // A promise's .resolves.not.toThrow(): Jest passes once it resolves; Bun checks the value as a function.
       code = code.replace(/\.resolves\.not\.toThrow\(\)/g, ".resolves.toSatisfy(() => true)");
+      // `this` at module level makes Bun take the file for CommonJS, where its injected JSX import does not parse.
+      if (/\bthis\b/.test(code) && !/^\s*(import|export)\s/m.test(code)) code += "\nexport {};\n";
       writeFileSync(b, code);
     } else if (f.endsWith(".js")) writeFileSync(b, unflow(readFileSync(a, "utf8")));
     else writeFileSync(b, readFileSync(a));
