@@ -328,11 +328,12 @@ function firstDom(f: Fiber): Node | null {
 }
 
 /** The DOM node after everything `f` put on the page: where what it draws next goes before. */
-function nextDomAfter(f: Fiber): Node | null {
+function nextDomAfter(f: Fiber, passDehydrated = false): Node | null {
   let at: Fiber | null = f;
   while (at && at.parent) {
     const sibs = at.parent.children;
     for (let i = sibs.indexOf(at) + 1; i < sibs.length; i++) {
+      if (passDehydrated && (sibs[i] as any).dehydrated) continue;
       const d = firstDom(sibs[i]!);
       if (d) return d;
     }
@@ -2136,12 +2137,14 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (type === ACTIVITY && props.mode !== "hidden" && hydrating) hydrateBoundary(f, host, before);
     else if (type === ACTIVITY && props.mode === "hidden") {
       // Hidden: its children drawn (their state kept for when it is shown), out of sight, their effects not run.
-      if (hydrating) return f;
+      // (Not in the server's markup: drawn on the client, after hydration, as for a client render.)
+      // (Then after the boundaries beside it still waiting to hydrate, as React places it.)
       (f as any).hidden = true;
       hiddenActivities++;
+      const afterHydration = hydrating;
       deferTransition(() => {
         if (f.dead || !(f as any).hidden) return;
-        reconcile(f, toList(f.props?.children), hostParentOf(f), nextDomAfter(f));
+        reconcile(f, toList(f.props?.children), hostParentOf(f), nextDomAfter(f, afterHydration));
       });
     } else reconcile(f, toList(props.children), host, before);
     return f;
