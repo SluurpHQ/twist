@@ -7,7 +7,7 @@
 //
 // Installed with the app's React (Sluurp's @sluurp/dom, or React itself): `installBridge(React, createRoot)`.
 import { createRenderEffect, createRoot, createSignal, flush, onCleanup, untrack } from "./signals.ts";
-import { createComponent, isTwist, setForeignComponent } from "./control.ts";
+import { createComponent, isTwist, setForeignComponent, setReactHost } from "./control.ts";
 import { hydrate, insert, setForeignClaim } from "./web.ts";
 
 /** An element that takes no box of its own: what is mounted in it lays out as its parent's children. */
@@ -147,7 +147,6 @@ export function installBridge(react: ReactApi, createRoot: typeof createReactRoo
   ({ createElement, useLayoutEffect, useRef, useId } = react);
   createReactRoot = createRoot;
   if (hydrateRoot) (hydrateReactRoot = hydrateRoot), setForeignClaim(claimReact);
-  const slot = (react as any).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?.twist;
-  if (slot) slot.host = TwistHost;
+  setReactHost((component, props) => createElement(TwistHost, { component, props }));
   setForeignComponent((type, props) => (isTwist(type) ? createComponent(type, props) : mountReact(type, props)));
 }

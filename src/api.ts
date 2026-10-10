@@ -11,6 +11,4 @@ export { captureOwnerStack } from "./core.ts";
 // H: the hooks dispatcher (some code calls H.readContext or H.useState directly), always these hooks.
 import * as hooks from "./hooks.ts";
 const dispatcher = { ...hooks };
-import { twist } from "./core.ts";
-// twist: where the bridge puts its host for this copy of React (a page may load more than one).
-export const __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = { H: dispatcher, A: null, T: null, S: null, twist };
+export const __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = { H: dispatcher, A: null, T: null, S: null };

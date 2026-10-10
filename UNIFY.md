@@ -48,8 +48,10 @@ Batteries included, 80/20: what real apps use, no chasing Solid's edge rulings.
   Partial swaps hydrate both (each React copy keeps its own bridge host, in its internals' `twist` slot).
   One browser build: islands are entries of the client build (`/_rsc/island-<name>.js`, runtime at
   `/_rsc/runtime.js`), so a page has one React and one Twist; `/_islands/` is gone.
-  Left: the compile pass in Rust in the core (oxc's native parser cannot ride in a compiled host); real React with
-  Solid-style components.
+  Any React: `__twist_mark` returns a component React can call (it draws the bridge's host; Twist unwraps it to the
+  component), so React itself works as ours does and our React has no special case for it (SLUURP_SOLID=twist
+  without SLUURP_REACT: proven on server-components with React 19.3, `test/bridge/real-react.test.ts`).
+  Left: the compile pass in Rust in the core (oxc's native parser cannot ride in a compiled host).
 
 - Step 2 (2026-10-10): `src/twist/signals-bridge.ts` (`installSignalsBridge()`): a signal of either core read where the
   other tracks is followed there (a mirror counter per node); hooks `setForeignRead` in both cores.

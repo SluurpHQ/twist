@@ -2093,18 +2093,10 @@ function clearRef(f: Fiber, ref: any) {
 
 // ---------------------------------------------------------------- components
 
-const TWIST_COMPONENT = Symbol.for("twist.component");
-/** The bridge's host for Solid-style components, set by installBridge for this copy of React. */
-export const twist: { host: any } = { host: null };
 
 /** How a component type renders: functions, classes, forwardRef, memo, lazy, Consumer, Suspense. */
 function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
   if (typeof type === "function") {
-    // A Solid-style component (Twist): mounted by the bridge's host as a Twist subtree, its props kept current.
-    if (type[TWIST_COMPONENT]) {
-      const host = twist.host;
-      if (host) return (_f, props) => createElement(host, { component: type, props });
-    }
     if (type.prototype?.isReactComponent) {
       f.tick = signal(0);
       return renderClass;

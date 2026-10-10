@@ -3,7 +3,7 @@
 //   browser's TwistHost to hydrate (with the same id, React's useId).
 // - A React component in a Solid-style tree is drawn by React's server renderer, its HTML put in <sluurp-react> for the
 //   browser's Twist to claim and hydrate; Twist children given to it are drawn by Twist, in <sluurp-twist>.
-import { createComponent, isTwist, setForeignComponent } from "./control.ts";
+import { createComponent, isTwist, setForeignComponent, setReactHost } from "./control.ts";
 import { html, renderToString } from "./server.ts";
 import { untrack } from "./signals.ts";
 
@@ -17,7 +17,7 @@ export function installServerBridge(react: ReactApi, reactToString: (element: an
     const out = renderToString(() => createComponent(component, props), { renderId: id });
     return createElement("sluurp-twist", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: out } });
   }
-  (globalThis as any)[Symbol.for("twist.server-host")] = TwistServerHost;
+  setReactHost((component, props) => createElement(TwistServerHost, { component, props }));
 
   setForeignComponent((type, props) => {
     if (isTwist(type)) return createComponent(type, props);

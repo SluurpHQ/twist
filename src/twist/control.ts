@@ -14,8 +14,26 @@ const CHILDREN = Symbol("twist.children");
  * there). Twist's compile pass marks what a Solid-style file declares.
  */
 export const TWIST = Symbol.for("twist.component");
-export const __twist_mark = <T>(f: T): T => (typeof f === "function" && ((f as any)[TWIST] = true), f);
-export const isTwist = (f: any) => typeof f === "function" && f[TWIST] === true;
+/** How React draws a Solid-style component it calls (installed by the bridge, with its host). */
+let reactHost: ((component: any, props: any) => any) | null = null;
+export const setReactHost = (fn: typeof reactHost) => void (reactHost = fn);
+
+/**
+ * A Solid-style component, marked; returned as one any React can call: React gets the bridge's host for it, Twist the
+ * component itself (the mark holds it).
+ */
+export function __twist_mark<T>(f: T): T {
+  if (typeof f !== "function") return f;
+  const own = f as any;
+  own[TWIST] = true;
+  const asReact = (props: any) => (reactHost ? reactHost(own, props) : own(props));
+  Object.defineProperty(asReact, "name", { value: own.name });
+  (asReact as any)[TWIST] = own;
+  return asReact as T;
+}
+export const isTwist = (f: any) => typeof f === "function" && !!f[TWIST];
+/** The Solid-style component itself, for a marked one React calls. */
+const ownOf = (f: any) => (typeof f?.[TWIST] === "function" ? f[TWIST] : f);
 
 /** How a React component is mounted inside a Twist tree (installed by the bridge; none, and it is called as is). */
 let foreign: ((type: any, props: any) => any) | null = null;
@@ -41,7 +59,8 @@ export const isChildren = (v: any): v is () => any => typeof v === "function" &&
 
 /** A component, run once, untracked. */
 export function createComponent<P>(Comp: (props: P) => any, props: P) {
-  return untrack(() => Comp(props));
+  const own = ownOf(Comp);
+  return untrack(() => own(props));
 }
 
 
@@ -191,9 +210,9 @@ export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
       return callComponent(C, props);
     });
   };
-  (Comp as any).preload = () => start();
-  __twist_mark(Comp);
-  return Comp;
+  const marked = __twist_mark(Comp);
+  (marked as any).preload = () => start();
+  return marked;
 }
 
 
