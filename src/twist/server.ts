@@ -12,6 +12,7 @@ export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
+import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition } from "./server-slots.ts";
 export {
   RequestContext,
   getRequestEvent,
@@ -272,6 +273,8 @@ export function html(v: any, inTemplate: boolean): string {
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return html(callComponent(v.fn, componentProps(v.props)), false);
   if (typeof v.t === "string") return v.t;
+  // A binding-slot value as text: the markers the client writes between.
+  if (isSlotValue(v)) return v.w();
   return escape(String(v));
 }
 
@@ -314,6 +317,10 @@ function element(el: Element_, keyed: boolean): string {
   let chosen: unknown = NONE_CHOSEN;
   let own: unknown = NONE_CHOSEN;
   let hasSelected = false;
+  // In a server component's frame: slot values become markers, handlers and refs claims the client binds.
+  const ctx = sharedConfig.context as any;
+  const slots = ctx != null && ctx.claims !== undefined;
+  let behaviors: Map<string, string> | null = null;
   // (Own keys through the proxy's ownKeys alone: no descriptor asked for.)
   for (const k of Reflect.ownKeys(all)) {
     if (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k)) continue;
@@ -335,7 +342,10 @@ function element(el: Element_, keyed: boolean): string {
     }
     const v = read(raw);
     if (k === "children") kids = v;
-    else if (k === "ref" || /^on[A-Z]/.test(k)) continue;
+    else if (k === "ref" || /^on[A-Z]/.test(k)) {
+      if (slots) behaviors = spreadBehaviorPosition(behaviors, k, v, ctx.claims, 0, false);
+      continue;
+    }
     // Content props: the markup, the text, a textarea's value.
     else if (k === "innerHTML") content = v == null ? "" : String(v);
     else if (k === "textContent" || (tag === "textarea" && (k === "value" || (k === "defaultValue" && content === undefined)))) content = escape(String(v ?? ""));
@@ -344,16 +354,18 @@ function element(el: Element_, keyed: boolean): string {
     else {
       if (tag === "option" && k === "value") own = v;
       if (k === "selected") hasSelected = true;
-      out += ssrAttribute(k, v);
+      out += slots && v !== null && typeof v === "object" ? (k === "class" || k === "style" ? slotClassOrStyle(k, v) : isSlotValue(v) ? slotAttribute(k, v) : ssrAttribute(k, v)) : ssrAttribute(k, v);
     }
   }
+  if (behaviors) out += spreadBehaviorMarkers(behaviors, undefined, ctx.claims);
   // Attribute markup the caller already holds: after the props' own, as is.
   if (el.attrs) out += el.attrs;
   if (tag === "option" && selecting !== NONE_CHOSEN && !hasSelected) {
     const v = String(own === NONE_CHOSEN ? "" : (own ?? ""));
     if (Array.isArray(selecting) ? selecting.map(String).includes(v) : String(selecting ?? "") === v) out += " selected";
   }
-  if (VOID.has(tag)) return out + " />";
+  // (Ended as Solid ends them: a compiled template writes `<input …>`, a run-time element `<input … />`.)
+  if (VOID.has(tag)) return out + (el.sources ? " />" : ">");
   out += ">";
   // The page's head: what useHead registers goes here once the shell is rendered.
   if (tag === "head" && head && !head.placed) {

@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5360 pass, 1339 fail, 714 files (37 did not load, 121 test Solid's internals)
+5375 pass, 1324 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -582,7 +582,7 @@
 | web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
-| web/test/server/frame-binding-slots.spec.tsx | 2 | 30 |  |
+| web/test/server/frame-binding-slots.spec.tsx | 14 | 18 |  |
 | web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 6 |  |
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-hn.spec.tsx | 0 | 2 |  |
@@ -699,7 +699,7 @@
 | web/test/server/ssr-async-rejection-3570.spec.tsx | 5 | 1 |  |
 | web/test/server/ssr-class-style-separators.spec.tsx | 2 | 0 |  |
 | web/test/server/ssr-class.spec.tsx | 2 | 1 |  |
-| web/test/server/ssr-element-names.spec.tsx | 7 | 3 |  |
+| web/test/server/ssr-element-names.spec.tsx | 8 | 2 |  |
 | web/test/server/ssr-element-nullish-attrs.spec.tsx | 4 | 0 |  |
 | web/test/server/ssr-element-sources.spec.tsx | 24 | 0 |  |
 | web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 | not ours: runs Solid's built packages in a child process |
@@ -712,7 +712,7 @@
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 2 | 8 |  |
-| web/test/server/tier-announce.spec.tsx | 4 | 10 |  |
+| web/test/server/tier-announce.spec.tsx | 6 | 8 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
 | web/test/server/welcome-status-parity.spec.tsx | 0 | 2 |  |
