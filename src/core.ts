@@ -330,7 +330,9 @@ configureViewTransitions(
 function afterSingleton(body: Fiber, into: Node): Node | null {
   let html: Fiber | null = body.parent;
   while (html && !(html as any).singleton) html = html.parent;
-  if (!html?.parent) return null;
+  // (Rendered into <html> itself: the <body>'s own siblings come after it.)
+  html ??= body;
+  if (!html.parent) return null;
   const sibs = html.parent.children;
   for (let i = sibs.indexOf(html) + 1; i < sibs.length; i++) {
     if (!sibs[i]!.committed) continue;
