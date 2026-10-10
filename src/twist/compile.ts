@@ -16,7 +16,7 @@ const RUNTIME = "@solidjs/web";
 export function compile(source: string, filename = "file.tsx"): string {
   if (!/<[A-Za-z>]/.test(source)) return source;
   const { program, errors } = parseSync(filename, source);
-  if (errors.length) return source;
+  if (errors.length) throw new SyntaxError(`${filename}: ${errors.map((e) => e.message).join("; ")}`);
   const edits: Edit[] = [];
   let spreads = 0;
   let used = false;
