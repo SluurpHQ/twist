@@ -474,6 +474,8 @@ function disappear(f: Fiber) {
       (x as any).gone = true;
     } else if ((x.kind === HOST || x.kind === HOIST) && x.props?.ref != null) clearRef(x, x.props.ref);
     else if (x.kind === FRAG && (x as any).fragment && x.props?.ref != null) clearRef(x, x.props.ref);
+    // (A hidden node is no fragment's while hidden: their listeners and observers let go of it, as React does.)
+    if (fragmentRefs && (x.kind === HOST || x.kind === TEXT) && x.dom) for (const inst of fragmentsAbove(x as any)) inst._childRemoved(x.dom);
     if (x.kind === HOIST && !(x as any).resource) x.dom?.parentNode?.removeChild(x.dom);
     for (const c of x.children) if (!(c as any).hidden) each(c);
   };
@@ -487,6 +489,8 @@ function reappear(f: Fiber) {
   const passive: (() => void)[] = [];
   const each = (x: Fiber) => {
     for (const c of x.children) if (!(c as any).hidden) each(c);
+    // (Shown again: the fragments above it take it back, the nearest first.)
+    if (fragmentRefs && (x.kind === HOST || x.kind === TEXT) && x.dom) for (const inst of fragmentsAbove(x as any)) inst._childAdded(x.dom);
     if (x.kind === COMP) {
       (x as any).gone = false;
       (x as any).waitsToAppear = false;
