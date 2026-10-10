@@ -311,7 +311,8 @@ const { resetWarnings } = await import("../src/warnings.ts");
   const { resetStreams } = await import("../src/server.ts");
   // (A test's fresh copy of React listens on the document again: jest.resetModules gives it new markers.)
   const { forgetDocuments } = await import("../src/events.ts");
-  (await import("bun:test")).beforeEach(() => (resetLog(), resetConsole(), resetAct(), resetStreams(), forgetDocuments()));
+  // (Counted, so what a test reloads in React's suite, the noop renderer's root, is made afresh.)
+  (await import("bun:test")).beforeEach(() => (resetLog(), resetConsole(), resetAct(), resetStreams(), forgetDocuments(), ((globalThis as any).__testSerial = ((globalThis as any).__testSerial ?? 0) + 1)));
 }
 // React's jest config fakes timers in every test (fakeTimers.enableGlobally); react-redux's vitest does not.
 if (!process.argv.some((a) => a.includes("redux-tests"))) {

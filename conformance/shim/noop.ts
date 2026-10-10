@@ -37,10 +37,17 @@ export function createRoot() {
 }
 export const createLegacyRoot = createRoot;
 
-const main = createRoot();
-export const render = (el: any) => main.render(el);
-export const getChildrenAsJSX = () => main.getChildrenAsJSX();
-export const getChildren = () => main.getChildren();
+// A fresh one for each test, as React's suite reloads the renderer before each (jest.resetModules).
+let main: ReturnType<typeof createRoot> | null = null;
+let mainTest = -1;
+const mainRoot = () => {
+  const serial = (globalThis as any).__testSerial ?? 0;
+  if (!main || mainTest !== serial) (main = createRoot()), (mainTest = serial);
+  return main;
+};
+export const render = (el: any) => mainRoot().render(el);
+export const getChildrenAsJSX = () => mainRoot().getChildrenAsJSX();
+export const getChildren = () => mainRoot().getChildren();
 export const flushSync = (fn?: () => any) => domFlushSync(fn as any);
 export const batchedUpdates = (fn: (a?: any) => any, a?: any) => fn(a);
 export const unstable_batchedUpdates = batchedUpdates;
