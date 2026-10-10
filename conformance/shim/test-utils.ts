@@ -57,14 +57,25 @@ export async function act<T>(fn: () => T | Promise<T>): Promise<T> {
 }
 /** React's serverAct: the scope run after a tick, then pending (fake) timers run until none are left, as the
  * server's work is scheduled on setImmediate. */
-export async function serverAct<T>(fn: () => T | Promise<T>): Promise<T> {
+export function serverAct<T>(fn: () => T | Promise<T>): Promise<T> {
+  // (A rejection the test awaits later is not an unhandled one, as under Jest.)
+  const result = serverActNow(fn);
+  result.catch(() => {});
+  return result;
+}
+async function serverActNow<T>(fn: () => T | Promise<T>): Promise<T> {
   const j: any = bunJest;
   const timers = async () => {
     for (let i = 0; i < 100; i++) {
       // A real turn too (the server's start, where setImmediate is not faked).
       await realTurn();
       await Promise.resolve();
-      if (!(j?.getTimerCount?.() > 0)) break;
+      // (Without fake timers there are none to run.)
+      let count = 0;
+      try {
+        count = j?.getTimerCount?.() ?? 0;
+      } catch {}
+      if (!(count > 0)) break;
       j.runOnlyPendingTimers();
     }
   };

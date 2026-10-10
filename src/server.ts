@@ -1003,6 +1003,15 @@ function vtAttributes(ctx: Ctx): string {
 /** Inline script content made safe as React makes it: the "s" of any "<script" or "</script" escaped. */
 const scriptSafe = (code: string) => code.replace(/(<\/|<)(s)(cript)/gi, (_m, a, b, c) => a + (b === "s" ? "\\u0073" : "\\u0053") + c);
 /** A bootstrap script's attributes, given as a string or as { src, integrity, crossOrigin }. */
+/** A bootstrap script's preload attributes, in React's order: nonce, href, integrity, crossorigin. */
+function preloadAttrs(s: any, nonce?: string) {
+  const src = typeof s === "string" ? s : s.src;
+  let out = nonce ? ` nonce="${escape(nonce)}"` : "";
+  out += ` href="${escape(src)}"`;
+  if (typeof s === "object" && typeof s.integrity === "string") out += ` integrity="${escape(s.integrity)}"`;
+  if (typeof s === "object" && s.crossOrigin != null) out += ` crossorigin="${s.crossOrigin === "use-credentials" ? "use-credentials" : ""}"`;
+  return out;
+}
 function scriptAttrs(s: any, nonce?: string) {
   const src = typeof s === "string" ? s : s.src;
   let out = ` src="${escape(src)}"`;
@@ -1020,12 +1029,12 @@ function bootstrapPreloads(options: any, nonce: string | undefined, res: Resourc
   for (const s of options.bootstrapScripts ?? []) {
     res.script.set(src(s), null);
     res.module.set(src(s), null);
-    out += `<link rel="preload" as="script" fetchPriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+    out += `<link rel="preload" as="script" fetchPriority="low"${preloadAttrs(s, nonce)}/>`;
   }
   for (const s of options.bootstrapModules ?? []) {
     res.script.set(src(s), null);
     res.module.set(src(s), null);
-    out += `<link rel="modulepreload" fetchPriority="low"${scriptAttrs(s, nonce).replace(" src=", " href=")}/>`;
+    out += `<link rel="modulepreload" fetchPriority="low"${preloadAttrs(s, nonce)}/>`;
   }
   return out;
 }
@@ -1866,12 +1875,41 @@ export function renderToPipeableStream(node: any, options: any = {}) {
 export function renderToReadableStream(node: any, options: any = {}): Promise<any> {
   return new Promise((resolve, reject) => {
     const enc = new TextEncoder();
-    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
     let allReady!: () => void;
-    const ready = new Promise<void>((r) => (allReady = r));
-    const stream: any = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
+    let allFailed!: (e: unknown) => void;
+    const ready = new Promise<void>((r, f) => ((allReady = r), (allFailed = f)));
+    ready.catch(() => {});
+    let run: ReturnType<typeof startStream> | null = null;
+    let abortNow: ((reason?: unknown) => void) | null = null;
+    let flowNow: (() => void) | null = null;
+    let cancelled = false;
+    const signal = options.signal;
+    const onAbort = () => (run ? run.abort(signal.reason) : abortNow?.(signal.reason));
+    // It flows once read (React's pull), and a reader that cancels aborts what is left.
+    const stream: any = new ReadableStream<Uint8Array>(
+      {
+        start: (c) => void (controller = c),
+        pull: () => void (run ? run.flow() : flowNow?.()),
+        cancel: (reason) => {
+          // (Nothing more is read: what the abort writes is dropped.)
+          cancelled = true;
+          signal?.removeEventListener?.("abort", onAbort);
+          run ? run.abort(reason) : abortNow?.(reason);
+        },
+      },
+      { highWaterMark: 0 },
+    );
     stream.allReady = ready;
-    const run = startStream(
+    // Aborted before it began: nothing renders, the shell fails with the reason (React aborts the request first).
+    if (signal?.aborted) {
+      const why = signal.reason;
+      options.onError?.(why);
+      options.onShellError?.(why);
+      allFailed(why);
+      return reject(why);
+    }
+    run = startStream(
       node,
       {
         ...options,
@@ -1881,6 +1919,7 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
         },
         onShellError: (e: unknown) => {
           options.onShellError?.(e);
+          allFailed(e);
           reject(e);
         },
         onAllReady: () => {
@@ -1888,10 +1927,19 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
           allReady();
         },
       },
-      (c) => controller.enqueue(enc.encode(c)),
-      () => controller.close(),
+      (c) => void (cancelled || controller?.enqueue(enc.encode(c))),
+      () => {
+        signal?.removeEventListener?.("abort", onAbort);
+        if (cancelled) return;
+        try {
+          controller?.close();
+        } catch {}
+      },
+      false,
+      (a, f) => ((abortNow = a), (flowNow = f)),
     );
-    options.signal?.addEventListener?.("abort", () => run.abort(options.signal.reason), { once: true });
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener?.("abort", onAbort, { once: true });
   });
 }
 
