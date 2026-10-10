@@ -1687,6 +1687,10 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (had) {
       if (!suppressed && had.data.length > parsedText.length) hydrating!.set(host, had.splitText(parsedText.length));
       f.dom = had;
+    } else if (suppressed && text !== "" && /^(string|number|bigint)$/.test(typeof parent.props?.children)) {
+      // Its only text missing from the server's element, warnings suppressed: left as the server drew it (React does
+      // not fix it): the node kept out of the page until an update places it.
+      f.dom = (parent.doc ?? docOf(host)).createTextNode("");
     } else {
       if (hydrating && text !== "") {
         const next = nextServerNode(host);
@@ -1947,6 +1951,8 @@ function update(f: Fiber, c: any) {
     f.props = c;
     if (typeof c === "function") bindText(f, c);
     else setText(f.dom as Text, "" + c);
+    // Left out by hydration (its element's warnings suppressed): put in place now.
+    if (!f.dom!.parentNode && !hydrating) hostParentOf(f).insertBefore(f.dom!, nextDomAfter(f));
     return;
   }
   if (f.kind === FRAG) {
