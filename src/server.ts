@@ -1640,6 +1640,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   // performWork, which flushes after the batch).
   const pinged: STask[] = [];
   const schedule = (t: STask) => {
+    // (A destination its owner has ended meanwhile: the render is aborted before anything more renders.)
+    options.checkDestination?.();
     pinged.push(t);
     if (pinged.length === 1) setImmediateOr(work);
   };
@@ -2052,7 +2054,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       // between is told with its own reason.
       for (const t of tasks) if (t.state === 0) t.aborting = true;
       // (A task later, as React's scheduleWork: rejections already on their way are heard first.)
+      starting++;
       ((globalThis as any).setImmediate ?? setTimeout)(() => {
+        starting--;
         for (const t of tasks) if (t.state === 0 && t.aborting) finishAborted(t, why);
         flushQueues();
         close();
@@ -2075,7 +2079,8 @@ export function renderToPipeableStream(node: any, options: any = {}) {
     if (!out) return void chunks.push(c);
     // Destroyed by its owner (its close event may come later): closed early. (Written after its end, it errors, and
     // that error aborts the render, as React's pipe hears it.)
-    if (out.destroyed) return cancel("The destination stream closed early.")();
+    // (Ended by its owner, its close event not heard yet: the same.)
+    if (out.destroyed || out.writableEnded) return cancel("The destination stream closed early.")();
     out.write(c);
   };
   const finish = () => ((ended = true), out && !dropped ? out.end?.() : undefined);
@@ -2105,7 +2110,8 @@ export function renderToPipeableStream(node: any, options: any = {}) {
       shellError(why);
       return;
     }
-    run = startStream(node, { ...options, onShellError: shellError }, write, finish, out !== null, (a, f) => ((abortNow = a), (flowNow = f)));
+    const checkDestination = () => (out?.destroyed || out?.writableEnded) && cancel("The destination stream closed early.")();
+    run = startStream(node, { ...options, onShellError: shellError, checkDestination }, write, finish, out !== null, (a, f) => ((abortNow = a), (flowNow = f)));
     // Piped while its shell rendered (from onShellReady): it flows now.
     if (out) run.flow();
   });
@@ -2115,6 +2121,8 @@ export function renderToPipeableStream(node: any, options: any = {}) {
       // As React's pipe: a destination that errors or closes early aborts what is left of the render.
       w.on?.("error", cancel("The destination stream errored while writing data."));
       w.on?.("close", cancel("The destination stream closed early."));
+      // (Ended by its owner: heard as soon as it finishes, before its close.)
+      w.on?.("finish", cancel("The destination stream closed early."));
       for (const c of chunks.splice(0)) w.write(c);
       // (One nobody listens to for errors is ended instead: an unhandled stream error would take the process down.)
       if (fatal) w.listenerCount?.("error") ? w.destroy?.((fatal as any).error) : w.end?.();
