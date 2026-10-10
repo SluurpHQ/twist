@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3901 pass, 157 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3905 pass, 153 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -19,13 +19,13 @@
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 5 | 3 | 1 |  |
-| react-dom/ReactDOM-test.js | 15 | 1 | 2 |  |
+| react-dom/ReactDOM-test.js | 16 | 0 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 6 | 1 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 13 | 0 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 163 | 1 | 1 |  |
+| react-dom/ReactDOMComponent-test.js | 164 | 0 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
-| react-dom/ReactDOMConsoleErrorReporting-test.js | 6 | 1 | 0 |  |
+| react-dom/ReactDOMConsoleErrorReporting-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |
 | react-dom/ReactDOMEventListener-test.js | 21 | 2 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 90 | 2 | 0 |  |
@@ -63,7 +63,7 @@
 | react-dom/ReactDOMNestedEvents-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMOption-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 27 | 0 | 0 |  |
-| react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
+| react-dom/ReactDOMSafariMicrotaskBug-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMSelect-test.js | 60 | 0 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 546 | 1 | 3 |  |

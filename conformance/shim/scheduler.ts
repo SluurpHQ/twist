@@ -1,6 +1,6 @@
 // What React's tests use of its mock scheduler: a log they write to and check. Our runtime has no scheduler of its
 // own (updates run on microtasks), so the flushing calls only drain what is pending.
-import { onStrictReplay, setClock } from "../../src/core.ts";
+import { flushPassiveEffects, flushScheduled, onStrictReplay, performWork, setClock, somethingPending } from "../../src/core.ts";
 
 let log: unknown[] = [];
 /** A fresh log for each test, as React's tests get from loading the scheduler again (called by setup.ts). */
@@ -24,7 +24,16 @@ export function unstable_clearLog() {
   log = [];
   return out;
 }
-export const unstable_flushAll = () => {};
+/** What is pending drawn now, as far as can be done at once: updates, the work loop, and effects after paint. */
+export const unstable_flushAll = () => {
+  for (let i = 0; i < 10; i++) {
+    flushScheduled();
+    const worked = performWork();
+    flushPassiveEffects();
+    if (!worked && !somethingPending()) break;
+  }
+  flushScheduled();
+};
 export const unstable_flushAllWithoutAsserting = () => false;
 export const unstable_flushNumberOfYields = () => {};
 export const unstable_flushUntilNextPaint = () => false;

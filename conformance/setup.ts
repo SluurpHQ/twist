@@ -108,6 +108,21 @@ for (const [proto, key] of [[Element.prototype, "innerHTML"], [Element.prototype
     },
   });
 }
+// Which tags are unknown elements, as browsers (and jsdom) have it: happy-dom calls some obsolete ones unknown and
+// some unknown ones known.
+{
+  const KNOWN = new Set("font frame frameset marquee dir acronym basefont big center nobr noembed noframes plaintext rb rtc strike tt xmp listing".split(" "));
+  const UNKNOWN = new Set("applet bgsound blink isindex keygen menuitem multicol nextid spacer".split(" "));
+  const is = Function.prototype[Symbol.hasInstance].bind(HTMLUnknownElement);
+  Object.defineProperty(HTMLUnknownElement, Symbol.hasInstance, {
+    value: (el: any) => {
+      const name = el?.namespaceURI === "http://www.w3.org/1999/xhtml" ? el.localName : null;
+      if (name && KNOWN.has(name)) return false;
+      if (name && UNKNOWN.has(name)) return true;
+      return is(el);
+    },
+  });
+}
 // document.open() leaves no doctype, as in browsers (happy-dom adds one); a written <!doctype> still brings its own.
 {
   let proto: any = document.implementation.createHTMLDocument("");

@@ -1,7 +1,7 @@
 // The runtime: React's API on Sluurp's signals. Each component renders inside a signals effect, so what it reads
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
-import { effect, flush as flushSignals, runWithOwner, signal, untrack } from "../../signals/index.js";
+import { effect, flush as flushSignals, holdFlushes, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
@@ -1747,7 +1747,6 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const ns = type === "svg" ? SVG_NS : type === "math" ? MATH_NS : f.ns;
     f.ns = ns;
     checkTagName(type);
-    assertValidProps(type, props, true);
     const hoisted = ns !== MATH_NS && isHoistable(type, props, ns === SVG_NS, inContainer(parent), warn);
     if (dev()) {
       const around = nestingAt(parent);
@@ -1755,6 +1754,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       f.nesting = ancestorsWith(around, type);
     }
     if (hoisted) {
+      assertValidProps(type, props, true);
       f.kind = HOIST;
       mountHoist(f, host);
       return f;
@@ -1785,6 +1785,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (hydrating) markMismatch(), diffMissing(f, nextServerNode(host));
       checkTag(el, type);
     }
+    assertValidProps(type, props, true);
     // Hydration stops at a mismatch: the root or boundary is drawn on the client instead.
     if (!server && hydrationStopped()) return f;
     // As the server drew it, to compare once the props are applied (and have warned as they do).
@@ -2907,6 +2908,9 @@ function caught(f: Fiber, e: any, inclusive = false) {
 
 // ---------------------------------------------------------------- effects and commit
 
+let flushHeld = false;
+holdFlushes(() => committing && (flushHeld = true));
+
 // Counted as rendering while it runs: an event it fires (a focus() in a layout effect) does not flush from inside.
 function commit() {
   // A concurrent render under way: committed when it is done.
@@ -2959,6 +2963,11 @@ function commit() {
   } finally {
     committing = wasCommitting;
     depth--;
+  }
+  // A flush its microtask asked for during the commit (React's commit context): done now.
+  if (!committing && flushHeld) {
+    flushHeld = false;
+    flushSignals();
   }
   if (depth === 0) recoveredThisRender = false;
   if (prewarms.length && depth === 0) prewarm();
