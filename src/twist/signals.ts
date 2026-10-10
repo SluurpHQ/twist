@@ -185,7 +185,12 @@ const noop = () => {};
 /** Rendering on a server: promises that settled are remembered, and read again they answer at once. */
 let serverRender = false;
 const answered = new WeakMap<object, [boolean, unknown]>();
-export const setServerRender = (on: boolean) => void (serverRender = on);
+/** Server mode on or off; answers what it was. */
+export const setServerRender = (on: boolean) => {
+  const was = serverRender;
+  serverRender = on;
+  return was;
+};
 /** The render under way on a server: what its async nodes answered, by id (a retry's node of the same id takes it). */
 let serverAnswers: Map<string, [boolean, unknown]> | null = null;
 export const setServerAnswers = (m: Map<string, [boolean, unknown]> | null) => void (serverAnswers = m);

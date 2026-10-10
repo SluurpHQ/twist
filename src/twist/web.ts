@@ -143,7 +143,8 @@ function set(el: Element, name: string, value: any) {
 
 /** One attribute, class, style or property written. */
 export function assign(el: Element, name: string, value: any, prev: any) {
-  if (name === "class") return className(el, value, prev);
+  // (`className`, as React code writes it: the class.)
+  if (name === "class" || name === "className") return className(el, value, prev);
   if (name === "style") return style(el as HTMLElement, value, prev);
   if (name === "innerHTML" || name === "textContent" || name === "innerText") return void ((el as any)[name] = value ?? "");
   if (PROPS[name]?.has(el.nodeName)) return setProperty(el, name, value);
@@ -505,6 +506,10 @@ const EL = Symbol("twist.hydrate.element");
 const COMP = Symbol("twist.hydrate.component");
 const OWN = Symbol("twist.hydrate.own");
 
+/** How a React component the server drew is hydrated where it is (installed by the bridge). */
+let foreignClaim: ((type: any, props: Record<string, any>, el: Element) => void) | null = null;
+export const setForeignClaim = (fn: typeof foreignClaim) => void (foreignClaim = fn);
+
 /** Hydrating: the server's keyed elements by key. */
 let hydrating: { registry: Map<string, Element> } | null = null;
 
@@ -547,9 +552,18 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
   if (Array.isArray(v)) return claimList(v, !!(v as any)[OWN], inTemplate, false, at);
   if (typeof v === "function") return bindAt(v, at);
   if (v[COMP]) {
+    // A React component the server drew in <sluurp-react>: hydrated there as a React root (the bridge's).
+    if (foreignClaim && !isTwist(v.fn)) {
+      const el = nextNode(at) as Element | null;
+      if (el && el.nodeType === 1 && el.localName === "sluurp-react") {
+        at.next = el.nextSibling;
+        foreignClaim(v.fn, componentProps(v.props), el);
+        return [el];
+      }
+    }
     if (v.fn === Loading) return claimLoading(componentProps(v.props), at);
     if (v.fn === Errored) return claimErrored(componentProps(v.props), at);
-    return claimHtml(createComponent(v.fn, componentProps(v.props)), false, at);
+    return claimHtml(callComponent(v.fn, componentProps(v.props)), false, at);
   }
   if (v[EL]) return [claimElement(v, v.keyed ?? !inTemplate, at)];
   return claimText(v, at);

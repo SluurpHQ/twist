@@ -10,7 +10,7 @@ Batteries included, 80/20: what real apps use, no chasing Solid's edge rulings.
 |---|---|
 | Signals, React side and SDK | `@sluurp/signals` (`host/packages/signals`, same code as `client/sluurp-reactive.js`) |
 | Signals, Solid side | Twist core, `host/packages/dom/src/twist/signals.ts` (+ store, flow) |
-| React API on signals | `@sluurp/dom` (`src/core.ts` …), chosen per app with `SLUURP_REACT=sluurp` |
+| React API on signals | `@sluurp/dom` (`src/core.ts` …), chosen per app with `SLUURP_REACT=twist` |
 | Solid 2 API | Twist (`src/twist/web.ts`, `server.ts`, `compile.ts`) |
 | Classic Sluurp UI | `sluurp/ui` + `src/reactive_jsx.rs`, `<sluurp-island>` |
 | Pages, Next-style | `host/runtime/pages.ts` + `rsc.ts`: `routes/*.tsx` server components, `"use client"` → `<sluurp-react>` |
@@ -38,6 +38,14 @@ Batteries included, 80/20: what real apps use, no chasing Solid's edge rulings.
    styles through the bridge. Hot paths in our apps move to Solid-style where a benchmark shows it pays.
 
 ## Built
+
+- Step 3 (2026-10-10): pages. `SLUURP_REACT=twist` (our React on server and browser, libraries' imports rewritten:
+  Bun's runtime onResolve cannot redirect a package name) and `SLUURP_SOLID=twist` (Solid-style files on Twist:
+  `host/runtime/twist.ts` compiles them, JSX source `src/twist/jsx/{server,client}`). Server: `bridge-server.ts` draws
+  Twist inside React (`<sluurp-twist>`, useId as render id) and React inside Twist (`<sluurp-react>`); browser: hydrated
+  in place both ways. Proven on sluurp-examples/server-components (counter.tsx: Solid-style + shadcn Button).
+  Left: the compile pass in Rust in the core (oxc's native parser cannot ride in a compiled host); islands/ and
+  sluurp-nav partials for Solid-style; real React with Solid-style components.
 
 - Step 2 (2026-10-10): `src/twist/signals-bridge.ts` (`installSignalsBridge()`): a signal of either core read where the
   other tracks is followed there (a mirror counter per node); hooks `setForeignRead` in both cores.

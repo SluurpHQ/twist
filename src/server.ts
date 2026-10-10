@@ -475,6 +475,9 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     return render(props.children, ctx, hooks);
   }
   if (typeof type === "function") {
+    // A Solid-style component (Twist): drawn by the bridge's server host (Twist's renderer, its HTML in an element).
+    const twistHost = type[Symbol.for("twist.component")] ? (globalThis as any)[Symbol.for("twist.server-host")] : null;
+    if (twistHost) return render(createElement(twistHost, { component: type, props }), ctx, hooks);
     if (type.prototype?.isReactComponent) {
       const ct = type.contextType;
       const validCt = ct != null && ct.$$typeof === CONTEXT;

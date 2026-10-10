@@ -4,13 +4,13 @@
 import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
-import { componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
+import { callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 export * from "./server-solid.ts";
 export * from "./control.ts";
 export { merge, omit, isStatic, merge as mergeProps };
 export const isServer = true;
-setServerRender(true);
+// (Server mode is on while a render runs: see rendering().)
 // Where control flow needs a component's value (a Switch reading its Matches): the component run.
 setDescribedNode((v) => (v && v[COMP] ? createComponent(v.fn, componentProps(v.props)) : v));
 
@@ -216,7 +216,7 @@ export function html(v: any, inTemplate: boolean): string {
   if (Array.isArray(v)) return list(v, !!(v as any)[OWN], inTemplate);
   if (typeof v === "function") return hole(() => html(v(), false));
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
-  if (v[COMP]) return html(createComponent(v.fn, componentProps(v.props)), false);
+  if (v[COMP]) return html(callComponent(v.fn, componentProps(v.props)), false);
   if (typeof v.t === "string") return v.t;
   return escape(String(v));
 }
@@ -389,6 +389,8 @@ function expandSpreads(props: Record<string, any>) {
 
 /** One attribute: ` name="value"`, a bare name when true, nothing when absent. */
 export function ssrAttribute(name: string, value: any): string {
+  // (`className`, as React code writes it: the class.)
+  if (name === "className") name = "class";
   if (name === "class") value = ssrClassName(value);
   else if (name === "style") value = ssrStyle(value);
   if (value == null || value === false) return "";
@@ -768,9 +770,11 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   if (r) head = r.head;
   setServerAnswers(r?.answers ?? null);
   setServerFly(r?.serializer ? sendAnswer : null);
+  const wasServer = setServerRender(true);
   try {
     return fn();
   } finally {
+    setServerRender(wasServer);
     sharedConfig.context = was;
     render = wasRender;
     head = wasHead;
