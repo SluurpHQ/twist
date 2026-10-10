@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5557 pass, 1144 fail, 714 files (32 did not load, 121 test Solid's internals)
+5560 pass, 1141 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -149,7 +149,7 @@
 | signals/tests/latest-repeated-writes.test.ts | 4 | 0 |  |
 | signals/tests/latest-shadow-owned-write.test.ts | 2 | 0 |  |
 | signals/tests/latest-unobserved-memo.test.ts | 3 | 0 |  |
-| signals/tests/loading-fallback-in-flush-3540.test.ts | 20 | 52 |  |
+| signals/tests/loading-fallback-in-flush-3540.test.ts | 22 | 50 |  |
 | signals/tests/loading-fallback-release-3540.test.ts | 1 | 1 |  |
 | signals/tests/loading-on-frame-following-3540.test.ts | 19 | 6 |  |
 | signals/tests/loading-on-rearm-3540.test.ts | 6 | 1 |  |
@@ -515,7 +515,7 @@
 | web/test/lifecycle-matrix/document-live-holes.spec.tsx | 4 | 0 |  |
 | web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 1 | 0 |  |
 | web/test/lifecycle-matrix/remount.spec.tsx | 3 | 0 |  |
-| web/test/loading-fallback-in-flush-3540.spec.tsx | 0 | 3 |  |
+| web/test/loading-fallback-in-flush-3540.spec.tsx | 1 | 2 |  |
 | web/test/loading-on-keyed-boundary-3540.spec.tsx | 5 | 5 |  |
 | web/test/loading-on-outside-reader-3412.spec.tsx | 4 | 0 |  |
 | web/test/loading-reset-collects-forwarded-3459.spec.tsx | 1 | 0 |  |

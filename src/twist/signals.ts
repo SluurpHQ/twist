@@ -1543,6 +1543,18 @@ function heldRead<T>(n: Node<T>): T {
     if (!born && !l.attached) return n.value;
     return n.staged as T;
   }
+  // A first pass under a Loading that has not shown its content (a fresh mount): the boundary catches the hold —
+  // its fallback shows, its content at the hold's commit (A29's boundary exemption).
+  if (l.ranAt === -1 && !l.tx) {
+    const b = ((l as any).loading as LoadingState | undefined) ?? boundaryOf(l);
+    if (b?.fresh) {
+      b.holdOn(t);
+      // (Not joined: it reads the committed world now, and runs again at the commit.)
+      t.stale.add(l);
+      l.staleRead = true;
+      return n.value;
+    }
+  }
   if (!born && (l.kind === RENDER || l.verdictReader) && l.tx?.root !== t && !(l.ranAt === -1 && l.tx)) {
     t.stale.add(l);
     l.staleRead = true;
@@ -1683,6 +1695,8 @@ function commitTransactions() {
     for (const n of t.nodes) if (n instanceof Computation && n.flight && !shownFlight(n)) (t.nodes.delete(n), (n.tx = null));
     transactions.delete(t);
     t.done = true;
+    for (const b of heldBoundaries.get(t) ?? []) b.release(t);
+    heldBoundaries.delete(t);
     for (const n of t.nodes) n.promote();
     for (const end of t.ends.splice(0)) end();
     // (An effect that also read this frame stale runs again now: what it held is dropped, one frame shows.)
@@ -2181,8 +2195,26 @@ export function until<T>(fn: () => T, options?: { timeout?: number; signal?: Abo
 // ---------------------------------------------------------------- boundaries
 
 /** A Loading boundary's state: the computations under it waiting on a first load. */
+/** The fresh boundaries each running transaction holds at their fallback (released at its commit). */
+const heldBoundaries = new Map<Transaction, Set<LoadingState>>();
+
 class LoadingState {
   waiting = new Set<Computation<any>>();
+  /** It has not shown its content yet (a hold met by its first pass is its own: see the held read). */
+  fresh = true;
+  /** The transactions it waits out at its fallback. */
+  heldBy = new Set<Transaction>();
+  holdOn(t: Transaction) {
+    if (this.heldBy.has(t)) return;
+    this.heldBy.add(t);
+    let set = heldBoundaries.get(t);
+    if (!set) heldBoundaries.set(t, (set = new Set()));
+    set.add(this);
+    this.count.bump();
+  }
+  release(t: Transaction) {
+    if (this.heldBy.delete(t)) this.count.bump();
+  }
   /** Its last pass showed the fallback: what is under it is not on screen. */
   onFallback = false;
   count = new (class extends Node<number> {})();
@@ -2308,7 +2340,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     untrack(() => {
       if (content.read() === NOT_READY) return false;
       for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
-      return !state.waiting.size;
+      return !state.waiting.size && !state.heldBy.size;
     });
   // The fallback, made once each time it shows (under an owner of its own, kept across the passes that show it).
   const outer = owner;
@@ -2333,7 +2365,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     if (slot.owner) slot.owner.evaluate();
     state.onFallback = true;
     if (slot.owner && slot.gated) return slot.collapsed ? (dropFallback(), undefined as any) : showFallback();
-    if (c === NOT_READY || state.waiting.size) return showFallback();
+    if (c === NOT_READY || state.waiting.size || state.heldBy.size) return showFallback();
     try {
       const v = resolveChildren(c);
       // Re-armed: the fallback until what it shows has landed (looked at again whenever something stops loading: an
@@ -2345,6 +2377,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
         armed = false;
       }
       state.onFallback = false;
+      state.fresh = false;
       dropFallback();
       // Content shown: the slot leaves the order (shown is shown); the order looks again.
       if (slot.owner) {
