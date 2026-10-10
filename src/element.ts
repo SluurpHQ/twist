@@ -240,8 +240,14 @@ export function readLazy(p: any) {
     p.status = 0;
     p.promise = p.load().then(
       (m: any) => ((p.status = 1), (p.value = m.default ?? m)),
-      (e: any) => ((p.status = 2), (p.value = e)),
+      // (A failed load rejects, so what waits on it hears why.)
+      (e: any) => {
+        p.status = 2;
+        p.value = e;
+        throw e;
+      },
     );
+    p.promise.catch(() => {});
   }
   throw p.promise;
 }

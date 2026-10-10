@@ -597,7 +597,16 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       if (p.status === 1) return render(createElement(p.value, props), ctx, hooks);
       if (p.status === -1) {
         p.status = 0;
-        p.promise = p.load().then((m: any) => ((p.status = 1), (p.value = m.default ?? m)), (e: any) => ((p.status = 2), (p.value = e)));
+        // (A failed load rejects, so what waits on it hears why.)
+        p.promise = p.load().then(
+          (m: any) => ((p.status = 1), (p.value = m.default ?? m)),
+          (e: any) => {
+            p.status = 2;
+            p.value = e;
+            throw e;
+          },
+        );
+        p.promise.catch(() => {});
       }
       if (p.status === 2) throw p.value;
       throw p.promise;
@@ -1255,7 +1264,7 @@ type SBoundary = {
   error?: { digest: unknown; message: string; error?: unknown; at?: string };
 };
 /** A part that suspended: rendered again on its own when what it waits on settles. 0 pending, 1 done, 2 dropped. */
-type STask = { idx: number; node: any; snap: Ctx; container: SBoundary | null; fallbackOf: SBoundary | null; lastText: boolean; at: string; out?: string; state: 0 | 1 | 2; id?: number; flushed?: boolean; written?: boolean; root?: boolean };
+type STask = { idx: number; node: any; snap: Ctx; container: SBoundary | null; fallbackOf: SBoundary | null; lastText: boolean; at: string; out?: string; state: 0 | 1 | 2; id?: number; flushed?: boolean; written?: boolean; root?: boolean; aborting?: boolean };
 type Boundary = { prefix?: string; tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; vt?: VTContext | null; scope?: number; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
 
 /** A string's size in UTF-8 bytes (what React measures a boundary by). */
@@ -1374,8 +1383,14 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     else rootPending++;
     allPending++;
     t.fallbackOf?.fallbackTasks.add(t);
-    const ping = () => schedule(t);
-    thenable.then(ping, ping);
+    thenable.then(
+      () => schedule(t),
+      (e) => {
+        // Claimed by an abort already: told with this reason, before the abort tells the rest.
+        if (t.aborting) return t.state === 0 ? (finishAborted(t, e), flushQueues()) : undefined;
+        schedule(t);
+      },
+    );
     return `\u0000T${t.idx}\u0000`;
   };
   // Landings are worked through together, then what they finished is written at once (React's pingedTasks and
@@ -1390,9 +1405,16 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     pinged.length = 0;
     after();
   };
+  /** A part an abort claimed: its boundary left to the client with the reason (the shell's parts are gone already). */
+  const finishAborted = (t: STask, why: unknown) => {
+    const b = t.container;
+    if (b && b.status === 0) giveUp(b, { digest: onError(why, t.at), message: aborted((why as any)?.message ?? String(why)), at: t.at });
+    settled(t, 2);
+  };
+  let abortClaimed = false;
   /** A task's part rendered again where it was (React's retryTask). */
   const retry = (t: STask) => {
-    if (t.state !== 0 || closed) return;
+    if (t.state !== 0 || closed || t.aborting) return;
     // Its boundary given to the client meanwhile: nothing to render.
     if (t.container?.status === 2) return settled(t, 2);
     // Its boundary already out: what surrounds it was written before it (React flushes a pending boundary's finished
@@ -1693,15 +1715,18 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       const browserReason = reason && typeof reason === "object" && (reason as any).$$typeof === RECOVERABLE ? browserError(reason) : null;
       if (!shellDone) return abortShell(reason, undefined, browserReason);
       const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
+      if (abortClaimed) return;
+      abortClaimed = true;
       shared.aborted = { reason: why };
-      for (const t of tasks) {
-        if (t.state !== 0) continue;
-        const b = t.container;
-        if (b && b.status === 0) giveUp(b, { digest: onError(why, t.at), message: aborted((why as any)?.message ?? String(why)), at: t.at });
-        t.state = 2;
-        allPending--;
-      }
-      close();
+      // What waits is claimed now and told later (React's abortTask, then finishAbort): a rejection that comes in
+      // between is told with its own reason.
+      for (const t of tasks) if (t.state === 0) t.aborting = true;
+      // (A task later, as React's scheduleWork: rejections already on their way are heard first.)
+      (typeof setImmediate === "function" ? setImmediate : setTimeout)(() => {
+        for (const t of tasks) if (t.state === 0 && t.aborting) finishAborted(t, why);
+        flushQueues();
+        close();
+      });
     },
   };
   api = handle;
