@@ -70,7 +70,7 @@ type Ctx = {
     onError: (e: unknown, at?: string) => any;
     prerendering?: boolean;
     /** A child that suspended: a task of its own, the marker of its place returned. */
-    spawn?: (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => string;
+    spawn?: (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any> | null) => string;
     /** Resuming a prerender: a boundary the prelude left pending takes its id there. */
     adopt?: (b: SBoundary) => void;
   };
@@ -1162,6 +1162,19 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   // Where it is (what a resume finds it by): its components and its place among siblings.
   b.key = `${ctx.stack.join(">")}|${ctx.tree.id}:${ctx.tree.overflow}`;
   s.adopt?.(b);
+  // A prerender renders the fallback first (React's): it is there if the content is postponed.
+  const renderFallback = () => {
+    const was = ctx.fallbackOf;
+    ctx.fallbackOf = b;
+    ctx.lastText = false;
+    try {
+      b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+    } finally {
+      ctx.fallbackOf = was;
+    }
+  };
+  let fallbackDone = false;
+  if (s.prerendering) renderFallback(), (fallbackDone = true);
   const parentDeps = ctx.res.boundary;
   ctx.res.boundary = b.deps;
   ctx.container = b;
@@ -1169,7 +1182,8 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   ctx.fallbackOf = null;
   ctx.lastText = false;
   try {
-    b.content = suspenseFrame(ctx, false, () => render(props.children, ctx, hooks));
+    // (A prerender renders the content as a task of its own, after the fallbacks before it, as React does.)
+    b.content = suspenseFrame(ctx, false, () => (s.prerendering && s.spawn && !s.shared.aborted ? s.spawn(props.children, ctx, false, null) : render(props.children, ctx, hooks)));
   } catch (e: any) {
     // An error inside it: its fallback, the client renders it again (React's behaviour). (After an abort, the abort
     // is what it tells.)
@@ -1196,15 +1210,10 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
     mergeDeps(b, parentDeps);
   }
   if (b.status !== 1) {
-    const was = ctx.fallbackOf;
-    ctx.fallbackOf = b;
-    ctx.lastText = false;
-    try {
-      b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
-    } finally {
-      ctx.fallbackOf = was;
-    }
-  } else b.renderFallback = snapshotFallback(props.fallback, ctx);
+    if (!fallbackDone) renderFallback();
+  } else {
+    b.renderFallback = fallbackDone ? () => b.fallback : snapshotFallback(props.fallback, ctx);
+  }
   ctx.lastText = false;
   return `\u0000B${b.idx}\u0000`;
 }
@@ -1534,7 +1543,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     for (; c; c = c.parent) if (c.replayed) return true;
     return false;
   };
-  const spawn = (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => {
+  const spawn = (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any> | null) => {
     // (Resuming, a part outside what is sent, and not on the way to a boundary that is, is not waited for.)
     if (resumed && !replayedHere(ctx.container)) {
       const at = ctx.stack.join(">");
@@ -1548,6 +1557,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     else rootPending++;
     allPending++;
     t.fallbackOf?.fallbackTasks.add(t);
+    // (None: rendered in this same pass of work, as React works through what it pushes.)
+    if (!thenable) return pinged.push(t), `\u0000T${t.idx}\u0000`;
     thenable.then(
       () => schedule(t),
       (e) => {
@@ -1565,9 +1576,12 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     pinged.push(t);
     if (pinged.length === 1) setImmediateOr(work);
   };
-  const work = () => {
+  const drain = () => {
     for (let i = 0; i < pinged.length; i++) retry(pinged[i]!);
     pinged.length = 0;
+  };
+  const work = () => {
+    drain();
     after();
   };
   /** A part an abort claimed: its boundary left to the client with the reason (the shell's parts are gone already). */
@@ -1911,6 +1925,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     ctx.container = null;
     try {
       rootContent = once(node, ctx);
+      // (What the shell pushed to render now, rendered now.)
+      drain();
       // A prerender aborted while its shell rendered: the whole render is left to a resume, the reason told once.
       if (options.prerendering && shared.aborted) {
         renderingShell = false;
