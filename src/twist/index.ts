@@ -5,3 +5,7 @@ export { $PROXY, $TARGET, $TRACK, createOptimisticStore, createProjection, creat
 export const isEqual = (a: unknown, b: unknown) => a === b;
 export { mapArray, merge, omit, repeat, isStatic } from "./flow.ts";
 export { For, Repeat, Show, Switch, Match, Loading, Errored, Reveal, createComponent, lazy, NoHydration, Hydration } from "./control.ts";
+
+/** Solid's diagnostics channel (findings to tools and tests).
+ */
+export { OBSERVE } from "./diagnostics.ts";

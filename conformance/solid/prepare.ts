@@ -35,6 +35,8 @@ for (const f of walk(out)) {
   if (!/\.tsx?$/.test(f)) continue;
   const s = readFileSync(f, "utf8");
   let t = s.replace(/\r\n/g, "\n").replace(/\)\.to\.(to[A-Z]|not\.)/g, ").$1");
+  // Vitest's `test.fails` (a test that must fail) is Bun's `test.failing`.
+  t = t.replace(/\b(test|it)\.fails\b/g, "$1.failing");
   // `expect(() => x).not.toThrow()`: Bun's toThrow waits for a promise the function returns (Vitest's does not), so a
   // call answering a promise that never settles would hang the file. The value made void: the same check, the call
   // not throwing.
@@ -63,15 +65,13 @@ for (const [pkg, file] of Object.entries(SRC)) {
   mkdirSync(join(out, pkg, "src"), { recursive: true });
   await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist(file))};\n`);
 }
-// Solid's dev tooling objects (DEV, OBSERVE): not in Twist. Present as nothing, so a file that imports them for one
-// test loads, and only the tests that use them fail.
-const devTools = `export const DEV = undefined;\nexport const OBSERVE = undefined;\n`;
+// Solid's dev tooling object (DEV): not in Twist. Present as nothing, so a file that imports it for one test loads,
+// and only the tests that use it fail. (OBSERVE, the diagnostics channel, is Twist's own.)
+const devTools = `export const DEV = undefined;\n`;
 // storePath (a Solid 1 compat helper) is not in Twist: its tests count as not ours, the rest of their files still run.
 const notOurs = `export const storePath = () => { throw new Error("NOT OURS: storePath is a Solid 1 compat helper"); };\n` + devTools;
 for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n` + notOurs);
-// <Dynamic> (deprecated, kept in 2.0 for Solid 1 code): not in Twist; its tests count as not ours.
-const noDynamic = `export const Dynamic = () => { throw new Error("NOT OURS: <Dynamic> is deprecated; dynamic() replaces it"); };\n`;
-await Bun.write(join(out, "web", "src", "index.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n` + noDynamic);
+await Bun.write(join(out, "web", "src", "index.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
 // The signals package's core entry is its public core too.
 mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
 await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
