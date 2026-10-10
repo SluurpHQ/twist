@@ -26,7 +26,8 @@ export function __twist_mark<T>(f: T): T {
   if (typeof f !== "function") return f;
   const own = f as any;
   own[TWIST] = true;
-  const asReact = (props: any) => (reactHost ? reactHost(own, props) : own(props));
+  // (Called as a plain function — a marked helper taking several arguments — it gets them all.)
+  const asReact = (props: any, ...rest: any[]) => (reactHost ? reactHost(own, props) : own(props, ...rest));
   Object.defineProperty(asReact, "name", { value: own.name });
   (asReact as any)[TWIST] = own;
   return asReact as T;

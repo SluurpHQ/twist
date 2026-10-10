@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5528 pass, 1173 fail, 714 files (32 did not load, 121 test Solid's internals)
+5551 pass, 1150 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -478,7 +478,7 @@
 | web/test/hydration/preload-failure-document-root.spec.tsx | 0 | 3 |  |
 | web/test/hydration/refresh-hmr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/hydration/show-fallback.spec.tsx | 4 | 0 |  |
-| web/test/hydration/slot-hydration-3567.spec.tsx | 0 | 26 |  |
+| web/test/hydration/slot-hydration-3567.spec.tsx | 22 | 4 |  |
 | web/test/hydration/spread-innerhtml.spec.tsx | 1 | 0 |  |
 | web/test/hydration/stateful-input-adoption.spec.tsx | 5 | 0 |  |
 | web/test/hydration/style-adoption.spec.tsx | 5 | 0 |  |
@@ -657,7 +657,7 @@
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
 | web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 19 | 2 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
 | web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |
