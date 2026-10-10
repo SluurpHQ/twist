@@ -1503,6 +1503,12 @@ function setDehydrated(f: Fiber, on: boolean) {
   const was = !!(f as any).dehydrated;
   (f as any).dehydrated = on;
   if (on) (f as any).era = hydrationEra;
+  // The context values it is hydrated with later: those of now.
+  if (on && !was) {
+    const then = new Map<Fiber, any>();
+    for (let p = f.parent; p; p = p.parent) if (p.kind === PROVIDER && !then.has(p)) then.set(p, untrack(() => p.value!()));
+    (f as any).contextThen = then;
+  }
   const start: any = (f as any).region?.start;
   if (on && !was) countDehydrated(1);
   else if (!on && was) countDehydrated(-1);
@@ -1534,11 +1540,27 @@ function retryBoundary(f: Fiber) {
   }
   hydrating = new Map();
   depth++;
+  const outerThen = contextThen;
+  contextThen = (f as any).contextThen ?? null;
   try {
     hydrateRegion(f, host, region, () => drawBoundary(f, host, region.end));
   } finally {
+    contextThen = outerThen;
     hydrating = null;
     if (--depth === 0) commit();
+  }
+  // What read a context that has changed since: drawn again with its value now.
+  if (!contextThen && staleReaders.size) {
+    const readers = [...staleReaders];
+    staleReaders.clear();
+    for (const r of readers) if (!r.dead) restart(r);
+  }
+  // Hydrated, with a transition's props that waited for it: given now.
+  const waiting = (f as any).propsAfterHydration;
+  if (waiting !== undefined && !(f as any).dehydrated) {
+    (f as any).propsAfterHydration = undefined;
+    f.props = waiting;
+    restart(f);
   }
   flushSignals();
 }
@@ -2111,6 +2133,11 @@ function updateDehydrated(f: Fiber, props: any, redraw: () => void) {
   retryBoundary(f);
   // Hydrated with the props it had: the render that brought new ones starts again from the top, as React's does.
   if (!(f as any).dehydrated && drawing.size && props !== f.props) throw RESTART;
+  // Still waiting, in a transition: it keeps what the server drew, and takes the new props once it has hydrated.
+  if ((f as any).dehydrated && applyingTransition && f.kind === COMP) {
+    (f as any).propsAfterHydration = props;
+    return;
+  }
   f.props = props;
   if (!(f as any).dehydrated) return redraw();
   const region = (f as any).region;
@@ -4013,9 +4040,22 @@ export const startTransition = (fn: () => any) => startTransitionWith(fn);
 
 
 export function readContext(f: Fiber, ctx: any) {
-  for (let p = f.parent; p; p = p.parent) if (p.kind === PROVIDER && p.type === ctx) return p.value!();
+  for (let p = f.parent; p; p = p.parent)
+    if (p.kind === PROVIDER && p.type === ctx) {
+      const now = p.value!();
+      // Hydrating a boundary left dehydrated: the value it had then; its reader drawn again after with this one.
+      if (contextThen?.has(p)) {
+        const then = contextThen.get(p);
+        if (!Object.is(then, now)) staleReaders.add(f);
+        return then;
+      }
+      return now;
+    }
   return ctx._defaultValue;
 }
+/** While a dehydrated boundary hydrates: the providers' values when it was left so (see setDehydrated). */
+let contextThen: Map<Fiber, any> | null = null;
+const staleReaders = new Set<Fiber>();
 
 // ---------------------------------------------------------------- roots
 
