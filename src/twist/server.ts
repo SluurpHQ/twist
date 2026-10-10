@@ -1,7 +1,7 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
-import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
+import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { createHydrationSerializer } from "./serialization.ts";
@@ -346,9 +346,9 @@ function element(el: Element_, keyed: boolean): string {
         continue;
       }
     }
-    // (Children that can change stay a hole: a live frame re-sends it.)
-    if (k === "children" && isDynamic(raw) && (sharedConfig.context as any)?.liveHoles) {
-      kids = raw;
+    // Children that can change stay a hole: one not ready waits on its own, a live frame re-sends it.
+    if (k === "children" && isDynamic(raw)) {
+      kids = { [DYNAMIC_KIDS]: raw };
       continue;
     }
     const v = read(raw);
@@ -389,7 +389,7 @@ function element(el: Element_, keyed: boolean): string {
   try {
     if (content !== undefined) out += content;
     // Script and style text is raw.
-    else if (kids !== NONE_CHOSEN) out += RAW_TEXT.has(tag) ? rawText(kids) : children(kids);
+    else if (kids !== NONE_CHOSEN) out += RAW_TEXT.has(tag) ? rawText(kids && kids[DYNAMIC_KIDS] ? read(kids[DYNAMIC_KIDS]) : kids) : children(kids);
   } finally {
     selecting = was;
   }
@@ -407,7 +407,14 @@ function propsOf(el: Element_): Record<string, any> {
 }
 
 /** An element's children: elements written here are in its template; anything else is a hole. */
+/** Children read from an accessor, rendered where they are read (as their value would be). */
+const DYNAMIC_KIDS = Symbol("twist.ssr.dynamic-children");
+
 function children(c: any): string {
+  if (c && c[DYNAMIC_KIDS]) {
+    const raw = c[DYNAMIC_KIDS];
+    return liveHole(() => read(raw)) ?? hole(() => children(read(raw)));
+  }
   return Array.isArray(c) ? list(c, !!(c as any)[OWN], true) : typeof c === "function" ? hole(() => list([c], true, true)) : c && c[EL] ? element(c, c.keyed ?? false) : html(c, false);
 }
 
@@ -453,8 +460,8 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
         while (typeof x === "function") (x = x()), (fn = true);
       } catch (e) {
         // A part of the shell not ready yet waits on its own, like any hole.
-        const waits = e instanceof NotReadyError && rr?.async && boundaries === 0 && settlesOf(e);
-        if (!waits) throw e;
+        const waits = e instanceof NotReadyError && rr?.async && settlesOf(e);
+        if (!waits || (boundaries > 0 && !rr!.shellSent && holdsShell(e))) throw e;
         parts.push({ s: later(rr!, () => list([f], own, inTemplate), waits, o, at), text: false, split: false });
         continue;
       }
@@ -605,14 +612,14 @@ let holeCount = 0;
  */
 function hole(fn: () => string): string {
   const r = render;
-  if (!r || !r.async || boundaries > 0) return fn();
+  if (!r || !r.async) return fn();
   const o = getOwner() as any;
   const at = childIdCount(o);
   try {
     return fn();
   } catch (e) {
     const waits = e instanceof NotReadyError && settlesOf(e);
-    if (!waits) throw e;
+    if (!waits || (boundaries > 0 && !r.shellSent && holdsShell(e))) throw e;
     return later(r, fn, waits, o, at);
   }
 }
@@ -664,12 +671,18 @@ export function Loading(props: { fallback?: any; children?: any }) {
   try {
     boundaries++;
     headBoundary = id ?? headBoundary;
+    let content: string;
     try {
-      return { t: runWithOwner(boundary, () => html(props.children, false)) };
+      content = runWithOwner(boundary, () => html(props.children, false));
     } finally {
       boundaries--;
       headBoundary = wasBoundary;
     }
+    const r = render;
+    // Holes in it still waiting (made once, filled as they land): the fallback now, the content when they are filled.
+    if (!r || !r.async || id == null || !HOLE_TOKEN.test(content)) return { t: content };
+    const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
+    return { t: streamBoundary(r, boundary, id, fallback, filled(r, content)) };
   } catch (e) {
     if (!(e instanceof NotReadyError)) throw e;
     const r = render;
@@ -718,20 +731,52 @@ export function Loading(props: { fallback?: any; children?: any }) {
         r.wake?.();
       });
     };
-    // The boundary's fragment record: settles once its content has been sent (the client hydrates it then).
-    let revealed!: (v: boolean) => void;
-    const record = new Promise<boolean>((ok) => (revealed = ok));
-    fragments.set(boundary, revealed);
-    if (r.serializer && noHydration === 0) {
-      r.serializer.write(id + "_fr", record);
-      // The stream ends after the record's resolution is written.
-      r.pendingData++;
-      record.then(() => queueMicrotask(() => (r.pendingData--, r.wake?.())));
-    }
+    boundaryRecord(r, boundary, id);
     retry(waits);
     return { t: `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->` };
   }
 }
+
+/** The boundary's fragment record: settles once its content has been sent (the client hydrates it then). */
+function boundaryRecord(r: Render, boundary: object, id: string) {
+  let revealed!: (v: boolean) => void;
+  const record = new Promise<boolean>((ok) => (revealed = ok));
+  fragments.set(boundary, revealed);
+  if (r.serializer && noHydration === 0) {
+    r.serializer.write(id + "_fr", record);
+    // The stream ends after the record's resolution is written.
+    r.pendingData++;
+    record.then(() => queueMicrotask(() => (r.pendingData--, r.wake?.())));
+  }
+}
+
+/** A boundary whose content waits on holes of its own: its fallback in place, the content streamed once filled. */
+function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>): string {
+  boundaryRecord(r, boundary, id);
+  const done = content.then(
+    (html) => {
+      if (boundary.disposed) return void fragments.get(boundary)?.(false);
+      rendering(r, r.options, () => {
+        const patch = r.head ? headPatch(r, id) : "";
+        fragments.get(boundary)?.(true);
+        if (!r.shellSent) r.inlined.set(id, html);
+        else r.sink.fragment(id, html, { styles: { inline: [], links: [] }, patch });
+      });
+    },
+    (e) => {
+      fragments.get(boundary)?.(false);
+      if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e });
+    },
+  );
+  const settled = done.then(() => {
+    r.waiting.delete(settled);
+    r.wake?.();
+  });
+  r.waiting.add(settled);
+  return `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->`;
+}
+
+const HOLE_TOKEN = /\u0000hole\d+\u0000/;
 
 /** Swaps a streamed template in for the fallback before it (written for Twist, not taken from Solid). */
 const REVEAL = `function $df(e,t,p,n){if(!(t=document.getElementById(e))||!(p=document.getElementById("pl-"+e)))return;for(n=p.nextSibling;n&&!(n.nodeType===8&&n.nodeValue==="pl-"+e);){var x=n.nextSibling;n.remove();n=x}n&&n.replaceWith(t.content);p.remove();t.remove();_$HY.fe&&_$HY.fe(e)}`;
@@ -922,9 +967,11 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   setServerAnswers(r?.answers ?? null);
   setServerFly(r?.serializer ? sendAnswer : null);
   const wasServer = setServerRender(true);
+  const wasScope = setServerScope(r ? { key: r, enter: (f) => rendering(r, options, f) } : null);
   try {
     return fn();
   } finally {
+    setServerScope(wasScope);
     setServerRender(wasServer);
     sharedConfig.context = was;
     render = wasRender;
@@ -1092,7 +1139,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     if (done) return;
     const data = takeData(r);
     if (data) r.chunks.push(data);
-    for (; sent < r.chunks.length; sent++) for (const w of sinks) w.write(r.chunks[sent]!);
+    for (; sent < r.chunks.length && !done; sent++) for (const w of sinks) write(w, r.chunks[sent]!);
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
       done = true;
       options.onCompleteAll?.();
@@ -1105,18 +1152,24 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const all = new Promise<void>((ok) => (finished = ok));
   let shellSent = false;
   r.wake = () => queueMicrotask(() => shellSent && rendering(r, options, drain));
-  // Aborted: the render is torn down (its sources returned) and nothing more is sent.
-  options.signal?.addEventListener(
-    "abort",
-    () => {
-      if (done) return;
-      done = true;
-      dispose?.();
-      for (const w of sinks) w.end();
-      finished();
-    },
-    { once: true },
-  );
+  /** The response abandoned (aborted, or its consumer gone): the render torn down, its sources returned, nothing more sent. */
+  const abandon = (end: boolean) => {
+    if (done) return;
+    done = true;
+    dispose?.();
+    if (end) for (const w of sinks) w.end();
+    finished();
+  };
+  /** A write to a consumer; one that throws is gone. */
+  const write = (w: Writable, chunk: string) => {
+    try {
+      w.write(chunk);
+    } catch {
+      abandon(false);
+    }
+  };
+  options.signal?.addEventListener("abort", () => abandon(true), { once: true });
+  let readable: ReadableStream<Uint8Array> | null = null;
   const failed = shellReady.then(
     (s) => {
       rendering(r, options, () => r.sink.shell(inlineFragments(r, s), {}));
@@ -1127,7 +1180,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       for (const [id, content] of r.inlined) r.sink.fragment(id, content, { styles: { inline: [], links: [] } });
       r.inlined.clear();
       options.onCompleteShell?.();
-      for (const w of sinks) w.write(shell);
+      for (const w of sinks) write(w, shell);
       rendering(r, options, drain);
     },
     (e) => {
@@ -1140,15 +1193,32 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       return failed.then(() => all).then(() => shell + r.chunks.join("")).then(ok, fail);
     },
     pipe(w: Writable) {
-      if (shellSent) w.write(shell);
-      for (let i = 0; i < sent; i++) w.write(r.chunks[i]!);
+      if (shellSent) write(w, shell);
+      for (let i = 0; i < sent; i++) write(w, r.chunks[i]!);
       sinks.push(w);
       if (done) w.end();
     },
     pipeTo(ws: WritableStream<any>) {
       const writer = ws.getWriter();
       const enc = new TextEncoder();
-      return new Promise<void>((ok) => this.pipe({ write: (c) => void writer.write(enc.encode(c)), end: () => void writer.close().then(ok) }));
+      // A writable that errors (a reader cancelled, the transport gone): the response is abandoned.
+      const gone = () => abandon(false);
+      writer.closed.catch(gone);
+      return new Promise<void>((ok) =>
+        this.pipe({
+          write: (c) => void writer.write(enc.encode(c)).catch(gone),
+          end: () => void writer.close().then(ok, () => ok()),
+        }),
+      );
+    },
+    /** The response as a web stream (`new Response(stream.readable)`). */
+    get readable() {
+      if (!readable) {
+        const t = new TransformStream<Uint8Array, Uint8Array>();
+        this.pipeTo(t.writable);
+        readable = t.readable;
+      }
+      return readable;
     },
   };
 }

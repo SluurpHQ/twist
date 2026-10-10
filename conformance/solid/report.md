@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5393 pass, 1306 fail, 714 files (37 did not load, 121 test Solid's internals)
+5423 pass, 1276 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -578,12 +578,12 @@
 | web/test/server/dynamic-shell-gating.spec.tsx | 3 | 2 |  |
 | web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |
 | web/test/server/dynamic-xmlns.spec.tsx | 2 | 0 |  |
-| web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 1 | 3 |  |
+| web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 3 | 1 |  |
 | web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
 | web/test/server/frame-binding-slots.spec.tsx | 23 | 9 |  |
-| web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 6 |  |
+| web/test/server/frame-fragment-error-outcome.spec.tsx | 1 | 5 |  |
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-hn.spec.tsx | 0 | 2 |  |
 | web/test/server/frame-live-document-artifact.spec.tsx | 0 | 3 |  |
@@ -688,7 +688,7 @@
 | web/test/server/server-render-route.spec.tsx | 2 | 7 |  |
 | web/test/server/server-trace.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/shared-async-sources.spec.tsx | 0 | 2 |  |
-| web/test/server/shell-suspend-loading-inline.spec.tsx | 0 | 8 |  |
+| web/test/server/shell-suspend-loading-inline.spec.tsx | 8 | 0 |  |
 | web/test/server/slot-hydration-3567.spec.tsx | 27 | 4 |  |
 | web/test/server/spread-function-source.spec.tsx | 10 | 0 |  |
 | web/test/server/spread-hydration.spec.tsx | 3 | 4 |  |
@@ -705,13 +705,13 @@
 | web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 | not ours: runs Solid's built packages in a child process |
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
 | web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 1 | 1 |  |
-| web/test/server/ssr-stream.spec.tsx | 47 | 69 |  |
+| web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 2 | 0 |  |
+| web/test/server/ssr-stream.spec.tsx | 61 | 55 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
-| web/test/server/then-shell-suspend.spec.tsx | 2 | 8 |  |
+| web/test/server/then-shell-suspend.spec.tsx | 6 | 4 |  |
 | web/test/server/tier-announce.spec.tsx | 8 | 6 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |

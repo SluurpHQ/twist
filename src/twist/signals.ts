@@ -295,6 +295,14 @@ export const setServerRender = (on: boolean) => {
   serverRender = on;
   return was;
 };
+/** The server render under way (its key), and how to enter it again: a computation made in it runs in it. */
+type ServerScope = { key: object; enter: <T>(fn: () => T) => T };
+let serverScope: ServerScope | null = null;
+export const setServerScope = (s: ServerScope | null) => {
+  const was = serverScope;
+  serverScope = s;
+  return was;
+};
 /** The render under way on a server: what its async nodes answered, by id (a retry's node of the same id takes it). */
 let serverAnswers: Map<string, [boolean, unknown]> | null = null;
 export const setServerAnswers = (m: Map<string, [boolean, unknown]> | null) => void (serverAnswers = m);
@@ -753,7 +761,14 @@ export class Computation<T> extends Node<T> implements Owner {
     }
     if (this.state === DIRTY) this.run();
   }
+  /** The server render it was made in (it runs in it again when a landing re-runs it outside). */
+  scope: ServerScope | null = serverScope;
   run() {
+    const s = this.scope;
+    if (s && serverScope?.key !== s.key) return s.enter(() => this.runIn());
+    this.runIn();
+  }
+  runIn() {
     if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
     this.passLane = null;
     this.staleRead = false;
