@@ -519,7 +519,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       // No context type: an empty context object, as React gives.
       const c = validCt ? contextValue(ctx, ct) : {};
       const inst = new type(props, c);
-      checkClassInstance(type, inst, props);
+      checkClassInstance(type, inst, props, "server:");
       inst.props = props;
       inst.context = c;
       if (typeof type.getDerivedStateFromProps === "function") {
@@ -566,6 +566,10 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       );
     // (Its element's owner and its type: what it makes is owned by it, an owner stack starts from it.)
     const frame = dev() ? { type, owner: node?._owner ?? null } : null;
+    if (dev() && type.contextTypes)
+      withOwner(frame!, () =>
+        warn(`${type.displayName || type.name || "Unknown"} uses the legacy contextTypes API which was removed in React 19. Use React.createContext() with React.useContext() instead. (https://react.dev/link/legacy-context)`, "server:legacy-fn-context:" + (type.displayName || type.name)),
+      );
     let out: any;
     try {
       out = frame ? withOwner(frame, () => renderFunction(type, props)) : renderFunction(type, props);

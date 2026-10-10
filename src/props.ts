@@ -6,6 +6,7 @@ import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, custom
 import { configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
+import { shorthandToLonghand } from "./css-shorthand.ts";
 import { valueChanged } from "./forms.ts";
 import { dev, shown, warn, PROPS } from "./warnings.ts";
 
@@ -41,6 +42,26 @@ function styleValue(name: string, value: any) {
 }
 const cssName = (n: string) => (n.startsWith("--") ? n : n.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase()).replace(/^ms-/, "-ms-"));
 
+/** React's warning for a shorthand and its longhand mixed in an update (one wipes the other). */
+function shorthandCollisions(prev: any, next: any) {
+  const longhands = (k: string) => shorthandToLonghand[k] ?? [k];
+  const updates: Record<string, string> = {};
+  for (const k in prev) if (Object.hasOwn(prev, k) && !Object.hasOwn(next, k)) for (const l of longhands(k)) updates[l] = k;
+  for (const k in next) if (Object.hasOwn(next, k) && prev[k] !== next[k]) for (const l of longhands(k)) updates[l] = k;
+  const expanded: Record<string, string> = {};
+  for (const k in next) for (const l of longhands(k)) expanded[l] = k;
+  const told = new Set<string>();
+  for (const l in updates) {
+    const was = updates[l]!, is = expanded[l];
+    if (!is || was === is || told.has(was + "," + is)) continue;
+    told.add(was + "," + is);
+    const v = next[was];
+    warn(
+      `${v == null || typeof v === "boolean" || v === "" ? "Removing" : "Updating"} a style property during rerender (${was}) when a conflicting property is set (${is}) can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate values.`,
+    );
+  }
+}
+
 function setStyle(el: HTMLElement, next: any, prev: any) {
   // Read-only in development, as React makes it: a style object changed after render is a bug.
   if (dev() && next && typeof next === "object" && !Object.isFrozen(next)) Object.freeze(next);
@@ -50,6 +71,7 @@ function setStyle(el: HTMLElement, next: any, prev: any) {
     return;
   }
   if (typeof prev === "string") s.cssText = "";
+  if (dev() && prev && typeof prev === "object" && next) shorthandCollisions(prev, next);
   if (prev && typeof prev === "object") for (const k in prev) if (!next || !(k in next)) s.setProperty(cssName(k), "");
   if (next) for (const k in next) if (!prev || prev[k] !== next[k]) validateStyle(k, next[k]), s.setProperty(cssName(k), styleValue(k, next[k]));
 }

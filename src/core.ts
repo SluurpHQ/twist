@@ -598,6 +598,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
     const items = Array.isArray(c) ? null : iterated(c);
     if (items) checkKeys((c = items), parent.type);
+    // An array in a list: a fragment of its own, its elements checked for keys there (React's returnFiber Fragment).
+    else if (Array.isArray(c)) checkKeys(c, FRAGMENT);
     // A plain object is no child (an element, text, an array or an iterable is).
     if (c && typeof c === "object" && !Array.isArray(c) && (!c.$$typeof || c.$$typeof === Symbol.for("react.element"))) throw objectChild(c);
     // A signal holding text: a text node bound to it, set when it changes (its component does not render again).
@@ -2172,7 +2174,13 @@ function setRef(f: Fiber, ref: any, value: any) {
   if (typeof ref === "function") {
     const back = ref(value);
     f.refCleanup = typeof back === "function" ? back : null;
-  } else if (ref && typeof ref === "object") ref.current = value;
+  } else if (ref && typeof ref === "object") {
+    if (dev() && !Object.hasOwn(ref, "current")) {
+      const n = f.kind === HOST ? f.type : nameOf(f.type) || "Component";
+      withFiber(f, () => warn(`Unexpected ref object provided for ${n}. Use either a ref-setter function or React.createRef().`, "ref-object:" + n));
+    }
+    ref.current = value;
+  }
   // Thrown in the commit, as React does: to the nearest boundary, or uncaught.
   else if (ref != null) caught(f, new Error("Expected ref to be a function, an object returned by React.createRef(), or undefined/null."));
 }
@@ -2194,6 +2202,12 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       f.tick = signal(0);
       return renderClass;
     }
+    if (dev() && type.contextTypes)
+      warn(`${nameOf(type) || "Unknown"} uses the legacy contextTypes API which was removed in React 19. Use React.createContext() with React.useContext() instead. (https://react.dev/link/legacy-context)`, "legacy-fn-context:" + nameOf(type));
+    if (dev() && type.childContextTypes)
+      warn(`childContextTypes cannot be defined on a function component.\n  ${type.displayName || type.name || "Component"}.childContextTypes = ...`, "function-child-context:" + nameOf(type));
+    if (dev() && typeof type.getDerivedStateFromProps === "function")
+      warn(`${nameOf(type) || "Unknown"}: Function components do not support getDerivedStateFromProps.`, "function-gdsfp:" + nameOf(type));
     if (dev() && typeof type.contextType === "object" && type.contextType !== null)
       warn(`${nameOf(type)}: Function components do not support contextType.`, "function-context-type:" + nameOf(type));
     if (dev() && type.prototype && typeof type.prototype.render === "function") {

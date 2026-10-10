@@ -15,7 +15,7 @@ const firstUndefinedDerived = seenTypes("undefinedDerived");
 const firstUnsafe = seenTypes("unsafe");
 
 /** Right after the instance is made (React's constructClassInstance and checkClassInstance). */
-export function checkClassInstance(C: any, inst: any, props: any) {
+export function checkClassInstance(C: any, inst: any, props: any, side = "") {
   if (!dev()) return;
   const name = nameOf(C);
   if (typeof C.getDerivedStateFromProps === "function" && (inst.state === null || inst.state === undefined) && firstUninitialized(C))
@@ -47,6 +47,11 @@ export function checkClassInstance(C: any, inst: any, props: any) {
   if (inst.getDefaultProps && !inst.getDefaultProps.isReactClassApproved)
     warn(`getDefaultProps was defined on ${name}, a plain JavaScript class. This is only supported for classes created using React.createClass. Use a static property to define defaultProps instead.`);
   if (inst.contextType) warn(`contextType was defined as an instance property on ${name}. Use a static property to define contextType instead.`);
+  // Legacy context is gone (React 19): said once per class.
+  if (C.childContextTypes)
+    warn(`${name} uses the legacy childContextTypes API which was removed in React 19. Use React.createContext() instead. (https://react.dev/link/legacy-context)`, side + "legacy-child-context:" + name);
+  if (C.contextTypes)
+    warn(`${name} uses the legacy contextTypes API which was removed in React 19. Use React.createContext() with static contextType instead. (https://react.dev/link/legacy-context)`, side + "legacy-context:" + name);
   if (typeof inst.componentShouldUpdate === "function")
     warn(`${name} has a method called componentShouldUpdate(). Did you mean shouldComponentUpdate()? The name is phrased as a question because the function is expected to return a value.`);
   if (C.prototype?.isPureReactComponent && typeof inst.shouldComponentUpdate !== "undefined")

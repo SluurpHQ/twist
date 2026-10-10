@@ -76,7 +76,7 @@ export function checkKeys(children: any[], parentType: any) {
       const who = owner();
       const where = who
         ? `\n\nCheck the render method of \`${who}\`.`
-        : `\n\nCheck the top-level render call using <${typeof parentType === "string" ? parentType : parentType?.displayName ?? parentType?.name ?? "Component"}>.`;
+        : `\n\nCheck the top-level render call using <${typeof parentType === "string" ? parentType : parentType === Symbol.for("react.fragment") ? "Fragment" : parentType?.displayName ?? parentType?.name ?? "Component"}>.`;
       // As React prints it: a format string and its parts (a console mock sees both).
       if (muted || seen.has("key:" + where)) return;
       seen.add("key:" + where);

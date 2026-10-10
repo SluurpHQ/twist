@@ -3,6 +3,7 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { plugin } from "bun";
 import { isAbsolute, join } from "node:path";
+import { readFileSync } from "node:fs";
 
 import "./gates.ts";
 
@@ -381,6 +382,7 @@ const ours: Record<string, string> = {
 
 // (A package that is not installed is not resolved through the plugin: given as a module.)
 (await import("bun:test")).mock.module("web-streams-polyfill/ponyfill/es6", () => ({ ReadableStream, WritableStream, TransformStream }));
+(await import("bun:test")).mock.module("react-dom-bindings/src/client/HTMLNodeType", () => ({ ELEMENT_NODE: 1, TEXT_NODE: 3, COMMENT_NODE: 8, DOCUMENT_NODE: 9, DOCUMENT_TYPE_NODE: 10, DOCUMENT_FRAGMENT_NODE: 11 }));
 
 plugin({
   name: "sluurp-dom-conformance",
@@ -388,6 +390,12 @@ plugin({
     b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils|react-noop-renderer|react-reconciler|web-streams-polyfill)(\/.*)?$/ }, (a) => {
       const to = ours[a.path];
       return to ? { path: to } : undefined;
+    });
+    // A test using `this` at module level is taken by Bun for CommonJS, where its injected JSX import does not parse:
+    // marked as a module.
+    b.onLoad({ filter: /[\\/]react-tests[\\/].*-test(\.internal)?\.js$/ }, (a) => {
+      const text = readFileSync(a.path, "utf8");
+      return { contents: /\bthis\b/.test(text) && !/^\s*(import|export)\s/m.test(text) ? text + "\nexport {};\n" : text, loader: "jsx" };
     });
   },
 });

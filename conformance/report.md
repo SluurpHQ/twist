@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3878 pass, 172 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3893 pass, 165 fail, 349 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -75,7 +75,7 @@
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 140 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 35 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 9 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationModes-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationNewContext-test.js | 51 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationObject-test.js | 10 | 0 | 0 |  |
@@ -93,7 +93,7 @@
 | react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 9 | 0 | 1 |  |
-| react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMSingletonComponents-test.js | 11 | 1 | 10 |  |
 | react-dom/ReactDOMSrcObject-test.js | 0 | 0 | 6 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 2 | 0 | 3 |  |
@@ -108,19 +108,19 @@
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 1 | 0 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
-| react-dom/ReactFunctionComponent-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactFunctionComponent-test.js | 10 | 0 | 2 |  |
 | react-dom/ReactIdentity-test.js | 11 | 0 | 0 |  |
 | react-dom/ReactLegacyCompositeComponent-test.js | 2 | 0 | 14 |  |
-| react-dom/ReactLegacyContextDisabled-test.internal.js | 1 | 1 | 0 |  |
+| react-dom/ReactLegacyContextDisabled-test.internal.js | 2 | 0 | 0 |  |
 | react-dom/ReactLegacyErrorBoundaries-test.internal.js | 0 | 0 | 41 |  |
-| react-dom/ReactLegacyMount-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactLegacyRootWarnings-test.js | 0 | 0 | 1 |  |
+| react-dom/ReactLegacyMount-test.js | 0 | 0 | 19 |  |
+| react-dom/ReactLegacyRootWarnings-test.js | 0 | 0 | 0 | did not run |
 | react-dom/ReactLegacyUpdates-test.js | 1 | 0 | 39 |  |
 | react-dom/ReactMockedComponent-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactMountDestruction-test.js | 1 | 0 | 2 |  |
 | react-dom/ReactMultiChild-test.js | 14 | 0 | 0 |  |
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
-| react-dom/ReactMultiChildText-test.js | 3 | 1 | 0 |  |
+| react-dom/ReactMultiChildText-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 11 | 0 | 0 |  |
 | react-dom/ReactServerRendering-test.js | 43 | 2 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
@@ -143,7 +143,7 @@
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
 | react/ReactContextValidator-test.js | 6 | 2 | 5 |  |
 | react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
-| react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
+| react/ReactCreateRef-test.js | 1 | 0 | 0 |  |
 | react/ReactElementClone-test.js | 21 | 0 | 0 |  |
 | react/ReactElementValidator-test.internal.js | 20 | 1 | 0 |  |
 | react/ReactES6Class-test.js | 23 | 1 | 0 |  |
