@@ -7,11 +7,14 @@ import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { createHydrationSerializer } from "./serialization.ts";
 import { __twist_mark, markBuiltin, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
+export { lazy } from "./server-solid.ts";
 export * from "./server-solid.ts";
 export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
+import { ssrSanitizeError } from "./request.ts";
+import { applyAssetTracking, collectStreamStyles, createAssetTracking, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, serializeFragmentAssets, type AssetTracking } from "./server-assets.ts";
 import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition } from "./server-slots.ts";
 export {
   RequestContext,
@@ -202,6 +205,8 @@ export function ssrHydrationKey() {
 }
 
 let noHydration = 0;
+/** Whether rendering under NoHydration (nothing hydrates there). */
+export const isNoHydration = () => noHydration > 0;
 
 /** Its children render with no hydration keys (they will not be hydrated). */
 export function NoHydration(props: { children?: any }) {
@@ -569,7 +574,45 @@ type Render = {
   holds: number;
   /** Fragments settled before the shell went out: put in the shell in place of their placeholders. */
   inlined: Map<string, string>;
+  /** The client assets the render registered (lazy modules, styles, preloads). */
+  tracking: AssetTracking;
+  /** Stylesheets the shell's head carries (a fragment does not link them again). */
+  headStyles: Set<string> | null;
 };
+
+/** The head with the render's asset links before `</head>` (no head, no links: as Solid). */
+function withHeadAssets(html: string, tracking: AssetTracking, nonce?: string): string {
+  const at = html.indexOf("</head>");
+  if (at === -1) return html;
+  const links = renderHeadAssets(tracking, nonce);
+  return links ? html.slice(0, at) + links + html.slice(at) : html;
+}
+
+/** An asset registered during a render: in the head while the shell is to come, to the sink after. */
+function registerAssetIn(tracking: AssetTracking, shellSent: () => boolean, sink: Sink | null, type: string, value: any) {
+  if (type === "preload") {
+    const entry = preloadLink(tracking, value);
+    if (entry && shellSent()) sink?.asset("preload", entry);
+    return;
+  }
+  if (type === "inline-style") {
+    const entry = tracking.registerInlineStyle(value);
+    if (shellSent() && !tracking.currentBoundaryId && !entry.emitted) {
+      entry.emitted = true;
+      sink?.asset("inline-style", entry);
+    }
+    return;
+  }
+  if (tracking.currentBoundaryId && type === "style") {
+    let styles = tracking.boundaryStyles.get(tracking.currentBoundaryId);
+    if (!styles) tracking.boundaryStyles.set(tracking.currentBoundaryId, (styles = new Set()));
+    styles.add(value);
+  }
+  if (!tracking.emittedAssets.has(value)) {
+    tracking.emittedAssets.add(value);
+    if (shellSent()) sink?.asset(type, value);
+  }
+}
 
 /** The shell with the fragments that settled before it went out in place of their placeholders. */
 function inlineFragments(r: Render, shell: string): string {
@@ -625,7 +668,15 @@ function hole(fn: () => string): string {
 }
 
 /** A placeholder in the shell for `fn`, rendered again (from the same ids) once `waits` settles. */
+/** Whether a hole made under `o` still belongs to the render: none of its owners reset or disposed since. */
+function stillOwned(o: any): () => boolean {
+  const seen: [any, number][] = [];
+  for (let x = o; x; x = x.parent) seen.push([x, x.resets ?? 0]);
+  return () => seen.every(([x, n]) => !x.disposed && (x.resets ?? 0) === n);
+}
+
 function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: number): string {
+  const owned = stillOwned(o);
   {
     const token = "\u0000hole" + holeCount++ + "\u0000";
     r.holes.set(
@@ -633,12 +684,15 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
       new Promise<string>((ok, fail) => {
         const again = (w: Promise<void>) =>
           w.then(() => {
+            // Thrown away with a pass of its boundary that was rendered again: nothing to fill.
+            if (!owned()) return ok("");
             // From the same ids: the hole takes again what it took the first time.
             setChildIdCount(o, at);
             try {
               ok(rendering(r, r.options, () => runWithOwner(o, fn)));
             } catch (e2) {
               const next = e2 instanceof NotReadyError && settlesOf(e2);
+              if (next) holdShell(r, e2, next);
               next ? again(next) : fail(e2);
             }
           });
@@ -675,11 +729,15 @@ export function Loading(props: { fallback?: any; children?: any }) {
     boundaries++;
     headBoundary = id ?? headBoundary;
     let content: string;
+    const assetCtx = sharedConfig.context as any;
+    const wasAssetBoundary = assetCtx?._currentBoundaryId;
+    if (assetCtx && id != null && "_currentBoundaryId" in assetCtx) assetCtx._currentBoundaryId = id;
     try {
       content = runWithOwner(boundary, () => html(props.children, false));
     } finally {
       boundaries--;
       headBoundary = wasBoundary;
+      if (assetCtx && "_currentBoundaryId" in assetCtx) assetCtx._currentBoundaryId = wasAssetBoundary;
     }
     const r = render;
     // Holes in it still waiting (made once, filled as they land): the fallback now, the content when they are filled.
@@ -721,20 +779,31 @@ export function Loading(props: { fallback?: any; children?: any }) {
           headBoundary = id;
           // (What an earlier pass of it registered goes: this pass registers it again.)
           if (r.head) r.head.groups = r.head.groups.filter((g) => g.boundary !== id);
+          const wasCurrent = r.tracking.currentBoundaryId;
+          r.tracking.currentBoundaryId = id!;
           try {
             content = rendering(r, r.options, () => runWithOwner(boundary, () => html(props.children, false)));
           } finally {
+            r.tracking.currentBoundaryId = wasCurrent;
             boundaries--;
             headBoundary = hb;
           }
           const patch = r.head ? headPatch(r, id!) : "";
           fragments.get(boundary)?.(true);
+          serializeFragmentAssets(id!, r.tracking, r.ctx);
           if (!r.shellSent) r.inlined.set(id!, content);
-          else r.sink.fragment(id!, content, { styles: { inline: [], links: [] }, patch, revealGroup: group?.id });
+          else r.sink.fragment(id!, content, { styles: collectStreamStyles(id!, r.tracking, r.headStyles), patch, revealGroup: group?.id });
           group?.onResolved(id!);
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
-          if (!next) throw e2;
+          if (!next) {
+            // A real error retrying: the boundary's record fails with it (the stream goes on).
+            failures.get(boundary)?.(e2);
+            if (r.shellSent) r.sink.fragment(id!, " ", { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
+            group?.onResolved(id!);
+            return void r.wake?.();
+          }
+          holdShell(r, e2, next);
           retry(next);
         }
         r.wake?.();
@@ -749,14 +818,25 @@ export function Loading(props: { fallback?: any; children?: any }) {
 /** The boundary's fragment record: settles once its content has been sent (the client hydrates it then). */
 function boundaryRecord(r: Render, boundary: object, id: string) {
   let revealed!: (v: boolean) => void;
-  const record = new Promise<boolean>((ok) => (revealed = ok));
+  let failed!: (e: unknown) => void;
+  const record = new Promise<boolean>((ok, no) => ((revealed = ok), (failed = no)));
+  record.catch(() => {});
   fragments.set(boundary, revealed);
+  failures.set(boundary, (e: unknown) => failed(ssrSanitizeError(e, null)));
   if (r.serializer && noHydration === 0) {
     r.serializer.write(id + "_fr", record);
-    // The stream ends after the record's resolution is written.
+    // The stream ends after the record's settling is written.
     r.pendingData++;
-    record.then(() => queueMicrotask(() => (r.pendingData--, r.wake?.())));
+    const done = () => queueMicrotask(() => (r.pendingData--, r.wake?.()));
+    record.then(done, done);
   }
+}
+/** What fails each streamed boundary's fragment record (the client renders the subtree, and meets the error there). */
+const failures = new WeakMap<object, (e: unknown) => void>();
+
+/** A wait the shell must not go out before (deferred data found while a boundary retries). */
+function holdShell(r: Render, e: unknown, waits: Promise<void>) {
+  if (!r.shellSent && e instanceof NotReadyError && holdsShell(e)) r.blocks.add(waits);
 }
 
 /** A boundary whose content waits on holes of its own: its fallback in place, the content streamed once filled. */
@@ -772,12 +852,13 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
       rendering(r, r.options, () => {
         const patch = r.head ? headPatch(r, id) : "";
         fragments.get(boundary)?.(true);
+        serializeFragmentAssets(id, r.tracking, r.ctx);
         if (!r.shellSent) r.inlined.set(id, html);
-        else r.sink.fragment(id, html, { styles: { inline: [], links: [] }, patch, revealGroup: group?.id });
+        else r.sink.fragment(id, html, { styles: collectStreamStyles(id, r.tracking, r.headStyles), patch, revealGroup: group?.id });
       });
     },
     (e) => {
-      fragments.get(boundary)?.(false);
+      failures.get(boundary)?.(e);
       if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
     },
   ).finally(() => rendering(r, r.options, () => group?.onResolved(id)));
@@ -1132,8 +1213,12 @@ function headPatch(r: Render, id: string): string {
 // ---------------------------------------------------------------- render entry points
 
 /** An async node's answer, sent to the client under its id (once; nothing under NoHydration). */
+const noopFn = () => {};
 function sendAnswer(node: any, answer: unknown) {
   const r = render;
+  // Data marked deferStream holds the shell until it lands, wherever it is first asked (as Solid's serialize).
+  if (r && node?.deferStream && !r.shellSent && answer && typeof (answer as any).then === "function")
+    r.blocks.add((answer as Promise<unknown>).then(noopFn, noopFn));
   const id = node?.id as string | undefined;
   if (!r?.serializer || id == null || noHydration > 0 || !sharedConfig.context || r.written.has(id)) return;
   r.written.add(id);
@@ -1157,7 +1242,7 @@ function takeData(r: Render): string {
 function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?: boolean }, fn: () => T): T {
   const was = sharedConfig.context;
   const wasRender = render;
-  sharedConfig.context = options.noHydrate ? null : (r?.ctx ?? stringContext(options.renderId ?? ""));
+  sharedConfig.context = options.noHydrate ? null : (r?.ctx ?? stringCtx ?? stringContext(options.renderId ?? ""));
   render = r;
   const wasHead = head;
   if (r) head = r.head;
@@ -1178,26 +1263,35 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   }
 }
 
-export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean } = {}): string {
+export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean; manifest?: any; nonce?: string } = {}): string {
   const wasHead = head;
+  const wasCtx = stringCtx;
   head = newHead();
+  const tracking = createAssetTracking();
+  const ctx = (stringCtx = stringContext(options.renderId ?? "")) as any;
+  ctx.registerAsset = (type: string, value: unknown) => registerAssetIn(tracking, () => false, null, type, value);
+  applyAssetTracking(ctx, tracking, options.manifest);
   try {
-    return rendering(null, options, () =>
-      createRoot(
+    return rendering(null, options, () => {
+      registerEntryAssets(ctx, options.manifest);
+      return createRoot(
         (dispose) => {
           try {
-            return fillHead(html(code(), false), head!, false) as string;
+            return withHeadAssets(fillHead(html(code(), false), head!, false) as string, tracking, options.nonce);
           } finally {
             dispose();
           }
         },
         { id: options.renderId ?? "" },
-      ),
-    );
+      );
+    });
   } finally {
     head = wasHead;
+    stringCtx = wasCtx;
   }
 }
+/** The context of the string render under way. */
+let stringCtx: any = null;
 
 type Writable = { write(chunk: string): void; end(): void };
 
@@ -1238,7 +1332,7 @@ function streamContext(r: Render, options: StreamOptions) {
     },
     replace() {},
     registerAsset(type: string, value: unknown) {
-      if (r.shellSent) r.sink.asset(type, value);
+      registerAssetIn(r.tracking, () => r.shellSent, r.sink, type, value);
     },
     /** A fragment of the caller's: its record serialized now, its content to the sink when given. */
     registerFragment(key: string, opts?: { revealGroup?: string }) {
@@ -1279,22 +1373,41 @@ type StreamOptions = {
   serializer?: (options: any) => any;
   plugins?: any[];
   signal?: AbortSignal;
+  /** Where lazy() components' client assets come from (a Vite manifest, or a resolver). */
+  manifest?: any;
 };
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: StreamOptions = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: newHead(), data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map() };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: newHead(), data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null };
   // The document: html text, data as script, each fragment as a template and its reveal.
   let documentShell = "";
   const documentSink: Sink = {
     data: (payload: string) => void (r.data += payload + ";"),
-    fragment: (key, value, meta) => void r.chunks.push(takeData(r) + (meta.patch ?? "") + `<template id="${key}">${value}</template>` + (meta.revealGroup ? "" : script(r, `$df("${key}")`))),
+    fragment: (key, value, meta) => {
+      const styles = meta.styles ?? { inline: [], links: [] };
+      let out = takeData(r) + (meta.patch ?? "");
+      for (const entry of styles.inline) out += renderInlineStyle(entry, options.nonce);
+      if (styles.links.length) {
+        out += script(r, `$dfs("${key}",${styles.links.length},${meta.revealGroup ? 1 : 0})`) + `<template id="${key}">${value}</template>`;
+        for (const entry of styles.links)
+          out += typeof entry === "string" ? `<link rel="stylesheet" href="${entry}" data-dfc="${key}">` : `<link${entry.attrHtml} data-dfc="${key}">`;
+      } else out += `<template id="${key}">${value}</template>` + (meta.revealGroup ? "" : script(r, `$df("${key}")`));
+      r.chunks.push(out);
+    },
     reveal: (keys, meta) => void r.chunks.push(takeData(r) + script(r, `${meta.fallback ? "$dflj" : "$dfj"}(${JSON.stringify(keys)})`)),
-    asset() {},
-    shell: (html) => void (documentShell = html + takeData(r)),
+    asset(type, value: any) {
+      if (type === "module") r.chunks.push(`<link rel="modulepreload" href="${value}">`);
+      else if (type === "preload") r.chunks.push(`<link${value.attrHtml}>`);
+      else if (type === "inline-style") r.chunks.push(renderInlineStyle(value, options.nonce));
+      else if (type === "head-tag") r.chunks.push(value);
+    },
+    shell: (html) => void (documentShell = withHeadAssets(html, r.tracking, options.nonce) + takeData(r)),
   };
   r.sink = { ...documentSink, ...options.sink } as Sink;
   r.ctx = streamContext(r, options);
+  applyAssetTracking(r.ctx, r.tracking, options.manifest);
+  rendering(r, options, () => registerEntryAssets(r.ctx, options.manifest));
   if (!options.noHydrate) r.serializer = (options.serializer ?? createHydrationSerializer)({ scopeId: options.renderId, plugins: options.plugins, onData: (p: unknown) => (r.sink.data(p), r.wake?.()), onDone() {}, onError() {} });
   let dispose!: () => void;
   let root!: any;
@@ -1304,10 +1417,12 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       try {
         filled(r, rendering(r, options, () => runWithOwner(root, () => html(code(), false))))
           .then(async (shell) => {
+            // What blocks the shell, until none is left: settling one can register another (a lazy chunk's data).
             while (r.blocks.size) {
               const now = [...r.blocks];
               await Promise.allSettled(now);
               for (const p of now) r.blocks.delete(p);
+              if (!r.blocks.size) await new Promise((ok) => (typeof setImmediate === "function" ? setImmediate(ok) : setTimeout(ok, 0)));
             }
             return shellHead(r, shell);
           })
@@ -1378,7 +1493,11 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const failed = shellReady.then(
     async (s) => {
       if (whole && !quiet()) await new Promise<void>((ok) => idle.push(ok));
-      rendering(r, options, () => r.sink.shell(inlineFragments(r, s), {}));
+      rendering(r, options, () => {
+        serializeFragmentAssets("", r.tracking, r.ctx, options.renderId ?? "");
+        r.headStyles = new Set([...r.tracking.emittedAssets].filter((u) => !r.tracking.currentBoundaryId && u.endsWith(".css")));
+        r.sink.shell(inlineFragments(r, s), {});
+      });
       shell = documentShell;
       shellSent = true;
       r.shellSent = true;

@@ -1,7 +1,9 @@
 // Solid's API as it runs on a server: the same core, but effects are one render pass. A render effect computes and
 // applies once; createEffect only computes; tracked effects and onSettled only take their ids (the client's tree has
 // them, so hydration ids line up).
-import { createOwner, getNextChildId, getOwner, NotReadyError, onCleanup, resetOwner, runWithOwner, settlesOf, sharedConfig, untrack } from "./signals.ts";
+import { createMemo, createOwner, getNextChildId, getOwner, NotReadyError, onCleanup, peekNextChildId, resetOwner, runWithOwner, settlesOf, sharedConfig, untrack } from "./signals.ts";
+import { __twist_mark } from "./control.ts";
+import { isNoHydration } from "./server.ts";
 
 export * from "./index.ts";
 export { NoHydration, Hydration, Loading, Errored } from "./server.ts";
@@ -38,6 +40,110 @@ function once<T>(compute: (prev?: T) => T, apply: ((v: T, prev?: T) => void) | u
 }
 
 const applyOf = (a: any) => (typeof a === "function" ? a : a?.effect);
+
+// ---------------------------------------------------------------- lazy (ported from Solid's server component.ts, MIT)
+
+type Assets = { js: string[]; css: any[]; preloads?: any[] };
+
+/** A module's assets through the render's resolver (cached per render); applied when they are known. */
+function resolveLazyAssets(ctx: any, id: string, apply: (a: Assets | null | undefined) => void): Promise<void> | undefined {
+  const cache: Map<string, any> = (ctx._lazyAssets ??= new Map());
+  let assets: any;
+  if (cache.has(id)) assets = cache.get(id);
+  else cache.set(id, (assets = ctx.resolveAssets(id)));
+  if (assets && typeof assets.then === "function") {
+    const boundary = ctx._currentBoundaryId;
+    return assets.then(
+      (resolved: Assets | null) => {
+        cache.set(id, resolved ?? null);
+        const current = ctx._currentBoundaryId;
+        ctx._currentBoundaryId = boundary;
+        try {
+          apply(resolved);
+        } finally {
+          ctx._currentBoundaryId = current;
+        }
+      },
+      () => void cache.set(id, null),
+    );
+  }
+  apply(assets);
+}
+
+/** What a lazy module's assets put in the head: its css, its preloads, its modules (none of them under NoHydration). */
+function hintAssets(ctx: any, assets: Assets | null | undefined, noHydrate: boolean) {
+  if (!assets) return;
+  for (const css of assets.css) ctx.registerAsset(typeof css === "string" ? "style" : "inline-style", css);
+  if (assets.preloads)
+    for (const p of assets.preloads) if (!noHydrate || typeof p?.as !== "string" || p.as.toLowerCase() !== "script") ctx.registerAsset("preload", p);
+  if (!noHydrate) for (const js of assets.js) ctx.registerAsset("module", js);
+}
+
+/** A component whose module loads on the server, its client assets registered for the page (see Solid's lazy). */
+export function lazy<P>(fn: () => Promise<any>, options?: { export?: string }, moduleUrl?: string) {
+  const exportName = options?.export;
+  let p: any;
+  const load = () => {
+    if (p) return p;
+    const cur = (p = fn());
+    cur.then(
+      (mod: any) => ((cur.mod = mod), (cur.v = exportName ? mod[exportName] : mod.default)),
+      (err: unknown) => ((cur.error = err), (cur.errored = true), p === cur && (p = undefined)),
+    );
+    return cur;
+  };
+  const wrap: any = (props: P) => {
+    const noHydrate = isNoHydration();
+    const ctx = sharedConfig.context as any;
+    if (!noHydrate && !ctx?.resolveAssets)
+      throw new Error(
+        `lazy() called${moduleUrl ? ` with moduleUrl "${moduleUrl}"` : ""} but no asset manifest is set. Pass a manifest option to renderToStream/renderToString.`,
+      );
+    const cur = load();
+    let assetsPending: Promise<void> | undefined;
+    if (ctx?.registerAsset && ctx.resolveAssets) {
+      const o = getOwner() as any;
+      const hydrationKey = !noHydrate && o?.id != null ? peekNextChildId(o) : undefined;
+      const apply = (assets: Assets | null | undefined) => {
+        if (!assets) return;
+        hintAssets(ctx, assets, noHydrate);
+        if (!noHydrate && hydrationKey != null) ctx.registerModule?.(hydrationKey, assets.js[0]);
+      };
+      const id = moduleUrl ?? (typeof cur.mod?.$$moduleUrl === "string" ? cur.mod.$$moduleUrl : undefined);
+      if (id) assetsPending = resolveLazyAssets(ctx, id, apply);
+      else if (!noHydrate && cur.mod === undefined)
+        assetsPending = cur.then((mod: any) => (typeof mod?.$$moduleUrl === "string" ? resolveLazyAssets(ctx, mod.$$moduleUrl, apply) : undefined));
+      if (assetsPending) {
+        const clear = () => void (assetsPending = undefined);
+        assetsPending = assetsPending.then(clear, clear);
+      }
+    }
+    if (ctx?.async && ((cur.v === undefined && !cur.errored) || assetsPending))
+      ctx.block((assetsPending ? cur.then(() => assetsPending) : cur).then(noopFn, noopFn));
+    return createMemo(() => {
+      if (cur.errored) throw cur.error;
+      if (!cur.v) throw new NotReadyError(cur);
+      if (assetsPending) throw new NotReadyError(assetsPending);
+      return cur.v(props);
+    });
+  };
+  wrap.preload = () => {
+    const cur = load();
+    const ctx = sharedConfig.context as any;
+    if (!ctx?.resolveAssets || !ctx.registerAsset) return cur;
+    const noHydrate = isNoHydration();
+    const hint = (id: string) => resolveLazyAssets(ctx, id, (a) => hintAssets(ctx, a, noHydrate));
+    if (moduleUrl) hint(moduleUrl);
+    else if (typeof cur.mod?.$$moduleUrl === "string") hint(cur.mod.$$moduleUrl);
+    else cur.then((mod: any) => typeof mod?.$$moduleUrl === "string" && hint(mod.$$moduleUrl), noopFn);
+    return cur;
+  };
+  const marked: any = __twist_mark(wrap);
+  marked.preload = wrap.preload;
+  marked.moduleUrl = moduleUrl;
+  return marked as ((props: P) => any) & { preload: () => Promise<any>; moduleUrl?: string };
+}
+const noopFn = () => {};
 
 export function createRenderEffect<T>(compute: (prev?: T) => T, apply?: any, options?: Opts) {
   once(compute, applyOf(apply), options);

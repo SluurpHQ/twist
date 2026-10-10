@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5449 pass, 1250 fail, 714 files (37 did not load, 121 test Solid's internals)
+5475 pass, 1224 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -559,7 +559,7 @@
 | web/test/server/client-hole-derived-async-3659.spec.tsx | 0 | 6 |  |
 | web/test/server/client-only-preload.spec.tsx | 2 | 2 |  |
 | web/test/server/concurrent-render-error-policy.spec.tsx | 0 | 11 |  |
-| web/test/server/concurrent-render-lazy-assets.spec.tsx | 1 | 5 |  |
+| web/test/server/concurrent-render-lazy-assets.spec.tsx | 4 | 2 |  |
 | web/test/server/concurrent-render-serialize.spec.tsx | 5 | 0 |  |
 | web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
 | web/test/server/container-traces.spec.tsx | 2 | 7 |  |
@@ -578,7 +578,7 @@
 | web/test/server/dynamic-shell-gating.spec.tsx | 3 | 2 |  |
 | web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |
 | web/test/server/dynamic-xmlns.spec.tsx | 2 | 0 |  |
-| web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 3 | 1 |  |
+| web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 4 | 0 |  |
 | web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
@@ -608,7 +608,7 @@
 | web/test/server/hydration-payload-handled-rejection-3769.spec.tsx | 0 | 3 |  |
 | web/test/server/hydration-transfer.spec.tsx | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
 | web/test/server/lazy-assets-livelock.spec.tsx | 0 | 2 |  |
-| web/test/server/lazy-nested-late-assets.spec.tsx | 0 | 1 |  |
+| web/test/server/lazy-nested-late-assets.spec.tsx | 1 | 0 |  |
 | web/test/server/lazy-shell-gating.spec.tsx | 5 | 1 |  |
 | web/test/server/live-shell-source-3764.gen.spec.tsx | 1 | 0 |  |
 | web/test/server/loading-dynamic-fragments.spec.tsx | 1 | 0 |  |
@@ -620,7 +620,7 @@
 | web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/request-event-concurrent.spec.tsx | 3 | 4 |  |
 | web/test/server/response-invariants.spec.tsx | 3 | 0 |  |
-| web/test/server/retry-robustness.spec.tsx | 1 | 4 |  |
+| web/test/server/retry-robustness.spec.tsx | 4 | 1 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
 | web/test/server/server-component-context.spec.tsx | 4 | 2 |  |
@@ -706,13 +706,13 @@
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
 | web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 2 | 0 |  |
-| web/test/server/ssr-stream.spec.tsx | 83 | 33 |  |
+| web/test/server/ssr-stream.spec.tsx | 100 | 16 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 10 | 0 |  |
-| web/test/server/tier-announce.spec.tsx | 8 | 6 |  |
+| web/test/server/tier-announce.spec.tsx | 9 | 5 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
 | web/test/server/welcome-status-parity.spec.tsx | 0 | 2 |  |

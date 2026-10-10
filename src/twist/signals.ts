@@ -156,6 +156,7 @@ class Root implements Owner {
 export function resetOwner(o: Owner) {
   disposeOwned(o);
   (o as any).childCount = 0;
+  (o as any).resets = ((o as any).resets ?? 0) + 1;
 }
 
 /** What `o` owns disposed: its children first (last made first), then its cleanups (last registered first). */
@@ -769,6 +770,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.runIn();
   }
   runIn() {
+
     if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
     this.passLane = null;
     this.staleRead = false;
@@ -840,7 +842,8 @@ export class Computation<T> extends Node<T> implements Owner {
         const p = threw.source as any;
         if (p && typeof p.then === "function") {
           const at = this.ranAt;
-          p.then(() => !this.disposed && this.ranAt === at && (this.mark(DIRTY), schedule()), noop);
+          const again = () => !this.disposed && this.ranAt === at && (this.mark(DIRTY), schedule());
+          p.then(again, again);
         }
         if (this.kind !== MEMO || !this.ready) boundaryOf(this)?.wait(this);
         return;
