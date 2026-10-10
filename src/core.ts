@@ -3441,8 +3441,9 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
     actDepth--;
     done();
   }
-  // Awaited: what promises set off meanwhile is drawn before it resolves, as React's act does then.
-  return { then: (ok?: any, no?: any) => drainAct().then(() => r as T).then(ok, no) };
+  // Awaited: what promises set off meanwhile is drawn before it resolves, as React's act does then (not inside an
+  // outer act, which does it when it ends).
+  return { then: (ok?: any, no?: any) => (depthBefore > 0 ? Promise.resolve(r as T) : drainAct().then(() => r as T)).then(ok, no) };
 }
 
 /** Act's last turns: promises settling and the updates they make, drawn until nothing more comes (inside act). */
