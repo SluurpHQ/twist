@@ -70,6 +70,8 @@ type Ctx = {
     onError: (e: unknown, at?: string) => any;
     /** A child that suspended: a task of its own, the marker of its place returned. */
     spawn?: (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => string;
+    /** Resuming a prerender: a boundary the prelude left pending takes its id there. */
+    adopt?: (b: SBoundary) => void;
   };
   /** A form's custom action fields, written first inside it. */
   formFields?: string;
@@ -1156,6 +1158,9 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   const parent = ctx.container ?? null;
   const b: SBoundary = { idx: bounds.length, id: -1, prefix: ctx.idPrefix, status: 0, pending: 0, content: "", fallback: "", parent, flushed: false, deps: { sheets: new Set(), styles: new Set() }, wrap: segmentWrap(ctx), stack: ctx.stack.slice(), fallbackTasks: new Set(), canPre: !ctx.svg && (ctx.parent === null || ctx.parent === "html") };
   bounds.push(b);
+  // Where it is (what a resume finds it by): its components and its place among siblings.
+  b.key = `${ctx.stack.join(">")}|${ctx.tree.id}:${ctx.tree.overflow}`;
+  s.adopt?.(b);
   const parentDeps = ctx.res.boundary;
   ctx.res.boundary = b.deps;
   ctx.container = b;
@@ -1242,7 +1247,7 @@ async function complete(node: any) {
  * `react-dom/static`: the whole page once everything it waits on has settled (or the render is aborted: what was
  * not done is left to the client), as one prelude. A shell that fails rejects; aborted before the shell, it is empty.
  */
-function prerenderHtml(node: any, options: any, lifetime?: AbortController | null): Promise<string> {
+function prerenderHtml(node: any, options: any, lifetime?: AbortController | null, onPostponed?: (p: Postponed | null) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: string[] = [];
     let settled = false;
@@ -1259,6 +1264,7 @@ function prerenderHtml(node: any, options: any, lifetime?: AbortController | nul
           ...options,
           // (A prerender's boundaries done in place end without a text separator, as React writes them.)
           prerendering: true,
+          onPostponed,
           onShellError: (e: unknown) => {
             options.onShellError?.(e);
             if (aborting) done("");
@@ -1295,8 +1301,9 @@ export async function prerender(node: any, options: any = {}) {
   // (Only with a signal to listen to: the listener's lifetime, ended when the prelude has been read.)
   const lifetime = options.signal ? new AbortController() : null;
   let html: string;
+  let postponed: Postponed | null = null;
   try {
-    html = await prerenderHtml(node, options, lifetime);
+    html = await prerenderHtml(node, options, lifetime, (p) => (postponed = p));
   } catch (e) {
     lifetime?.abort();
     throw e;
@@ -1310,13 +1317,29 @@ export async function prerender(node: any, options: any = {}) {
     },
     cancel: () => void lifetime?.abort(),
   });
-  return { prelude, postponed: null };
+  return { prelude, postponed };
 }
 
 export async function prerenderToNodeStream(node: any, options: any = {}) {
-  const html = await prerenderHtml(node, options);
+  let postponed: Postponed | null = null;
+  const html = await prerenderHtml(node, options, null, (p) => (postponed = p));
   const { Readable } = await import("node:stream" as string);
-  return { prelude: Readable.from(html ? [html] : []), postponed: null };
+  return { prelude: Readable.from(html ? [html] : []), postponed };
+}
+
+/** A prerender finished: what it left pending rendered and sent (or, if its shell never finished, all of it). */
+export function resume(node: any, postponed: Postponed, options: any = {}) {
+  return renderToReadableStream(node, { ...options, postponed });
+}
+export function resumeToPipeableStream(node: any, postponed: Postponed, options: any = {}) {
+  return renderToPipeableStream(node, { ...options, postponed });
+}
+/** A prerender resumed as another prerender: its prelude what this one adds, its postponed state what is still left. */
+export function resumeAndPrerender(node: any, postponed: Postponed, options: any = {}) {
+  return prerender(node, { ...options, postponed });
+}
+export function resumeAndPrerenderToNodeStream(node: any, postponed: Postponed, options: any = {}) {
+  return prerenderToNodeStream(node, { ...options, postponed });
 }
 
 // ---------------------------------------------------------------- streaming
@@ -1340,6 +1363,10 @@ const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c
 /** A boundary as the shell writes it while it waits: its template, then its fallback. */
 const pendingMarkup = (b: Boundary) => `<!--$?--><template id="${b.prefix ?? ""}B:${b.id}"></template>${b.fallback}<!--/$-->`;
 
+/** What a prerender leaves for a resume: the boundaries it sent pending (where they are, their id), the next id,
+ * or the whole render (root). Plain data, as React's postponed state is (it is serialized between the two). */
+type Postponed = { root?: boolean; next: number; boundaries: [string, number][] };
+
 /** A streamed boundary: pending (0), complete (1), or left to the client (2). */
 type SBoundary = {
   idx: number;
@@ -1362,6 +1389,11 @@ type SBoundary = {
   fallbackTasks: Set<STask>;
   /** At the document's level: it may give the document its <html>, <head> or <body>. */
   canPre?: boolean;
+  /** Where it is in the tree; and, resuming, that the prelude holds it pending (its content is what is sent). */
+  key?: string;
+  replayed?: boolean;
+  /** A prerender was aborted with a part of it still waiting: it stays pending for a resume. */
+  postponed?: boolean;
   preamble?: Preamble;
   fallbackPre?: Preamble;
   error?: { digest: unknown; message: string; error?: unknown; at?: string };
@@ -1406,6 +1438,10 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   // Until the stream flows (pipe), nothing is written: the shell waits, and boundaries that complete meanwhile are
   // written into it in place (React flushes them with the shell, no script).
   let flowing = flowingAtStart;
+  // Ended (the destination told so): nothing more is written. (Closed is earlier: all work done, maybe not yet sent.)
+  let ended = false;
+  const endStream = finish;
+  finish = () => ((ended = true), endStream());
   let held: string | null = null;
   let endHeld = false;
   // chunk: React's progressiveChunkSize; inlined: the bytes of the boundaries written in place so far.
@@ -1461,6 +1497,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     streaming: { shared, onError },
   });
   let postamble = "";
+  // Resuming a prerender (React's postponed state): its shell was sent; the boundaries it left pending are found by
+  // where they are, keep their ids, and are sent as they complete. What lies outside them is not sent again.
+  const resumed: Postponed | null = options.postponed && !options.postponed.root ? options.postponed : null;
+  const leftPending = new Map<string, number>((resumed?.boundaries ?? []).map((x) => [x[0], x[1]]));
+  if (resumed) shared.next = resumed.next;
   // Every task (each a part that suspended), the shell's still pending, and all still pending.
   const tasks: STask[] = [];
   let rootPending = 0;
@@ -1477,7 +1518,25 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const maybeClose = () => {
     if (shellDone && allPending === 0 && !closed && (shellWritten || !flowing)) close();
   };
+  const adopt = (b: SBoundary) => {
+    const id = leftPending.get(b.key!);
+    if (id === undefined) return;
+    leftPending.delete(b.key!);
+    b.id = id;
+    b.flushed = b.replayed = true;
+    flushedBounds.push(b);
+  };
+  /** Resuming: whether what renders here is sent (inside a boundary the prelude left pending). */
+  const replayedHere = (c: SBoundary | null | undefined) => {
+    for (; c; c = c.parent) if (c.replayed) return true;
+    return false;
+  };
   const spawn = (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => {
+    // (Resuming, a part outside what is sent, and not on the way to a boundary that is, is not waited for.)
+    if (resumed && !replayedHere(ctx.container)) {
+      const at = ctx.stack.join(">");
+      if (![...leftPending.keys()].some((k) => k.startsWith(at))) return "";
+    }
     const t: STask = { idx: tasks.length, node, snap: snapshot(ctx, pushed), container: ctx.container ?? null, fallbackOf: ctx.fallbackOf ?? null, lastText: ctx.lastText, at: stackText(ctx.stack), state: 0 };
     tasks.push(t);
     // (The new segment takes the text before it: what follows it starts afresh.)
@@ -1511,6 +1570,12 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   /** A part an abort claimed: its boundary left to the client with the reason (the shell's parts are gone already). */
   const finishAborted = (t: STask, why: unknown) => {
     const b = t.container;
+    if (options.prerendering && b) {
+      // (Its boundary stays pending in the prelude: a resume renders it.)
+      b.postponed = true;
+      onError(why, t.at);
+      return settled(t, 2);
+    }
     if (b && b.status === 0) giveUp(b, { digest: onError(why, t.at), message: aborted((why as any)?.message ?? String(why)), at: t.at });
     settled(t, 2);
   };
@@ -1558,7 +1623,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     const c = t.container;
     if (!c) {
       if (--rootPending === 0 && !shellDone && !closed) shellReady();
-    } else if (--c.pending === 0 && c.status === 0) complete(c);
+    } else if (--c.pending === 0 && c.status === 0 && !c.postponed) complete(c);
   };
   /** After work: what can be written is, then the stream ends if nothing is left. */
   const after = () => {
@@ -1612,6 +1677,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   /** What of a boundary is done and not yet sent: its content (once), then each part that landed (React's segments). */
   const segmentsOf = (b: SBoundary) => {
     let out = "";
+    // (Postponed by a prerender: a resume sends it.)
+    if (b.postponed) return out;
     const p = b.prefix;
     if (!b.rootWritten) {
       b.rootWritten = true;
@@ -1644,7 +1711,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   /** What can be sent now (React's flushCompletedQueues): completed boundaries with their swap, then the parts of
    * boundaries still waiting. */
   const flushQueues = () => {
-    if (!flowing || !shellWritten || closed) return;
+    if (!flowing || !shellWritten || ended) return;
     for (let i = 0; i < flushedBounds.length; i++) {
       const b = flushedBounds[i]!;
       if (b.status !== 1 || b.revealed) continue;
@@ -1722,8 +1789,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const shellReady = () => {
     shellDone = true;
     sendHeaders(true);
+    // (Resuming: the prelude was the shell.)
+    if (resumed) shellWritten = true;
     options.onShellReady?.();
     if (flowing && !shellWritten) writeShell();
+    if (resumed) flushQueues();
     maybeClose();
   };
   /** The document's start as far as it is known, and whether a boundary still waiting could add to it. */
@@ -1779,10 +1849,18 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   let renderingShell = true;
   let api: { abort(reason?: unknown): void } | null = null;
   // The stream flows (piped): the shell and what completed into it written, then the rest as it comes.
+  /** A prerender: the boundaries it leaves pending, for a resume to finish (React's postponed state). */
+  const reportPostponed = () => {
+    if (!options.prerendering) return;
+    const left = (shared.bounds ?? []).filter((b) => b.flushed && b.status === 0).map((b) => [b.key!, b.id] as [string, number]);
+    options.onPostponed?.(left.length ? { next: shared.next, boundaries: left } : null);
+  };
   const flow = () => {
     if (flowing) return;
     flowing = true;
     if (shellDone && !shellWritten) writeShell();
+    if (shellWritten) flushQueues();
+    if (shellDone) reportPostponed();
     if (endHeld) {
       if (postamble) write(postamble);
       finish();
@@ -1816,6 +1894,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       tell(!t.container, t.at);
     }
     if (inFlight !== undefined || why === null) tell(true, inFlight);
+    // (A prerender whose shell could not finish: the whole render is left to a resume.)
+    if (options.prerendering) options.onPostponed?.({ root: true, next: 0, boundaries: [] });
     options.onShellError?.(why);
     closed = true;
     finish();
@@ -1824,6 +1904,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const failedShell = (() => {
     const ctx = ctxFor();
     ctx.streaming!.spawn = spawn;
+    if (resumed) ctx.streaming!.adopt = adopt;
     ctx.container = null;
     try {
       rootContent = once(node, ctx);
@@ -2017,4 +2098,4 @@ const setImmediateOr = (fn: () => void) => {
 export const version = "19.3.0";
 
 // The module as one object too: `import ReactDOMServer from "react-dom/server"`.
-export default { renderToString, renderToStaticMarkup, renderToReadableStream, renderToPipeableStream, prerender, prerenderToNodeStream, version };
+export default { renderToString, renderToStaticMarkup, renderToReadableStream, renderToPipeableStream, prerender, prerenderToNodeStream, resume, resumeToPipeableStream, resumeAndPrerender, resumeAndPrerenderToNodeStream, version };

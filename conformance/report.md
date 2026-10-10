@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3846 pass, 204 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3849 pass, 201 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -33,13 +33,13 @@
 | react-dom/ReactDOMFiberAsync-test.js | 14 | 4 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 1 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 12 | 3 | 0 |  |
-| react-dom/ReactDOMFizzServer-test.js | 154 | 17 | 13 |  |
+| react-dom/ReactDOMFizzServer-test.js | 155 | 16 | 13 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 15 | 2 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 16 | 5 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 10 | 2 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 4 | 2 | 0 |  |
-| react-dom/ReactDOMFizzStaticBrowser-test.js | 22 | 10 | 2 |  |
+| react-dom/ReactDOMFizzStaticBrowser-test.js | 24 | 8 | 2 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 15 | 2 | 0 |  |
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 11 | 1 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
