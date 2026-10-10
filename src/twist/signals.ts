@@ -764,7 +764,11 @@ export class Computation<T> extends Node<T> implements Owner {
     boundaryOf(this)?.ready(this);
     // An async answer: in flight, its old value kept meanwhile.
     if (next! && typeof (next as any).then === "function") return this.fly(next as any);
-    if (next! && typeof (next as any)[Symbol.asyncIterator] === "function") return this.stream(next as any);
+    if (next! && typeof (next as any)[Symbol.asyncIterator] === "function") {
+      // (On a server, its first value is the answer: a render tried again reads it like a promise's.)
+      if (serverRender) return this.fly((next as any)[Symbol.asyncIterator]().next().then((r: IteratorResult<T>) => r.value));
+      return this.stream(next as any);
+    }
     this.flight = null;
     flights.delete(this);
     this.take(next!);

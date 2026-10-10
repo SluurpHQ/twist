@@ -368,8 +368,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     const before = new Set(dirtyRecords);
     const r = fn(d as T);
     ++runs;
-    // An async derive's answer is reconciled when it lands (onTake, below): the memo flies on the derive's own promise.
-    if (r && typeof (r as any).then === "function") return r;
+    // An async derive's answers are reconciled as they land (onTake, below): the memo flies on its promise or generator.
+    if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return r;
     if (r !== undefined) reconcileInto(target, unwrap(r) as Raw, key);
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
@@ -451,7 +451,7 @@ function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) |
     for (let i = 0; i < next.length; i++) {
       const n = unwrap(next[i]);
       const match = key == null ? old[i] : n && typeof n === "object" ? byKey.get(keyOf(key, n)) : undefined;
-      if (match && isWrappable(match) && isWrappable(n) && match !== n) {
+      if (match && isWrappable(match) && isWrappable(n) && match !== n && Array.isArray(match) === Array.isArray(n)) {
         reconcileInto(match, n, key);
         d[i] = match;
       } else d[i] = n;

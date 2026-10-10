@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-4372 pass, 1007 fail, 703 files (5 did not load, 319 test Solid's internals)
+4394 pass, 985 fail, 703 files (5 did not load, 319 test Solid's internals)
 
 ## Why files did not load
 
@@ -76,7 +76,7 @@
 | signals/tests/derived-write-then-derivation-3733.test.ts | 34 | 3 |  |
 | signals/tests/dev.test.ts | 0 | 1 | SyntaxError: Export named 'CONFIG_TRANSPARENT' not found |
 | signals/tests/diagnostics.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
-| signals/tests/direct-commit-readers-posture.test.ts | 0 | 3 |  |
+| signals/tests/direct-commit-readers-posture.test.ts | 1 | 2 |  |
 | signals/tests/direction-rule-probe.test.ts | 2 | 2 |  |
 | signals/tests/disposed-read-lifecycle.test.ts | 5 | 0 |  |
 | signals/tests/dist-artifacts.test.ts | 1 | 21 | not ours: runs Solid's built packages in a child process |
@@ -163,7 +163,7 @@
 | signals/tests/optimistic-lane-transaction-ownership.test.ts | 0 | 2 |  |
 | signals/tests/optimistic-mount-binding-3835.test.ts | 0 | 2 |  |
 | signals/tests/optimistic-mount-nested-memo-3835.test.ts | 1 | 3 |  |
-| signals/tests/optimistic-move-duplicate-3548.test.ts | 0 | 1 |  |
+| signals/tests/optimistic-move-duplicate-3548.test.ts | 1 | 0 |  |
 | signals/tests/optimistic-move-keyed-show-3662.test.ts | 2 | 0 |  |
 | signals/tests/optimistic-outside-refetch-619.test.ts | 0 | 5 |  |
 | signals/tests/optimistic-over-held-row-3796.test.ts | 2 | 0 |  |
@@ -208,7 +208,7 @@
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
 | signals/tests/store/async-setter.test.ts | 6 | 2 |  |
 | signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |
-| signals/tests/store/createOptimisticStore.test.ts | 44 | 36 |  |
+| signals/tests/store/createOptimisticStore.test.ts | 52 | 28 |  |
 | signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
 | signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
 | signals/tests/store/createProjection.test.ts | 7 | 13 |  |
@@ -221,7 +221,7 @@
 | signals/tests/store/derived-presence-async-3726.test.ts | 3 | 5 |  |
 | signals/tests/store/derived-retained-draft-row-3767.test.ts | 2 | 1 |  |
 | signals/tests/store/enumerator-presence-nodes.test.ts | 2 | 16 |  |
-| signals/tests/store/flight-owned-transaction.test.ts | 2 | 2 |  |
+| signals/tests/store/flight-owned-transaction.test.ts | 3 | 1 |  |
 | signals/tests/store/fold-3164.test.ts | 0 | 2 |  |
 | signals/tests/store/fold-privatization-order.test.ts | 10 | 0 |  |
 | signals/tests/store/fold-scheduling.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
@@ -231,13 +231,13 @@
 | signals/tests/store/latest-read-after-write-3576.test.ts | 0 | 1 |  |
 | signals/tests/store/native-collections.test.ts | 9 | 1 |  |
 | signals/tests/store/next-smoke.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/target.js' |
-| signals/tests/store/optimistic-ambient-capture.test.ts | 0 | 1 |  |
+| signals/tests/store/optimistic-ambient-capture.test.ts | 1 | 0 |  |
 | signals/tests/store/optimistic-chained-revert-3672-memo.test.ts | 1 | 5 |  |
 | signals/tests/store/optimistic-chained-revert-3672.test.ts | 0 | 4 |  |
 | signals/tests/store/optimistic-draft-visibility-3665.test.ts | 2 | 6 |  |
 | signals/tests/store/optimistic-list-mutation-matrix.test.ts | 892 | 8 |  |
 | signals/tests/store/optimistic-maparray-index-frame-f1.test.ts | 43 | 0 |  |
-| signals/tests/store/optimistic-observer-invariance.test.ts | 0 | 2 |  |
+| signals/tests/store/optimistic-observer-invariance.test.ts | 2 | 0 |  |
 | signals/tests/store/optimistic-removed-prop-3883.test.ts | 6 | 0 |  |
 | signals/tests/store/optimistic-untracked-reads-f3-f5.test.ts | 9 | 2 |  |
 | signals/tests/store/overlay-rebuild-3689.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
@@ -251,7 +251,7 @@
 | signals/tests/store/projection-transition-isolation.test.ts | 1 | 3 |  |
 | signals/tests/store/reconcile-captured-proxies.test.ts | 7 | 2 |  |
 | signals/tests/store/reconcile-resend-identity.test.ts | 2 | 2 |  |
-| signals/tests/store/reconcile.test.ts | 41 | 6 |  |
+| signals/tests/store/reconcile.test.ts | 45 | 2 |  |
 | signals/tests/store/recursive-effects.test.ts | 4 | 0 |  |
 | signals/tests/store/retained-draft-row-3767.test.ts | 1 | 0 |  |
 | signals/tests/store/shallow-loading.test.ts | 8 | 0 |  |
@@ -520,13 +520,13 @@
 | web/test/optimistic-mount-style-3835.spec.tsx | 0 | 3 |  |
 | web/test/optimistic-move-keyed-show-3662.spec.tsx | 7 | 0 |  |
 | web/test/optimistic-nested-show-drag-3706.spec.tsx | 2 | 0 |  |
-| web/test/optimistic-playground-port.spec.tsx | 0 | 1 |  |
+| web/test/optimistic-playground-port.spec.tsx | 1 | 0 |  |
 | web/test/performance-tracks.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/polymorphic-chain.spec.tsx | 3 | 0 |  |
 | web/test/portal.spec.tsx | 30 | 0 |  |
 | web/test/preload-links-adopt-client.spec.tsx | 4 | 6 |  |
 | web/test/preload-links-frame-client.spec.ts | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/projection-async-stream.spec.tsx | 1 | 1 |  |
+| web/test/projection-async-stream.spec.tsx | 2 | 0 |  |
 | web/test/refresh-hmr-flow.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/refresh-render.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/render-halt-recovery.spec.tsx | 0 | 1 |  |
@@ -592,7 +592,7 @@
 | web/test/server/lazy-shell-gating.spec.tsx | 5 | 1 |  |
 | web/test/server/live-shell-source-3764.gen.spec.tsx | 1 | 0 |  |
 | web/test/server/loading-dynamic-fragments.spec.tsx | 0 | 1 |  |
-| web/test/server/loading-recreated-async-source-3734.spec.tsx | 3 | 7 |  |
+| web/test/server/loading-recreated-async-source-3734.spec.tsx | 5 | 5 |  |
 | web/test/server/lowercase-on-attribute.spec.tsx | 5 | 0 |  |
 | web/test/server/nav-before-resume.gen.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
 | web/test/server/polymorphic-chain.spec.tsx | 0 | 2 |  |
