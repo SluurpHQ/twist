@@ -2347,8 +2347,16 @@ function update(f: Fiber, c: any) {
   if ((f as any).dehydrated && !hydrating) return updateDehydrated(f, props, () => restart(f));
   // A memo's compare decides, unless the ref changed (React checks it apart).
   const same = f.compare ? f.compare(f.props, props) && f.props?.ref === props?.ref : false;
+  const was = f.props;
   f.props = props;
-  if (!same) restart(f);
+  if (same) return;
+  try {
+    restart(f);
+  } catch (e) {
+    // Its render starts again from above: it gets these props then, compared with the ones it had.
+    if (e === RESTART) f.props = was;
+    throw e;
+  }
 }
 
 function shallowEqual(a: any, b: any) {

@@ -125,7 +125,11 @@ export async function waitFor(expected: unknown[]) {
   // What is scheduled started, then the work loop run until what is expected has been logged (React's waitFor
   // stops the scheduler there); without a concurrent render, everything pending.
   flushScheduled();
-  if (!performWork(() => logLength() >= expected.length)) await drain();
+  // (Transitions only when what is urgent has not logged it yet.)
+  if (!performWork(() => logLength() >= expected.length)) {
+    await drain(false);
+    if (logLength() < expected.length) await drain();
+  }
   const actual = unstable_clearLog();
   if (!same(actual.slice(0, expected.length), expected)) throw new Error(`Expected log to start ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
