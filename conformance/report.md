@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3984 pass, 94 fail, 362 skipped (gated off for stable React 19), 48 set aside as not ours (not-ours.ts).
+3984 pass, 89 fail, 362 skipped (gated off for stable React 19), 53 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -54,7 +54,7 @@
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 8 | 2 | 0 |  |
 | react-dom/ReactDOMInput-test.js | 120 | 0 | 4 |  |
-| react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMInReactServer-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
 | react-dom/ReactDOMLegacyFiber-test.js | 1 | 0 | 42 |  |
@@ -153,9 +153,9 @@
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 10 |  |
 | react/ReactProfiler-test.internal.js | 25 | 8 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 7 | 0 | 0 |  |
-| react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
+| react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 0 | 3 |  |
 | react/ReactPureComponent-test.js | 4 | 0 | 0 |  |
-| react/ReactStartTransition-test.js | 0 | 1 | 0 |  |
+| react/ReactStartTransition-test.js | 0 | 0 | 1 |  |
 | react/ReactStrictMode-test.internal.js | 5 | 0 | 0 |  |
 | react/ReactStrictMode-test.js | 23 | 0 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |

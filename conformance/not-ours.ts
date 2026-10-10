@@ -5,6 +5,7 @@ const RETRY = "React renders the whole tree once more after an error before comm
 const OUTSIDE = "React's behaviour when the DOM it owns was changed by hand, outside React";
 const HAPPY_DOM = "happy-dom cannot do this (React's suite runs in jsdom)";
 const V8_FORMAT = "checks a V8 stack-frame format or a call count of React's own";
+const TEST_RENDERER = "renders with react-test-renderer, a renderer of React's we do not ship";
 const ONE_PACKAGE = "checks that separately installed react and react-dom packages agree on a version; ours are one package";
 const SHIM_FALLBACK = "checks use-sync-external-store's fallback for a React without useSyncExternalStore; ours always has it";
 
@@ -70,6 +71,17 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
   "use-sync-external-store/useSyncExternalStoreNative-test.js": {
     "native version": SHIM_FALLBACK + " (React Native's)",
     "Using isEqual to bailout": SHIM_FALLBACK + " (React Native's)",
+  },
+  "react/ReactStartTransition-test.js": {
+    "Warns if a suspicious number of fibers are updated inside startTransition": TEST_RENDERER,
+  },
+  "react/ReactProfilerDevToolsIntegration-test.internal.js": {
+    "should auto-Profile all fibers if the DevTools hook is detected": TEST_RENDERER,
+    "should reset the fiber stack correctly after an error when profiling host roots": TEST_RENDERER,
+    "regression test: #17159": TEST_RENDERER,
+  },
+  "react-dom/ReactDOMInReactServer-test.js": {
+    "can require react-dom": "needs React's react-server build (React Server Components' Flight), which we do not ship",
   },
   "react/ReactMismatchedVersions-test.js": {
     'importing "react-dom/client" throws if version does not match React version': ONE_PACKAGE,
