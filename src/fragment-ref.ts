@@ -69,20 +69,18 @@ const captureKey = (o: any) => (o == null ? "c=0" : typeof o === "boolean" ? "c=
 const attachOptions = (o: any) => (o != null && typeof o !== "boolean" && (o.once === true || (typeof AbortSignal !== "undefined" && o.signal instanceof AbortSignal)) ? { capture: o.capture, passive: o.passive } : o);
 
 /** Intersection observers keep a removed child until after paint (its exit is reported first). */
-let pendingUnobserves: { inst: FragmentInstance; observer: any; node: Element }[] = [];
-let unobserveScheduled = false;
+type Pending = { inst: FragmentInstance; observer: any; node: Element; cancelled?: boolean };
+let pendingUnobserves: Pending[] = [];
+/** A removed node unobserved after the next paint (two animation frames, as React's requestPostPaintCallback), each on
+ * its own callback; one put back before then stays observed. */
 function scheduleUnobserve(inst: FragmentInstance, observer: any, node: Element) {
-  pendingUnobserves.push({ inst, observer, node });
-  if (unobserveScheduled) return;
-  unobserveScheduled = true;
-  // After the next paint: two animation frames, as React's requestPostPaintCallback.
+  const p: Pending = { inst, observer, node };
+  pendingUnobserves.push(p);
   const raf = (globalThis as any).requestAnimationFrame;
   const after = (fn: () => void) => (typeof raf === "function" ? raf(() => raf(fn)) : setTimeout(fn, 0));
   after(() => {
-    unobserveScheduled = false;
-    const list = pendingUnobserves;
-    pendingUnobserves = [];
-    for (const p of list) p.observer.unobserve(p.node);
+    pendingUnobserves = pendingUnobserves.filter((x) => x !== p);
+    if (!p.cancelled) p.observer.unobserve(p.node);
   });
 }
 
@@ -99,7 +97,7 @@ export class FragmentInstance {
     for (const l of this._eventListeners ?? []) node.addEventListener(l.type, l.attached, attachOptions(l.options));
     if (node.nodeType === 3) return;
     for (const observer of this._observers ?? []) {
-      pendingUnobserves = pendingUnobserves.filter((p) => !(p.inst === this && p.observer === observer && p.node === node));
+      for (const p of pendingUnobserves) if (p.inst === this && p.observer === observer && p.node === node) p.cancelled = true;
       observer.observe(node);
     }
     (node.reactFragments ??= new Set()).add(this);
