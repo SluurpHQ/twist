@@ -1691,13 +1691,14 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       const bad = Object.keys(props).find((k) => k !== "children" && k !== "key" && k !== "ref");
       if (bad) withFiber(parent, () => console.error(`Invalid prop \`${bad}\` supplied to \`React.Fragment\`. React.Fragment can only have \`key\`, \`ref\`, and \`children\` props.`));
     }
-    reconcile(f, props ? toList(props.children) : c, host, before);
-    // A ref on a Fragment: an instance that treats its top-level elements as one (React 19.2's fragment refs).
+    // A ref on a Fragment: an instance that treats its top-level elements as one (React 19.2's fragment refs),
+    // attached ahead of its children's refs, as React does.
     if (props?.ref != null) {
       const inst = ((f as any).fragment = new FragmentInstance(f as any));
       fragmentRefs++;
       layoutQueue.push(() => (inst._attachHandles(), setRef(f, props.ref, inst)));
     }
+    reconcile(f, props ? toList(props.children) : c, host, before);
     return f;
   }
   if (type === PORTAL) {
@@ -1940,20 +1941,21 @@ function update(f: Fiber, c: any) {
         if (f.dead || !(f as any).hidden) return;
         reconcile(f, toList(f.props?.children), hostParentOf(f), nextDomAfter(f));
       });
-    } else reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
+    } else {
+      // A fragment ref: a changed ref is moved over at commit, ahead of its children's (React detaches and attaches
+      // the Fragment's first).
+      const inst = (f as any).fragment as FragmentInstance | undefined;
+      if (inst && prev?.ref !== c.props?.ref) {
+        if (prev?.ref != null) deletions.push(() => clearRef(f, prev.ref));
+        if (c.props?.ref != null) layoutQueue.push(() => setRef(f, c.props.ref, inst));
+      }
+      reconcile(f, Array.isArray(c) ? c : toList(c.props?.children), host, nextDomAfter(f));
+    }
     if (wasHidden !== nowHidden && !nowHidden) {
       hideActivity(f, false);
       if (!insideHidden(f)) reappear(f);
     }
     f.props = c.props;
-    // A fragment ref: its new elements get its listeners; a changed ref is moved over at commit.
-    const inst = (f as any).fragment as FragmentInstance | undefined;
-    if (inst) {
-      if (prev?.ref !== c.props?.ref) {
-        if (prev?.ref != null) deletions.push(() => clearRef(f, prev.ref));
-        if (c.props?.ref != null) layoutQueue.push(() => setRef(f, c.props.ref, inst));
-      }
-    }
     return;
   }
   if (f.kind === PORTAL_F) {
