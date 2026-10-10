@@ -89,7 +89,24 @@ for (const f of [Portal, Dynamic]) __twist_mark(f);
 markBuiltin(Portal, Dynamic, Errored, NoHydration, Hydration, Loading, HydrationScript);
 
 export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
-  const make = (w: any, props: any) => (typeof w === "string" ? ssrElement(w, props, undefined, true) : typeof w === "function" ? createComponent(w, props) : undefined);
+  return dynamicCore<P>(source, options, true);
+}
+
+/** `dynamic` for a source that only answers with components, never a tag name. */
+export function dynamicComponent<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
+  return dynamicCore<P>(source, options, false);
+}
+
+const COMPONENT_BINDING = Symbol.for("solid.component-binding");
+
+function dynamicCore<P>(source: () => any, options: { static?: boolean } | undefined, tags: boolean): (props: P) => any {
+  const make = (w: any, props: any) => {
+    if (typeof w === "string") return tags ? ssrElement(w, props, undefined, true) : undefined;
+    if (typeof w !== "function") return undefined;
+    // A server component's answer: its component, given the call's address.
+    const binding = w[COMPONENT_BINDING];
+    return binding ? untrack(() => binding.component(props, () => binding.address)) : createComponent(w, props);
+  };
   if (options?.static) {
     const w = untrack(source);
     if (w && typeof w.then === "function") throw new Error("dynamic(): a static source must resolve synchronously");

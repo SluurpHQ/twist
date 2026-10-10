@@ -1,22 +1,22 @@
 # Solid's tests on Twist
 
-5342 pass, 1240 fail, 714 files (32 did not load, 165 test Solid's internals)
+5360 pass, 1339 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
 - 9 × SyntaxError: Export named 'httpStatus' not found
-- 4 × SyntaxError: Export named 'materializeContainerTrace' not found
+- 8 × SyntaxError: Export named 'materializeContainerTrace' not found
 - 4 × Cannot find module '../../src/server.js'
 - 4 × SyntaxError: Export named 'createSSRResponse' not found
-- 2 × SyntaxError: Export named 'getHydrationWriter' not found
+- 3 × SyntaxError: Export named 'getHydrationWriter' not found
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
 - 1 × Cannot find module '../src/response.js'
 - 1 × SyntaxError: Export named 'waitAsset' not found
 - 1 × Cannot find module '../../src/response.js'
-- 1 × SyntaxError: Export named 'dynamicComponent' not found
 - 1 × SyntaxError: Export named 'httpHeader' not found
 - 1 × SyntaxError: Export named 'getServerFunctionRPC' not found
+- 1 × SyntaxError: Export named 'viewOf' not found
 - 1 × SyntaxError: Export named 'getTraceContext' not found
 
 ## Files
@@ -356,39 +356,39 @@
 | web/test/client-only.spec.tsx | 6 | 0 |  |
 | web/test/client-records.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
 | web/test/conditional-jsx-held-branch-3438.spec.tsx | 0 | 2 |  |
-| web/test/consistency/adopted-swap-post-done.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/boundary-arrival.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c01-claim-once.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c01-claim-window-roots.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c02-revealed-occurrence-mounts.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c03-hydration-done-counts-holds.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c04-record-applies-once.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c05-data-response-scoped.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c07-store-is-truth.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c08-fanout-equal.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c09-no-phantom.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c10-ids-timing-independent.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c12-boundary-parity.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c13-sweep-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c14-dispose-clean.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c15-staging-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c16-reference-identity.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c17-gate-bound-address.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/adopted-swap-post-done.spec.tsx | 0 | 1 |  |
+| web/test/consistency/boundary-arrival.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c01-claim-once.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c01-claim-window-roots.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c02-revealed-occurrence-mounts.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c03-hydration-done-counts-holds.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c04-record-applies-once.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c05-data-response-scoped.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c07-store-is-truth.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c08-fanout-equal.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c09-no-phantom.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c10-ids-timing-independent.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c12-boundary-parity.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c13-sweep-atomic.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c14-dispose-clean.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c15-staging-atomic.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c16-reference-identity.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c17-gate-bound-address.spec.tsx | 0 | 1 |  |
+| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 0 | 1 |  |
 | web/test/consistency/generic/campaign.spec.tsx | 0 | 1 |  |
-| web/test/consistency/generic/preload-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/generic/replay.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/generic/preload-hold.spec.tsx | 4 | 1 |  |
+| web/test/consistency/generic/replay.spec.tsx | 0 | 1 |  |
 | web/test/consistency/harness/campaign.spec.tsx | 0 | 1 |  |
-| web/test/consistency/harness/replay.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/sref-table-pending-read.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-assets-ready.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-bind-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-prepare.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-regions-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-trace-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-wire-preload.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/harness/replay.spec.tsx | 0 | 1 |  |
+| web/test/consistency/sref-table-pending-read.spec.tsx | 0 | 1 |  |
+| web/test/consistency/tier-assets-ready.spec.tsx | 0 | 1 |  |
+| web/test/consistency/tier-bind-hold.spec.tsx | 0 | 1 |  |
+| web/test/consistency/tier-prepare.spec.tsx | 0 | 1 |  |
+| web/test/consistency/tier-regions-hold.spec.tsx | 0 | 1 |  |
+| web/test/consistency/tier-trace-hold.spec.tsx | 0 | 1 |  |
+| web/test/consistency/tier-wire-preload.spec.tsx | 0 | 1 |  |
 | web/test/context.spec.tsx | 7 | 0 |  |
 | web/test/delegated-event-cross-runtime.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/client.js' |
 | web/test/delegated-event-listener-object.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
@@ -439,7 +439,7 @@
 | web/test/hydration/buffered-projection-repeat.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/class.spec.tsx | 1 | 0 |  |
 | web/test/hydration/client-only.spec.tsx | 0 | 2 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\dist\server.js' |
-| web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
 | web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 1 | 3 |  |
 | web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 4 | SyntaxError: Export named 'materializeContainerTrace' not found |
 | web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
@@ -460,7 +460,7 @@
 | web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 2 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 1 | 0 |  |
-| web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 |  |
 | web/test/hydration/hybrid-memo-handoff.spec.tsx | 0 | 8 |  |
 | web/test/hydration/hybrid-store-handoff-3574.spec.tsx | 0 | 4 |  |
 | web/test/hydration/hydrate-falsy-sole-child-issue-3571.spec.tsx | 1 | 0 |  |
@@ -471,7 +471,7 @@
 | web/test/hydration/loading-late-fragment.spec.tsx | 0 | 1 |  |
 | web/test/hydration/loading-lazy-resume-3749.spec.tsx | 1 | 2 |  |
 | web/test/hydration/multi-root-registry.spec.tsx | 1 | 0 |  |
-| web/test/hydration/nav-before-resume.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/hydration/nav-before-resume.spec.tsx | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
 | web/test/hydration/null-owner-3609.spec.tsx | 4 | 0 |  |
 | web/test/hydration/onsettled-hydrate.spec.tsx | 1 | 2 |  |
 | web/test/hydration/parity-harness.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
@@ -488,9 +488,9 @@
 | web/test/hydration/truncated-stream-template.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/truncated-stream.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/wait-asset-hydration.spec.tsx | 0 | 1 | SyntaxError: Export named 'waitAsset' not found |
-| web/test/hydration/welcome-status-lazy.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/hydration/welcome-status-loaded.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/hydration/welcome-status-streamed.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/hydration/welcome-status-lazy.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/hydration/welcome-status-loaded.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/hydration/welcome-status-streamed.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
 | web/test/hydration/write-before-resume.spec.tsx | 0 | 1 |  |
 | web/test/inherited-dom-properties.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
 | web/test/insert-falsy-sole-child-issue-3571.spec.tsx | 8 | 0 |  |
@@ -530,7 +530,7 @@
 | web/test/optimistic-move-keyed-show-3662.spec.tsx | 7 | 0 |  |
 | web/test/optimistic-nested-show-drag-3706.spec.tsx | 2 | 0 |  |
 | web/test/optimistic-playground-port.spec.tsx | 1 | 0 |  |
-| web/test/performance-tracks.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/performance-tracks.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
 | web/test/polymorphic-chain.spec.tsx | 3 | 0 |  |
 | web/test/portal.spec.tsx | 30 | 0 |  |
 | web/test/preload-links-adopt-client.spec.tsx | 4 | 6 |  |
@@ -558,9 +558,9 @@
 | web/test/server-mock.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/server-mock.js' |
 | web/test/server/client-hole-derived-async-3659.spec.tsx | 0 | 6 |  |
 | web/test/server/client-only-preload.spec.tsx | 2 | 2 |  |
-| web/test/server/concurrent-render-error-policy.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/concurrent-render-error-policy.spec.tsx | 0 | 11 |  |
 | web/test/server/concurrent-render-lazy-assets.spec.tsx | 1 | 5 |  |
-| web/test/server/concurrent-render-serialize.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/concurrent-render-serialize.spec.tsx | 5 | 0 |  |
 | web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
 | web/test/server/container-traces.spec.tsx | 2 | 7 |  |
 | web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
@@ -573,7 +573,7 @@
 | web/test/server/document-shell.spec.tsx | 1 | 3 |  |
 | web/test/server/dynamic-async-component-diagnostic.spec.tsx | 3 | 2 |  |
 | web/test/server/dynamic-async-loading-3666.spec.tsx | 2 | 0 |  |
-| web/test/server/dynamic-component-parity.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
+| web/test/server/dynamic-component-parity.spec.tsx | 2 | 0 |  |
 | web/test/server/dynamic-hydration.spec.tsx | 3 | 0 |  |
 | web/test/server/dynamic-shell-gating.spec.tsx | 3 | 2 |  |
 | web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |
@@ -582,7 +582,7 @@
 | web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
-| web/test/server/frame-binding-slots.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/frame-binding-slots.spec.tsx | 2 | 30 |  |
 | web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 6 |  |
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-hn.spec.tsx | 0 | 2 |  |
@@ -618,13 +618,13 @@
 | web/test/server/polymorphic-chain.spec.tsx | 0 | 2 |  |
 | web/test/server/projection-body-read.spec.tsx | 1 | 3 |  |
 | web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/request-event-concurrent.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/request-event-concurrent.spec.tsx | 3 | 4 |  |
 | web/test/server/response-invariants.spec.tsx | 3 | 0 |  |
 | web/test/server/retry-robustness.spec.tsx | 1 | 4 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
 | web/test/server/server-component-context.spec.tsx | 3 | 3 |  |
-| web/test/server/server-diagnostics.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/server-diagnostics.spec.tsx | 1 | 16 |  |
 | web/test/server/server-error-hook.spec.tsx | 10 | 14 |  |
 | web/test/server/server-frame-records.spec.tsx | 3 | 4 |  |
 | web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |
@@ -692,7 +692,7 @@
 | web/test/server/slot-hydration-3567.spec.tsx | 27 | 4 |  |
 | web/test/server/spread-function-source.spec.tsx | 10 | 0 |  |
 | web/test/server/spread-hydration.spec.tsx | 3 | 4 |  |
-| web/test/server/spread-omit.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/spread-omit.spec.tsx | 0 | 1 | SyntaxError: Export named 'viewOf' not found |
 | web/test/server/spread-static-tail.spec.tsx | 6 | 3 |  |
 | web/test/server/spread-static-text.spec.tsx | 3 | 1 |  |
 | web/test/server/ssr-async-rejection-3569.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
@@ -705,7 +705,7 @@
 | web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 | not ours: runs Solid's built packages in a child process |
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
 | web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 1 | 1 |  |
 | web/test/server/ssr-stream.spec.tsx | 47 | 69 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |

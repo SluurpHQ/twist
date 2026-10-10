@@ -77,8 +77,9 @@ const ours = twist("index.ts");
 for (const name of ["solid-js", "@solidjs/signals"]) {
   const dir = join(here, "node_modules", name);
   mkdirSync(dir, { recursive: true });
-  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js" }));
+  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js" } }));
   await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(ours)};\n`);
+  await Bun.write(join(dir, "internal.js"), `export * from ${JSON.stringify(twist("internal.ts"))};\n`);
 }
 // The web runtime, and the JSX runtime Bun's transform imports from it.
 const web = join(here, "..", "..", "src", "twist", "web.ts").split("\\").join("/");
