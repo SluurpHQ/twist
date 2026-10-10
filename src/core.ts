@@ -1773,7 +1773,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       }
       else if (!held) setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
       // A noscript's children are not drawn on the client (React leaves them to the server).
-      if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), el, null);
+      // (Hydrating <html>: what it holds besides <head> and <body> the server wrote in <body>, as React does.)
+      const into = hydrating && single && type === "html" && (el as Element).ownerDocument?.body ? (el as Element).ownerDocument!.body : el;
+      if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), into, null);
     }
     const differences = had ? serverDifferences(el, had, type, ns, props) : null;
     if (differences) {
