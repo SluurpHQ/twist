@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3870 pass, 180 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3871 pass, 179 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -23,7 +23,7 @@
 | react-dom/ReactDOMActivity-test.js | 6 | 1 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 12 | 1 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMComponent-test.js | 161 | 3 | 1 |  |
+| react-dom/ReactDOMComponent-test.js | 162 | 2 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReporting-test.js | 6 | 1 | 0 |  |
 | react-dom/ReactDOMConsoleErrorReportingLegacy-test.js | 0 | 0 | 7 |  |

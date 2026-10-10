@@ -1653,7 +1653,8 @@ const containerTag = (n: Node) => (n.nodeType === 9 ? "#document" : n.nodeType =
 
 /** Whether the element `tag` around `f` is further up than its direct parent (a component between them). */
 function behindComponents(f: Fiber, tag: string): boolean {
-  for (let p = f.parent; p; p = p.parent) if (p.kind === HOST && p.type === tag) return p !== f.parent;
+  // (Or its direct parent, made by another component: React's check also compares their owners.)
+  for (let p = f.parent; p; p = p.parent) if (p.kind === HOST && p.type === tag) return p !== f.parent || (p as any).owner !== (f as any).owner;
   return false;
 }
 
