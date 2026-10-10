@@ -1151,7 +1151,15 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   let finished!: () => void;
   const all = new Promise<void>((ok) => (finished = ok));
   let shellSent = false;
-  r.wake = () => queueMicrotask(() => shellSent && rendering(r, options, drain));
+  // Awaited whole (no consumer piped): the document once everything settled, every boundary inline.
+  let whole = false;
+  const idle: (() => void)[] = [];
+  const quiet = () => !r.waiting.size && !r.holds;
+  r.wake = () =>
+    queueMicrotask(() => {
+      if (idle.length && quiet()) for (const ok of idle.splice(0)) ok();
+      if (shellSent) rendering(r, options, drain);
+    });
   /** The response abandoned (aborted, or its consumer gone): the render torn down, its sources returned, nothing more sent. */
   const abandon = (end: boolean) => {
     if (done) return;
@@ -1171,7 +1179,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   options.signal?.addEventListener("abort", () => abandon(true), { once: true });
   let readable: ReadableStream<Uint8Array> | null = null;
   const failed = shellReady.then(
-    (s) => {
+    async (s) => {
+      if (whole && !quiet()) await new Promise<void>((ok) => idle.push(ok));
       rendering(r, options, () => r.sink.shell(inlineFragments(r, s), {}));
       shell = documentShell;
       shellSent = true;
@@ -1190,6 +1199,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   );
   return {
     then<A, B>(ok?: (html: string) => A, fail?: (e: unknown) => B) {
+      if (!shellSent && !sinks.length) whole = true;
       return failed.then(() => all).then(() => shell + r.chunks.join("")).then(ok, fail);
     },
     pipe(w: Writable) {

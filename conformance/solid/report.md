@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5423 pass, 1276 fail, 714 files (37 did not load, 121 test Solid's internals)
+5430 pass, 1269 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -706,12 +706,12 @@
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
 | web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 2 | 0 |  |
-| web/test/server/ssr-stream.spec.tsx | 61 | 55 |  |
+| web/test/server/ssr-stream.spec.tsx | 64 | 52 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
-| web/test/server/then-shell-suspend.spec.tsx | 6 | 4 |  |
+| web/test/server/then-shell-suspend.spec.tsx | 10 | 0 |  |
 | web/test/server/tier-announce.spec.tsx | 8 | 6 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
