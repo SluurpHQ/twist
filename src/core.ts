@@ -2842,7 +2842,16 @@ function commit() {
         applyingTransition || transitionCommit,
       );
       if (dev()) {
-        const strictMade = made.filter((f) => (f as any).strict && !f.dead);
+        // Only where the topmost fiber placed is in strict mode (React's PlacementDEV walk): a new non-strict parent's
+        // nested StrictMode doubles nothing.
+        const madeSet = new Set(made);
+        const topStrict = (f: Fiber) => {
+          let t = f;
+          // (A fragment given to the root is no fiber of its own in React: its children are the ones placed.)
+          while (t.parent && madeSet.has(t.parent) && !(t.parent.type === FRAGMENT && !t.parent.parent?.parent)) t = t.parent;
+          return !!(t as any).strict || t.type === STRICT;
+        };
+        const strictMade = made.filter((f) => (f as any).strict && !f.dead && topStrict(f));
         if (strictMade.length) passiveQueue.push(() => doubleInvoke(strictMade));
       }
       tellProfilers(commitTime);
@@ -3710,6 +3719,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   const top = new FiberNode(ROOT, null, "", null, null, nsOf(container), state) as Fiber;
   top.dom = container;
   top.doc = docOf(container);
+  // The whole root in strict mode (React's unstable_strictMode option).
+  if (options?.unstable_strictMode && dev()) top.strict = true;
   addContainer(container, state);
   state.top = top;
   // The container finds its root fiber (React's container key), as an element finds its own.

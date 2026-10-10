@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3759 pass, 226 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3761 pass, 224 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -156,7 +156,7 @@
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
 | react/ReactPureComponent-test.js | 4 | 0 | 0 |  |
 | react/ReactStartTransition-test.js | 0 | 1 | 0 |  |
-| react/ReactStrictMode-test.internal.js | 3 | 2 | 0 |  |
+| react/ReactStrictMode-test.internal.js | 5 | 0 | 0 |  |
 | react/ReactStrictMode-test.js | 23 | 0 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
 | redux-tests/components/connect.spec.tsx | 66 | 1 | 0 |  |
