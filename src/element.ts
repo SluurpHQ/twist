@@ -247,7 +247,7 @@ export function readLazy(p: any) {
         throw e;
       },
     );
-    p.promise.catch(() => {});
+    p.promise?.catch?.(() => {});
   }
   throw p.promise;
 }

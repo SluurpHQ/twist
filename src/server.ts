@@ -606,7 +606,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
             throw e;
           },
         );
-        p.promise.catch(() => {});
+        p.promise?.catch?.(() => {});
       }
       if (p.status === 2) throw p.value;
       throw p.promise;
