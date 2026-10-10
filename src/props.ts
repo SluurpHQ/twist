@@ -3,7 +3,7 @@
 
 import { effect, runWithOwner, untrack } from "../../signals/index.js";
 import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
-import { configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
+import { SELECT_SOURCES, configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
 import { shorthandToLonghand } from "./css-shorthand.ts";
@@ -165,6 +165,8 @@ function listen(el: Element, prop: string, handler: any) {
       if (type === "change") want("input");
       // Entering and leaving are made from over and out events.
       for (const t of enterLeaveSources(type) ?? []) want(t);
+      // A selection's change is found after keys, mouse releases and drags, on the focused field.
+      if (type === "select") for (const t of SELECT_SOURCES) want(t);
       // Scrolling and a popover's toggle are heard on the element itself, as React listens for them there.
       if (type === "scroll" || type === "scrollend" || type === "toggle" || type === "beforetoggle") listenAt(el, type);
     }

@@ -182,8 +182,48 @@ export const assertConsoleErrorDev = consoleAssertion("error");
 export const assertConsoleWarnDev = consoleAssertion("warn");
 export const assertConsoleLogDev = consoleAssertion("log");
 
+/**
+ * An event dispatched as a browser dispatches a real one (React's simulateBrowserEventDispatch): each listener along
+ * the path in turn, and the microtasks queued run after each, as they do between a browser's own listener calls.
+ */
 export async function simulateEventDispatch(node: Node, type: string) {
-  node.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+  for (let n: Node | null = node; n !== document; n = n.parentNode) if (!n) return;
+  const PS: any = await import("happy-dom/lib/PropertySymbol.js" as any);
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "target", { value: node });
+  const path: any[] = [];
+  for (let n: any = node; n; n = n.parentNode) path.push(n);
+  path.push(window);
+  let stopped = false, stoppedNow = false;
+  const stop = event.stopPropagation.bind(event), stopNow = event.stopImmediatePropagation.bind(event);
+  event.stopPropagation = () => ((stopped = true), stop());
+  event.stopImmediatePropagation = () => ((stopped = stoppedNow = true), stopNow());
+  const run = async (at: any, phase: "capturing" | "bubbling", eventPhase: number) => {
+    const listeners: any[] = at[PS.listeners]?.[phase]?.get(type)?.slice() ?? [];
+    for (const listener of listeners) {
+      Object.defineProperty(event, "currentTarget", { value: at, configurable: true });
+      Object.defineProperty(event, "eventPhase", { value: eventPhase, configurable: true });
+      const was = (window as any).event;
+      (window as any).event = event;
+      try {
+        listener.handleEvent ? listener.handleEvent.call(listener, event) : listener.call(at, event);
+      } catch (e) {
+        (window as any)[PS.dispatchError]?.(e);
+      } finally {
+        (window as any).event = was;
+      }
+      if (stoppedNow) return;
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    }
+  };
+  for (const at of [...path].reverse()) {
+    if (stopped) break;
+    await run(at, "capturing", at === node ? 2 : 1);
+  }
+  for (const at of path) {
+    if (stopped) break;
+    await run(at, "bubbling", at === node ? 2 : 3);
+  }
   await drain();
 }
 export const getDebugInfo = () => null;

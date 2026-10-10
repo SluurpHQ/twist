@@ -23,6 +23,49 @@ const ENTER_LEAVE: Record<string, [string, string, boolean]> = {
 export const enterLeaveSources = (type: string) =>
   type === "mouseenter" || type === "mouseleave" ? ["mouseover", "mouseout"] : type === "pointerenter" || type === "pointerleave" ? ["pointerover", "pointerout"] : null;
 
+/** What React's SelectEventPlugin watches to tell a selection changed. */
+export const SELECT_SOURCES = ["focusin", "focusout", "keydown", "keyup", "mousedown", "mouseup", "dragend", "contextmenu"];
+let selectFocus: HTMLElement | null = null;
+let selectLast: any = null;
+let mouseIsDown = false;
+const selectable = (el: any) =>
+  !!el && ((el.nodeName === "INPUT" && /^(|text|search|tel|url|password|email|number)$/.test(el.type ?? "")) || el.nodeName === "TEXTAREA" || el.contentEditable === "true");
+function selectionOf(el: any): any {
+  if ("selectionStart" in el && el.nodeName !== "DIV") return { start: el.selectionStart, end: el.selectionEnd };
+  const sel = el.ownerDocument?.defaultView?.getSelection?.();
+  return sel ? { anchorNode: sel.anchorNode, anchorOffset: sel.anchorOffset, focusNode: sel.focusNode, focusOffset: sel.focusOffset } : null;
+}
+const sameSelection = (a: any, b: any) => !!a && !!b && Object.keys(a).every((k) => a[k] === b[k]) && Object.keys(b).length === Object.keys(a).length;
+/** The select plugin's part of a native event: tracks focus and the mouse, and fires onSelect when it is due. */
+function selectPlugin(native: Event) {
+  const t = native.type;
+  if (t === "focusin") {
+    if (selectable(native.target)) (selectFocus = native.target as HTMLElement), (selectLast = null);
+    return;
+  }
+  if (t === "focusout") return void ((selectFocus = null), (selectLast = null));
+  if (t === "mousedown") return void (mouseIsDown = true);
+  if (t === "contextmenu" || t === "mouseup" || t === "dragend") mouseIsDown = false;
+  if (t !== "selectionchange" && t !== "keydown" && t !== "keyup" && t !== "mouseup" && t !== "dragend" && t !== "contextmenu") return;
+  const el = selectFocus;
+  if (mouseIsDown || !el || el !== el.ownerDocument?.activeElement) return;
+  const now = selectionOf(el);
+  if (sameSelection(selectLast, now)) return;
+  selectLast = now;
+  const owner = nearestAny(el);
+  if (!owner) return;
+  for (const [container, c] of containers) {
+    if (!c.roots.has(owner.root) || !(container as any).contains?.(el)) continue;
+    const ev = new Event("select", { bubbles: true });
+    Object.defineProperty(ev, "target", { value: el });
+    dispatch(ev, container, new Set([owner.root]), false, true);
+    return;
+  }
+}
+let selectionDocs = new WeakSet<object>();
+/** For a test runner: documents forgotten, as a fresh copy of React (jest.resetModules) listens on them again. */
+export const forgetDocuments = () => void (selectionDocs = new WeakSet());
+
 /** Host fibers from `f` up to its root, nearest first. */
 function hostPath(f: FiberLike | null): FiberLike[] {
   const out: FiberLike[] = [];
@@ -87,6 +130,12 @@ export function addContainer(container: EventTarget, root: object) {
   if (!c) containers.set(container, (c = { roots: new Set(), types: new Set() }));
   c.roots.add(root);
   for (const t of wanted) listenOn(container, c, t);
+  // The document's selectionchange, heard once per document (React's listenToAllSupportedEvents).
+  const doc: any = (container as any).nodeType === 9 ? container : (container as any).ownerDocument;
+  if (doc && !selectionDocs.has(doc)) {
+    selectionDocs.add(doc);
+    doc.addEventListener("selectionchange", selectPlugin, false);
+  }
 }
 
 // The non-bubbling events React listens for on an element itself, by tag, from when it is made.
@@ -237,6 +286,8 @@ export const replaysWaiting = () => queued.size > 0;
 
 /** Runs the handlers for one phase; true when one of them stopped propagation. */
 function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean, replay = native === replaying): boolean {
+  // (The select plugin hears each event once, at its bubbling listener.)
+  if (!capture && !replay && native.type !== "select" && SELECT_SOURCES.includes(native.type)) selectPlugin(native);
   if (native.target && !replay) {
     const continuous = CONTINUOUS.has(native.type);
     const blocked = hydrateFor(native.target as Node, roots, native, continuous);
