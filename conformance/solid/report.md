@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5582 pass, 1119 fail, 714 files (32 did not load, 121 test Solid's internals)
+5594 pass, 1107 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -32,7 +32,7 @@
 | signals/tests/action.test.ts | 66 | 1 |  |
 | signals/tests/adoption-unchanged-key-read-3706.test.ts | 8 | 11 |  |
 | signals/tests/affects-audit-2893.test.ts | 7 | 1 |  |
-| signals/tests/affects-propagation.test.ts | 5 | 4 |  |
+| signals/tests/affects-propagation.test.ts | 7 | 2 |  |
 | signals/tests/async-chain-supersession.test.ts | 6 | 2 |  |
 | signals/tests/async-landing-deps-3461.test.ts | 0 | 2 |  |
 | signals/tests/async-lane-landing-equals-order.test.ts | 1 | 0 |  |
@@ -141,7 +141,7 @@
 | signals/tests/latest-async.test.ts | 1 | 0 |  |
 | signals/tests/latest-created-inside-window.test.ts | 2 | 0 |  |
 | signals/tests/latest-held-till-flush.test.ts | 15 | 7 |  |
-| signals/tests/latest-isPending-consistency.test.ts | 5 | 3 |  |
+| signals/tests/latest-isPending-consistency.test.ts | 6 | 2 |  |
 | signals/tests/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |
 | signals/tests/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |
 | signals/tests/latest-plain-write-purity.test.ts | 4 | 0 |  |
@@ -191,7 +191,7 @@
 | signals/tests/posture-born-held-and-observation.test.ts | 1 | 4 |  |
 | signals/tests/posture-store-parity.test.ts | 0 | 1 | not ours: Cannot find module '../src/store/store.js' |
 | signals/tests/propagation-isolation.test.ts | 2 | 0 |  |
-| signals/tests/question-scoped-pending.test.ts | 17 | 21 |  |
+| signals/tests/question-scoped-pending.test.ts | 20 | 18 |  |
 | signals/tests/recompute-missed-wake.test.ts | 2 | 0 |  |
 | signals/tests/recompute-preserves-disposed-3621.test.ts | 0 | 1 | not ours: reads Solid's graph fields |
 | signals/tests/refresh-await.test.ts | 7 | 5 |  |
@@ -217,7 +217,7 @@
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
 | signals/tests/store/async-setter.test.ts | 6 | 2 |  |
 | signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |
-| signals/tests/store/createOptimisticStore.test.ts | 63 | 17 |  |
+| signals/tests/store/createOptimisticStore.test.ts | 69 | 11 |  |
 | signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
 | signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
 | signals/tests/store/createProjection.test.ts | 7 | 13 |  |

@@ -1960,8 +1960,11 @@ export function latest<T>(fn: () => T): T {
 let latestCalls = 0;
 
 /** Run a derived value again (an async one re-asks quietly: isPending stays false). */
+/** The computation behind an accessor or a refreshable store. */
+const sourceOf = (target: unknown) => (typeof target === "function" ? accessors.get(target as any) : undefined) ?? (typeof target === "object" && target ? accessors.get(refreshables.get(target)?.() as any) : undefined);
+
 export function refresh<T>(target: (() => T) | object): Promise<T> {
-  const c = (typeof target === "function" ? accessors.get(target) : undefined) ?? (typeof target === "object" && target ? accessors.get(refreshables.get(target)?.() as any) : undefined);
+  const c = sourceOf(target);
   if (!c && (typeof target !== "function" || !accessors.has(target))) {
     const message =
       "[INVALID_REFRESH_TARGET] refresh() expects a Solid source accessor or refreshable store. " +
@@ -1970,7 +1973,9 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
     throw new Error(message);
   }
   if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
-  c.quiet = true;
+  // (A reload declared with affects() is not quiet: its readers pend.)
+  c.quiet = !(c as any).declared;
+  (c as any).declared = false;
   (c as any).refreshed = true;
   refreshedNow.push(c);
   if (acting) (c as any).joins = acting.tx;
@@ -2820,9 +2825,11 @@ export function createTrackedEffect(fn: () => void | (() => void)) {
 
 /** Declares that the work in progress will change `target`: it reads as pending until that work lands. */
 export function affects(target: unknown, _key?: PropertyKey) {
-  const c = typeof target === "function" ? accessors.get(target) : undefined;
+  const c = sourceOf(target);
   const tx = acting?.tx;
-  if (!c || !tx) return;
+  if (!c) return;
+  // Outside an action: the next refresh of it is a declared reload.
+  if (!tx) return void ((c as any).declared = true);
   (c as any).affected = ((c as any).affected ?? 0) + 1;
   statusChanged();
   tx.ends.push(() => {
