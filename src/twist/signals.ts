@@ -1365,7 +1365,8 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (seen.has(n)) return false;
   seen.add(n);
   // Held by a transaction still waiting on a flight (one with none left commits this round).
-  if (n.tx && n.staged !== NONE && !committableTx(n.tx)) return true;
+  // (A held truth equal to what shows is no change in flight, A24.)
+  if (n.tx && n.staged !== NONE && !committableTx(n.tx) && !(n instanceof Signal && Object.is(n.staged, n.value))) return true;
   if ((n as any).affected) return true;
   if (n instanceof Computation) {
     if (n.flight && n.ready && !n.quiet && !n.loadingWindow) return true;
@@ -1692,6 +1693,8 @@ function voidLane(l: Transaction) {
   const parent = l.parentTx!.root;
   awaitingRound.add(parent);
   for (const n of l.guessed.keys()) {
+    // (A committed truth too: a superseded read is the parent's whether its truth is staged or not, A18 (c).)
+    if (n.staged === NONE && !n.tx && !parent.done && n.override !== NONE) n.staged = n.value;
     if (n.staged !== NONE && !n.tx && !parent.done) hold(n, parent);
     if (n.override === NONE) continue;
     n.override = NONE as any;
