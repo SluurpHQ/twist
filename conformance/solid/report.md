@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5447 pass, 1252 fail, 714 files (37 did not load, 121 test Solid's internals)
+5449 pass, 1250 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -706,7 +706,7 @@
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
 | web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 2 | 0 |  |
-| web/test/server/ssr-stream.spec.tsx | 81 | 35 |  |
+| web/test/server/ssr-stream.spec.tsx | 83 | 33 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
