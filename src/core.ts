@@ -378,7 +378,17 @@ const docOf = (host: Node): Document => (host.nodeType === 9 ? (host as Document
 
 /** A suspended tree's nodes hidden (React's display: none, text emptied) or shown again as they were. */
 function hideNodes(f: Fiber, hide: boolean) {
-  for (const n of domNodes(f)) hideNode(n, hide);
+  // (Through <html>, <head> and <body>: what they hold is hidden, they stay.)
+  for (const n of hiddenNodes(f)) hideNode(n, hide);
+}
+function hiddenNodes(f: Fiber, out: Node[] = []): Node[] {
+  if ((f as any).singleton) {
+    for (const c of f.children) hiddenNodes(c, out);
+    return out;
+  }
+  if (f.kind === HOST || f.kind === TEXT || (f as any).dehydrated || f.kind === PORTAL_F) return domNodes(f, out);
+  for (const c of f.children) hiddenNodes(c, out);
+  return out;
 }
 /** One node hidden (display none, a text emptied) or shown as it was; counted, as two things may hide it. */
 function hideNode(n: Node, hide: boolean) {
@@ -396,7 +406,12 @@ function hideNode(n: Node, hide: boolean) {
   }
   if (!box.__hidden || --box.__hidden.count > 0) return;
   if (n.nodeType === 3) (n as Text).data = box.__hidden.text;
-  else (n as HTMLElement).style?.setProperty("display", box.__hidden.display, box.__hidden.priority);
+  else {
+    const el = n as HTMLElement;
+    el.style?.setProperty("display", box.__hidden.display, box.__hidden.priority);
+    // (As a browser leaves it: an emptied style attribute stays.)
+    if (el.style && !el.hasAttribute("style")) el.setAttribute("style", "");
+  }
   box.__hidden = null;
 }
 
@@ -1698,14 +1713,19 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
     if (single && !hydrating && type !== "html") clearSparingly(single, f.root);
     // Taken over on a fresh render: its attributes go too (React's acquireSingletonInstance), the props set after.
-    if (single && !hydrating) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
+    // (Pre-warmed while another fiber holds it, a fallback: left to that one, as React never commits the pre-warm.)
+    const held = !!single && prewarming && !!(single as any)[FIBER] && !(single as any)[FIBER].dead;
+    if (held) ((f as any).singletonLent = true), ((single as any).lentTo = f);
+    // Taken from a fiber still there (a fallback over shown content): it gets the element back when this one lets go.
+    else if (single && !hydrating && (single as any)[FIBER] && !(single as any)[FIBER].dead && (single as any)[FIBER] !== f) ((single as any).displaced ??= []).push((single as any)[FIBER]);
+    if (single && !hydrating && !held) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
     // A customized built-in (is="…") is made as one.
     const doc = parent.doc ?? docOf(host);
     const el = (f.dom = server ?? (ns ? doc.createElementNS(ns, type) : type === "script" ? inertScript(doc) : typeof props.is === "string" ? doc.createElement(type, { is: props.is }) : doc.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
-    (el as any)[FIBER] = f;
-    (el as any)[PROPS] = null;
+    if (!held) (el as any)[FIBER] = f;
+    if (!held) (el as any)[PROPS] = null;
     (f as any).placed = false;
     listenOnElement(el, type);
     if (!server) {
@@ -1716,7 +1736,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (!server && hydrationStopped()) return f;
     // As the server drew it, to compare once the props are applied (and have warned as they do).
     const had = server && dev() && !props.suppressHydrationWarning ? attrsOf(server) : null;
-    (el as any)[PROPS] = props;
+    if (!held) (el as any)[PROPS] = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
       // A select's multiple and size before its options: they decide whether the browser picks the first one.
@@ -1739,7 +1759,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
         hydrateProps(el, props, ns === SVG_NS);
         if (dev() && customTag(type)) for (const k in props) if (READ_ONLY.has(k)) console.error(`Assignment to read-only property will result in a no-op: \`${k}\``);
       }
-      else setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
+      else if (!held) setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
       // A noscript's children are not drawn on the client (React leaves them to the server).
       if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), el, null);
     }
@@ -1996,10 +2016,28 @@ function unmount(f: Fiber, removeDom: boolean) {
     // Its children's nodes go with them; what others put in it (resources, extensions' nodes) stays.
     for (const c of f.children) unmount(c, true);
     f.children = [];
-    const props = f.props ?? {};
-    setProps(el, {}, props, false);
-    if (props.dangerouslySetInnerHTML != null) el.textContent = "";
-    if (el.onclick === noop) el.onclick = null;
+    // (Taken over since by another fiber, a fallback's say: what it set stays.)
+    if ((el as any)[FIBER] === f) {
+      const props = f.props ?? {};
+      setProps(el, {}, props, false);
+      if (props.dangerouslySetInnerHTML != null) el.textContent = "";
+      if (el.onclick === noop) el.onclick = null;
+      // Lent to a pre-warmed fiber meanwhile, or taken from one still there: now that one's.
+      let lent = (el as any).lentTo as Fiber | undefined;
+      (el as any).lentTo = undefined;
+      if (lent?.dead) lent = undefined;
+      const displaced = (el as any).displaced as Fiber[] | undefined;
+      while (!lent && displaced?.length) {
+        const d = displaced.pop()!;
+        if (!d.dead) lent = d;
+      }
+      if (lent && !lent.dead) {
+        (lent as any).singletonLent = false;
+        (el as any)[FIBER] = lent;
+        (el as any)[PROPS] = lent.props;
+        setProps(el, lent.props, null, false);
+      }
+    }
   }
   // A boundary still as the server drew it: its markup goes with it.
   if ((f as any).dehydrated && (f as any).region) {
