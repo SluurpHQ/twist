@@ -797,6 +797,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.error !== NONE) throw this.error;
     // Never had a value (a first load, or waiting on one): not ready.
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);
+    // A fresh derivation reading a flight a transaction waits on suspends on it (A15).
+    if (listener && listener.kind === MEMO && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && heldFlight(this)) throw new NotReadyError(this);
     // Born held: nothing committed to serve outside a pass.
     if ((this as any).bornHeld && !inPass && this.override === NONE) throw new NotReadyError(this);
     return this.current();

@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5641 pass, 1060 fail, 714 files (32 did not load, 121 test Solid's internals)
+5657 pass, 1044 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -64,7 +64,7 @@
 | signals/tests/autodispose-pending-release.test.ts | 5 | 1 |  |
 | signals/tests/body-end-supersession-visibility.test.ts | 0 | 1 |  |
 | signals/tests/born-held.test.ts | 4 | 0 |  |
-| signals/tests/boundary-not-born-held-3540.test.ts | 7 | 5 |  |
+| signals/tests/boundary-not-born-held-3540.test.ts | 8 | 4 |  |
 | signals/tests/boundary-output-frame-reader.test.ts | 4 | 0 |  |
 | signals/tests/client-error-hook.test.ts | 5 | 2 |  |
 | signals/tests/compute-write-joins-transition.test.ts | 1 | 1 |  |
@@ -149,13 +149,13 @@
 | signals/tests/latest-repeated-writes.test.ts | 4 | 0 |  |
 | signals/tests/latest-shadow-owned-write.test.ts | 2 | 0 |  |
 | signals/tests/latest-unobserved-memo.test.ts | 3 | 0 |  |
-| signals/tests/loading-fallback-in-flush-3540.test.ts | 22 | 50 |  |
+| signals/tests/loading-fallback-in-flush-3540.test.ts | 29 | 43 |  |
 | signals/tests/loading-fallback-release-3540.test.ts | 1 | 1 |  |
 | signals/tests/loading-on-frame-following-3540.test.ts | 19 | 6 |  |
 | signals/tests/loading-on-rearm-3540.test.ts | 6 | 1 |  |
 | signals/tests/loading-on-rearm-reveal-3540.test.ts | 4 | 3 |  |
 | signals/tests/loading-reset-collects-forwarded-3459.test.ts | 0 | 1 |  |
-| signals/tests/loading-value.test.ts | 25 | 11 |  |
+| signals/tests/loading-value.test.ts | 26 | 10 |  |
 | signals/tests/mapArray-notready-safety.test.ts | 3 | 9 |  |
 | signals/tests/mapArray-smallmove.test.ts | 0 | 1 | not ours: Cannot find module '../src/map.js' |
 | signals/tests/maparray-store-nonkeyed.test.ts | 2 | 0 |  |
@@ -298,8 +298,8 @@
 | signals/tests/verdict-mount-first-pass-3851.test.ts | 0 | 3 |  |
 | signals/tests/verdict-mount-loading-flush-loop.test.ts | 4 | 0 |  |
 | signals/tests/visibility-oracle-posture.test.ts | 1184 | 0 |  |
-| signals/tests/visibility-oracle-store.test.ts | 131 | 22 |  |
-| signals/tests/visibility-oracle.test.ts | 96 | 30 |  |
+| signals/tests/visibility-oracle-store.test.ts | 133 | 20 |  |
+| signals/tests/visibility-oracle.test.ts | 101 | 25 |  |
 | signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
 | signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |
 | signals/tests/zombie-recompute-keeps-flag.test.ts | 1 | 0 |  |
