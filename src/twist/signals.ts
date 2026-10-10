@@ -451,7 +451,7 @@ abstract class Node<T = any> {
   override: T | typeof NONE = NONE;
   /** The value in the world being read: an optimistic override, else staged while a pass runs, else committed. */
   current(): T {
-    if (this.override !== NONE) {
+    if (this.override !== NONE && !authoritative) {
       const lane = (this as any).laneTx as Transaction | undefined;
       if (lane && !lane.done && listener) {
         // A derivation reading the guess is the lane's work; an effect reads the screen: not the guess until the lane
@@ -550,6 +550,10 @@ export class Signal<T> extends Node<T> {
     this.stage(next);
   }
 }
+
+/** Inside until()'s predicate: the authoritative reader, which never sees optimism (A17). */
+let authoritative = 0;
+export const isAuthoritative = () => authoritative > 0;
 
 /** Whether a flush is running (a write staged now is promoted by it). */
 export const isFlushing = () => flushing > 0;
@@ -795,6 +799,8 @@ export class Computation<T> extends Node<T> implements Owner {
     } else if (foreignRead) foreignRead(this);
 
     if (this.error !== NONE) throw this.error;
+    // An authoritative reader asks the truth: a refetch with nothing landed for its question has none yet (A17).
+    if (authoritative && this.flight && this.ready && !this.streaming && this.staged === NONE && this.override === NONE) throw new NotReadyError(this);
     // Never had a value (a first load, or waiting on one): not ready.
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);
     // A fresh derivation reading a flight a transaction waits on suspends on it (A15).
@@ -2226,6 +2232,7 @@ export function until<T>(fn: () => T, options?: { timeout?: number; signal?: Abo
         () => {
           const me = listener!;
           (me as any).insideTx = tx;
+          authoritative++;
           try {
             const v = fn();
             if (v && tx && !tx.done) for (const s of me.sources) if (s instanceof Computation && s.staged !== NONE && !s.tx) hold(s, tx);
@@ -2233,6 +2240,8 @@ export function until<T>(fn: () => T, options?: { timeout?: number; signal?: Abo
           } catch (e) {
             if (e instanceof NotReadyError) return { v: undefined, ok: false };
             throw e;
+          } finally {
+            authoritative--;
           }
         },
         {

@@ -2,7 +2,7 @@
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -150,7 +150,7 @@ export const unwrap = <T>(v: T): T => ((v as any)?.[$TARGET] ?? v);
 
 /** Whether `key` shows an optimistic guess. (A probe asking whether it is final: only while it differs from the truth beneath, A24.) */
 function overlaid(target: Raw, key: PropertyKey) {
-  const o = records.get(target)?.overlay?.get(key);
+  const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
   if (!o) return false;
   if (isVerdictReading() && (o.v === DELETE ? !latestHas(target, key) : latestHas(target, key) && Object.is(o.v, latestGet(target, key)))) return "final";
   return true;
@@ -214,17 +214,17 @@ function frozen(target: Raw, key: PropertyKey, value?: unknown): boolean {
 
 /** What a key shows: its optimistic value if one is installed, else the committed value. */
 function viewGet(target: Raw, key: PropertyKey): any {
-  const o = records.get(target)?.overlay?.get(key);
+  const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
   if (o) return o.v === DELETE ? undefined : o.v;
   return rawGet(target, key);
 }
 function viewHas(target: Raw, key: PropertyKey): boolean {
-  const o = records.get(target)?.overlay?.get(key);
+  const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
   if (o) return o.v !== DELETE;
   return rawHas(target, key);
 }
 function viewKeys(target: Raw): (string | symbol)[] {
-  const overlay = records.get(target)?.overlay;
+  const overlay = isAuthoritative() ? null : records.get(target)?.overlay;
   if (!overlay?.size) return rawKeys(target);
   const keys = new Set<string | symbol>(rawKeys(target));
   for (const [k, o] of overlay) o.v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
