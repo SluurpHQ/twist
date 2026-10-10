@@ -106,6 +106,8 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
   if (typeof type === "string") return walk(props.children, fiber, at, contexts);
   if (type?.$$typeof === LAZY) type = readLazy(type._payload);
   if (type === SUSPENSE) {
+    // Still as the server drew it, its content not streamed in yet (its fallback showing): not rendered into.
+    if (fiber && (fiber as any).dehydrated && (fiber as any).region?.start?.data === "$?") return;
     try {
       walk(props.children, fiber, at, contexts);
     } catch (e: any) {
