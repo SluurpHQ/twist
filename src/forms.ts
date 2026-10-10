@@ -244,6 +244,7 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean, hyd
   validateProps(tag, props, true);
   // Taken over from the server: only its listeners (its attributes are left as the server wrote them).
   for (const k in props) if (!own.has(k) && props[k] != null && (!hydrating || isEventProp(k))) setProp(el, k, props[k], undefined, svg);
+  if (!hydrating && !own.has("dangerouslySetInnerHTML")) innerHtml(el, props, null);
   if (tag === "input") initInput(el as HTMLInputElement, props, hydrating);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
   else if (tag === "select") initSelect(el as HTMLSelectElement, props);
@@ -254,6 +255,12 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean, hyd
   if (tag !== "option") track(el);
 }
 
+/** An option's or select's dangerouslySetInnerHTML, as on any element. */
+function innerHtml(el: Element, next: any, prev: any) {
+  const html = next.dangerouslySetInnerHTML?.__html;
+  if (html !== prev?.dangerouslySetInnerHTML?.__html) el.innerHTML = html ?? "";
+}
+
 /** A field's props changed from `prev` to `next`. */
 export function updateForm(el: Element, tag: string, next: any, prev: any, svg: boolean) {
   const own = OWN[tag]!;
@@ -261,6 +268,7 @@ export function updateForm(el: Element, tag: string, next: any, prev: any, svg: 
   checkControlledSwitch(tag, next, prev);
   for (const k in prev) if (!own.has(k) && !(k in next)) setProp(el, k, undefined, prev[k], svg);
   for (const k in next) if (!own.has(k) && next[k] !== prev[k]) setProp(el, k, next[k], prev[k], svg);
+  if (!own.has("dangerouslySetInnerHTML")) innerHtml(el, next, prev);
   if (tag === "input") updateInput(el as HTMLInputElement, next, prev.defaultValue);
   else if (tag === "textarea") updateTextarea(el as HTMLTextAreaElement, next);
   else if (tag === "select") updateSelect(el as HTMLSelectElement, next, prev.multiple);
