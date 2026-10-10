@@ -551,6 +551,9 @@ export class Signal<T> extends Node<T> {
   }
 }
 
+/** Whether a flush is running (a write staged now is promoted by it). */
+export const isFlushing = () => flushing > 0;
+
 /** Whether something tracks what is read now. */
 export const isTracking = () => listener !== null;
 

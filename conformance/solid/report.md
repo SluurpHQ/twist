@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5603 pass, 1098 fail, 714 files (32 did not load, 121 test Solid's internals)
+5605 pass, 1096 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -211,7 +211,7 @@
 | signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |
 | signals/tests/snapshot-derived-store-rows.test.ts | 4 | 1 |  |
 | signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
-| signals/tests/spec-async-semantics.test.ts | 30 | 22 |  |
+| signals/tests/spec-async-semantics.test.ts | 32 | 20 |  |
 | signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
 | signals/tests/store-unchanged-read-independent-write-3688.test.ts | 2 | 2 |  |
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |

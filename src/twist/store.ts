@@ -2,7 +2,7 @@
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
+import { Signal, DEV, isFlushing, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -41,6 +41,9 @@ const recordOf = (target: Raw) => {
 /** A key's node: read tracked, bumped when a flushed write changes the key. The record's key-set node also carries
  * the record's writes into the flush, and commits them there. */
 class KeyNode extends Signal<number> {
+  /** A flushed write's value, staged like a signal's (held by a transaction, or put on the object when promoted). */
+  raw: any = NO_RAW;
+  seq = 0;
   constructor(public record: Record_, public key: PropertyKey) {
     super(0, { equals: false, ownedWrite: true });
   }
@@ -48,6 +51,29 @@ class KeyNode extends Signal<number> {
     this.settle();
     if (this.key === $TRACK && commitRecord(this.record)) this.bump();
   }
+  override promote() {
+    if (this.raw !== NO_RAW) {
+      const t = this.record.target;
+      const desc = Object.getOwnPropertyDescriptor(t, this.key);
+      if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(t, this.key, { ...desc, value: this.raw });
+      else t[this.key] = this.raw;
+      this.raw = NO_RAW;
+    }
+    super.promote();
+  }
+}
+const NO_RAW: unique symbol = Symbol("no-raw");
+
+/** `target[key]` in the world being read: a staged write where the reader sees it, else the object's. */
+function rawGet(target: Raw, key: PropertyKey): any {
+  const n = records.get(target)?.nodes.get(key);
+  if (!n || n.raw === NO_RAW) return target[key];
+  return n.current() === n.value ? target[key] : n.raw;
+}
+/** The newest `target[key]`, staged or not (what a draft builds on). */
+function latestGet(target: Raw, key: PropertyKey): any {
+  const n = records.get(target)?.nodes.get(key);
+  return n && n.raw !== NO_RAW ? n.raw : target[key];
 }
 
 /**
@@ -122,7 +148,7 @@ function frozen(target: Raw, key: PropertyKey, value?: unknown): boolean {
 function viewGet(target: Raw, key: PropertyKey): any {
   const o = records.get(target)?.overlay?.get(key);
   if (o) return o.v === DELETE ? undefined : o.v;
-  return target[key];
+  return rawGet(target, key);
 }
 function viewHas(target: Raw, key: PropertyKey): boolean {
   const o = records.get(target)?.overlay?.get(key);
@@ -182,7 +208,7 @@ function pendingValue(target: Raw, key: PropertyKey): any {
     const v = p.get(key);
     return v === DELETE ? undefined : v;
   }
-  return target[key];
+  return latestGet(target, key);
 }
 function pendingHas(target: Raw, key: PropertyKey): boolean {
   const p = records.get(target)?.pending;
@@ -220,8 +246,19 @@ export function commitRecord(r: Record_) {
   const lenBefore = Array.isArray(t) ? t.length : 0;
   const told = DEV.hooks.onStoreNodeUpdate;
   for (const [key, v] of p) {
+    // A new value of a key it has (not its length), on an object read through a store: staged on its node, as a signal's write (a hold keeps it off).
+    const own = Object.getOwnPropertyDescriptor(t, key);
+    if (isFlushing() && proxies.has(t) && v !== DELETE && key !== "length" && own && "value" in own && (own.writable || own.configurable)) {
+      const n = node(t, key);
+      const prev = latestGet(t, key);
+      if (Object.is(prev, v)) continue;
+      if (told) told(wrap(t), key, v, prev);
+      n.raw = v;
+      n.stage(++n.seq);
+      continue;
+    }
     if (told) {
-      const prev = t[key];
+      const prev = latestGet(t, key);
       if (v === DELETE ? key in t : !Object.is(prev, v)) told(wrap(t), key, v === DELETE ? undefined : v, prev);
     }
     if (v === DELETE) {
