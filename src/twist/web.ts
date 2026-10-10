@@ -382,6 +382,8 @@ export function insert(parent: Node, value: any, marker: Node | null = null) {
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
 function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor) {
   let current: Node[] = [];
+  // What the apply step makes (a description drawn late) belongs where the binding was made.
+  const home = getOwner();
   let first: Cursor | undefined = claimed;
   createRenderEffect(
     // Every accessor in it read here, tracked (a list of rows that are accessors, say); nodes made in the apply.
@@ -412,7 +414,7 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
     },
     (v: any) => {
       if (v === CLAIMED) return;
-      const next = untrack(() => nodesOf(v, [], current));
+      const next = runWithOwner(home, () => untrack(() => nodesOf(v, [], current)));
       reconcile(parent, current, next, end);
       current = next;
     },

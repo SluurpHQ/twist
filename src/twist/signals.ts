@@ -7,6 +7,26 @@
 // transaction instead: what is on screen keeps the committed values, and the transaction commits as one when its last
 // flight lands. Writes on graphs no flight touches commit at once.
 
+import { diagnose, emitDiagnostic } from "./diagnostics.ts";
+
+// Messages Solid's diagnostics carry, word for word (tools and tests match them).
+const OWNED_WRITE_MESSAGE =
+  "[REACTIVE_WRITE_IN_OWNED_SCOPE] Writing to reactive state inside an owned scope (component, computation) is not allowed. " +
+  "Move the write outside or set the `ownedWrite` option if this is intentional.";
+const OWNED_REFRESH_MESSAGE =
+  "[REACTIVE_WRITE_IN_OWNED_SCOPE] Calling refresh() inside an owned scope (component, computation) is not allowed. " +
+  "Move the invalidation outside pure computation.";
+const ACTION_IN_OWNED_SCOPE_MESSAGE =
+  "[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed. " +
+  "Call it from an event handler or another imperative scope.";
+const PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE =
+  "[PRIMITIVE_IN_EFFECT_CALLBACK] Cannot create a memo, effect or root with no owner inside an effect callback. The effect " +
+  "phase runs with no ambient owner, so a computation created here belongs to nobody: it is never disposed and never held. " +
+  "Create it in the compute (a flow component owns its children), or parent it explicitly with runWithOwner.";
+const ownedWriteMessage = (o: Owner) => ((o as any).name ? `${OWNED_WRITE_MESSAGE} (in ${(o as any).name})` : OWNED_WRITE_MESSAGE);
+/** Running an effect's apply half (or its cleanup): no ambient owner. */
+let inEffectCallback = false;
+
 /** TWIST_TRACE=1: a runaway loop reports itself (every 100,000 runs or rounds, with where it is). */
 const TRACE = !!(globalThis as any).process?.env?.TWIST_TRACE;
 let runs = 0;
@@ -369,9 +389,11 @@ export const refreshTarget = (target: object, memo: () => () => unknown) => void
 /** Writes in a reactive scope (a component body, a memo, a root being built) throw: they would re-run what read. */
 function guardWrite(allowed: boolean) {
   if (allowed || !owner || (owner as any).allowWrites) return;
-  throw new Error(
-    "[REACTIVE_WRITE_IN_OWNED_SCOPE] Writing to reactive state inside an owned scope is not allowed. Write in an event handler, an effect's apply half, or untracked code; or create the signal with { ownedWrite: true }.",
+  emitDiagnostic(
+    { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", kind: "write", severity: "error", message: OWNED_WRITE_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name, data: { operation: "setSignal" } },
+    owner,
   );
+  throw new Error(ownedWriteMessage(owner));
 }
 
 // ---------------------------------------------------------------- computations
@@ -433,6 +455,7 @@ export class Computation<T> extends Node<T> implements Owner {
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
     super();
     if ((owner as any)?.tracked) throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
+    if (inEffectCallback && !owner) primitiveInEffectCallback();
     this.kind = kind;
     this.fn = fn;
     this.parent = owner;
@@ -619,6 +642,11 @@ export class Computation<T> extends Node<T> implements Owner {
           ref && typeof ref.then === "function" && ref.s !== 1 ? ref.then(takeOver, noop) : queueMicrotask(takeOver);
         }
       } else next = this.fn(this.current());
+      // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
+      if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
+        const now = this.staged !== NONE ? (this.staged as T) : this.value;
+        (this as any).compared = { now, next, same: this.equals(now, next!) };
+      }
     } catch (e) {
       threw = e;
     } finally {
@@ -672,7 +700,11 @@ export class Computation<T> extends Node<T> implements Owner {
     const first = !this.ready;
     this.ready = true;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
-    const changed = first || this.recovered || this.equals === false || !this.equals(now, next);
+    // (Compared already by the compute that made it: once.)
+    const compared = (this as any).compared;
+    (this as any).compared = null;
+    const same = () => (compared && compared.now === now && compared.next === next ? compared.same : this.equals !== false && this.equals(now, next));
+    const changed = first || this.recovered || this.equals === false || !same();
     this.recovered = false;
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
@@ -829,18 +861,31 @@ export class Computation<T> extends Node<T> implements Owner {
     this.applied = this.value as T;
     const c = this.cleanup;
     this.cleanup = undefined;
-    c?.();
     let done: unknown;
+    const wasIn = inEffectCallback;
+    inEffectCallback = true;
     try {
+      c?.();
       done = runWithOwner(null, () => this.apply!(this.value as T, prev));
     } catch (e) {
       // The effect's own code threw: not its error handler's (that is for its compute) — the nearest boundary, else
       // the system halts (A5).
       escalate(this, e);
+    } finally {
+      inEffectCallback = wasIn;
     }
     if (done !== undefined && typeof done !== "function") throw new Error("effect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
     this.cleanup = done as (() => void) | undefined;
   }
+}
+
+function noOwnerEffect(effectType: string) {
+  diagnose({ code: "NO_OWNER_EFFECT", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed", data: { effectType } });
+}
+
+function primitiveInEffectCallback(): never {
+  emitDiagnostic({ code: "PRIMITIVE_IN_EFFECT_CALLBACK", kind: "lifecycle", severity: "error", message: PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE });
+  throw new Error(PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE);
 }
 
 /** Unowned memos read outside any computation since the last flush. */
@@ -1206,6 +1251,18 @@ const statusDirty = () => false;
 export function flush<T>(fn?: () => T): T {
   if (inSettled) throw new Error("Cannot call flush() from inside onSettled or createTrackedEffect. flush() is not reentrant there.");
   let result!: T;
+  // From an effect callback: the flush running it carries on with what it writes; this one does nothing.
+  if (flushing && inEffectCallback) {
+    diagnose({
+      code: "FLUSH_IN_EFFECT_CALLBACK",
+      kind: "lifecycle",
+      severity: "warn",
+      message:
+        "[FLUSH_IN_EFFECT_CALLBACK] flush() called from inside an effect callback is a no-op: the flush that runs effects is already in progress. " +
+        "Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush()).",
+    });
+    return fn ? fn() : result;
+  }
   // Stopped by an effect's uncaught error: nothing runs until resetErrorHalt().
   if (stopped) return fn ? untrack(fn) : result;
   if (!flushing) flushes++;
@@ -1220,7 +1277,9 @@ export function flush<T>(fn?: () => T): T {
       effectFailed = false;
       stopped = true;
       // Said once, and the cause handed to the platform where it takes one.
-      const msg = "[REACTIVITY_HALTED] An uncaught error stopped the reactive system; nothing updates until resetErrorHalt().";
+      const msg =
+        "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
+      emitDiagnostic({ code: "REACTIVITY_HALTED", kind: "error", severity: "error", message: msg });
       // The cause beside it, or to the platform where it takes one.
       const report = (globalThis as any).reportError;
       if (typeof report === "function") console.error(msg), report(e);
@@ -1316,6 +1375,7 @@ export function keepMemo<T>(read: Accessor<T>): Accessor<T> {
 type EffectBundle<T> = { effect: (value: T, prev?: T) => void | (() => void); error?: (err: unknown, cleanup: () => void) => void };
 
 function effectOf<T>(kind: 1 | 2, compute: (prev?: T) => T, apply?: ((value: T, prev?: T) => void | (() => void)) | EffectBundle<T>, options?: SignalOptions<T>) {
+  if (!owner && !inEffectCallback) noOwnerEffect("effect");
   const e = new Computation<T>(kind, compute, options);
   if (typeof apply === "function") e.apply = apply;
   else if (apply) (e.apply = apply.effect), (e.onError = apply.error);
@@ -1397,7 +1457,13 @@ let latestCalls = 0;
 /** Run a derived value again (an async one re-asks quietly: isPending stays false). */
 export function refresh<T>(target: (() => T) | object): Promise<T> {
   const c = (typeof target === "function" ? accessors.get(target) : undefined) ?? (typeof target === "object" && target ? accessors.get(refreshables.get(target)?.() as any) : undefined);
-  if (!c && (typeof target !== "function" || !accessors.has(target))) throw new Error("INVALID_REFRESH_TARGET: refresh() expects a refreshable source (a memo, a derived signal or store)");
+  if (!c && (typeof target !== "function" || !accessors.has(target))) {
+    const message =
+      "[INVALID_REFRESH_TARGET] refresh() expects a Solid source accessor or refreshable store. " +
+      "Pass the original source target, not a wrapper function or derived property read.";
+    emitDiagnostic({ code: "INVALID_REFRESH_TARGET", kind: "write", severity: "error", message });
+    throw new Error(message);
+  }
   if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
   c.quiet = true;
   (c as any).refreshed = true;
@@ -1504,8 +1570,13 @@ let acting: { tx: Transaction } | null = null;
  * body ends and what it set off lands. Yielding a promise waits for it; the action answers a promise of the result.
  */
 export function action<A extends unknown[], R>(gen: (...args: A) => Generator<any, R, any> | AsyncGenerator<any, R, any>): (...args: A) => Promise<R> {
-  return (...args: A) =>
-    new Promise<R>((ok, fail) => {
+  return (...args: A) => {
+    // Invoking an action opens a transaction: like a write, not inside an owned scope.
+    if (owner && !inSettled && !(owner as any).tracked) {
+      emitDiagnostic({ code: "ACTION_CALLED_IN_OWNED_SCOPE", kind: "write", severity: "error", message: ACTION_IN_OWNED_SCOPE_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name });
+      throw new Error(ACTION_IN_OWNED_SCOPE_MESSAGE);
+    }
+    return new Promise<R>((ok, fail) => {
       const tx = newTransaction();
       tx.open++;
       const me = { tx };
@@ -1545,6 +1616,7 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
       };
       step("next");
     });
+  };
 }
 
 /** Thrown by until() when its timeout passes. */
@@ -2113,7 +2185,12 @@ export function onSettled(fn: () => void | (() => void)) {
     }
     if (done === undefined) return;
     if (typeof done !== "function") throw new Error("onSettled callback returned an invalid cleanup value. Return a cleanup function or undefined.");
-    if (!o || o.disposed) throw new Error("[SETTLED_CLEANUP_UNOWNED] onSettled returned a cleanup with no owner to run it: call onSettled from an owned scope.");
+    if (!o || o.disposed) {
+      const message =
+        "[SETTLED_CLEANUP_UNOWNED] onSettled returned a cleanup in an unowned scope; a cleanup can only be honored under an owner. Call your setup helper from an owned scope (e.g. the component body) instead of from inside an event handler, tracked effect, or another onSettled.";
+      emitDiagnostic({ code: "SETTLED_CLEANUP_UNOWNED", kind: "lifecycle", severity: "error", message });
+      throw new Error(message);
+    }
     clean?.();
     clean = done as () => void;
   };

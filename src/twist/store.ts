@@ -1,6 +1,7 @@
 // Twist's stores: objects and arrays read property by property (each a node of its own), changed through a draft.
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
+import { emitDiagnostic } from "./diagnostics.ts";
 import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, type Transaction } from "./signals.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -319,6 +320,15 @@ function replaceInto(target: Raw, next: any) {
 
 export type StoreSetter<T> = (fn: ((draft: T) => T | void) | Partial<T>) => void;
 
+const ASYNC_STORE_SETTER_MESSAGE =
+  "[ASYNC_STORE_SETTER] Store setter callback returned a Promise. A store setter is a synchronous transaction: " +
+  "the draft closes when the callback returns, so writes after an `await` are lost. " +
+  "Move the await into an action() and call the setter from there.";
+function asyncStoreSetter(): never {
+  emitDiagnostic({ code: "ASYNC_STORE_SETTER", kind: "write", severity: "error", message: ASYNC_STORE_SETTER_MESSAGE, data: { operation: "setStore" } });
+  throw new Error(ASYNC_STORE_SETTER_MESSAGE);
+}
+
 /** A store and its setter; given a function, a store derived from what the function reads (RFC 04). */
 export function createStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: StoreOptions): [T, StoreSetter<T>] {
   if (typeof init === "function") return derivedStore(init as any, seed ?? ({} as T), options, true) as [T, StoreSetter<T>];
@@ -330,6 +340,7 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
     const before = (fn as any)?.[RECONCILE] ? new Set(dirtyRecords) : null;
     if (typeof fn === "function") {
       const r = (fn as (d: T) => T | void)(d as T);
+      if (r != null && (typeof r === "object" || typeof r === "function") && typeof (r as any).then === "function") asyncStoreSetter();
       if (r !== undefined && r !== d) replaceInto(target, r);
     } else replaceInto(target, { ...untrack(() => ({ ...d })), ...(fn as object) });
     // A reconcile given to the setter: its diff visible at once.
