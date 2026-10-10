@@ -2250,6 +2250,8 @@ const hydrationStopped = () => hydrating !== null && (regions.length ? regions[r
 
 function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   if (hydrationStopped()) return;
+  // A boundary whose hydration threw: nothing more of it renders (React unwinds to it), it is drawn on the client.
+  if (hydrating && regions.length && regions[regions.length - 1]!.errored) return;
   (f as any).draws = ((f as any).draws ?? 0) + 1;
   if (!drawsReset) {
     drawsReset = true;
