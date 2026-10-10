@@ -160,11 +160,19 @@ for (const [proto, key] of [[Element.prototype, "innerHTML"], [Element.prototype
     return r;
   };
 }
-// Node's abort() with no reason gives "This operation was aborted" (Bun's says "signal is aborted without reason").
+// abort() with no reason: Node's "This operation was aborted" in a node-environment file, jsdom's "The operation was
+// aborted." otherwise (Bun's own says "signal is aborted without reason").
 {
+  const file = process.argv.find((a) => /-test(\.internal)?\.js$/.test(a));
+  // (Node's in a node environment, and in React's server-integration one: a Node environment with jsdom's document.)
+  let nodeEnv = false;
+  try {
+    nodeEnv = !!file && /@jest-environment (node\b|\S*ReactDOMServerIntegrationEnvironment)/.test((await Bun.file(isAbsolute(file) ? file : join(import.meta.dir, file)).text()).slice(0, 2000));
+  } catch {}
+  const message = nodeEnv ? "This operation was aborted" : "The operation was aborted.";
   const abort = AbortController.prototype.abort;
   AbortController.prototype.abort = function (this: AbortController, reason?: any) {
-    return abort.call(this, reason === undefined ? new DOMException("This operation was aborted", "AbortError") : reason);
+    return abort.call(this, reason === undefined ? new DOMException(message, "AbortError") : reason);
   };
 }
 if (!("nonce" in HTMLElement.prototype)) {

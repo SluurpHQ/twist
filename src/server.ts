@@ -412,7 +412,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       const abortedNow = () => {
         const why = ctx.streaming!.shared.aborted!.reason;
         const at = stackText(ctx.stack);
-        const digest = ctx.streaming!.onError(why, at);
+        const digest = (ctx.streaming!.shared as any).rootAborted ? undefined : ctx.streaming!.onError(why, at);
         ctx.res.boundary = parentDeps;
         ctx.streaming!.shared.boundaries.length = queued;
         const fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
@@ -587,7 +587,13 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       );
     let out: any;
     try {
-      out = frame ? withOwner(frame, () => renderFunction(type, props)) : renderFunction(type, props);
+      const outer = renderingIn;
+      renderingIn = ctx;
+      try {
+        out = frame ? withOwner(frame, () => renderFunction(type, props)) : renderFunction(type, props);
+      } finally {
+        renderingIn = outer;
+      }
     } catch (e) {
       if (frame && failedIn === null && !(e && typeof (e as any).then === "function")) failedIn = frame;
       throw e;
@@ -730,6 +736,8 @@ function preambleElement(tag: string, props: any, ctx: Ctx, hooks: any): string 
 type Preamble = { html?: string; head?: string; body?: string; headInner?: string };
 
 /** A function action's progressive-enhancement form (React's getCustomFormFields), with a prefix of its own. */
+/** The context of the component rendering now: an abort from inside it knows where it came from. */
+let renderingIn: Ctx | null = null;
 /** What a function action's form submits to before hydration: nothing (the replaying runtime prevents it). */
 const FORM_ACTION_URL = "javascript:throw new Error('React form unexpectedly submitted.')";
 /** React's inline runtime that queues submits of function actions until hydration replays them. */
@@ -1261,7 +1269,7 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   else if (why && b.status !== 2 && b.status !== 1) {
     const at = stackText(ctx.stack);
     b.status = 2;
-    b.error = { digest: s.onError(why.reason, at), message: aborted((why.reason as any)?.message ?? String(why.reason)), at };
+    b.error = { digest: (s.shared as any).rootAborted ? undefined : s.onError(why.reason, at), message: aborted((why.reason as any)?.message ?? String(why.reason)), at };
   }
   if (b.status === 0 && b.pending === 0) {
     b.status = 1;
@@ -1923,6 +1931,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   };
   // Aborted while the shell renders: what is left is aborted once it is done.
   let renderingShell = true;
+  let rootAborted = false;
   let api: { abort(reason?: unknown): void } | null = null;
   // The stream flows (piped): the shell and what completed into it written, then the rest as it comes.
   /** A prerender: the boundaries it leaves pending, for a resume to finish (React's postponed state). */
@@ -1944,7 +1953,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   };
   expose?.(
     (reason?: unknown) => {
-      if (renderingShell) shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
+      if (renderingShell) {
+        shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
+        // (Not in a resume whose shell was sent already: replaying it is not the shell's task.)
+        if (!resumed && renderingIn?.streaming?.shared === shared && !renderingIn.container && !renderingIn.fallbackOf) rootAborted = (shared as any).rootAborted = true;
+      }
       else api?.abort(reason);
     },
     // (Piped from onShellReady, before the shell's render returns: it flows at once, as React's pipe writes.)
@@ -1953,7 +1966,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   /** Aborted before the shell is done: each part still waiting told the reason (React's abortTask), and the part
    * that was rendering (inFlight), then the shell fails with it. A browser() reason: a boundary's part bails out to
    * the browser, a part of the shell is fatal, each its own. */
-  const abortShell = (reason: unknown, inFlight?: string, known?: Error | null) => {
+  const abortShell = (reason: unknown, inFlight?: string, known?: Error | null, rootFirst = false) => {
     if (closed) return;
     // (A browser() reason is resolved once: its initializer runs once.)
     const browserReason = known !== undefined ? known : reason && typeof reason === "object" && (reason as any).$typeof === RECOVERABLE ? browserError(reason) : null;
@@ -1964,10 +1977,12 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       if (inShell) why ??= e;
       onError(e, at);
     };
+    // (The root's own part aborted as it rendered: fatal at once, so the parts waiting are not told, as React closes
+    // the request before it reaches them.)
     for (const t of tasks) {
       if (t.state !== 0) continue;
       t.state = 2;
-      tell(!t.container, t.at);
+      if (!rootFirst) tell(!t.container, t.at);
     }
     if (inFlight !== undefined || why === null) tell(true, inFlight);
     // (A prerender whose shell could not finish: the whole render is left to a resume.)
@@ -1996,6 +2011,12 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         closed = true;
         finish();
         return why;
+      }
+      // Aborted from a part outside any boundary as it rendered (React's root task in flight): the shell fails.
+      if (shared.aborted && rootAborted) {
+        renderingShell = false;
+        abortShell(shared.aborted.reason, undefined, undefined, true);
+        return shared.aborted.reason ?? new Error("The render was aborted by the server without a reason.");
       }
     } catch (e: any) {
       if (e === ABORTED || shared.aborted) {

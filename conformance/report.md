@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3981 pass, 98 fail, 362 skipped (gated off for stable React 19), 48 set aside as not ours (not-ours.ts).
+3983 pass, 96 fail, 362 skipped (gated off for stable React 19), 48 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -34,7 +34,7 @@
 | react-dom/ReactDOMFizzDeferredValue-test.js | 1 | 1 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 15 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServer-test.js | 155 | 16 | 13 |  |
-| react-dom/ReactDOMFizzServerBrowser-test.js | 15 | 2 | 0 |  |
+| react-dom/ReactDOMFizzServerBrowser-test.js | 17 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 20 | 1 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 12 | 0 | 0 |  |
