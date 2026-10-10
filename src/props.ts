@@ -220,7 +220,7 @@ function submitted(e: SubmitEvent, startedTransition: boolean) {
   // The button that submitted it (some DOMs give the form itself when requestSubmit() had none).
   const submitter = e.submitter && e.submitter !== (form as any) ? e.submitter : null;
   // Prevented, but its handlers started a transition: the form is pending while it runs (React's host transition).
-  if (e.defaultPrevented && startedTransition) return pendingWhile(form, statusAction(props.action), new FormData(form, (submitter ?? undefined) as any), submitter);
+  if (e.defaultPrevented && startedTransition) return pendingWhile(form, statusAction(props.action), formDataWith(form, submitter), submitter);
   let act = props.action;
   let by: HTMLElement | null = submitter;
   if (by) {
@@ -230,7 +230,29 @@ function submitted(e: SubmitEvent, startedTransition: boolean) {
   }
   if (e.defaultPrevented || typeof act !== "function") return;
   e.preventDefault();
-  submit(form, act, new FormData(form, (by ?? undefined) as any), submitter);
+  submit(form, act, formDataWith(form, by), submitter);
+}
+
+/**
+ * A form's data with the button that submitted it, as React builds it (createFormDataWithSubmitter): its name and
+ * value put in by a hidden input beside it for the moment (not every DOM takes the submitter argument), so the
+ * formdata event sees it too.
+ */
+function formDataWith(form: HTMLFormElement, submitter: HTMLElement | null): FormData {
+  const name = submitter && (submitter as any).name;
+  if (!submitter || !name || !submitter.parentNode) return new FormData(form);
+  // (An image button gives its click's coordinates, not its name: the DOM's own submitter handling.)
+  if ((submitter as any).type === "image") return new FormData(form, submitter as any);
+  const temp = submitter.ownerDocument.createElement("input");
+  temp.name = name;
+  temp.value = (submitter as any).value;
+  if (form.id) temp.setAttribute("form", form.id);
+  submitter.parentNode.insertBefore(temp, submitter);
+  try {
+    return new FormData(form);
+  } finally {
+    temp.remove();
+  }
 }
 
 /** How a form's action runs: given by core (it knows the form's fiber, its status and its boundary). */

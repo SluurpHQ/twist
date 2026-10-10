@@ -29,7 +29,14 @@ GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframe
       if (!form?.elements) return;
       for (const el of Array.from(form.elements) as any[]) {
         if (el.localName !== "input" || el.type !== "image" || !el.name) continue;
-        this.delete(el.name);
+        // (Only the image's own entry: others of the same name stay.)
+        const entries = [...this.entries()];
+        const at = entries.findIndex(([k, v]) => k === el.name && v === (el.value ?? ""));
+        if (at >= 0) {
+          entries.splice(at, 1);
+          for (const k of new Set(entries.map(([k]) => k).concat(el.name))) this.delete(k);
+          for (const [k, v] of entries) this.append(k, v as any);
+        }
         if (el === submitter) this.append(el.name + ".x", "0"), this.append(el.name + ".y", "0");
       }
     }
