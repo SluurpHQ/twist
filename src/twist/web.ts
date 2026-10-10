@@ -19,6 +19,7 @@ import {
   sharedConfig,
   createSignal,
   createOwner,
+  ownerUnder,
   createLoadingBoundary,
   peekNextChildId,
 } from "./signals.ts";
@@ -200,6 +201,39 @@ export function setAttribute(el: Element, name: string, value: any) {
   if (typeof value === "function" && name.startsWith("on")) lowercaseEventAttribute(name, el);
   if (value == null || value === false) el.removeAttribute(name);
   else el.setAttribute(name, value === true ? "" : String(value));
+  if (claimHandlers !== null && (name === "href" || name === "action")) claimElement(el);
+}
+
+// Element claims: consumers (a router's link layer, frames) told of every `a[href]` and `form[action]`.
+let claimHandlers: ((el: Element) => void)[] | null = null;
+const CLAIM_SEAM = Symbol.for("solid.element-claims");
+const CLAIMED_ELEMENTS = "a[href], form[action]";
+
+/** Register a consumer of element claims; returns its unregister. @internal */
+export function registerElementClaim(handler: (el: Element) => void): () => void {
+  (claimHandlers ??= (globalThis as any)[CLAIM_SEAM] = []).push(handler);
+  return () => {
+    const i = claimHandlers!.indexOf(handler);
+    i > -1 && claimHandlers!.splice(i, 1);
+  };
+}
+
+/** Claim one element for the registered consumers. @internal */
+export function claimElement<T extends Element>(node: T): T {
+  if (claimHandlers !== null) for (const h of claimHandlers) h(node);
+  return node;
+}
+
+/** Replays events caught before hydration; Twist catches none yet. @internal */
+export function runHydrationEvents() {}
+
+/** Claim every `a[href]` and `form[action]` in a subtree (content that arrives as markup). @internal */
+export function claimElementTree<T extends Node>(root: T): T {
+  const handlers: ((el: Element) => void)[] | undefined = (globalThis as any)[CLAIM_SEAM];
+  if (!handlers?.length || (root.nodeType !== 1 && root.nodeType !== 11)) return root;
+  if (root.nodeType === 1 && (root as any as Element).matches(CLAIMED_ELEMENTS)) for (const h of handlers) h(root as any);
+  for (const el of (root as any as ParentNode).querySelectorAll(CLAIMED_ELEMENTS)) for (const h of handlers) h(el);
+  return root;
 }
 
 export function setProperty(el: Element, name: string, value: any) {
@@ -424,13 +458,18 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
  * `value` put in `parent` (before `marker`, else at the end), kept current when it can change. Lists move by the
  * longest run still in order; nodes kept stay.
  */
-export function insert(parent: Node, value: any, marker: Node | null = null, host?: () => Node | null) {
+export function insert(parent: Node, value: any, marker: Node | null = null, initial?: Node[]) {
+  insertHosted(parent, value, marker, initial);
+}
+
+/** `insert`, with each node told its portal host. */
+function insertHosted(parent: Node, value: any, marker: Node | null, initial?: Node[], host?: () => Node | null) {
   // Children given as a list: static ones put in place; a part that can change, bound where it sits (before an empty
   // anchor of its own when more follows it).
   if (Array.isArray(value) && value.some((v) => typeof v === "function")) {
     const last = value.length - 1;
     value.forEach((v, i) => {
-      if (typeof v !== "function" || i === last) return insert(parent, v, marker, host);
+      if (typeof v !== "function" || i === last) return insertHosted(parent, v, marker, i === last ? initial : undefined, host);
       const anchor = document.createTextNode("");
       if (host) (anchor as any)._$host = host();
       parent.insertBefore(anchor, marker);
@@ -439,18 +478,18 @@ export function insert(parent: Node, value: any, marker: Node | null = null, hos
     return;
   }
   if (typeof value !== "function") {
-    for (const n of nodesOf(value, [], [])) {
-      if (host) (n as any)._$host = host();
-      parent.insertBefore(n, marker);
-    }
+    const next = nodesOf(value, [], initial ?? []);
+    if (host) for (const n of next) (n as any)._$host = host();
+    if (initial?.length) reconcile(parent, initial, next, marker);
+    else for (const n of next) parent.insertBefore(n, marker);
     return;
   }
-  bind(parent, value, marker, undefined, host);
+  bind(parent, value, marker, undefined, host, initial);
 }
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
-function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null) {
-  let current: Node[] = [];
+function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[]) {
+  let current: Node[] = initial ?? [];
   // What the apply step makes (a description drawn late) belongs where the binding was made.
   const home = getOwner();
   let first: Cursor | undefined = claimed;
@@ -587,7 +626,7 @@ function portal(props: { mount?: Node; children?: any }) {
       m.appendChild(end);
       const dispose = runWithOwner(o, () =>
         createRoot((d) => {
-          insert(m, c, end, () => tree.parentNode);
+          insertHosted(m, c, end, undefined, () => tree.parentNode);
           return d;
         }),
       );
@@ -786,14 +825,14 @@ function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): No
   }
   const pl = at.next as Element | null;
   if (id == null || !pl || pl.nodeName !== "TEMPLATE" || pl.id !== "pl-" + id) return claimLiveBoundary(props, at);
-  const boundary = createOwner(parent) as any;
+  const boundary = ownerUnder(parent) as any;
   // The fallback, between the placeholder template and its end comment.
   const end = (() => {
     for (let n = pl.nextSibling; n; n = n.nextSibling) if (n.nodeType === 8 && (n as Comment).data === "pl-" + id) return n;
     return null;
   })();
   at.next = pl.nextSibling;
-  const fallback = runWithOwner(createOwner(parent, { id }), () => claimHtml(props.fallback, false, at));
+  const fallback = runWithOwner(ownerUnder(parent, { id }), () => claimHtml(props.fallback, false, at));
   at.next = end ? end.nextSibling : at.next;
   // What comes before the boundary stays put: the content, once revealed, starts right after it.
   const ahead = pl.previousSibling;
@@ -824,13 +863,13 @@ function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): No
  */
 function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): Node[] {
   // As the server made it: the boundary, its content under a first owner, its fallback under a second.
-  const boundary = createOwner(getOwner()) as any;
-  const content = createOwner(boundary) as any;
+  const boundary = createOwner() as any;
+  const content = ownerUnder(boundary) as any;
   const start = at.next;
   const fallback = (e: unknown) => {
     at.next = start;
     const f = props.fallback;
-    return runWithOwner(createOwner(boundary), () => claimHtml(typeof f === "function" ? f(() => e, () => {}) : f, false, at));
+    return runWithOwner(ownerUnder(boundary), () => claimHtml(typeof f === "function" ? f(() => e, () => {}) : f, false, at));
   };
   // The server caught an error here: it sent it under the content's id, and rendered the fallback.
   const sent = (globalThis as any)._$HY?.r;

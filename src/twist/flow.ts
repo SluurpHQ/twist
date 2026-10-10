@@ -1,12 +1,12 @@
 // Lists and props helpers: mapArray (by identity, by position or by key), repeat, merge, omit.
-import { createMemo, keepMemo, createOwner, getOwner, runWithOwner, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
+import { createMemo, keepMemo, ownerUnder, getOwner, runWithOwner, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
 
 type Accessor<T> = () => T;
 type Keyed<T> = boolean | ((item: T) => unknown) | undefined;
 
 /** An item's own scope, disposed when the item leaves the list. */
 function scope<T>(parent: Owner | null, fn: () => T): [T, () => void] {
-  const o = createOwner(parent);
+  const o = ownerUnder(parent);
   const value = runWithOwner(o, fn);
   return [value, () => disposeScope(o, parent)];
 }

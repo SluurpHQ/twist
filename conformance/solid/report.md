@@ -1,16 +1,20 @@
 # Solid's tests on Twist
 
-5022 pass, 1028 fail, 714 files (28 did not load, 246 test Solid's internals)
+5123 pass, 1118 fail, 714 files (37 did not load, 199 test Solid's internals)
 
 ## Why files did not load
 
 - 9 × SyntaxError: Export named 'httpStatus' not found
+- 5 × SyntaxError: Export named 'dynamicComponent' not found
 - 4 × Cannot find module '../../src/server.js'
 - 4 × SyntaxError: Export named 'createSSRResponse' not found
+- 2 × SyntaxError: Export named 'materializeContainerTrace' not found
 - 2 × SyntaxError: Export named 'getHydrationWriter' not found
 - 2 × Cannot find module '@solidjs/web/frames/server'
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
+- 1 × Cannot find module '../src/response.js'
+- 1 × SyntaxError: [class SyntaxError extends Error],
 - 1 × SyntaxError: Export named 'waitAsset' not found
 - 1 × Cannot find module '../../src/response.js'
 - 1 × SyntaxError: Export named 'httpHeader' not found
@@ -361,32 +365,32 @@
 | web/test/consistency/c02-revealed-occurrence-mounts.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c03-hydration-done-counts-holds.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c04-record-applies-once.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c05-data-response-scoped.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/c07-store-is-truth.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-client.js' |
-| web/test/consistency/c08-fanout-equal.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c05-data-response-scoped.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c07-store-is-truth.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c08-fanout-equal.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c09-no-phantom.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c10-ids-timing-independent.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c12-boundary-parity.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c13-sweep-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/c14-dispose-clean.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/c15-staging-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/c16-reference-identity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/c17-gate-bound-address.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-client.js' |
+| web/test/consistency/c13-sweep-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c14-dispose-clean.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c15-staging-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c16-reference-identity.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c17-gate-bound-address.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/generic/campaign.spec.tsx | 0 | 1 |  |
 | web/test/consistency/generic/preload-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/generic/replay.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/harness/campaign.spec.tsx | 0 | 1 |  |
-| web/test/consistency/harness/replay.spec.tsx | 0 | 1 | not ours: Cannot find module '../../../frames/src/client.js' |
-| web/test/consistency/sref-table-pending-read.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/tier-assets-ready.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/harness/replay.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/sref-table-pending-read.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/tier-assets-ready.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/tier-bind-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-prepare.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-client.js' |
-| web/test/consistency/tier-regions-hold.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/tier-trace-hold.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/consistency/tier-wire-preload.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/tier-prepare.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/tier-regions-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/tier-trace-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/consistency/tier-wire-preload.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/context.spec.tsx | 7 | 0 |  |
 | web/test/delegated-event-cross-runtime.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/client.js' |
 | web/test/delegated-event-listener-object.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
@@ -405,59 +409,59 @@
 | web/test/for.nonkeyed.spec.tsx | 50 | 0 |  |
 | web/test/for.nonkeyed.store.spec.tsx | 0 | 1 |  |
 | web/test/for.spec.tsx | 50 | 0 |  |
-| web/test/frames-adopted-region-fragments.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-assets-client.spec.ts | 0 | 1 | not ours: Cannot find module '../frames/src/frame-client.js' |
-| web/test/frames-binding-slots.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-container-lazy-codec.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-adopted-region-fragments.spec.tsx | 0 | 5 |  |
+| web/test/frames-assets-client.spec.ts | 10 | 7 |  |
+| web/test/frames-binding-slots.spec.tsx | 9 | 12 |  |
+| web/test/frames-client.spec.tsx | 11 | 4 |  |
+| web/test/frames-container-lazy-codec.spec.tsx | 1 | 1 |  |
+| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
 | web/test/frames-dynamic-contract.spec.tsx | 1 | 0 |  |
-| web/test/frames-errored-reset-refetch.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-flight-delivery.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-get.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-hn-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-late-boundary-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-live-resume.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-live-showing.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-live.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-marker-corruption.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-morph-in-transition.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-occlusion-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-optimistic-hold.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
-| web/test/frames-plain-bound.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-errored-reset-refetch.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
+| web/test/frames-flight-delivery.spec.tsx | 0 | 1 | Cannot find module '../src/response.js' |
+| web/test/frames-get.spec.tsx | 3 | 0 |  |
+| web/test/frames-hn-client.spec.tsx | 1 | 1 |  |
+| web/test/frames-late-boundary-client.spec.tsx | 0 | 5 |  |
+| web/test/frames-live-resume.spec.tsx | 3 | 2 |  |
+| web/test/frames-live-showing.spec.tsx | 1 | 0 |  |
+| web/test/frames-live.spec.tsx | 1 | 7 |  |
+| web/test/frames-marker-corruption.spec.tsx | 1 | 0 |  |
+| web/test/frames-morph-in-transition.spec.tsx | 1 | 2 |  |
+| web/test/frames-occlusion-client.spec.tsx | 1 | 0 |  |
+| web/test/frames-optimistic-hold.spec.tsx | 4 | 2 |  |
+| web/test/frames-plain-bound.spec.tsx | 3 | 0 |  |
 | web/test/frames-slot-arg-flights-3852.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/frames-used-region-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-used-region-client.spec.tsx | 1 | 0 |  |
 | web/test/halt-error-logging.spec.tsx | 1 | 0 |  |
 | web/test/held-action-memo-mount-3802.spec.tsx | 1 | 0 |  |
-| web/test/hydration/adopted-claim-args-address.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/adopted-fallback-residue.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/adopted-slot-late-record.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/adopted-slot-live.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/binding-slot-adoption.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/adopted-claim-args-address.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
+| web/test/hydration/adopted-fallback-residue.spec.tsx | 1 | 1 |  |
+| web/test/hydration/adopted-slot-late-record.spec.tsx | 0 | 1 |  |
+| web/test/hydration/adopted-slot-live.spec.tsx | 1 | 0 |  |
+| web/test/hydration/binding-slot-adoption.spec.tsx | 0 | 1 |  |
 | web/test/hydration/buffered-projection-repeat.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/class.spec.tsx | 1 | 0 |  |
 | web/test/hydration/client-only.spec.tsx | 0 | 2 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\dist\server.js' |
 | web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 1 | 3 |  |
+| web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 4 | not ours: Cannot find module '../../frames/src/trace-tier.js' |
+| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/trace-tier.js' |
 | web/test/hydration/container-trace-hold-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal/container-trace' |
 | web/test/hydration/diagnostics.spec.tsx | 4 | 9 |  |
-| web/test/hydration/document-live-channel.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/document-live-channel.spec.tsx | 1 | 0 |  |
 | web/test/hydration/document-shell.spec.tsx | 2 | 2 |  |
 | web/test/hydration/dynamic-async-loading-3666.spec.tsx | 0 | 3 |  |
-| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
+| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
+| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
+| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
 | web/test/hydration/dynamic-hydration-events.spec.tsx | 0 | 1 |  |
 | web/test/hydration/eager-jsx-falsy-show.spec.tsx | 1 | 1 |  |
-| web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/frame-live-document.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 |  |
+| web/test/hydration/frame-live-document.spec.tsx | 0 | 2 |  |
+| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 0 | 1 |  |
+| web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |
+| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 1 | 1 |  |
+| web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/hydration/hybrid-memo-handoff.spec.tsx | 0 | 8 |  |
 | web/test/hydration/hybrid-store-handoff-3574.spec.tsx | 0 | 4 |  |
@@ -505,14 +509,14 @@
 | web/test/latest-conditional-async-issue-3276.spec.tsx | 0 | 1 |  |
 | web/test/latest-ispending-issue-3041.spec.tsx | 2 | 0 |  |
 | web/test/latest-shadow-owned-write-issue-3378.spec.tsx | 1 | 0 |  |
-| web/test/lifecycle-matrix/call-driven-args.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/lifecycle-matrix/container-args.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/lifecycle-matrix/document-adoption.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/lifecycle-matrix/document-live-holes.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/lifecycle-matrix/remount.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/call-driven-args.spec.tsx | 5 | 2 |  |
+| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 2 | 17 |  |
+| web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 11 | 0 |  |
+| web/test/lifecycle-matrix/container-args.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/lifecycle-matrix/document-adoption.spec.tsx | 5 | 1 |  |
+| web/test/lifecycle-matrix/document-live-holes.spec.tsx | 4 | 0 |  |
+| web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 1 | 0 |  |
+| web/test/lifecycle-matrix/remount.spec.tsx | 1 | 2 |  |
 | web/test/loading-fallback-in-flush-3540.spec.tsx | 0 | 3 |  |
 | web/test/loading-on-keyed-boundary-3540.spec.tsx | 5 | 5 |  |
 | web/test/loading-on-outside-reader-3412.spec.tsx | 4 | 0 |  |
@@ -532,7 +536,7 @@
 | web/test/polymorphic-chain.spec.tsx | 3 | 0 |  |
 | web/test/portal.spec.tsx | 30 | 0 |  |
 | web/test/preload-links-adopt-client.spec.tsx | 4 | 6 |  |
-| web/test/preload-links-frame-client.spec.ts | 0 | 1 | not ours: Cannot find module '../frames/src/frame-client.js' |
+| web/test/preload-links-frame-client.spec.ts | 4 | 0 |  |
 | web/test/projection-async-stream.spec.tsx | 2 | 0 |  |
 | web/test/refresh-hmr-flow.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/refresh-render.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
@@ -711,7 +715,7 @@
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 2 | 8 |  |
 | web/test/server/tier-announce.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/tree-rewrite.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/tree-rewrite.js' |
+| web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
 | web/test/server/welcome-status-parity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/write-before-resume.gen.spec.tsx | 1 | 0 |  |

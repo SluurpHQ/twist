@@ -99,6 +99,9 @@ for (const file of ["serializer.js", "serializer-decode.js"]) await Bun.write(jo
 // Server functions: Twist's modules at Solid's paths.
 for (const name of ["shared", "registry", "client", "server", "flash"])
   await Bun.write(join(out, "web", "server-functions", "src", name + ".js"), `export * from ${JSON.stringify(twist(`server-functions/${name}.ts`))};\n`);
+// Frames: Twist's port at Solid's paths.
+for (const name of ["client", "frame-client", "frame-container-plugin", "frame-transport", "tree-rewrite", "bind-tier", "regions-tier", "assets-tier", "wire-tier"])
+  await Bun.write(join(out, "web", "frames", "src", name + ".js"), `export * from ${JSON.stringify(twist(`frames/${name}.ts`))};\n`);
 // The server builds: Twist's server runtime, and Solid's API as it runs on a server.
 for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-server", "server-solid.ts"]]) {
   const dir = join(here, "node_modules", ...name.split("/"));

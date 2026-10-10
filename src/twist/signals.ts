@@ -137,6 +137,12 @@ class Root implements Owner {
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
+  /** Disposes what it owns, and itself unless `self` is false. */
+  dispose(self = true) {
+    if (!self) return disposeOwned(this);
+    dispose(this);
+    if (this.parent?.owned) remove(this.parent.owned, this);
+  }
 }
 
 /** An owner made to run again: what it owned and its cleanups gone, its child ids from the start. */
@@ -174,8 +180,13 @@ export function getOwner(): Owner | null {
 /** Whether `o` has been disposed. */
 export const isDisposed = (o: Owner) => o.disposed;
 
-/** A new owner under the current one (or under `parent`), for code that builds outside a computation. */
-export function createOwner(parent: Owner | null = owner, options?: { transparent?: boolean; id?: string }): Owner {
+/** A new owner under the current one, for code that builds outside a computation. */
+export function createOwner(options?: { transparent?: boolean; id?: string }): Owner {
+  return new Root(owner, options);
+}
+
+/** A new owner under `parent`. @internal */
+export function ownerUnder(parent: Owner | null, options?: { transparent?: boolean; id?: string }): Owner {
   return new Root(parent, options);
 }
 

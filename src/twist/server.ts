@@ -1,7 +1,7 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
-import { childIdCount, setChildIdCount, createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
+import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { __twist_mark, markBuiltin, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
@@ -101,15 +101,15 @@ export function dynamic<P>(source: () => any, options?: { static?: boolean }): (
 /** Its children, or its fallback (given the error and a reset) once rendering them throws. */
 export function Errored(props: { fallback: any; children?: any }) {
   // The boundary; its content under a first owner of its own, its fallback under a second (the client claims the same).
-  const boundary = createOwner(getOwner());
-  const content = createOwner(boundary);
+  const boundary = createOwner();
+  const content = ownerUnder(boundary);
   const fallback = (e: unknown) => {
     // The error goes to the client under the content's id: the fallback hydrates against it.
     const r = render;
     const id = (content as any).id;
     if (r?.serializer && id != null && noHydration === 0 && !r.written.has(id)) r.written.add(id), r.serializer.write(id, e);
     const f = props.fallback;
-    return runWithOwner(createOwner(boundary), () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
+    return runWithOwner(ownerUnder(boundary), () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
   };
   try {
     const before = holeCount;
@@ -547,7 +547,7 @@ async function filled(r: Render, s: string): Promise<string> {
  */
 export function Loading(props: { fallback?: any; children?: any }) {
   const parent = getOwner();
-  const boundary = createOwner(parent);
+  const boundary = ownerUnder(parent);
   const id = (boundary as any).id as string | undefined;
   const wasBoundary = headBoundary;
   try {
@@ -572,7 +572,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
       return { t: later(r, () => (Loading(props) as any).t, waits, parent, at - 1) };
     }
     // The fallback under an owner of its own with the boundary's id: it takes no id from what follows (as Solid).
-    const fallback = runWithOwner(createOwner(parent, { id }), () => html(props.fallback, false));
+    const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
     if (!r || !r.async || !waits || id == null) return { t: fallback };
     const retry = (p: Promise<void>) => {
       r.waiting.add(p);

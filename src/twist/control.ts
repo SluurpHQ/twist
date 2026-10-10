@@ -65,7 +65,7 @@ export const isChildren = (v: any): v is () => any => typeof v === "function" &&
 export function createComponent<P>(Comp: (props: P) => any, props: P) {
   const own = ownOf(Comp);
   const label = `<${own.name || "Anonymous"}>`;
-  const o = createOwner(getOwner(), { transparent: true }) as any;
+  const o = createOwner({ transparent: true }) as any;
   o.name = label;
   return runWithOwner(o, () => untrack(() => own(props), builtins.has(own) ? undefined : label));
 }
