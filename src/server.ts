@@ -406,7 +406,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           const size = utf8Bytes(out);
           if (size > 500 && stream.shared.inlined + size > stream.shared.chunk && !/<(html|head|body)[\s>]/.test(out)) {
             const id = stream.shared.next++;
-            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, vt: ctx.vt, scope: ctx.scope, waiting: Promise.resolve(), stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), done: out };
+            const b: Boundary = { prefix: ctx.idPrefix, tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, vt: ctx.vt, scope: ctx.scope, waiting: Promise.resolve(), stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), done: out };
             stream.shared.boundaries.push(b);
             ctx.res.boundary = parentDeps;
             b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
@@ -431,7 +431,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         if (e && typeof e.then === "function") {
           if (stream) {
             const id = stream.shared.next++;
-            const b: Boundary = { tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, vt: ctx.vt, scope: ctx.scope, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
+            const b: Boundary = { prefix: ctx.idPrefix, tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, vt: ctx.vt, scope: ctx.scope, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
             ctx.suspendedAt = undefined;
             stream.shared.boundaries.push(b);
             b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
@@ -1124,9 +1124,9 @@ const RUNTIME_SOURCE =
 const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
 
 /** A boundary as the shell writes it while it waits: its template, then its fallback. */
-const pendingMarkup = (b: Boundary) => `<!--$?--><template id="B:${b.id}"></template>${b.fallback}<!--/$-->`;
+const pendingMarkup = (b: Boundary) => `<!--$?--><template id="${b.prefix ?? ""}B:${b.id}"></template>${b.fallback}<!--/$-->`;
 
-type Boundary = { tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; vt?: VTContext | null; scope?: number; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
+type Boundary = { prefix?: string; tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; vt?: VTContext | null; scope?: number; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
 
 /** A string's size in UTF-8 bytes (what React measures a boundary by). */
 function utf8Bytes(s: string): number {
@@ -1160,7 +1160,7 @@ function segmentWrap(ctx: Ctx): [string, string] {
 }
 
 /** One streamed render: the shell, then each boundary as it settles, written through `write`. */
-function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void, flowingAtStart = true, expose?: (abort: (reason?: unknown) => void) => void) {
+function startStream(node: any, options: any, write: (chunk: string) => void, finish: () => void, flowingAtStart = true, expose?: (abort: (reason?: unknown) => void, flow: () => void) => void) {
   // Until the stream flows (pipe), nothing is written: the shell waits, and boundaries that complete meanwhile are
   // written into it in place (React flushes them with the shell, no script).
   let flowing = flowingAtStart;
@@ -1273,7 +1273,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       }
       const digest = onError(e);
       if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, errored(e), e)}${b.fallback}<!--/$-->`)) return watch();
-      write(`${res.late()}${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
+      write(`${res.late()}${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("${b.prefix ?? ""}B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
       runtimeSent = true;
       return watch();
     }
@@ -1292,9 +1292,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     res.stylesToHoist = false;
     const reveal =
       hoist || sheets.length
-        ? `$SR("B:${b.id}","S:${b.id}",${jsArg(sheets.map((s) => (s[1] === "" ? [s[0]] : [s[0], s[1], ...Object.entries(s[2]).flat()])))})`
-        : `$SC("B:${b.id}","S:${b.id}")`;
-    write(`${late}${runtimeSent ? "" : RUNTIME}${(b.wrap ?? segmentWrap(ctx))[0]}S:${b.id}">${inner}${(b.wrap ?? segmentWrap(ctx))[1]}${styleTags}${scriptOpen}${reveal}</script>`);
+        ? `$SR("${b.prefix ?? ""}B:${b.id}","${b.prefix ?? ""}S:${b.id}",${jsArg(sheets.map((s) => (s[1] === "" ? [s[0]] : [s[0], s[1], ...Object.entries(s[2]).flat()])))})`
+        : `$SC("${b.prefix ?? ""}B:${b.id}","${b.prefix ?? ""}S:${b.id}")`;
+    write(`${late}${runtimeSent ? "" : RUNTIME}${(b.wrap ?? segmentWrap(ctx))[0]}${b.prefix ?? ""}S:${b.id}">${inner}${(b.wrap ?? segmentWrap(ctx))[1]}${styleTags}${scriptOpen}${reveal}</script>`);
     runtimeSent = true;
     watch();
   };
@@ -1323,7 +1323,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     sendHeaders(true);
     held = shell;
     options.onShellReady?.();
-    if (flowing) writeShell();
+    // (Piped from onShellReady: written already.)
+    if (flowing && held !== null) writeShell();
     watch();
     return null;
   };
@@ -1344,25 +1345,30 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   let renderingShell = true;
   // (A shell that failed has nothing left to abort.)
   let api: { abort(reason?: unknown): void } | null = null;
-  expose?.((reason?: unknown) => {
-    if (renderingShell) shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
-    else api?.abort(reason);
-  });
+  // The stream flows (piped): the shell and what completed into it written, then the rest as it comes.
+  const flow = () => {
+    if (flowing) return;
+    flowing = true;
+    if (held !== null) writeShell();
+    if (endHeld) {
+      if (postamble) write(postamble);
+      finish();
+    }
+  };
+  expose?.(
+    (reason?: unknown) => {
+      if (renderingShell) shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
+      else api?.abort(reason);
+    },
+    // (Piped from onShellReady, before the shell's render returns: it flows at once, as React's pipe writes.)
+    () => flow(),
+  );
   const failed = tryShell();
   renderingShell = false;
   if (failed) return { abort() {}, failed, flow() {} };
   const handle = {
     failed: null,
-    /** The stream flows (piped): the shell and what completed into it written, then the rest as it comes. */
-    flow() {
-      if (flowing) return;
-      flowing = true;
-      if (held !== null) writeShell();
-      if (endHeld) {
-        if (postamble) write(postamble);
-        finish();
-      }
-    },
+    flow,
     /** Stop waiting: what is still pending is left for the client to render. */
     abort(reason?: unknown) {
       if (closed) return;
@@ -1380,7 +1386,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
         const digest = onError(why, b.suspendedAt);
         if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, aborted((why as any)?.message ?? String(why)), undefined, b.suspendedAt)}${b.fallback}<!--/$-->`)) continue;
-        write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)), undefined, b.suspendedAt)})</script>`);
+        write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("${b.prefix ?? ""}B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)), undefined, b.suspendedAt)})</script>`);
         runtimeSent = true;
       }
       pending.clear();
@@ -1415,6 +1421,7 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   };
   // Started on the next turn, as React starts its work; it flows once piped.
   let abortNow: ((reason?: unknown) => void) | null = null;
+  let flowNow: (() => void) | null = null;
   // A shell that failed: the destination destroyed with its error, as React's fatal error does (once piped).
   let fatal: { error: unknown } | null = null;
   const shellError = (e: unknown) => {
@@ -1423,7 +1430,7 @@ export function renderToPipeableStream(node: any, options: any = {}) {
     out?.destroy?.(e);
   };
   setImmediateOr(() => {
-    run = startStream(node, { ...options, onShellError: shellError }, write, finish, out !== null, (a) => (abortNow = a));
+    run = startStream(node, { ...options, onShellError: shellError }, write, finish, out !== null, (a, f) => ((abortNow = a), (flowNow = f)));
     // Piped while its shell rendered (from onShellReady): it flows now.
     if (out) run.flow();
   });
@@ -1437,7 +1444,7 @@ export function renderToPipeableStream(node: any, options: any = {}) {
       // (One nobody listens to for errors is ended instead: an unhandled stream error would take the process down.)
       if (fatal) w.listenerCount?.("error") ? w.destroy?.((fatal as any).error) : w.end?.();
       else if (ended) w.end?.();
-      run?.flow();
+      run ? run.flow() : flowNow?.();
       return w;
     },
     abort(reason?: unknown) {
