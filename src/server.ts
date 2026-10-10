@@ -1868,7 +1868,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         shared.inlined += size;
         return `<!--$-->${inner}<!--/$-->`;
       }
-      const fallback = assemble(b.fallback, into);
+      // (Going out early, its fallback still loading: a placeholder its part fills, as for content.)
+      const fallback = assemble(b.fallback, into, partial);
       if (b.status === 2) {
         const e = b.error!;
         return `<!--$!-->${errorTemplate(e.digest, e.message, e.error, e.at)}${fallback}<!--/$-->`;
