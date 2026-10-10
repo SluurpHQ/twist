@@ -205,26 +205,46 @@ export const hydrateBeforeEvents = (fn: typeof hydrateFor) => void (hydrateFor =
 export const CONTINUOUS = new Set("focusin focusout dragenter dragleave mouseover mouseout pointerover pointerout gotpointercapture lostpointercapture".split(" "));
 /** Those that enter something: queued; the others (out, leave, focusout…) clear what their kind queued. */
 export const ENTERING = new Set("focusin dragenter mouseover pointerover gotpointercapture".split(" "));
-const queued = new Map<string, { native: Event; container: EventTarget; roots: Set<object> }>();
+const queued = new Map<string, { native: Event; target: Node; container: EventTarget; roots: Set<object> }>();
 export const kindOf = (e: Event) =>
   e.type.startsWith("focus") ? "focus" : e.type.startsWith("drag") ? "drag" : e.type.startsWith("mouse") ? "mouse" : "pointer:" + ((e as PointerEvent).pointerId ?? "");
-/** The queued events whose target has hydrated, run now (both phases, with the original native event). */
+/** The queued events whose target has hydrated, dispatched again now: a copy of each on its target, as React
+ * replays them (native listeners hear it too, and React's own only where the node still is in the root). */
+let replaying: Event | null = null;
 export function replayQueued() {
   for (const [kind, q] of [...queued]) {
-    if (!nearest(q.native.target as Node, q.roots)) continue;
+    const target = q.target;
+    if (target && !nearest(target, q.roots) && target.isConnected && q.roots.size && [...q.roots].some((r: any) => r.container?.contains?.(target))) continue;
     queued.delete(kind);
-    if (!dispatch(q.native, q.container, q.roots, true, true)) dispatch(q.native, q.container, q.roots, false, true);
+    if (!target) continue;
+    const copy = new (q.native.constructor as any)(q.native.type, q.native);
+    replaying = copy;
+    try {
+      target.dispatchEvent(copy);
+    } finally {
+      replaying = null;
+    }
   }
 }
+/** Whether events wait to be replayed. */
+export const replaysWaiting = () => queued.size > 0;
 
 /** Runs the handlers for one phase; true when one of them stopped propagation. */
-function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean, replay = false): boolean {
+function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean, replay = native === replaying): boolean {
   if (native.target && !replay) {
     const continuous = CONTINUOUS.has(native.type);
-    if (hydrateFor(native.target as Node, roots, native, continuous) && continuous && capture) {
-      if (ENTERING.has(native.type)) queued.set(kindOf(native), { native, container, roots });
+    const blocked = hydrateFor(native.target as Node, roots, native, continuous);
+    if (blocked && continuous && capture) {
+      if (ENTERING.has(native.type)) queued.set(kindOf(native), { native, target: native.target as Node, container, roots });
       else queued.delete(kindOf(native));
-      return false;
+      // (Its replay is what goes on: this one stops here, as React stops it.)
+      native.stopPropagation();
+      return true;
+    }
+    // A discrete event on what could not hydrate at once: stopped there, as React stops it (it cannot run it).
+    if (blocked && !continuous) {
+      native.stopPropagation();
+      return true;
     }
   }
   const from = nearest(native.target as Node, roots);

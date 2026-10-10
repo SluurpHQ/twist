@@ -6,7 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
-import { CONTINUOUS, DEHYDRATED, ENTERING, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, kindOf, listenOnElement, replayQueued, want } from "./events.ts";
+import { CONTINUOUS, DEHYDRATED, ENTERING, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, kindOf, listenOnElement, replayQueued, replaysWaiting, want } from "./events.ts";
 import { configureViewTransitions, renderInViewTransition, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
@@ -1246,39 +1246,56 @@ function scheduleHydration(f: Fiber) {
   if ((f as any).era !== undefined && (f as any).era !== hydrationEra) return;
   toHydrate.add(f);
   // (A run each time, which takes all that are waiting then: the later ones find nothing left.)
+  deferTransition(runHydrations);
+}
+/** Document order of two boundaries. */
+const byPlace = (a: Fiber, b: Fiber) => {
+  const sa = (a as any).region?.start as Node | undefined, sb = (b as any).region?.start as Node | undefined;
+  return sa && sb ? (sa.compareDocumentPosition(sb) & 4 ? -1 : 1) : 0;
+};
+/** A replay is scheduled: hydration runs wait behind it (it is the higher priority). */
+let replayScheduled = false;
+function scheduleReplay() {
+  if (replayScheduled) return;
+  replayScheduled = true;
   deferTransition(() => {
-    if (!toHydrate.size) return;
-    const ready = [...toHydrate].sort((a, b) => {
-      const ta = (a as any).targeted ?? Infinity, tb = (b as any).targeted ?? Infinity;
-      if (ta !== tb) return ta - tb;
-      const sa = (a as any).region?.start as Node | undefined, sb = (b as any).region?.start as Node | undefined;
-      return sa && sb ? (sa.compareDocumentPosition(sb) & 4 ? -1 : 1) : 0;
-    });
-    toHydrate.clear();
-    // Those an event targeted each in a render of its own (their raised lanes), its events replayed after; the rest
-    // together, in one render and one commit (React's OffscreenLane).
-    let rest: Fiber[] = [];
-    for (const g of ready) {
-      if ((g as any).targeted === undefined) rest.push(g);
-      else retryBoundary(g), replayQueued();
-    }
-    // (With those the targeted ones left waiting inside them, in document order.)
-    for (const g of toHydrate) if ((g as any).targeted === undefined) rest.push(g), toHydrate.delete(g);
-    rest = rest.sort((a, b) => {
-      const sa = (a as any).region?.start as Node | undefined, sb = (b as any).region?.start as Node | undefined;
-      return sa && sb ? (sa.compareDocumentPosition(sb) & 4 ? -1 : 1) : 0;
-    });
-    if (rest.length) {
-      depth++;
-      try {
-        for (const g of rest) retryBoundary(g);
-      } finally {
-        if (--depth === 0) commit();
-      }
-      flushSignals();
-      replayQueued();
-    }
+    replayScheduled = false;
+    replayQueued();
   });
+}
+function runHydrations() {
+  if (!toHydrate.size) return;
+  if (replayScheduled) return void deferTransition(runHydrations);
+  const ready = [...toHydrate].sort((a, b) => ((a as any).targeted ?? Infinity) - ((b as any).targeted ?? Infinity) || byPlace(a, b));
+  toHydrate.clear();
+  // Those an event targeted each in a render of its own (their raised lanes); the rest together, in one render and
+  // one commit (React's OffscreenLane).
+  const rest: Fiber[] = [];
+  let targetedRan = false;
+  for (const g of ready) {
+    if ((g as any).targeted === undefined) rest.push(g);
+    else retryBoundary(g), (targetedRan = true);
+  }
+  // The events those were waiting for, replayed as a task of their own before the rest hydrates (React's normal
+  // priority, above the offscreen pass).
+  if (targetedRan && replaysWaiting()) {
+    for (const g of rest) toHydrate.add(g);
+    scheduleReplay();
+    deferTransition(runHydrations);
+    return;
+  }
+  // (With those the targeted ones left waiting inside them, in document order.)
+  for (const g of toHydrate) if ((g as any).targeted === undefined) rest.push(g), toHydrate.delete(g);
+  rest.sort(byPlace);
+  if (!rest.length) return;
+  depth++;
+  try {
+    for (const g of rest) retryBoundary(g);
+  } finally {
+    if (--depth === 0) commit();
+  }
+  flushSignals();
+  if (replaysWaiting()) scheduleReplay();
 }
 /** Where continuous events went before what they hovered could hydrate: its boundary goes first, when there is one. */
 const hoverTargets = new Map<string, { node: Node; seq: number }>();
@@ -1336,7 +1353,6 @@ hydrateBeforeEvents((target, roots, native, continuous) => {
     return false;
   }
   for (const r of roots) (r as any).hydrateNow?.(target);
-  replayQueued();
   for (let guard = 0; guard < 20; guard++) {
     let f: Fiber | null = null;
     for (let n: Node | null = target; n && !f; n = n.parentNode) {
@@ -1361,7 +1377,6 @@ hydrateBeforeEvents((target, roots, native, continuous) => {
     }
     // Still waiting (it suspended): it goes first once it can.
     if ((f as any).dehydrated) return void ((f as any).targeted ??= ++targetSeq), true;
-    replayQueued();
   }
   return false;
 });
@@ -2504,7 +2519,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   if (hydrationStopped()) return;
   // A boundary whose hydration threw: nothing more of it renders (React unwinds to it), it is drawn on the client.
   if (hydrating && regions.length && regions[regions.length - 1]!.errored) return;
-  (f as any).draws = ((f as any).draws ?? 0) + 1;
+  if (!restarting) (f as any).draws = ((f as any).draws ?? 0) + 1;
   if (!drawsReset) {
     drawsReset = true;
     // Once this synchronous run ends: a loop renders without ever yielding, so it is still caught.
@@ -2652,7 +2667,13 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   // Started again (a boundary below hydrated for this update): this pass's effects dropped, the next one's kept.
   if ((f as any).restartDraw) {
     (f as any).restartDraw = false;
-    draw(f, placeHost, placeBefore);
+    // (Not an update loop: one update, its render started again; its draws are not counted.)
+    restarting++;
+    try {
+      draw(f, placeHost, placeBefore);
+    } finally {
+      restarting--;
+    }
     if (--depth === 0) commit();
     return;
   }
@@ -2673,6 +2694,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
 }
 /** Thrown up to the outermost component drawn, which draws again (React's SelectiveHydrationException). */
 const RESTART = Symbol("restart");
+let restarting = 0;
 
 /** A render beginning: its start time, and whether an update set in the last commit set it off. */
 function startRender() {
@@ -3260,7 +3282,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), hoverTargets.clear(), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), hoverTargets.clear(), (replayScheduled = false), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
