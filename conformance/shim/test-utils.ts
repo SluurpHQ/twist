@@ -41,6 +41,17 @@ export async function act<T>(fn: () => T | Promise<T>): Promise<T> {
   try {
     out = await fn();
     await drain();
+    // As React's act: once nothing else is left, the pending (fake) timers run, and again while they set off more.
+    for (let i = 0; i < 20; i++) {
+      let count = 0;
+      try {
+        count = (bunJest as any).getTimerCount?.() ?? 0;
+      } catch {}
+      if (!(count > 0)) break;
+      (bunJest as any).runAllTicks?.();
+      (bunJest as any).runOnlyPendingTimers();
+      await drain();
+    }
     // A server render starts on setImmediate: faked in a node-environment file (act runs it), else one real turn.
     for (let i = 0; i < 10 && streamsStarting(); i++) {
       if ((bunJest as any).getTimerCount?.() > 0) (bunJest as any).runOnlyPendingTimers();
