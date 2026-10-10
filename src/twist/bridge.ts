@@ -147,6 +147,7 @@ export function installBridge(react: ReactApi, createRoot: typeof createReactRoo
   ({ createElement, useLayoutEffect, useRef, useId } = react);
   createReactRoot = createRoot;
   if (hydrateRoot) (hydrateReactRoot = hydrateRoot), setForeignClaim(claimReact);
-  (globalThis as any)[Symbol.for("twist.host")] = TwistHost;
+  const slot = (react as any).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?.twist;
+  if (slot) slot.host = TwistHost;
   setForeignComponent((type, props) => (isTwist(type) ? createComponent(type, props) : mountReact(type, props)));
 }

@@ -45,8 +45,10 @@ Batteries included, 80/20: what real apps use, no chasing Solid's edge rulings.
   Twist inside React (`<sluurp-twist>`, useId as render id) and React inside Twist (`<sluurp-react>`); browser: hydrated
   in place both ways. Proven on sluurp-examples/server-components (counter.tsx: Solid-style + shadcn Button).
   `islands/` too: a Solid-style island is compiled on both sides and hydrated through the bridge (stars.tsx).
-  Left: the compile pass in Rust in the core (oxc's native parser cannot ride in a compiled host); sluurp-nav
-  partials for Solid-style; real React with Solid-style components.
+  Partial swaps hydrate both (each React copy keeps its own bridge host, in its internals' `twist` slot).
+  Left: the compile pass in Rust in the core (oxc's native parser cannot ride in a compiled host); one browser
+  build for `_islands` and `_rsc` (each carries its own React and Twist today); real React with Solid-style
+  components.
 
 - Step 2 (2026-10-10): `src/twist/signals-bridge.ts` (`installSignalsBridge()`): a signal of either core read where the
   other tracks is followed there (a mirror counter per node); hooks `setForeignRead` in both cores.
