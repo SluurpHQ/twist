@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3960 pass, 122 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3962 pass, 120 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -86,7 +86,7 @@
 | react-dom/ReactDOMServerIntegrationSpecialTypes-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationTextarea-test.js | 40 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationUntrustedURL-test.js | 73 | 0 | 4 |  |
-| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 18 | 2 | 7 |  |
+| react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 20 | 0 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 51 | 6 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 26 | 11 | 3 |  |

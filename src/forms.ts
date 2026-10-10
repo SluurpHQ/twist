@@ -159,7 +159,7 @@ function updateOptions(node: HTMLSelectElement, multiple: boolean, value: any, s
   if (fallback !== null) fallback.selected = true;
 }
 
-function initSelect(node: HTMLSelectElement, p: any) {
+function initSelect(node: HTMLSelectElement, p: any, hydrating = false) {
   if (dev()) {
     for (const name of ["value", "defaultValue"]) {
       if (p[name] == null) continue;
@@ -170,6 +170,8 @@ function initSelect(node: HTMLSelectElement, p: any) {
       warn("Select elements must be either controlled or uncontrolled (specify either the value prop, or the defaultValue prop, but not both). Decide between using a controlled or uncontrolled select element and remove one of these props. More info: https://react.dev/link/controlled-components", "select-value-default");
     }
   }
+  // (Taken over from the server: what the user may have picked meanwhile stays, as React leaves it.)
+  if (hydrating) return;
   node.multiple = !!p.multiple;
   if (p.value != null) updateOptions(node, !!p.multiple, p.value, false);
   else if (p.defaultValue != null) updateOptions(node, !!p.multiple, p.defaultValue, true);
@@ -247,7 +249,7 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean, hyd
   if (!hydrating && !own.has("dangerouslySetInnerHTML")) innerHtml(el, props, null);
   if (tag === "input") initInput(el as HTMLInputElement, props, hydrating);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
-  else if (tag === "select") initSelect(el as HTMLSelectElement, props);
+  else if (tag === "select") initSelect(el as HTMLSelectElement, props, hydrating);
   if (tag === "option" && props.value == null && typeof props.children === "object" && props.children !== null) {
     const kids = Array.isArray(props.children) ? props.children.flat(Infinity) : [props.children];
     if (kids.some((c: any) => c != null && typeof c !== "boolean" && !/^(string|number|bigint)$/.test(typeof c)))
