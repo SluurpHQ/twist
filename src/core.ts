@@ -600,18 +600,20 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // Duplicate keys only warn: looked for in development.
   const seenKeys = dev() ? new Set<string>() : null;
   let i = 0;
+  // A thenable child the parent suspended at (the children after it not drawn).
+  let stoppedAt: unknown = null;
   const skipAfter = !syncing ? boundaryOf(parent) : null;
   for (let c of list) {
     if (skipAfter && (skipAfter as any).resuspend && !(skipAfter as any).shown) break;
-    // A lazy or a promise as a child: what it gives, once it has (suspending until then, as a child of its own:
-    // its siblings go on).
+    // A lazy or a promise as a child: what it gives, once it has. Until then the parent suspends there (React throws
+    // from its reconcile): the children after it are not drawn, those it had stay as they were.
     try {
       c = unwrapChild(c);
     } catch (e: any) {
       if (!e || typeof e.then !== "function") throw e;
       caught(parent, e);
-      i++;
-      continue;
+      stoppedAt = e;
+      break;
     }
     // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
     const items = Array.isArray(c) ? null : iterated(c);
@@ -653,6 +655,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       nextOwner = null;
     }
   }
+  // Stopped at a suspending child: what it had and did not reach stays as it was, in its place.
+  if (stoppedAt && byKey) for (const f of old) if (byKey.get(f.key) === f) next.push(f), byKey.delete(f.key);
   if (byKey) for (const f of byKey.values()) unmount(f, true);
   parent.children = next;
   if ((parent as any).building) (parent as any).building = undefined;
@@ -2536,7 +2540,10 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       else if (!(fb as any).warmed && !prewarming && !syncing) ((fb as any).warmed = true), layoutQueue.push(() => !recoveredThisRender && prewarms.push(fb));
       layoutQueue.push(() => {
         const kept = fb.children.find((c) => c.key === "kc");
-        if (kept) hideNodes(kept, waiting);
+        // (Shown again only what it hid itself: a hidden Activity around may hide the same nodes.)
+        if (!kept || !!(fb as any).keptHidden === waiting) return;
+        (fb as any).keptHidden = waiting;
+        hideNodes(kept, waiting);
       });
       const out: any = [
         shown || !waiting ? createElement(FRAGMENT, { key: "c" }, props.children) : null,
