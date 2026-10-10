@@ -5,7 +5,7 @@ import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, cre
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { createHydrationSerializer } from "./serialization.ts";
-import { __twist_mark, markBuiltin, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
+import { __twist_mark, markBuiltin, renderComponent, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 export { lazy } from "./server-solid.ts";
 export * from "./server-solid.ts";
@@ -13,7 +13,7 @@ export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
-import { ssrSanitizeError } from "./request.ts";
+import { reportServerError, ssrSanitizeError } from "./request.ts";
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, serializeFragmentAssets, type AssetTracking } from "./server-assets.ts";
 import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition } from "./server-slots.ts";
 export {
@@ -129,11 +129,14 @@ export function Errored(props: { fallback: any; children?: any }) {
   // The boundary; its content under a first owner of its own, its fallback under a second (the client claims the same).
   const boundary = createOwner();
   const content = ownerUnder(boundary);
-  const fallback = (e: unknown) => {
+  const fallback = (err: unknown) => {
+    // What the client may see of it: the error hook's answer, else the sanitized error (heard once, where it was met).
+    const id = (content as any).id;
+    const e = ssrSanitizeError(err, boundary, { kind: "render", handling: "fallback", boundary: id }, (sharedConfig.context as any)?.errorPolicy);
     // The error goes to the client under the content's id: the fallback hydrates against it.
     const r = render;
-    const id = (content as any).id;
     if (r?.serializer && id != null && noHydration === 0 && !r.written.has(id)) r.written.add(id), r.serializer.write(id, e);
+    else if (!r && id != null && noHydration === 0) (sharedConfig.context as any)?.serialize?.(id, e);
     const f = props.fallback;
     return runWithOwner(ownerUnder(boundary), () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
   };
@@ -287,7 +290,7 @@ export function html(v: any, inTemplate: boolean): string {
   if (Array.isArray(v)) return list(v, !!(v as any)[OWN], inTemplate);
   if (typeof v === "function") return hole(() => liveHole(v) ?? html(v(), false));
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
-  if (v[COMP]) return html(callComponent(v.fn, componentProps(v.props)), false);
+  if (v[COMP]) return renderComponent(v.fn, componentProps(v.props), (out) => html(out, false));
   if (typeof v.t === "string") return v.t;
   // A binding-slot value as text: the markers the client writes between.
   if (isSlotValue(v)) return v.w();
@@ -822,7 +825,7 @@ function boundaryRecord(r: Render, boundary: object, id: string) {
   const record = new Promise<boolean>((ok, no) => ((revealed = ok), (failed = no)));
   record.catch(() => {});
   fragments.set(boundary, revealed);
-  failures.set(boundary, (e: unknown) => failed(ssrSanitizeError(e, null)));
+  failures.set(boundary, (e: unknown) => failed(ssrSanitizeError(e, boundary, { kind: "render", handling: "client", boundary: id }, (r.ctx as any)?.errorPolicy)));
   if (r.serializer && noHydration === 0) {
     r.serializer.write(id + "_fr", record);
     // The stream ends after the record's settling is written.
@@ -1263,12 +1266,22 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   }
 }
 
-export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean; manifest?: any; nonce?: string } = {}): string {
+export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean; manifest?: any; nonce?: string; onError?: (error: unknown, context: any) => unknown } = {}): string {
   const wasHead = head;
   const wasCtx = stringCtx;
   head = newHead();
   const tracking = createAssetTracking();
   const ctx = (stringCtx = stringContext(options.renderId ?? "")) as any;
+  ctx.errorPolicy = options.onError;
+  // What the client hydrates with: values known now (a string render sends nothing that is still to come).
+  let data = "";
+  const serializer = options.noHydrate ? null : createHydrationSerializer({ scopeId: options.renderId, onData: (p: string) => void (data += p + ";"), onDone() {}, onError() {} });
+  const written = new Set<string>();
+  ctx.serialize = (id: string, v: unknown) => {
+    if (!serializer || written.has(id) || (v && typeof (v as any).then === "function")) return;
+    written.add(id);
+    serializer.write(id, v);
+  };
   ctx.registerAsset = (type: string, value: unknown) => registerAssetIn(tracking, () => false, null, type, value);
   applyAssetTracking(ctx, tracking, options.manifest);
   try {
@@ -1277,7 +1290,12 @@ export function renderToString(code: () => any, options: { renderId?: string; no
       return createRoot(
         (dispose) => {
           try {
-            return withHeadAssets(fillHead(html(code(), false), head!, false) as string, tracking, options.nonce);
+            const out = withHeadAssets(fillHead(html(code(), false), head!, false) as string, tracking, options.nonce);
+            return data ? out + `<script>${headerScript(options.renderId)}${data}</script>` : out;
+          } catch (e) {
+            // A render that fails: the hook hears it (the request fails), then the caller.
+            reportServerError(e, { kind: "render", handling: "failed" }, null, options.onError);
+            throw e;
           } finally {
             dispose();
           }
@@ -1297,12 +1315,13 @@ type Writable = { write(chunk: string): void; end(): void };
 
 /** The context a string render's code reads: nothing waits, nothing is sent. */
 function stringContext(id: string) {
-  return { id, count: 0, async: false, document: true, live: {}, escape, ssr, resolve: (v: any) => ({ t: html(v, false) }), serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} };
+  return { id, count: 0, async: false, document: true, escape, ssr, resolve: (v: any) => ({ t: html(v, false) }), serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} };
 }
 
 /** The context of a stream: Solid's render context API over this render. */
 function streamContext(r: Render, options: StreamOptions) {
   return {
+    errorPolicy: options.onError,
     id: options.renderId ?? "",
     count: 0,
     async: true,
@@ -1375,6 +1394,8 @@ type StreamOptions = {
   signal?: AbortSignal;
   /** Where lazy() components' client assets come from (a Vite manifest, or a resolver). */
   manifest?: any;
+  /** This render's server error hook (ahead of the ambient one). */
+  onError?: (error: unknown, context: any) => unknown;
 };
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
@@ -1412,6 +1433,9 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   let dispose!: () => void;
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.
+  // A root failure on the first, synchronous pass: heard by the hook, then thrown to the caller.
+  let syncFailure: { error: unknown } | null = null;
+  let firstPass = true;
   const shellReady = new Promise<string>((ok, fail) => {
     const attempt = () => {
       try {
@@ -1429,6 +1453,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
           .then(ok, fail);
       } catch (e) {
         const waits = e instanceof NotReadyError && settlesOf(e);
+        if (!waits && firstPass) return void (syncFailure = { error: e });
         if (!waits) return fail(e);
         waits.then(() => (resetOwner(root), attempt()));
       }
@@ -1441,7 +1466,13 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       { id: options.renderId ?? "" },
     );
     attempt();
+    firstPass = false;
   });
+  if (syncFailure) {
+    reportServerError(syncFailure.error, { kind: "render", handling: "failed" }, null, options.onError);
+    dispose();
+    throw syncFailure.error;
+  }
   let shell = "";
   const sinks: Writable[] = [];
   let sent = 0;
@@ -1509,8 +1540,9 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       rendering(r, options, drain);
     },
     (e) => {
-      dispose();
-      throw e;
+      // A failure on a later pass: nothing on the stack to throw to — the request fails, the stream ends.
+      if (!reportServerError(e, { kind: "render", handling: "failed" }, null, options.onError).heard) console.error(e);
+      abandon(true);
     },
   );
   return {

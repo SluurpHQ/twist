@@ -198,6 +198,16 @@ export function ownerUnder(parent: Owner | null, options?: { transparent?: boole
   return new Root(parent, options);
 }
 
+/** Where an error was thrown: the innermost owner whose scope it escaped (a not-ready read is no failure). */
+const throwers = new WeakMap<object, Owner>();
+function stampThrower(error: unknown, o: Owner | null) {
+  if (o === null || error === null || (typeof error !== "object" && typeof error !== "function") || error instanceof NotReadyError) return;
+  if (!throwers.has(error as object)) throwers.set(error as object, o);
+}
+/** The owner `error` was thrown under, if it escaped one. */
+export const throwerOf = (error: unknown): Owner | undefined =>
+  error !== null && (typeof error === "object" || typeof error === "function") ? throwers.get(error as object) : undefined;
+
 export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
   const prevOwner = owner;
   const prevListener = listener;
@@ -205,6 +215,9 @@ export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
   listener = null;
   try {
     return fn();
+  } catch (e) {
+    stampThrower(e, o);
+    throw e;
   } finally {
     owner = prevOwner;
     listener = prevListener;
@@ -822,6 +835,7 @@ export class Computation<T> extends Node<T> implements Owner {
       }
     } catch (e) {
       threw = e;
+      stampThrower(e, this);
     } finally {
       owner = prevOwner;
       listener = prevListener;
@@ -1063,6 +1077,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.wake();
   }
   fail(e: unknown) {
+    stampThrower(e, this);
     this.flight = null;
     flights.delete(this);
     this.error = e;

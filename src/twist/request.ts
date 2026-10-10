@@ -3,7 +3,7 @@
 // the request's trace. Web-standard Request/Response only. (Solid's web/src/server request half, and its server
 // error reporting.)
 // @ts-nocheck
-import { getOwner } from "./signals.ts";
+import { getOwner, throwerOf } from "./signals.ts";
 import { OBSERVE, emitDiagnostic, reportDiagnostic } from "./diagnostics.ts";
 import { COMPOSED_BODY_FRAMING, REVALIDATE_HEADER } from "./response.ts";
 import { appendTraceServerTiming, hasServerTiming, mergeServerTiming, traceForEvent } from "./trace.ts";
@@ -133,15 +133,19 @@ function ownerLabels(subject: any): string[] | undefined {
 }
 
 /** Tells the hook (the request's, else the ambient one) about `value` once; `{ mapped, value }` when it gave a wire value. */
-export function reportServerError(value: unknown, site: ServerErrorSite, subject?: unknown, hook?: ServerErrorHook): { mapped: boolean; value?: unknown } {
+export function reportServerError(value: unknown, site: ServerErrorSite, subject?: unknown, hook?: ServerErrorHook): { mapped: boolean; value?: unknown; heard?: boolean } {
   const verdict = verdictOf(value);
-  if (verdict !== undefined && verdict.reported) return verdict.decided ? { mapped: true, value: verdict.wire } : { mapped: false };
+  if (verdict !== undefined && verdict.reported) return verdict.decided ? { mapped: true, value: verdict.wire } : { mapped: false, heard: true };
   if (verdict !== undefined) verdict.reported = true;
   const target = hook ?? ambientServerErrorHook();
   if (target === undefined) return { mapped: false };
   const context: ServerErrorSite = { ...site };
   const boundary = subject ? ownerLabels(subject) : undefined;
-  if (context.ownerPath === undefined && boundary !== undefined) context.ownerPath = boundary;
+  if (context.ownerPath === undefined) {
+    const thrower = throwerOf(value);
+    const path = (thrower !== undefined ? ownerLabels(thrower) : undefined) ?? boundary;
+    if (path !== undefined) context.ownerPath = path;
+  }
   if (context.boundaryPath === undefined && boundary !== undefined) context.boundaryPath = boundary;
   if (context.event === undefined) {
     const event = peekRequestEvent();
@@ -152,9 +156,9 @@ export function reportServerError(value: unknown, site: ServerErrorSite, subject
     mapped = target(value, context);
   } catch (hookError) {
     console.error(hookError);
-    return { mapped: false };
+    return { mapped: false, heard: true };
   }
-  if (mapped === undefined || site.handling === "failed") return { mapped: false };
+  if (mapped === undefined || site.handling === "failed") return { mapped: false, heard: true };
   if (verdict !== undefined) {
     verdict.decided = true;
     verdict.wire = mapped;

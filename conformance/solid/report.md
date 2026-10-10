@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5475 pass, 1224 fail, 714 files (37 did not load, 121 test Solid's internals)
+5492 pass, 1207 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -620,13 +620,13 @@
 | web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/request-event-concurrent.spec.tsx | 3 | 4 |  |
 | web/test/server/response-invariants.spec.tsx | 3 | 0 |  |
-| web/test/server/retry-robustness.spec.tsx | 4 | 1 |  |
+| web/test/server/retry-robustness.spec.tsx | 5 | 0 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
 | web/test/server/server-component-context.spec.tsx | 4 | 2 |  |
 | web/test/server/server-diagnostics.spec.tsx | 1 | 16 |  |
-| web/test/server/server-error-hook.spec.tsx | 10 | 14 |  |
-| web/test/server/server-frame-records.spec.tsx | 3 | 4 |  |
+| web/test/server/server-error-hook.spec.tsx | 24 | 0 |  |
+| web/test/server/server-frame-records.spec.tsx | 4 | 3 |  |
 | web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-adapter-request.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-addressing.spec.tsx | 24 | 0 |  |
@@ -706,7 +706,7 @@
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
 | web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 2 | 0 |  |
-| web/test/server/ssr-stream.spec.tsx | 100 | 16 |  |
+| web/test/server/ssr-stream.spec.tsx | 101 | 15 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |

@@ -70,6 +70,16 @@ export function createComponent<P>(Comp: (props: P) => any, props: P) {
   return runWithOwner(o, () => untrack(() => own(props), builtins.has(own) ? undefined : label));
 }
 
+/** A component called and what it returns rendered by `render`, both under its owner (what it renders is its own). */
+export function renderComponent<P, R>(Comp: (props: P) => any, props: P, render: (v: any) => R): R {
+  if (foreign && !isTwist(Comp)) return render(foreign(Comp, props));
+  const own = ownOf(Comp);
+  const label = `<${own.name || "Anonymous"}>`;
+  const o = createOwner({ transparent: true }) as any;
+  o.name = label;
+  return runWithOwner(o, () => render(untrack(() => own(props), builtins.has(own) ? undefined : label)));
+}
+
 /** Twist's own components (control flow, boundaries): their bodies read what they need, as Solid's computations do. */
 const builtins = new WeakSet<Function>();
 export const markBuiltin = (...fs: Function[]) => fs.forEach((f) => builtins.add(f));
