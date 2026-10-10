@@ -8,6 +8,20 @@ import { __twist_mark, markBuiltin, callComponent, componentProps, createCompone
 
 export * from "./server-solid.ts";
 export * from "./control.ts";
+export * from "./response.ts";
+export {
+  RequestContext,
+  getRequestEvent,
+  getTraceContext,
+  createRequestEvent,
+  createResponseStub,
+  commitResponseStub,
+  commitEventResponse,
+  getExpectedRedirectStatus,
+  composeMiddleware,
+  configureServerErrors,
+  reportRequestFailure,
+} from "./request.ts";
 export { merge, omit, isStatic, merge as mergeProps };
 export const isServer = true;
 // (Server mode is on while a render runs: see rendering().)

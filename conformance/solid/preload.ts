@@ -5,8 +5,11 @@ import { plugin } from "bun";
 import { join } from "node:path";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
+// The platform's fetch family stays (jsdom brings none: Solid's tests use Node's Request, Response, Headers, fetch).
+const platform = ["Request", "Response", "Headers", "fetch", "FormData", "Blob", "File", "ReadableStream", "AbortController", "AbortSignal"].map((k) => [k, (globalThis as any)[k]]);
 // As jsdom runs Solid's tests: a page URL, and nothing fetched (no CSS, scripts or frames loaded).
 GlobalRegistrator.register({ url: "http://localhost/", settings: { disableCSSFileLoading: true, disableJavaScriptFileLoading: true, disableIframePageLoading: true, handleDisabledFileLoadingAsSuccess: true } as any });
+for (const [k, v] of platform) Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
 // Solid's tests run in jsdom, which has no reportError (Bun and happy-dom do): an uncaught error's cause is logged.
 delete (globalThis as any).reportError;
 // Vitest's globals, as Solid's tests use them without importing.

@@ -1,20 +1,21 @@
 # Solid's tests on Twist
 
-4487 pass, 1070 fail, 714 files (85 did not load, 245 test Solid's internals)
+5022 pass, 1028 fail, 714 files (28 did not load, 246 test Solid's internals)
 
 ## Why files did not load
 
-- 60 × Cannot find module '@solidjs/web/server-functions/server'
 - 9 × SyntaxError: Export named 'httpStatus' not found
 - 4 × Cannot find module '../../src/server.js'
-- 3 × SyntaxError: Export named 'createRequestEvent' not found
-- 2 × SyntaxError: Export named 'getTraceContext' not found
+- 4 × SyntaxError: Export named 'createSSRResponse' not found
 - 2 × SyntaxError: Export named 'getHydrationWriter' not found
+- 2 × Cannot find module '@solidjs/web/frames/server'
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
 - 1 × SyntaxError: Export named 'waitAsset' not found
 - 1 × Cannot find module '../../src/response.js'
 - 1 × SyntaxError: Export named 'httpHeader' not found
+- 1 × SyntaxError: Export named 'getServerFunctionRPC' not found
+- 1 × SyntaxError: Export named 'getTraceContext' not found
 
 ## Files
 
@@ -457,7 +458,7 @@
 | web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
-| web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/src/client.js' |
+| web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/hydration/hybrid-memo-handoff.spec.tsx | 0 | 8 |  |
 | web/test/hydration/hybrid-store-handoff-3574.spec.tsx | 0 | 4 |  |
 | web/test/hydration/hydrate-falsy-sole-child-issue-3571.spec.tsx | 1 | 0 |  |
@@ -538,8 +539,8 @@
 | web/test/render-halt-recovery.spec.tsx | 0 | 1 |  |
 | web/test/repeat.spec.tsx | 50 | 1 |  |
 | web/test/runtime/asset-registry.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
-| web/test/runtime/chunk-reader-hardening.spec.ts | 0 | 1 | not ours: Cannot find module '../../server-functions/src/shared.js' |
-| web/test/runtime/chunk-reader.spec.ts | 0 | 1 | not ours: Cannot find module '../../server-functions/src/shared.js' |
+| web/test/runtime/chunk-reader-hardening.spec.ts | 21 | 0 |  |
+| web/test/runtime/chunk-reader.spec.ts | 4 | 0 |  |
 | web/test/runtime/cookies-client.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
 | web/test/runtime/cookies.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
 | web/test/runtime/head-takeover.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
@@ -551,14 +552,14 @@
 | web/test/runtime/serializer.spec.js | 23 | 1 |  |
 | web/test/runtime/stylesheet-gate.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
 | web/test/select-multiple.spec.tsx | 4 | 0 |  |
-| web/test/server-functions-live-loop.spec.tsx | 0 | 1 | not ours: Cannot find module '../server-functions/src/client.js' |
+| web/test/server-functions-live-loop.spec.tsx | 19 | 0 |  |
 | web/test/server-mock.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/server-mock.js' |
 | web/test/server/client-hole-derived-async-3659.spec.tsx | 0 | 6 |  |
 | web/test/server/client-only-preload.spec.tsx | 2 | 2 |  |
 | web/test/server/concurrent-render-error-policy.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/server/concurrent-render-lazy-assets.spec.tsx | 1 | 5 |  |
 | web/test/server/concurrent-render-serialize.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/concurrent-render-trace.spec.tsx | 0 | 1 | SyntaxError: Export named 'getTraceContext' not found |
+| web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
 | web/test/server/container-traces.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
 | web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
@@ -614,76 +615,76 @@
 | web/test/server/nav-before-resume.gen.spec.tsx | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
 | web/test/server/polymorphic-chain.spec.tsx | 0 | 2 |  |
 | web/test/server/projection-body-read.spec.tsx | 1 | 3 |  |
-| web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createRequestEvent' not found |
+| web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/request-event-concurrent.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/response-invariants.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/response-invariants.spec.tsx | 3 | 0 |  |
 | web/test/server/retry-robustness.spec.tsx | 1 | 4 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
 | web/test/server/server-component-context.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/server-diagnostics.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/server-error-hook.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-error-hook.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/server-frame-records.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/server-functions-abort-conforming-length.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-adapter-request.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-addressing.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-body-buffering.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-body-cap-declaration-trust.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-body-formats.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-content-length.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-cors-origin.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-csrf.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-decoder-rejection-ownership.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-derived-locals.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-dev-rebind-grant.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-direct-provide-event-once.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-encode-hygiene.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-error-carrier-guard.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-event-hook.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-extensions.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-failure-sanitization.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-failure-signal.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flash-bound-form.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flash-bounds.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flash-encryption.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flash-falsy-outcomes.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flash-key-derivation.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flash-url-bound.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flight-markup.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flight-result-ownership.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-flight-source-dedupe.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-get-grant-binding.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-invocation-wrap.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-invoke.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-live-lifetime.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-live-retry.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-negative-zero.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-nested-deferred-scope.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-nojs-destination.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-open-gaps.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-outcome-digest.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-proto-keys.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-redirect-scheme.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-redirect-status.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-registry-reload.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-request-bounds.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-request-event-scope.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-response-aliasing.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-result-descriptors.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-single-flight.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-transform-result-thrown.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-transport-failure.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-undefined-arguments.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-version-skew.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-wrap-invocation-validation.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-functions-wrap-nested-direct.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
-| web/test/server/server-observe-invocations.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |
+| web/test/server/server-functions-adapter-request.spec.tsx | 2 | 0 |  |
+| web/test/server/server-functions-addressing.spec.tsx | 24 | 0 |  |
+| web/test/server/server-functions-body-buffering.spec.tsx | 3 | 0 |  |
+| web/test/server/server-functions-body-cap-declaration-trust.spec.tsx | 1 | 0 |  |
+| web/test/server/server-functions-body-formats.spec.tsx | 4 | 2 |  |
+| web/test/server/server-functions-content-length.spec.tsx | 2 | 0 |  |
+| web/test/server/server-functions-cors-origin.spec.tsx | 26 | 0 |  |
+| web/test/server/server-functions-csrf.spec.tsx | 21 | 0 |  |
+| web/test/server/server-functions-decoder-rejection-ownership.spec.tsx | 3 | 0 |  |
+| web/test/server/server-functions-derived-locals.spec.tsx | 4 | 0 |  |
+| web/test/server/server-functions-dev-rebind-grant.spec.tsx | 7 | 0 |  |
+| web/test/server/server-functions-direct-provide-event-once.spec.tsx | 3 | 0 |  |
+| web/test/server/server-functions-encode-hygiene.spec.tsx | 10 | 0 |  |
+| web/test/server/server-functions-error-carrier-guard.spec.tsx | 9 | 0 |  |
+| web/test/server/server-functions-event-hook.spec.tsx | 11 | 0 |  |
+| web/test/server/server-functions-extensions.spec.tsx | 12 | 0 |  |
+| web/test/server/server-functions-failure-sanitization.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/frames/server' |
+| web/test/server/server-functions-failure-signal.spec.tsx | 6 | 0 |  |
+| web/test/server/server-functions-flash-bound-form.spec.tsx | 2 | 0 |  |
+| web/test/server/server-functions-flash-bounds.spec.tsx | 5 | 0 |  |
+| web/test/server/server-functions-flash-encryption.spec.tsx | 9 | 0 |  |
+| web/test/server/server-functions-flash-falsy-outcomes.spec.tsx | 8 | 0 |  |
+| web/test/server/server-functions-flash-key-derivation.spec.tsx | 5 | 0 |  |
+| web/test/server/server-functions-flash-url-bound.spec.tsx | 5 | 0 |  |
+| web/test/server/server-functions-flight-markup.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/frames/server' |
+| web/test/server/server-functions-flight-result-ownership.spec.tsx | 1 | 2 |  |
+| web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
+| web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
+| web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
+| web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
+| web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
+| web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |
+| web/test/server/server-functions-live-lifetime.spec.tsx | 12 | 5 |  |
+| web/test/server/server-functions-live-retry.spec.tsx | 9 | 0 |  |
+| web/test/server/server-functions-negative-zero.spec.tsx | 4 | 0 |  |
+| web/test/server/server-functions-nested-deferred-scope.spec.tsx | 6 | 0 |  |
+| web/test/server/server-functions-nojs-destination.spec.tsx | 9 | 0 |  |
+| web/test/server/server-functions-open-gaps.spec.tsx | 44 | 0 |  |
+| web/test/server/server-functions-outcome-digest.spec.tsx | 14 | 0 |  |
+| web/test/server/server-functions-proto-keys.spec.tsx | 5 | 0 |  |
+| web/test/server/server-functions-redirect-scheme.spec.tsx | 2 | 0 |  |
+| web/test/server/server-functions-redirect-status.spec.tsx | 22 | 0 |  |
+| web/test/server/server-functions-registry-reload.spec.tsx | 0 | 1 | SyntaxError: Export named 'getServerFunctionRPC' not found |
+| web/test/server/server-functions-request-bounds.spec.tsx | 24 | 0 |  |
+| web/test/server/server-functions-request-event-scope.spec.tsx | 5 | 0 |  |
+| web/test/server/server-functions-response-aliasing.spec.tsx | 4 | 0 |  |
+| web/test/server/server-functions-result-descriptors.spec.tsx | 27 | 0 |  |
+| web/test/server/server-functions-single-flight.spec.tsx | 22 | 0 |  |
+| web/test/server/server-functions-transform-result-thrown.spec.tsx | 6 | 0 |  |
+| web/test/server/server-functions-transport-failure.spec.tsx | 15 | 0 |  |
+| web/test/server/server-functions-undefined-arguments.spec.tsx | 7 | 0 |  |
+| web/test/server/server-functions-version-skew.spec.tsx | 6 | 0 |  |
+| web/test/server/server-functions-wrap-invocation-validation.spec.tsx | 7 | 0 |  |
+| web/test/server/server-functions-wrap-nested-direct.spec.tsx | 3 | 0 |  |
+| web/test/server/server-observe-invocations.spec.tsx | 0 | 1 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\server-functions\dist\serve |
 | web/test/server/server-owner-walks.spec.tsx | 0 | 5 | not ours: runs Solid's built packages in a child process |
 | web/test/server/server-render-route.spec.tsx | 2 | 7 |  |
-| web/test/server/server-trace.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-trace.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/shared-async-sources.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/shell-suspend-loading-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/slot-hydration-3567.spec.tsx | 27 | 4 |  |
@@ -692,7 +693,7 @@
 | web/test/server/spread-omit.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/server/spread-static-tail.spec.tsx | 6 | 3 |  |
 | web/test/server/spread-static-text.spec.tsx | 3 | 1 |  |
-| web/test/server/ssr-async-rejection-3569.spec.tsx | 0 | 1 | SyntaxError: Export named 'createRequestEvent' not found |
+| web/test/server/ssr-async-rejection-3569.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/ssr-async-rejection-3570.spec.tsx | 5 | 1 |  |
 | web/test/server/ssr-class-style-separators.spec.tsx | 2 | 0 |  |
 | web/test/server/ssr-class.spec.tsx | 2 | 1 |  |
@@ -701,7 +702,7 @@
 | web/test/server/ssr-element-sources.spec.tsx | 24 | 0 |  |
 | web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 | not ours: runs Solid's built packages in a child process |
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
-| web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createRequestEvent' not found |
+| web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/server/ssr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
