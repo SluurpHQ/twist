@@ -120,6 +120,10 @@ let listener: Computation<any> | null = null;
 /** Running a computation (or a latest() read): reads see the staged world. */
 let inPass = 0;
 
+/** Reactive scopes made so far: a stamp telling what a render made once from what it can make again. */
+let ownerCreations = 0;
+export const creationStamp = () => ownerCreations;
+
 class Root implements Owner {
   owned: Owner[] | null = null;
   cleanups: (() => void)[] | null = null;
@@ -134,6 +138,7 @@ class Root implements Owner {
     this.transparent = options?.transparent;
     if (options?.id != null) this.id = options.id;
     else giveId(this, parent);
+    ownerCreations++;
     DEV.hooks.onOwner?.(this);
   }
   get _config() {
@@ -571,6 +576,7 @@ export class Computation<T> extends Node<T> implements Owner {
   /** A tracked effect (createTrackedEffect): its single function runs in the effect phase. */
   tracked = false;
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
+    ownerCreations++;
     super();
     if ((owner as any)?.tracked) throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
     if (inEffectCallback && !owner) primitiveInEffectCallback();

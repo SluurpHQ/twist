@@ -86,7 +86,7 @@ const webDir = join(here, "node_modules", "@solidjs", "web");
 mkdirSync(webDir, { recursive: true });
 await Bun.write(
   join(webDir, "package.json"),
-  JSON.stringify({ name: "@solidjs/web", type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js", "./serialization": "./serialization.js", "./server-functions/client": "./server-functions-client.js", "./server-functions/server": "./server-functions-server.js", "./storage": "./storage.js" } }),
+  JSON.stringify({ name: "@solidjs/web", type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js", "./serialization": "./serialization.js", "./server-functions/client": "./server-functions-client.js", "./server-functions/server": "./server-functions-server.js", "./storage": "./storage.js", "./frames": "./frames.js", "./frames/server": "./frames-server.js" } }),
 );
 await Bun.write(join(webDir, "index.js"), `export * from ${JSON.stringify(web)};\n`);
 // Serialization (the wire's codec and the hydration serializer): Twist's, by package name and by Solid's own paths.
@@ -100,8 +100,10 @@ for (const file of ["serializer.js", "serializer-decode.js"]) await Bun.write(jo
 for (const name of ["shared", "registry", "client", "server", "flash"])
   await Bun.write(join(out, "web", "server-functions", "src", name + ".js"), `export * from ${JSON.stringify(twist(`server-functions/${name}.ts`))};\n`);
 // Frames: Twist's port at Solid's paths.
-for (const name of ["client", "frame-client", "frame-container-plugin", "frame-transport", "tree-rewrite", "bind-tier", "regions-tier", "assets-tier", "wire-tier"])
+for (const name of ["client", "frame-client", "frame-container-plugin", "frame-transport", "tree-rewrite", "bind-tier", "regions-tier", "assets-tier", "wire-tier", "frame-sink", "server", "trace-tier"])
   await Bun.write(join(out, "web", "frames", "src", name + ".js"), `export * from ${JSON.stringify(twist(`frames/${name}.ts`))};\n`);
+await Bun.write(join(webDir, "frames.js"), `export * from ${JSON.stringify(twist("frames/client.ts"))};\n`);
+await Bun.write(join(webDir, "frames-server.js"), `export * from ${JSON.stringify(twist("frames/server.ts"))};\n`);
 // The server builds: Twist's server runtime, and Solid's API as it runs on a server.
 for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-server", "server-solid.ts"]]) {
   const dir = join(here, "node_modules", ...name.split("/"));

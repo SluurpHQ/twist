@@ -4,11 +4,14 @@
 import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
+import { createHydrationSerializer } from "./serialization.ts";
 import { __twist_mark, markBuiltin, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 export * from "./server-solid.ts";
 export * from "./control.ts";
 export * from "./response.ts";
+export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
+export { createLiveHoles } from "./server-live.ts";
 export {
   RequestContext,
   getRequestEvent,
@@ -482,6 +485,44 @@ type Render = {
   headerSent: boolean;
   /** Holes of the shell still waiting, by placeholder. */
   holes: Map<string, Promise<string>>;
+  /** Where what the render makes goes: the document (html text), or a sink of the caller's (a frame stream). */
+  sink: Sink;
+  /** The render context code reads (`sharedConfig.context`), one for the whole render. */
+  ctx: any;
+  /** What holds the shell (deferStream data), and holds on the stream's end. */
+  blocks: Set<Promise<unknown>>;
+  holds: number;
+  /** Fragments settled before the shell went out: put in the shell in place of their placeholders. */
+  inlined: Map<string, string>;
+};
+
+/** The shell with the fragments that settled before it went out in place of their placeholders. */
+function inlineFragments(r: Render, shell: string): string {
+  for (let again = true; again && r.inlined.size; ) {
+    again = false;
+    for (const [id, content] of r.inlined) {
+      const open = `<template id="pl-${id}"></template>`;
+      const at = shell.indexOf(open);
+      if (at === -1) continue;
+      const close = `<!--pl-${id}-->`;
+      const end = shell.indexOf(close, at);
+      if (end === -1) continue;
+      shell = shell.slice(0, at) + content + shell.slice(end + close.length);
+      r.inlined.delete(id);
+      again = true;
+    }
+  }
+  return shell;
+}
+
+/** What a stream makes, as Solid's renderer hands it out: the shell, data, fragments, reveals, assets. */
+export type Sink = {
+  data(payload: any): void;
+  fragment(key: string, value: string, meta: { styles?: { inline: any[]; links: any[] }; revealGroup?: string; error?: unknown; patch?: string }): void;
+  reveal(keys: string[], meta: { fallback?: boolean }): void;
+  asset(type: string, value: unknown): void;
+  shell(html: string, meta: Record<string, unknown>): void;
+  error?(id: string, message: string): void;
 };
 let render: Render | null = null;
 /** What settles each streamed boundary's fragment record. */
@@ -581,7 +622,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
       p.then(() => {
         r.waiting.delete(p);
         // A boundary rendered again since (or thrown away): this retry is not its any more.
-        if ((boundary as any).disposed) return r.wake?.();
+        // (Its record settles: nothing will be sent for it.)
+        if ((boundary as any).disposed) return fragments.get(boundary)?.(false), r.wake?.();
         resetOwner(boundary);
         try {
           boundaries++;
@@ -598,7 +640,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
           }
           const patch = r.head ? headPatch(r, id!) : "";
           fragments.get(boundary)?.(true);
-          r.chunks.push(takeData(r) + patch + `<template id="${id}">${content}</template>` + script(r, `$df("${id}")`));
+          if (!r.shellSent) r.inlined.set(id!, content);
+          else r.sink.fragment(id!, content, { styles: { inline: [], links: [] }, patch });
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
           if (!next) throw e2;
@@ -611,7 +654,12 @@ export function Loading(props: { fallback?: any; children?: any }) {
     let revealed!: (v: boolean) => void;
     const record = new Promise<boolean>((ok) => (revealed = ok));
     fragments.set(boundary, revealed);
-    if (r.serializer && noHydration === 0) r.serializer.write(id + "_fr", record);
+    if (r.serializer && noHydration === 0) {
+      r.serializer.write(id + "_fr", record);
+      // The stream ends after the record's resolution is written.
+      r.pendingData++;
+      record.then(() => queueMicrotask(() => (r.pendingData--, r.wake?.())));
+    }
     retry(waits);
     return { t: `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->` };
   }
@@ -799,7 +847,7 @@ function takeData(r: Render): string {
 function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?: boolean }, fn: () => T): T {
   const was = sharedConfig.context;
   const wasRender = render;
-  sharedConfig.context = options.noHydrate ? null : { id: options.renderId ?? "" };
+  sharedConfig.context = options.noHydrate ? null : (r?.ctx ?? stringContext(options.renderId ?? ""));
   render = r;
   const wasHead = head;
   if (r) head = r.head;
@@ -841,10 +889,101 @@ export function renderToString(code: () => any, options: { renderId?: string; no
 
 type Writable = { write(chunk: string): void; end(): void };
 
+/** The context a string render's code reads: nothing waits, nothing is sent. */
+function stringContext(id: string) {
+  return { id, count: 0, async: false, document: true, live: {}, escape, ssr, resolve: (v: any) => ({ t: html(v, false) }), serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} };
+}
+
+/** The context of a stream: Solid's render context API over this render. */
+function streamContext(r: Render, options: StreamOptions) {
+  return {
+    id: options.renderId ?? "",
+    count: 0,
+    async: true,
+    nonce: options.nonce,
+    document: !options.sink,
+    live: {},
+    escape,
+    ssr,
+    resolve: (v: any) => ({ t: html(v, false) }),
+    serialize(id: string, p: unknown, deferStream?: boolean) {
+      if (!r.serializer) return;
+      if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add(p as Promise<unknown>);
+      r.serializer.write(id, p);
+    },
+    block(p: Promise<unknown>) {
+      if (!r.shellSent) r.blocks.add(p);
+    },
+    hold() {
+      r.holds++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        r.holds--;
+        r.wake?.();
+      };
+    },
+    replace() {},
+    registerAsset(type: string, value: unknown) {
+      if (r.shellSent) r.sink.asset(type, value);
+    },
+    /** A fragment of the caller's: its record serialized now, its content to the sink when given. */
+    registerFragment(key: string, opts?: { revealGroup?: string }) {
+      let settle!: (v: unknown) => void;
+      let fail!: (e: unknown) => void;
+      const record = new Promise((ok, no) => ((settle = ok), (fail = no)));
+      record.catch(() => {});
+      r.serializer?.write(key + "_fr", record);
+      let done = false;
+      return (value?: string, error?: unknown) => {
+        if (done) return r.shellSent;
+        done = true;
+        r.sink.fragment(key, value !== undefined ? value : " ", { styles: { inline: [], links: [] }, revealGroup: opts?.revealGroup, error });
+        queueMicrotask(() => (error ? fail(error) : settle(true)));
+        r.wake?.();
+        return r.shellSent;
+      };
+    },
+    revealFragments(keys: string | string[]) {
+      r.sink.reveal(Array.isArray(keys) ? keys : [keys], { fallback: false });
+    },
+    revealFallbacks(keys: string | string[]) {
+      r.sink.reveal(Array.isArray(keys) ? keys : [keys], { fallback: true });
+    },
+    flushed: () => r.shellSent,
+  };
+}
+
+type StreamOptions = {
+  renderId?: string;
+  noHydrate?: boolean;
+  nonce?: string;
+  onCompleteShell?: () => void;
+  onCompleteAll?: () => void;
+  /** A sink of the caller's in place of the document (what the render makes goes there). */
+  sink?: Partial<Sink>;
+  /** The serializer data is written with (the hydration serializer by default). */
+  serializer?: (options: any) => any;
+  plugins?: any[];
+  signal?: AbortSignal;
+};
+
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
-export function renderToStream(code: () => any, options: { renderId?: string; noHydrate?: boolean; onCompleteShell?: () => void; onCompleteAll?: () => void } = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: newHead(), data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false };
-  if (!options.noHydrate) r.serializer = hydrationSerializer({ scopeId: options.renderId, onData: (s) => ((r.data += s + ";"), r.wake?.()) });
+export function renderToStream(code: () => any, options: StreamOptions = {}) {
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: newHead(), data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map() };
+  // The document: html text, data as script, each fragment as a template and its reveal.
+  let documentShell = "";
+  const documentSink: Sink = {
+    data: (payload: string) => void (r.data += payload + ";"),
+    fragment: (key, value, meta) => void r.chunks.push(takeData(r) + (meta.patch ?? "") + `<template id="${key}">${value}</template>` + (meta.revealGroup ? "" : script(r, `$df("${key}")`))),
+    reveal: (keys, meta) => void (meta.fallback || r.chunks.push(script(r, keys.map((k) => `$df("${k}")`).join(";")))),
+    asset() {},
+    shell: (html) => void (documentShell = html + takeData(r)),
+  };
+  r.sink = { ...documentSink, ...options.sink } as Sink;
+  r.ctx = streamContext(r, options);
+  if (!options.noHydrate) r.serializer = (options.serializer ?? createHydrationSerializer)({ scopeId: options.renderId, plugins: options.plugins, onData: (p: unknown) => (r.sink.data(p), r.wake?.()), onDone() {}, onError() {} });
   let dispose!: () => void;
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.
@@ -852,7 +991,14 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
     const attempt = () => {
       try {
         filled(r, rendering(r, options, () => runWithOwner(root, () => html(code(), false))))
-          .then((shell) => shellHead(r, shell))
+          .then(async (shell) => {
+            while (r.blocks.size) {
+              const now = [...r.blocks];
+              await Promise.allSettled(now);
+              for (const p of now) r.blocks.delete(p);
+            }
+            return shellHead(r, shell);
+          })
           .then(ok, fail);
       } catch (e) {
         const waits = e instanceof NotReadyError && settlesOf(e);
@@ -879,7 +1025,7 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
     const data = takeData(r);
     if (data) r.chunks.push(data);
     for (; sent < r.chunks.length; sent++) for (const w of sinks) w.write(r.chunks[sent]!);
-    if (!r.waiting.size && !r.pendingData && !done) {
+    if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
       done = true;
       options.onCompleteAll?.();
       dispose();
@@ -893,9 +1039,13 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
   r.wake = () => queueMicrotask(() => shellSent && rendering(r, options, drain));
   const failed = shellReady.then(
     (s) => {
-      shell = s + takeData(r);
+      rendering(r, options, () => r.sink.shell(inlineFragments(r, s), {}));
+      shell = documentShell;
       shellSent = true;
       r.shellSent = true;
+      // (One settled inside a placeholder that was itself streamed: it streams too.)
+      for (const [id, content] of r.inlined) r.sink.fragment(id, content, { styles: { inline: [], links: [] } });
+      r.inlined.clear();
       options.onCompleteShell?.();
       for (const w of sinks) w.write(shell);
       rendering(r, options, drain);

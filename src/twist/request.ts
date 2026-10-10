@@ -210,6 +210,8 @@ export function emitFinding(finding: any, subject: unknown = getOwner()) {
   const entry = emitDiagnostic(finding, subject as any);
   reportDiagnostic(entry);
 }
+/** A development check's finding. */
+export const devCheck = (finding: any, subject?: unknown) => emitFinding(finding, subject);
 /** A finding recorded only (its site throws the message). */
 export function recordFinding(finding: any, subject: unknown = getOwner()) {
   emitDiagnostic(finding, subject as any);

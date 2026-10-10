@@ -1,20 +1,20 @@
 # Solid's tests on Twist
 
-5185 pass, 1073 fail, 714 files (31 did not load, 199 test Solid's internals)
+5315 pass, 1261 fail, 714 files (32 did not load, 165 test Solid's internals)
 
 ## Why files did not load
 
 - 9 × SyntaxError: Export named 'httpStatus' not found
+- 4 × SyntaxError: Export named 'materializeContainerTrace' not found
 - 4 × Cannot find module '../../src/server.js'
 - 4 × SyntaxError: Export named 'createSSRResponse' not found
-- 2 × SyntaxError: Export named 'materializeContainerTrace' not found
 - 2 × SyntaxError: Export named 'getHydrationWriter' not found
-- 2 × Cannot find module '@solidjs/web/frames/server'
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
 - 1 × Cannot find module '../src/response.js'
 - 1 × SyntaxError: Export named 'waitAsset' not found
 - 1 × Cannot find module '../../src/response.js'
+- 1 × SyntaxError: Export named 'dynamicComponent' not found
 - 1 × SyntaxError: Export named 'httpHeader' not found
 - 1 × SyntaxError: Export named 'getServerFunctionRPC' not found
 - 1 × SyntaxError: Export named 'getTraceContext' not found
@@ -441,8 +441,8 @@
 | web/test/hydration/client-only.spec.tsx | 0 | 2 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\dist\server.js' |
 | web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 1 | 3 |  |
-| web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 4 | not ours: Cannot find module '../../frames/src/trace-tier.js' |
-| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/trace-tier.js' |
+| web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 4 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
 | web/test/hydration/container-trace-hold-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal/container-trace' |
 | web/test/hydration/diagnostics.spec.tsx | 4 | 9 |  |
 | web/test/hydration/document-live-channel.spec.tsx | 1 | 0 |  |
@@ -456,7 +456,7 @@
 | web/test/hydration/eager-jsx-falsy-show.spec.tsx | 1 | 1 |  |
 | web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 |  |
 | web/test/hydration/frame-live-document.spec.tsx | 0 | 2 |  |
-| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 0 | 1 |  |
+| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 2 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 1 | 0 |  |
@@ -562,20 +562,20 @@
 | web/test/server/concurrent-render-lazy-assets.spec.tsx | 1 | 5 |  |
 | web/test/server/concurrent-render-serialize.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
-| web/test/server/container-traces.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/container-traces.spec.tsx | 2 | 7 |  |
 | web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
 | web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-treeshake.spec.tsx | 0 | 1 | not ours: Solid's published build |
-| web/test/server/document-face-arg-tiers.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/document-live-channel-artifact.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/document-live-holes.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/document-face-arg-tiers.spec.tsx | 2 | 2 |  |
+| web/test/server/document-live-channel-artifact.spec.tsx | 0 | 1 |  |
+| web/test/server/document-live-holes.spec.tsx | 0 | 7 |  |
 | web/test/server/document-shell.spec.tsx | 1 | 3 |  |
-| web/test/server/dynamic-async-component-diagnostic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/dynamic-async-loading-3666.spec.tsx | 1 | 1 |  |
-| web/test/server/dynamic-component-parity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/dynamic-async-component-diagnostic.spec.tsx | 3 | 2 |  |
+| web/test/server/dynamic-async-loading-3666.spec.tsx | 2 | 0 |  |
+| web/test/server/dynamic-component-parity.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
 | web/test/server/dynamic-hydration.spec.tsx | 3 | 0 |  |
-| web/test/server/dynamic-shell-gating.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/dynamic-shell-gating.spec.tsx | 3 | 2 |  |
 | web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |
 | web/test/server/dynamic-xmlns.spec.tsx | 2 | 0 |  |
 | web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 1 | 3 |  |
@@ -583,22 +583,22 @@
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
 | web/test/server/frame-binding-slots.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-get.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-hn.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-live-document-artifact.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-live-document.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-live-holes-chat.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/server.js' |
-| web/test/server/frame-live-holes-projection.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-live-holes.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-live-resume.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-nonlive-document-3666.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-plain-bound.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-server-component.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-ssr-seam.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-sweep-ops.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/frame-teardown.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 6 |  |
+| web/test/server/frame-get.spec.tsx | 5 | 0 |  |
+| web/test/server/frame-hn.spec.tsx | 0 | 2 |  |
+| web/test/server/frame-live-document-artifact.spec.tsx | 0 | 3 |  |
+| web/test/server/frame-live-document.spec.tsx | 0 | 6 |  |
+| web/test/server/frame-live-framing.spec.tsx | 2 | 3 |  |
+| web/test/server/frame-live-holes-chat.spec.tsx | 0 | 1 |  |
+| web/test/server/frame-live-holes-projection.spec.tsx | 0 | 0 |  |
+| web/test/server/frame-live-holes.spec.tsx | 0 | 1 |  |
+| web/test/server/frame-live-resume.spec.tsx | 4 | 5 |  |
+| web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |
+| web/test/server/frame-plain-bound.spec.tsx | 1 | 11 |  |
+| web/test/server/frame-server-component.spec.tsx | 6 | 3 |  |
+| web/test/server/frame-ssr-seam.spec.tsx | 1 | 1 |  |
+| web/test/server/frame-sweep-ops.spec.tsx | 0 | 2 |  |
+| web/test/server/frame-teardown.spec.tsx | 1 | 4 |  |
 | web/test/server/generic-hydration.gen.spec.tsx | 0 | 2 |  |
 | web/test/server/hole-retry-shared-slot-3815.spec.tsx | 3 | 0 |  |
 | web/test/server/http-components.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpHeader' not found |
@@ -623,10 +623,10 @@
 | web/test/server/retry-robustness.spec.tsx | 1 | 4 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
-| web/test/server/server-component-context.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/server-component-context.spec.tsx | 3 | 3 |  |
 | web/test/server/server-diagnostics.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/server-error-hook.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/server-frame-records.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/server-error-hook.spec.tsx | 10 | 14 |  |
+| web/test/server/server-frame-records.spec.tsx | 3 | 4 |  |
 | web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-adapter-request.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-addressing.spec.tsx | 24 | 0 |  |
@@ -644,7 +644,7 @@
 | web/test/server/server-functions-error-carrier-guard.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-event-hook.spec.tsx | 11 | 0 |  |
 | web/test/server/server-functions-extensions.spec.tsx | 12 | 0 |  |
-| web/test/server/server-functions-failure-sanitization.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/frames/server' |
+| web/test/server/server-functions-failure-sanitization.spec.tsx | 15 | 2 |  |
 | web/test/server/server-functions-failure-signal.spec.tsx | 6 | 0 |  |
 | web/test/server/server-functions-flash-bound-form.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-flash-bounds.spec.tsx | 5 | 0 |  |
@@ -652,7 +652,7 @@
 | web/test/server/server-functions-flash-falsy-outcomes.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-flash-key-derivation.spec.tsx | 5 | 0 |  |
 | web/test/server/server-functions-flash-url-bound.spec.tsx | 5 | 0 |  |
-| web/test/server/server-functions-flight-markup.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/frames/server' |
+| web/test/server/server-functions-flight-markup.spec.tsx | 6 | 0 |  |
 | web/test/server/server-functions-flight-result-ownership.spec.tsx | 1 | 2 |  |
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
@@ -687,8 +687,8 @@
 | web/test/server/server-owner-walks.spec.tsx | 0 | 5 | not ours: runs Solid's built packages in a child process |
 | web/test/server/server-render-route.spec.tsx | 2 | 7 |  |
 | web/test/server/server-trace.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/shared-async-sources.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/shell-suspend-loading-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/shared-async-sources.spec.tsx | 0 | 2 |  |
+| web/test/server/shell-suspend-loading-inline.spec.tsx | 0 | 8 |  |
 | web/test/server/slot-hydration-3567.spec.tsx | 27 | 4 |  |
 | web/test/server/spread-function-source.spec.tsx | 10 | 0 |  |
 | web/test/server/spread-hydration.spec.tsx | 3 | 4 |  |
@@ -699,23 +699,23 @@
 | web/test/server/ssr-async-rejection-3570.spec.tsx | 5 | 1 |  |
 | web/test/server/ssr-class-style-separators.spec.tsx | 2 | 0 |  |
 | web/test/server/ssr-class.spec.tsx | 2 | 1 |  |
-| web/test/server/ssr-element-names.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/ssr-element-names.spec.tsx | 7 | 3 |  |
 | web/test/server/ssr-element-nullish-attrs.spec.tsx | 4 | 0 |  |
 | web/test/server/ssr-element-sources.spec.tsx | 24 | 0 |  |
 | web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 | not ours: runs Solid's built packages in a child process |
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
 | web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/ssr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/ssr-stream.spec.tsx | 47 | 69 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 0 | 16 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 2 | 8 |  |
-| web/test/server/tier-announce.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/tier-announce.spec.tsx | 4 | 10 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
-| web/test/server/welcome-status-parity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/welcome-status-parity.spec.tsx | 0 | 2 |  |
 | web/test/server/write-before-resume.gen.spec.tsx | 1 | 0 |  |
 | web/test/show-in-for.spec.tsx | 1 | 0 |  |
 | web/test/show-optimistic-sync-write-3698.spec.tsx | 2 | 0 |  |
