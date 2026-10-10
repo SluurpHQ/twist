@@ -3826,7 +3826,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       // What the root's own elements throw (no component between): uncaught, as React has it.
       const draw = (into: Node = container) => {
         try {
-          reconcile(top, toList(children), into, null);
+          // (Hydrating a document: what the root holds besides its singletons the server wrote in <body>.)
+          reconcile(top, toList(children), hydrating && into.nodeType === 9 && (into as Document).body ? (into as Document).body : into, null);
         } catch (e) {
           uncaught(state, e);
         }
