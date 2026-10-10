@@ -2020,7 +2020,21 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const held = !!single && prewarming && !!(single as any)[FIBER] && !(single as any)[FIBER].dead;
     if (held) ((f as any).singletonLent = true), ((single as any).lentTo = f);
     // Taken from a fiber still there (a fallback over shown content): it gets the element back when this one lets go.
-    else if (single && !hydrating && (single as any)[FIBER] && !(single as any)[FIBER].dead && (single as any)[FIBER] !== f) ((single as any).displaced ??= []).push((single as any)[FIBER]);
+    else if (single && !hydrating && (single as any)[FIBER] && !(single as any)[FIBER].dead && (single as any)[FIBER] !== f) {
+      const other: Fiber = (single as any)[FIBER];
+      ((single as any).displaced ??= []).push(other);
+      // Two of them at once (the other one still there at commit, not let go in it): React's warning
+      // (acquireSingletonInstance).
+      if (dev())
+        insertionQueue.push(() => {
+          if (other.dead || f.dead) return;
+          withFiber(f, () =>
+            warn(
+              `You are mounting a new ${type} component when a previous one has not first unmounted. It is an error to render more than one ${type} component at a time and attributes and children of these components will likely fail in unpredictable ways. Please only render a single instance of <${type}> and if you need to mount a new one, ensure any previous ones have unmounted first.`,
+            ),
+          );
+        });
+    }
     if (single && !hydrating && !held) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName.toLowerCase() === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
     // A customized built-in (is="…") is made as one.
