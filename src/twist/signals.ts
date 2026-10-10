@@ -304,6 +304,42 @@ const noop = () => {};
 let serverRender = false;
 const answered = new WeakMap<object, [boolean, unknown]>();
 /** Server mode on or off; answers what it was. */
+const SERVER_COMPONENT_SCOPE = Symbol.for("twist.ssr.server-component");
+const LIVE_SERVER_COMPONENT_SCOPE = Symbol.for("twist.ssr.live-server-component");
+const LIVE_SOURCE = Symbol.for("solid.live-source");
+const UNDECLARED_LIVE_SOURCE_MS = 5000;
+
+/** The hold a server component's pump keeps its response open with; in a document, a warning once it has run long. */
+function openPumpHold(ctx: any, node: Owner, alive: () => boolean): () => void {
+  const hold: (() => void) | undefined = ctx.hold?.();
+  let released = false;
+  let cap: any;
+  if (ctx.document) {
+    cap = setTimeout(() => {
+      cap = undefined;
+      if (released || !alive()) return;
+      emitDiagnostic(
+        {
+          code: "SSR_UNDECLARED_LIVE_SOURCE",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            `[SSR_UNDECLARED_LIVE_SOURCE] An async iterable read in a server component is still producing ${UNDECLARED_LIVE_SOURCE_MS / 1000}s into a document render: the document stays open for as long as it does. Declare the server function live(...) so the document takes the source's first value and the client connects for the rest, or bound the source.`,
+          data: { afterMs: UNDECLARED_LIVE_SOURCE_MS },
+        },
+        node,
+      );
+    }, UNDECLARED_LIVE_SOURCE_MS);
+    cap.unref?.();
+  }
+  return () => {
+    if (released) return;
+    released = true;
+    if (cap !== undefined) clearTimeout(cap);
+    hold?.();
+  };
+}
+
 /** Whether a server render is under way. */
 export const isServerRender = () => serverRender;
 export const setServerRender = (on: boolean) => {
@@ -999,12 +1035,22 @@ export class Computation<T> extends Node<T> implements Owner {
     const it = iterable[Symbol.asyncIterator]();
     const ctx = sharedConfig.context as any;
     const first = it.next();
-    this.closeStream = () => void Promise.resolve(it.return?.()).catch(noop);
-    if (ctx?.commit) {
-      // The response stays open while the source can still yield.
-      const release: () => void = ctx.hold?.() ?? noop;
-      const prevClose = this.closeStream;
-      this.closeStream = () => (release(), prevClose());
+    const close = () => void Promise.resolve(it.return?.()).catch(noop);
+    this.closeStream = close;
+    // As Solid reads a source on a server: in a live server component, or declared live outside a pumping scope, the
+    // first value and the source closed (the client connects for the rest); in a server component of a response that
+    // stays open, every value, each a commit.
+    const scoped = !!this.context?.[SERVER_COMPONENT_SCOPE];
+    const liveScope = !!this.context?.[LIVE_SERVER_COMPONENT_SCOPE];
+    const pumps = !!ctx?.commit && scoped && !liveScope;
+    if (liveScope || ((iterable as any)[LIVE_SOURCE] && !pumps)) {
+      first.then((r) => !r.done && close(), noop);
+      return this.fly(first.then((r: IteratorResult<T>) => r.value));
+    }
+    if (pumps) {
+      // The response stays open while the source can still yield (in a document, said after a while: it is live).
+      const release = openPumpHold(ctx, this, () => !this.disposed);
+      this.closeStream = () => (release(), close());
       const pump = () =>
         it.next().then(
           (r) => {
@@ -1023,6 +1069,8 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** Lets go of the iterator a stream reads (when it is disposed). */
   closeStream: (() => void) | null = null;
+  // (Set by a server component's scope; see server-internal.)
+  declare context: Record<symbol, unknown> | null;
   /** Values to come from an async iterator: each taken when it lands (at once, when it answers synchronously). */
   stream(iterable: AsyncIterable<T>) {
     const flight = {};

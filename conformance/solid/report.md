@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5524 pass, 1177 fail, 714 files (32 did not load, 121 test Solid's internals)
+5528 pass, 1173 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -454,7 +454,7 @@
 | web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 |  |
 | web/test/hydration/dynamic-hydration-events.spec.tsx | 0 | 1 |  |
 | web/test/hydration/eager-jsx-falsy-show.spec.tsx | 1 | 1 |  |
-| web/test/hydration/frame-live-document-switched.spec.tsx | 1 | 0 |  |
+| web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 |  |
 | web/test/hydration/frame-live-document.spec.tsx | 0 | 2 |  |
 | web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |
@@ -586,11 +586,11 @@
 | web/test/server/frame-fragment-error-outcome.spec.tsx | 1 | 5 |  |
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-hn.spec.tsx | 2 | 0 |  |
-| web/test/server/frame-live-document-artifact.spec.tsx | 0 | 3 |  |
-| web/test/server/frame-live-document.spec.tsx | 1 | 5 |  |
+| web/test/server/frame-live-document-artifact.spec.tsx | 3 | 0 |  |
+| web/test/server/frame-live-document.spec.tsx | 3 | 3 |  |
 | web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-live-holes-chat.spec.tsx | 1 | 0 |  |
-| web/test/server/frame-live-holes-projection.spec.tsx | 4 | 2 |  |
+| web/test/server/frame-live-holes-projection.spec.tsx | 5 | 1 |  |
 | web/test/server/frame-live-holes.spec.tsx | 1 | 0 |  |
 | web/test/server/frame-live-resume.spec.tsx | 4 | 5 |  |
 | web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |
@@ -657,7 +657,7 @@
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
 | web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 19 | 2 |  |
 | web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |

@@ -1518,7 +1518,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     for (; sent < r.chunks.length && !done; sent++) for (const w of sinks) write(w, r.chunks[sent]!);
     // A frame stream ends after its serializer's last record (a trace still writing is part of the response).
     if (!r.waiting.size && !r.pendingData && !r.holds && !done && options.sink && (r.serializer as any)?.pending > 0) {
-      setTimeout(() => r.wake?.(), 0);
+      (typeof setImmediate === "function" ? setImmediate : setTimeout)(() => r.wake?.(), 0);
       return;
     }
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {

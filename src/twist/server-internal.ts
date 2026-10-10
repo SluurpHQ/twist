@@ -6,8 +6,9 @@ export { creationStamp, sharedConfig };
 export { ssrSanitizeError } from "./request.ts";
 import { html } from "./server.ts";
 
-const SERVER_COMPONENT = Symbol("server component");
-const LIVE_SERVER_COMPONENT = Symbol("live server component");
+// (Registered: the core reads them too, to decide how a source is read in a server component.)
+const SERVER_COMPONENT = Symbol.for("twist.ssr.server-component");
+const LIVE_SERVER_COMPONENT = Symbol.for("twist.ssr.live-server-component");
 /** The context keys that cross a server component's barrier (reveal order coordination). */
 const crossing: symbol[] = [Symbol.for("twist.ssr.no-hydrate")];
 export const crossesBarrier = (key: symbol) => void crossing.push(key);
