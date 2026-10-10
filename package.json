@@ -1,8 +1,12 @@
 {
   "name": "@sluurp/dom",
   "version": "0.1.0",
-  "description": "Sluurp's React: React's API on signals, in TypeScript, for the browser and the server.",
-  "type": "module",
+  "devDependencies": {
+    "oxc-parser": "0.151.0",
+    "react": "19",
+    "react-dom": "19",
+    "seroval": "1.6.7"
+  },
   "exports": {
     ".": "./src/react.ts",
     "./jsx-runtime": "./src/jsx-runtime.ts",
@@ -13,14 +17,7 @@
     "./external-store": "./src/external-store.ts",
     "./react-redux": "./src/react-redux.ts"
   },
+  "description": "Sluurp's React: React's API on signals, in TypeScript, for the browser and the server.",
   "license": "SEE LICENSE IN LICENSE",
-  "devDependencies": {
-    "oxc-parser": "0.151.0",
-    "react": "19",
-    "react-dom": "19"
-  },
-  "dependencies": {
-    "seroval": "1.6.7",
-    "seroval-plugins": "1.6.7"
-  }
+  "type": "module"
 }

@@ -39,6 +39,10 @@ Batteries included, 80/20: what real apps use, no chasing Solid's edge rulings.
 
 ## Built
 
+- One serializer (2026-10-10): `client/sluurp-serial.js` replaces seroval (hydration) and devalue (server function
+  calls, island props). Its script form is seroval's output 1:1 (`test/serial` compares them; Solid's floor holds);
+  its JSON form is read without eval. `@sluurp/dom` has no runtime dependencies left.
+
 - Step 3 (2026-10-10): pages. `SLUURP_REACT=twist` (our React on server and browser, libraries' imports rewritten:
   Bun's runtime onResolve cannot redirect a package name) and `SLUURP_SOLID=twist` (Solid-style files on Twist:
   `host/runtime/twist.ts` compiles them, JSX source `src/twist/jsx/{server,client}`). Server: `bridge-server.ts` draws
