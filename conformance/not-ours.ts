@@ -5,6 +5,7 @@ const RETRY = "React renders the whole tree once more after an error before comm
 const OUTSIDE = "React's behaviour when the DOM it owns was changed by hand, outside React";
 const HAPPY_DOM = "happy-dom cannot do this (React's suite runs in jsdom)";
 const V8_FORMAT = "checks a V8 stack-frame format or a call count of React's own";
+const ONE_PACKAGE = "checks that separately installed react and react-dom packages agree on a version; ours are one package";
 const SHIM_FALLBACK = "checks use-sync-external-store's fallback for a React without useSyncExternalStore; ours always has it";
 
 export const NOT_OURS: Record<string, Record<string, string>> = {
@@ -69,6 +70,11 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
   "use-sync-external-store/useSyncExternalStoreNative-test.js": {
     "native version": SHIM_FALLBACK + " (React Native's)",
     "Using isEqual to bailout": SHIM_FALLBACK + " (React Native's)",
+  },
+  "react/ReactMismatchedVersions-test.js": {
+    'importing "react-dom/client" throws if version does not match React version': ONE_PACKAGE,
+    'importing "react-dom/static.browser" throws if version does not match React version': ONE_PACKAGE,
+    'importing "react-dom/static.edge" throws if version does not match React version': ONE_PACKAGE,
   },
   "react/ReactClassEquivalence-test.js": {
     "tests the same thing for es6 classes and CoffeeScript": "runs React's own Jest on its CoffeeScript test copy",

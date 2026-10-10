@@ -4268,6 +4268,10 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   });
   // An event on its server markup before it has hydrated: hydrated now, for that event's target (the boundaries not
   // holding it wait for later).
+  /** The hydration suspended with no boundary, waiting for its data; and whether an update has made it a client render. */
+  let hydrationWaiting = false;
+  let clientInstead = false;
+  let earlyTold = false;
   (state as any).hydratePending = () => hydrateFirst !== NONE || (first && hydrating_ && pending !== NONE);
   (state as any).hydrateNow = (target: Node) => {
     const children = hydrateFirst !== NONE ? hydrateFirst : first && hydrating_ ? pending : NONE;
@@ -4332,7 +4336,14 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         }
         if (nested === 1) queueMicrotask(() => (nested = 0));
       }
-      const hydrate = first && hydrating_;
+      const hydrate = first && hydrating_ && !clientInstead;
+      // (Updated while its hydration waited: drawn on the client, the server's markup cleared, React's error told.)
+      if (first && clientInstead && !earlyTold) {
+        earlyTold = true;
+        layoutQueue.push(() =>
+          (options?.onRecoverableError ?? report)(new Error("This root received an early update, before anything was able hydrate. Switched the entire root to client rendering."), { componentStack: "" }),
+        );
+      }
       if (first) {
         first = false;
         if (!hydrate) {
@@ -4375,18 +4386,58 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           for (const c of top.children) unmount(c, false);
           top.children = [];
           hydrating = null;
-          clearContainer(container);
           const error: any = new Error("There was an error while hydrating but React was able to recover by instead client rendering the entire root.");
           error.cause = cause;
-          // Told only if the root then renders without an error of its own (React reports it with the commit).
-          (state as any).failed = false;
-          lastCaughtByBoundary = null;
-          draw();
-          (state as any).threw = false;
-          for (const tell of caughtThisRender.splice(0)) tell();
-          // (Caught by an error boundary on the client: that boundary handles it, as React has it; nothing to recover.)
-          const handled = lastCaughtByBoundary !== null;
-          if (!(state as any).failed && !handled) layoutQueue.push(() => (options?.onRecoverableError ?? report)(error, { componentStack: "" }));
+          const told = () => {
+            (state as any).threw = false;
+            for (const tell of caughtThisRender.splice(0)) tell();
+            // (Caught by an error boundary on the client: that boundary handles it, as React has it; nothing to recover.)
+            const handled = lastCaughtByBoundary !== null;
+            if (!(state as any).failed && !handled) layoutQueue.push(() => (options?.onRecoverableError ?? report)(error, { componentStack: "" }));
+          };
+          const recoverOnClient = () => {
+            // Told only if the root then renders without an error of its own (React reports it with the commit).
+            (state as any).failed = false;
+            lastCaughtByBoundary = null;
+            // A document (or its <html>, <head>, <body>) is drawn in place: its singletons are the document's.
+            if (container.nodeType === 9 || /^(HTML|HEAD|BODY)$/.test(container.nodeName)) {
+              clearContainer(container);
+              draw();
+              return told();
+            }
+            // Off the page first: suspended with no boundary, the server's markup stays until it can be drawn whole.
+            const frag = docOf(container).createDocumentFragment();
+            const hold = { waits: null as PromiseLike<any> | null };
+            const was = offPage;
+            offPage = hold;
+            top.dom = frag;
+            try {
+              draw(frag);
+            } finally {
+              offPage = was;
+              top.dom = container;
+            }
+            if (hold.waits) {
+              for (const c of top.children) unmount(c, false);
+              top.children = [];
+              caughtThisRender.length = 0;
+              const again = () => {
+                depth++;
+                try {
+                  recoverOnClient();
+                } finally {
+                  if (--depth === 0) commit();
+                }
+                flushSignals();
+              };
+              hold.waits.then(again, again);
+              return;
+            }
+            clearContainer(container);
+            container.appendChild(frag);
+            told();
+          };
+          recoverOnClient();
         } else if (hydrate && hydrationWaits) {
           // Suspended with no boundary: nothing of this attempt is kept, the server's markup stays as it was.
           const waits = hydrationWaits;
@@ -4397,7 +4448,16 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           for (const c of top.children) unmount(c, false);
           top.children = [];
           first = true;
-          const again = () => ((hydrateFirst = latest), (pending = NONE), asked.set(asked.peek() + 1), flushSignals());
+          hydrationWaiting = true;
+          const again = () => {
+            hydrationWaiting = false;
+            // (Updated meanwhile: drawn on the client already.)
+            if (clientInstead) return;
+            hydrateFirst = latest;
+            pending = NONE;
+            asked.set(asked.peek() + 1);
+            flushSignals();
+          };
           waits.then(again, again);
         } else if (hydrate) {
           dropUnclaimed(container, top);
@@ -4509,7 +4569,9 @@ Check the render method of ${nameOf(owner.type)}.`));
         deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)));
         return;
       }
-      if (first && hydrating_ && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
+      // An update while the hydration waits for data (none of it committed): the root is drawn on the client.
+      if (hydrationWaiting && first && hydrating_) clientInstead = true;
+      if (first && hydrating_ && !clientInstead && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
       else pending = children;
       asked.set(asked.peek() + 1);
     },

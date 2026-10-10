@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3979 pass, 103 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3981 pass, 98 fail, 362 skipped (gated off for stable React 19), 48 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -37,7 +37,7 @@
 | react-dom/ReactDOMFizzServerBrowser-test.js | 15 | 2 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 20 | 1 | 0 |  |
-| react-dom/ReactDOMFizzShellHydration-test.js | 10 | 2 | 0 |  |
+| react-dom/ReactDOMFizzShellHydration-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 6 | 0 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 30 | 2 | 2 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 16 | 1 | 0 |  |
@@ -150,7 +150,7 @@
 | react/ReactJSXElementValidator-test.js | 14 | 0 | 0 |  |
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 18 | 0 | 1 |  |
-| react/ReactMismatchedVersions-test.js | 0 | 3 | 7 |  |
+| react/ReactMismatchedVersions-test.js | 0 | 0 | 10 |  |
 | react/ReactProfiler-test.internal.js | 25 | 8 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 7 | 0 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
