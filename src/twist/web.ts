@@ -21,7 +21,7 @@ import {
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, isChildren, isDynamic, spreadSource, Loading, Errored } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark } from "./control.ts";
 
 export * from "./control.ts";
 import { inOrder } from "../shared/in-order.ts";
@@ -37,7 +37,11 @@ export const Fragment = (props: { children?: unknown }) => props.children;
 export function jsx(type: any, props: Record<string, any>) {
   // Hydrating: descriptions, claimed from the server's page top-down (in the order the server rendered them).
   if (hydrating) return type === Fragment ? props.children : typeof type === "function" ? { [COMP]: true, fn: type, props } : { [EL]: true, tag: type, props };
-  if (typeof type === "function") return type === Fragment ? childrenOf(props) : createComponent(type, componentProps(props));
+  if (typeof type === "function") {
+    if (type === Fragment) return childrenOf(props);
+    // (A component of React's is mounted as a React subtree, when the bridge is there.)
+    return callComponent(type, componentProps(props));
+  }
   return element(type, props);
 }
 
@@ -453,7 +457,7 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
 }
 
 /** A node rendered elsewhere (document.body unless `mount` is given); its events still reach this root. */
-export function Portal(props: { mount?: Node; children?: any }) {
+export const Portal = __twist_mark(function Portal(props: { mount?: Node; children?: any }) {
   const mount = props.mount ?? document.body;
   const marker = document.createTextNode("");
   const box = document.createDocumentFragment();
@@ -469,17 +473,21 @@ export function Portal(props: { mount?: Node; children?: any }) {
   roots.add(mount);
   for (const t of delegated) listen(mount, t);
   return marker;
-}
+});
 
 /** A component whose identity (a component, or a tag name) follows `source`. */
 export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
+  return __twist_mark(dynamicOf<P>(source, options));
+}
+
+function dynamicOf<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
   // Static: the source read once (it cannot change).
   const which = options?.static ? (() => { const v = untrack(source); return () => v; })() : createMemo(source);
   return (props: P) =>
     createMemo(() => {
       const c = which();
       if (!c) return undefined;
-      return untrack(() => (typeof c === "string" ? element(c, componentRaw(props as any)) : c(props)));
+      return untrack(() => (typeof c === "string" ? element(c, componentRaw(props as any)) : callComponent(c, props)));
     });
 }
 function componentRaw(props: Record<string, any>) {
@@ -820,14 +828,14 @@ export function clientOnly<P extends object>(load: () => Promise<any>, options: 
   let loading: Promise<unknown> | null = null;
   const start = () => (loading ??= load().then((m) => setLoaded(() => m[options.export ?? "default"])));
   if (!options.lazy) start();
-  return (props: P & { fallback?: any }) => {
+  return __twist_mark((props: P & { fallback?: any }) => {
     start();
     const rest = omit(props, "fallback" as any);
     return createMemo(() => {
       const C = loaded();
-      return C ? untrack(() => C(rest)) : props.fallback;
+      return C ? callComponent(C, rest) : props.fallback;
     });
-  };
+  });
 }
 
 export { NotReadyError };

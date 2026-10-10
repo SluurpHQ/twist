@@ -1407,6 +1407,8 @@ export function createContext<T>(defaultValue?: T, _options?: { name?: string })
   }) as Context<T>;
   Provider.id = id;
   Provider.defaultValue = defaultValue;
+  // (Solid-style: a React tree meeting it mounts it as such.)
+  (Provider as any)[Symbol.for("twist.component")] = true;
   return Provider;
 }
 

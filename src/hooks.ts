@@ -38,7 +38,8 @@ export const useEffectEvent: Hooks["useEffectEvent"] = (fn) => cur().useEffectEv
 export const use: Hooks["use"] = (u) => cur().use(u);
 
 /** A transition's dry run (dryrun.ts): not the server, though its hooks are not the browser's either. */
-let dryHooks: Hooks | null = null;
+// (`var`: set by dryrun.ts while this module may still be loading, in an import cycle through core.ts.)
+var dryHooks: Hooks | null | undefined; // (no initializer: one here would undo what dryrun.ts set first)
 export function setDryHooks(hooks: Hooks) {
   dryHooks = hooks;
 }

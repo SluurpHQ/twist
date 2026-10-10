@@ -8,6 +8,24 @@ import { LIVE, mapArray, merge, repeat } from "./flow.ts";
 const DYNAMIC = Symbol("twist.dynamic");
 const CHILDREN = Symbol("twist.children");
 
+/**
+ * A component written Solid-style (it runs once): marked, so a React tree that meets it mounts it as a Twist subtree,
+ * and Twist calls it directly (an unmarked component is React's: Twist mounts it as a React subtree, when the bridge is
+ * there). Twist's compile pass marks what a Solid-style file declares.
+ */
+export const TWIST = Symbol.for("twist.component");
+export const __twist_mark = <T>(f: T): T => (typeof f === "function" && ((f as any)[TWIST] = true), f);
+export const isTwist = (f: any) => typeof f === "function" && f[TWIST] === true;
+
+/** How a React component is mounted inside a Twist tree (installed by the bridge; none, and it is called as is). */
+let foreign: ((type: any, props: any) => any) | null = null;
+export const setForeignComponent = (fn: typeof foreign) => void (foreign = fn);
+
+/** A component rendered: a Solid-style one called once (untracked), a React one mounted by the bridge. */
+export function callComponent<P>(type: (props: P) => any, props: P) {
+  return foreign && !isTwist(type) ? foreign(type, props) : createComponent(type, props);
+}
+
 /** A part that can change: read where it is used (bound to its node, or a prop getter). */
 export const __twist_d = <T>(fn: () => T) => ((fn as any)[DYNAMIC] = true, fn);
 /** A component's children: built when the component reads them. */
@@ -164,16 +182,17 @@ export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
       },
     ));
   const Comp = (props: P) => {
-    if (loaded) return untrack(() => loaded!(props));
+    if (loaded) return callComponent(loaded, props);
     // Not loaded yet: an async memo of the component (its readers wait, as for any first load), then rendered.
     // (Its code holds a stream's shell: a page never streams the fallback of a module still loading.)
     const which = createMemo<(props: P) => any>(() => (loaded ?? start()) as any, { deferStream: true } as any);
     return createMemo(() => {
       const C = which();
-      return untrack(() => C(props));
+      return callComponent(C, props);
     });
   };
   (Comp as any).preload = () => start();
+  __twist_mark(Comp);
   return Comp;
 }
 
@@ -187,3 +206,6 @@ export function NoHydration(props: { children?: any }) {
 export function Hydration(props: { children?: any }) {
   return props.children;
 }
+
+// The control flow here is Solid-style.
+for (const f of [For, Repeat, Show, Switch, Match, Loading, Errored, NoHydration, Hydration]) __twist_mark(f);

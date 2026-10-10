@@ -158,10 +158,20 @@ export function compile(source: string, filename = "file.tsx"): string {
   };
 
   visit(program as unknown as AnyNode);
-  if (!edits.length) return source;
+  // The components this file declares are Solid-style: marked, so a React tree meeting one mounts it as such.
+  const components: string[] = [];
+  for (let s of (program as any).body as AnyNode[]) {
+    if ((s.type === "ExportNamedDeclaration" || s.type === "ExportDefaultDeclaration") && s.declaration) s = s.declaration;
+    if (s.type === "FunctionDeclaration" && s.id && /^[A-Z]/.test(s.id.name)) components.push(s.id.name);
+    else if (s.type === "VariableDeclaration")
+      for (const d of s.declarations)
+        if (d.id?.type === "Identifier" && /^[A-Z]/.test(d.id.name) && /FunctionExpression$/.test(d.init?.type ?? "")) components.push(d.id.name);
+  }
+  if (!edits.length && !components.length) return source;
   // Applied back to front, nested edits included (an outer wrap re-reads its inner edits' text).
   let out = applyEdits(source, edits);
-  if (used) out = `import { __twist_d, __twist_c, __twist_ref, __twist_k } from "${RUNTIME}";\n` + out;
+  if (used || components.length) out = `import { __twist_d, __twist_c, __twist_ref, __twist_k, __twist_mark } from "${RUNTIME}";\n` + out;
+  if (components.length) out += `\n${components.map((c) => `__twist_mark(${c});`).join("\n")}\n`;
   return out;
 }
 
