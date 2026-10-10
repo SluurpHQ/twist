@@ -1380,6 +1380,7 @@ export function isPending(fn: () => unknown): boolean {
 
 /** `fn` read in the newest world: what is staged in a hold or in flight, ahead of what is shown. */
 export function latest<T>(fn: () => T): T {
+  latestCalls++;
   verdictReading++;
   inPass++;
   try {
@@ -1389,6 +1390,9 @@ export function latest<T>(fn: () => T): T {
     verdictReading--;
   }
 }
+
+/** latest() calls so far (a Loading `on` that reads ahead shows its fallback now). */
+let latestCalls = 0;
 
 /** Run a derived value again (an async one re-asks quietly: isPending stays false). */
 export function refresh<T>(target: (() => T) | object): Promise<T> {
@@ -1623,6 +1627,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   // `on`: what it reads, tracked outside the boundary (as a condition around it would be). A change after the first
   // re-arms it once the flush ends: something it shows still loading, its fallback shows again until that lands.
   let armed = false;
+  let arming = false;
+  let readAhead = false;
   if (options?.on) {
     const on = options.on;
     let first = true;
@@ -1631,6 +1637,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     // (Transparent, as `shown`: a boundary takes one id, its content's, as the server's does.)
     const watch = new Computation<void>(MEMO, () => {
       listener!.track(status);
+      const calls = latestCalls;
       try {
         on();
       } catch (e) {
@@ -1648,13 +1655,28 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       if (now.size !== seen.size) changed = true;
       seen = now;
       if (first) first = false;
-      else if (changed)
+      else if (changed) {
+        // Written inside an action still running: the fallback is that action's frame's (staged in its transaction,
+        // shown when it commits, cleared if what it shows lands first). Otherwise it shows now.
+        // (Read through latest(): ahead of the frame, by choice; the fallback shows now.) Several changes in one
+        // flush re-arm it once.
+        if (latestCalls !== calls) readAhead = true;
+        if (arming) return;
+        arming = true;
         endWith(null, () => {
+          arming = false;
+          const ahead = readAhead;
+          readAhead = false;
           if (content.disposed || !(pendingUnder(content) || pendingUnder(shown))) return;
           armed = true;
+          // The frame the change is in, as it stands now that the flush has held what it holds.
+          let frame: Transaction | null = null;
+          if (!ahead) for (const src of watch.sources) if (src.tx && !src.tx.done && src.tx.root.open) frame = src.tx.root;
+          if (frame) hold(shown, frame);
           slot.draw.bump();
           schedule();
         });
+      }
     }, { transparent: true } as any);
     watch.run();
   }
@@ -1681,6 +1703,18 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
       return !state.waiting.size;
     });
+  // The fallback, made once each time it shows (under an owner of its own, kept across the passes that show it).
+  const outer = owner;
+  let shownFallback: { value: F; dispose: () => void } | null = null;
+  const showFallback = (): F => {
+    if (!shownFallback) runWithOwner(outer, () => createRoot((dispose) => void (shownFallback = { value: untrack(fallback), dispose })));
+    return shownFallback!.value;
+  };
+  const dropFallback = () => {
+    shownFallback?.dispose();
+    shownFallback = null;
+  };
+  onCleanup(dropFallback);
   // What shows: the fallback while something under it waits, else the content (its accessors read here, so a
   // change inside it never builds the content again). Held by a reveal order: its fallback (or nothing, collapsed).
   const shown = new Computation<T | F>(MEMO, () => {
@@ -1691,8 +1725,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     // Its readiness may have changed: the order looks again.
     if (slot.owner) slot.owner.evaluate();
     state.onFallback = true;
-    if (slot.owner && slot.gated) return slot.collapsed ? (undefined as any) : untrack(fallback);
-    if (c === NOT_READY || state.waiting.size) return untrack(fallback);
+    if (slot.owner && slot.gated) return slot.collapsed ? (dropFallback(), undefined as any) : showFallback();
+    if (c === NOT_READY || state.waiting.size) return showFallback();
     try {
       const v = resolveChildren(c);
       // Re-armed: the fallback until what it shows has landed (looked at again whenever something stops loading: an
@@ -1700,10 +1734,11 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       // here, owned by this pass), so all of it is looked at.
       if (armed) {
         listener!.track(status);
-        if (pendingUnder(content) || pendingUnder(shown)) return untrack(fallback);
+        if (pendingUnder(content) || pendingUnder(shown)) return showFallback();
         armed = false;
       }
       state.onFallback = false;
+      dropFallback();
       // Content shown: the slot leaves the order (shown is shown); the order looks again.
       if (slot.owner) {
         const o = slot.owner;
@@ -1712,7 +1747,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       }
       return v;
     } catch (e) {
-      if (e instanceof NotReadyError) return untrack(fallback);
+      if (e instanceof NotReadyError) return showFallback();
       throw e;
     }
   }, { transparent: true } as any);
