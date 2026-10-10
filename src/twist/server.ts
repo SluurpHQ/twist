@@ -576,7 +576,7 @@ function inlineFragments(r: Render, shell: string): string {
   for (let again = true; again && r.inlined.size; ) {
     again = false;
     for (const [id, content] of r.inlined) {
-      const open = `<template id="pl-${id}"></template>`;
+      const open = `<template id="pl-${id}">`;
       const at = shell.indexOf(open);
       if (at === -1) continue;
       const close = `<!--pl-${id}-->`;
@@ -666,6 +666,9 @@ async function filled(r: Render, s: string): Promise<string> {
 export function Loading(props: { fallback?: any; children?: any }) {
   const parent = getOwner();
   const boundary = ownerUnder(parent);
+  // (A group coordinates the boundaries directly inside it, not theirs.)
+  const group = revealGroupOf(parent);
+  if (group) setRevealGroup(boundary, null);
   const id = (boundary as any).id as string | undefined;
   const wasBoundary = headBoundary;
   try {
@@ -681,8 +684,9 @@ export function Loading(props: { fallback?: any; children?: any }) {
     const r = render;
     // Holes in it still waiting (made once, filled as they land): the fallback now, the content when they are filled.
     if (!r || !r.async || id == null || !HOLE_TOKEN.test(content)) return { t: content };
+    const reg = group?.register(id) ?? null;
     const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
-    return { t: streamBoundary(r, boundary, id, fallback, filled(r, content)) };
+    return { t: streamBoundary(r, boundary, id, fallback, filled(r, content), group, !!reg?.collapseFallback) };
   } catch (e) {
     if (!(e instanceof NotReadyError)) throw e;
     const r = render;
@@ -695,9 +699,13 @@ export function Loading(props: { fallback?: any; children?: any }) {
       setChildIdCount(parent, at - 1);
       return { t: later(r, () => (Loading(props) as any).t, waits, parent, at - 1) };
     }
+    const reg = group && id != null ? group.register(id) : null;
+    // Collapsed by its group, outside a stream: nothing shows for it.
+    if (reg?.collapseFallback && (!r || !r.async)) return { t: "" };
     // The fallback under an owner of its own with the boundary's id: it takes no id from what follows (as Solid).
     const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
     if (!r || !r.async || !waits || id == null) return { t: fallback };
+    const collapse = !!reg?.collapseFallback;
     const retry = (p: Promise<void>) => {
       r.waiting.add(p);
       p.then(() => {
@@ -722,7 +730,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
           const patch = r.head ? headPatch(r, id!) : "";
           fragments.get(boundary)?.(true);
           if (!r.shellSent) r.inlined.set(id!, content);
-          else r.sink.fragment(id!, content, { styles: { inline: [], links: [] }, patch });
+          else r.sink.fragment(id!, content, { styles: { inline: [], links: [] }, patch, revealGroup: group?.id });
+          group?.onResolved(id!);
         } catch (e2) {
           const next = e2 instanceof NotReadyError && settlesOf(e2);
           if (!next) throw e2;
@@ -733,7 +742,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
     };
     boundaryRecord(r, boundary, id);
     retry(waits);
-    return { t: `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->` };
+    return { t: placeholder(id, fallback, collapse) };
   }
 }
 
@@ -751,35 +760,223 @@ function boundaryRecord(r: Render, boundary: object, id: string) {
 }
 
 /** A boundary whose content waits on holes of its own: its fallback in place, the content streamed once filled. */
-function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>): string {
+/** A boundary's place in the stream: its fallback between markers (kept in the template while its group collapses it). */
+const placeholder = (id: string, fallback: string, collapse: boolean) =>
+  collapse ? `<template id="pl-${id}">${fallback}</template><!--pl-${id}-->` : `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->`;
+
+function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>, group: RevealGroup | null = null, collapse = false): string {
   boundaryRecord(r, boundary, id);
-  const done = content.then(
+  const done: Promise<void> = content.then(
     (html) => {
       if (boundary.disposed) return void fragments.get(boundary)?.(false);
       rendering(r, r.options, () => {
         const patch = r.head ? headPatch(r, id) : "";
         fragments.get(boundary)?.(true);
         if (!r.shellSent) r.inlined.set(id, html);
-        else r.sink.fragment(id, html, { styles: { inline: [], links: [] }, patch });
+        else r.sink.fragment(id, html, { styles: { inline: [], links: [] }, patch, revealGroup: group?.id });
       });
     },
     (e) => {
       fragments.get(boundary)?.(false);
-      if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e });
+      if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
     },
-  );
+  ).finally(() => rendering(r, r.options, () => group?.onResolved(id)));
   const settled = done.then(() => {
     r.waiting.delete(settled);
     r.wake?.();
   });
   r.waiting.add(settled);
-  return `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->`;
+  return placeholder(id, fallback, collapse);
 }
 
 const HOLE_TOKEN = /\u0000hole\d+\u0000/;
 
 /** Swaps a streamed template in for the fallback before it (written for Twist, not taken from Solid). */
-const REVEAL = `function $df(e,t,p,n){if(!(t=document.getElementById(e))||!(p=document.getElementById("pl-"+e)))return;for(n=p.nextSibling;n&&!(n.nodeType===8&&n.nodeValue==="pl-"+e);){var x=n.nextSibling;n.remove();n=x}n&&n.replaceWith(t.content);p.remove();t.remove();_$HY.fe&&_$HY.fe(e)}`;
+/** Solid's fragment swap runtime (MIT, Ryan Carniato and contributors): `$df`, groups (`$dfj`), fallbacks (`$dflj`), style gates. */
+const REVEAL = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function $dfr(e,n,o,t){if(!(n=document.getElementById(e)))return 0;if(!(o=document.getElementById("pl-"+e)))return(_$HY.dq=_$HY.dq||{})[e]=1,0;for(;o&&(8!==o.nodeType||o.nodeValue!=="pl-"+e);)t=o.nextSibling,o.remove(),o=t;t=o.parentNode,o.replaceWith(n.content),n.remove(),(_$HY.v=_$HY.v||{})[e]=1,_$HY.fe(e,t),_$HY.hp&&_$HY.hp[e]&&($dh(_$HY.hp[e]),delete _$HY.hp[e]),$dfd();return 1}function $dfl(e,o,n){if(!(o=document.getElementById("pl-"+e)))return(_$HY.dlq=_$HY.dlq||{})[e]=1,0;if(o._$fl)return 1;for(n=o.nextSibling;n;){if(8===n.nodeType&&n.nodeValue==="pl-"+e){o.parentNode&&o.parentNode.insertBefore(o.content.cloneNode(!0),n),o._$fl=1,$dfd();return 1}n=n.nextSibling}return 0}function $dflj(e,i){for(i=0;i<e.length;i++)$dfl(e[i])}function $dfd(e,i){if(e=_$HY.dq){_$HY.dq=0;for(i in e)$df(i)}if(e=_$HY.dlq){_$HY.dlq=0;for(i in e)$dfl(i)}}function $dfs(e,c,d){(_$HY.sc=_$HY.sc||{})[e]=c,d&&((_$HY.sd=_$HY.sd||{})[e]=1)}function $dfg(e,g,i,k){if(!(g=_$HY.sg&&_$HY.sg[e]))return;for(i=0;i<g.length;i++)if(_$HY.sc&&_$HY.sc[g[i]]>0)return;for(i=0;i<g.length;i++)k=g[i],delete _$HY.sg[k],$df(k)}function $dfc(e){if(--_$HY.sc[e]<=0){delete _$HY.sc[e],_$HY.sg&&_$HY.sg[e]?$dfg(e):!(_$HY.sd&&_$HY.sd[e])&&$df(e);_$HY.sd&&delete _$HY.sd[e]}}function $dfj(e,i,n){for(i=0;i<e.length;i++)if(_$HY.sc&&_$HY.sc[e[i]]>0){for(n=0;n<e.length;n++)(_$HY.sg=_$HY.sg||{})[e[n]]=e;return}for(i=0;i<e.length;i++)$df(e[i])}function $dfe(e,t,k){(t=e.target)&&t.getAttribute&&!t._$dc&&(k=t.getAttribute("data-dfc"))&&(t._$dc=1,$dfc(k))}document.addEventListener("load",$dfe,!0);document.addEventListener("error",$dfe,!0)`;
+
+// ---------------------------------------------------------------- Reveal (ported from Solid's server flow.ts, MIT)
+
+type RevealOrder = "sequential" | "together" | "natural";
+type RevealGroup = {
+  id: string;
+  register(key: string, options?: { onActivate?: () => void }): { collapseFallback: boolean; held: boolean };
+  onResolved(key: string): void;
+  onMinimallyResolved?(key: string): void;
+};
+const REVEAL_GROUP = Symbol("twist.ssr.reveal-group");
+const revealGroupOf = (o: any): RevealGroup | null => (o?.context?.[REVEAL_GROUP] as RevealGroup | undefined) ?? null;
+const setRevealGroup = (o: any, g: RevealGroup | null) => void (o.context = { ...o.context, [REVEAL_GROUP]: g });
+
+/** The order the Loading boundaries directly inside reveal in, as the stream sends them. */
+export function Reveal(props: { order?: RevealOrder; collapsed?: boolean; children?: any }) {
+  const parent = getOwner();
+  const o = ownerUnder(parent) as any;
+  const id = o.id as string;
+  const order: RevealOrder = props.order ?? "sequential";
+  const collapsed = order === "sequential" && !!props.collapsed;
+  const ctx = sharedConfig.context as any;
+  const parentGroup = revealGroupOf(parent);
+
+  if (!ctx?.async) {
+    let collapsedByParent = false;
+    if (parentGroup) collapsedByParent = parentGroup.register(id).collapseFallback;
+    let count = 0;
+    setRevealGroup(o, {
+      id,
+      register() {
+        count++;
+        return { collapseFallback: collapsedByParent || (order === "sequential" && collapsed && count > 1), held: false };
+      },
+      onResolved() {},
+    });
+    return { t: runWithOwner(o, () => html(props.children, false)) };
+  }
+
+  const keys: string[] = [];
+  const resolved = new Set<string>();
+  const minimallyResolved = new Set<string>();
+  const composites = new Map<string, () => void>();
+  const activated = new Set<string>();
+  const stash: string[] = [];
+  const collapsedLeafKeys: string[] = [];
+  let frontier = 0;
+  let heldByParent = false;
+  let collapsedByParent = false;
+  let selfMinimallyResolved = false;
+  let notifiedParentDone = false;
+  let registering = true;
+
+  if (parentGroup) {
+    const reg = parentGroup.register(id, {
+      onActivate: () => {
+        if (!heldByParent) return;
+        heldByParent = false;
+        if (collapsedByParent) {
+          collapsedByParent = false;
+          if (collapsedLeafKeys.length) {
+            ctx.revealFallbacks?.([...collapsedLeafKeys]);
+            collapsedLeafKeys.length = 0;
+          }
+        }
+        if (order === "sequential") advanceFrontier();
+        else if (order === "together") checkTogetherRelease();
+        else naturalRelease();
+      },
+    });
+    collapsedByParent = reg.collapseFallback;
+    heldByParent = reg.held;
+  }
+
+  const revealLeaves = (leafKeys: string[]) => ctx.revealFragments?.(leafKeys);
+  function notifyParentIfDone() {
+    if (registering || notifiedParentDone) return;
+    if (parentGroup && resolved.size === keys.length) {
+      notifiedParentDone = true;
+      parentGroup.onResolved(id);
+    }
+  }
+  function activateComposite(key: string) {
+    if (activated.has(key)) return;
+    activated.add(key);
+    composites.get(key)!();
+  }
+  function updateSelfMinimallyResolved() {
+    if (registering || selfMinimallyResolved) return;
+    if (keys.length === 0) selfMinimallyResolved = true;
+    else if (order === "together") selfMinimallyResolved = minimallyResolved.size === keys.length;
+    else if (order === "sequential") selfMinimallyResolved = minimallyResolved.has(keys[0]!);
+    else selfMinimallyResolved = minimallyResolved.size > 0;
+    if (selfMinimallyResolved) parentGroup?.onMinimallyResolved?.(id);
+  }
+  function advanceFrontier() {
+    if (heldByParent) return;
+    while (frontier < keys.length && resolved.has(keys[frontier]!)) {
+      const k = keys[frontier]!;
+      if (composites.has(k)) activateComposite(k);
+      else revealLeaves([k]);
+      frontier++;
+    }
+    if (frontier < keys.length) {
+      const k = keys[frontier]!;
+      if (composites.has(k)) activateComposite(k);
+      else if (order === "sequential" && collapsed) ctx.revealFallbacks?.([k]);
+    }
+    notifyParentIfDone();
+  }
+  function checkTogetherRelease() {
+    if (registering || order !== "together" || heldByParent) return;
+    if (minimallyResolved.size < keys.length) return;
+    if (stash.length) {
+      revealLeaves([...stash]);
+      stash.length = 0;
+    }
+    composites.forEach((_, key) => activateComposite(key));
+    notifyParentIfDone();
+  }
+  function naturalRelease() {
+    if (stash.length) {
+      revealLeaves([...stash]);
+      stash.length = 0;
+    }
+    composites.forEach((_, key) => activateComposite(key));
+    notifyParentIfDone();
+  }
+  function markMinimallyResolved(key: string) {
+    if (minimallyResolved.has(key)) return;
+    minimallyResolved.add(key);
+    updateSelfMinimallyResolved();
+    if (order === "together") checkTogetherRelease();
+  }
+
+  setRevealGroup(o, {
+    id,
+    register(key, options) {
+      keys.push(key);
+      const isComposite = !!options?.onActivate;
+      if (isComposite) composites.set(key, options!.onActivate!);
+      const selfCollapse = order === "sequential" && collapsed && keys.length > 1;
+      const collapseFallback = collapsedByParent || selfCollapse;
+      if (collapseFallback && !isComposite) collapsedLeafKeys.push(key);
+      let held = heldByParent;
+      if (!held) {
+        if (order === "together") held = true;
+        else if (order === "sequential" && keys.length > 1) held = true;
+      }
+      return { collapseFallback, held };
+    },
+    onResolved(key) {
+      resolved.add(key);
+      if (!composites.has(key)) {
+        if (order === "together") stash.push(key);
+        else if (order === "natural" && heldByParent) stash.push(key);
+        else if (order === "natural") revealLeaves([key]);
+        markMinimallyResolved(key);
+        if (order === "sequential" && !heldByParent) advanceFrontier();
+        if (order === "natural") updateSelfMinimallyResolved();
+      } else {
+        markMinimallyResolved(key);
+        if (!heldByParent) {
+          if (order === "sequential") advanceFrontier();
+          else if (order === "natural") activateComposite(key);
+        }
+        if (order === "together") checkTogetherRelease();
+        if (order === "natural") updateSelfMinimallyResolved();
+      }
+      notifyParentIfDone();
+    },
+    onMinimallyResolved(key) {
+      markMinimallyResolved(key);
+    },
+  });
+  const result = runWithOwner(o, () => html(props.children, false));
+  registering = false;
+  updateSelfMinimallyResolved();
+  checkTogetherRelease();
+  notifyParentIfDone();
+  return { t: result };
+}
+markBuiltin(Reveal);
 
 function script(r: Render, code: string) {
   const s = r.revealScript ? code : REVEAL + ";" + code;
@@ -1092,7 +1289,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const documentSink: Sink = {
     data: (payload: string) => void (r.data += payload + ";"),
     fragment: (key, value, meta) => void r.chunks.push(takeData(r) + (meta.patch ?? "") + `<template id="${key}">${value}</template>` + (meta.revealGroup ? "" : script(r, `$df("${key}")`))),
-    reveal: (keys, meta) => void (meta.fallback || r.chunks.push(script(r, keys.map((k) => `$df("${k}")`).join(";")))),
+    reveal: (keys, meta) => void r.chunks.push(takeData(r) + script(r, `${meta.fallback ? "$dflj" : "$dfj"}(${JSON.stringify(keys)})`)),
     asset() {},
     shell: (html) => void (documentShell = html + takeData(r)),
   };
