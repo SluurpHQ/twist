@@ -3086,6 +3086,14 @@ export class Component<P = any, S = any> {
   setState(partial: any, done?: () => void) {
     warnOnInvalidCallback(done);
     if (!this.__f) return notMounted(this, "setState");
+    // Drawn but not committed yet, set from the commit (a sibling's componentWillUnmount): React warns.
+    if (dev() && inDeletions && !current && !this.__f.committed && !this.__f.dead)
+      withFiber(this.__f, () =>
+        warn(
+          "Can't perform a React state update on a component that hasn't mounted yet. This indicates that you have a side-effect in your render function that asynchronously tries to update the component. Move this work to useEffect instead.",
+          "not-yet-mounted:" + nameOf(this.__f.type),
+        ),
+      );
     updateWhileRendering(this.__f);
     const apply = () => {
       this.__queue.push(partial);
@@ -3292,6 +3300,8 @@ holdFlushes(() => committing && (flushHeld = true));
 // Counted as rendering while it runs: an event it fires (a focus() in a layout effect) does not flush from inside.
 /** Commits so far (a test's scheduler waits for a paint by it). */
 let commitCount = 0;
+/** The commit is taking away what went (componentWillUnmount, cleanups): what it drew is not mounted yet. */
+let inDeletions = false;
 export const commits = () => commitCount;
 function commit() {
   // A concurrent render under way: committed when it is done.
@@ -3306,7 +3316,12 @@ function commit() {
       // What was taken away first (componentWillUnmount, effect cleanups, refs let go), then what was made.
       // The commit's time is its start's, before anything changes (React's commitStartTime).
       const commitTime = now();
-      for (let i = 0; i < deletions.length; i++) timed(deletions[i]!, effectTime);
+      inDeletions = true;
+      try {
+        for (let i = 0; i < deletions.length; i++) timed(deletions[i]!, effectTime);
+      } finally {
+        inDeletions = false;
+      }
       deletions.length = 0;
       for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
       insertionQueue.length = 0;
