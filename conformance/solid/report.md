@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5573 pass, 1128 fail, 714 files (32 did not load, 121 test Solid's internals)
+5582 pass, 1119 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -181,7 +181,7 @@
 | signals/tests/optimistic-settle-verdicts.test.ts | 1 | 2 |  |
 | signals/tests/optimistic-signal-refetch-hold.test.ts | 2 | 0 |  |
 | signals/tests/optimistic-store-layer-scope.test.ts | 4 | 1 |  |
-| signals/tests/optimistic-store-refetch-hold.test.ts | 2 | 3 |  |
+| signals/tests/optimistic-store-refetch-hold.test.ts | 3 | 2 |  |
 | signals/tests/optimistic-undefined-override.test.ts | 6 | 0 |  |
 | signals/tests/overlapping-flights.test.ts | 2 | 1 |  |
 | signals/tests/owned-scope-write-guard.test.ts | 14 | 0 |  |
@@ -191,7 +191,7 @@
 | signals/tests/posture-born-held-and-observation.test.ts | 1 | 4 |  |
 | signals/tests/posture-store-parity.test.ts | 0 | 1 | not ours: Cannot find module '../src/store/store.js' |
 | signals/tests/propagation-isolation.test.ts | 2 | 0 |  |
-| signals/tests/question-scoped-pending.test.ts | 16 | 22 |  |
+| signals/tests/question-scoped-pending.test.ts | 17 | 21 |  |
 | signals/tests/recompute-missed-wake.test.ts | 2 | 0 |  |
 | signals/tests/recompute-preserves-disposed-3621.test.ts | 0 | 1 | not ours: reads Solid's graph fields |
 | signals/tests/refresh-await.test.ts | 7 | 5 |  |
@@ -211,13 +211,13 @@
 | signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |
 | signals/tests/snapshot-derived-store-rows.test.ts | 4 | 1 |  |
 | signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
-| signals/tests/spec-async-semantics.test.ts | 29 | 23 |  |
+| signals/tests/spec-async-semantics.test.ts | 30 | 22 |  |
 | signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
 | signals/tests/store-unchanged-read-independent-write-3688.test.ts | 2 | 2 |  |
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
 | signals/tests/store/async-setter.test.ts | 6 | 2 |  |
 | signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |
-| signals/tests/store/createOptimisticStore.test.ts | 59 | 21 |  |
+| signals/tests/store/createOptimisticStore.test.ts | 63 | 17 |  |
 | signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
 | signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
 | signals/tests/store/createProjection.test.ts | 7 | 13 |  |
@@ -268,7 +268,7 @@
 | signals/tests/store/shared-child-multiparent.test.ts | 1 | 2 |  |
 | signals/tests/store/sidecar-composition.test.ts | 1 | 0 |  |
 | signals/tests/store/signal-store-twins-qd.test.ts | 1 | 3 |  |
-| signals/tests/store/store-in-store-tracking.test.ts | 0 | 7 |  |
+| signals/tests/store/store-in-store-tracking.test.ts | 2 | 5 |  |
 | signals/tests/store/storePath.test.ts | 29 | 0 |  |
 | signals/tests/store/unchanged-presence-no-hold-3743.test.ts | 1 | 8 |  |
 | signals/tests/store/utilities-no-proxy.test.ts | 0 | 1 | SyntaxError: Export named 'hasStaticKeys' not found |

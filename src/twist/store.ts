@@ -371,6 +371,9 @@ export function createProjection<T extends object>(fn: (draft: T) => T | void | 
 
 type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean };
 
+/** A derived store's derive, by its root. */
+const derives = new WeakMap<object, () => unknown>();
+
 function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: StoreOptions | undefined, writable: boolean): [T, StoreSetter<T>] {
   const target = unwrap(seed) as Raw;
   if (options?.shallow) markShallow(target);
@@ -412,6 +415,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     promoteWrites(before);
     return runs;
   }, { writes: true, ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
+  derives.set(target, m);
   onTake(m, (v) => {
     // (On a server, what its source wrote before this answer is the state it answers with.)
     if (traced) promoteWrites(new Set()), queueMicrotask(changed);
@@ -571,8 +575,11 @@ function guessStage(target: Raw, key: PropertyKey, v: any) {
   const r = recordOf(target);
   const first = !r.guessing;
   (r.guessing ??= new Map()).set(key, v);
-  if (first) queueGuess((tx) => install(r, tx));
+  if (first) queueGuess((tx) => install(r, tx), guessSource);
 }
+
+/** The derive of the optimistic store whose setter runs (a guess outside an action rides over its refetch). */
+let guessSource: (() => unknown) | undefined;
 
 /** Records with an optimistic overlay shown. */
 let liveOverlays = 0;
@@ -681,7 +688,17 @@ function guessDraftOf<T>(v: T): T {
 export function createOptimisticStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: { key?: string | ((v: any) => any) }): [T, StoreSetter<T>] {
   const [store] = typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true) : createStore(init as T, undefined, options);
   const target = unwrap(store) as Raw;
+  const source = derives.get(target);
   const set: StoreSetter<T> = (fn) => {
+    const was = guessSource;
+    guessSource = source;
+    try {
+      write(fn);
+    } finally {
+      guessSource = was;
+    }
+  };
+  const write: StoreSetter<T> = (fn) => {
     const d = guessDraftOf(target);
     if (typeof fn === "function") {
       const r = (fn as (d: T) => T | void)(d as T);

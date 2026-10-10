@@ -670,6 +670,8 @@ export class Computation<T> extends Node<T> implements Owner {
   settles: Promise<void> | null = null;
   /** Its answers come from an async iterator: shown as they land, never revealed as one. */
   streaming = false;
+  /** Its stream has answered in this flight (what shows is that answer, not a question still open). */
+  streamed = false;
   /** It had an error and now has a value again (a change, whatever the value). */
   recovered = false;
   /** Serving its loading value until its first answer lands. */
@@ -1081,6 +1083,7 @@ export class Computation<T> extends Node<T> implements Owner {
     const it = iterable[Symbol.asyncIterator]();
     this.closeStream = () => void Promise.resolve(it.return?.()).catch(noop);
     let yielded = false;
+    this.streamed = false;
     let inRun = true;
     const step = () => {
       let sync = true;
@@ -1096,7 +1099,7 @@ export class Computation<T> extends Node<T> implements Owner {
           landNow();
           return;
         }
-        yielded = true;
+        yielded = this.streamed = true;
         if (inRun) this.take(r.value);
         else landings.push([this, r.value]), landNow();
         step();
@@ -1716,7 +1719,7 @@ function drain() {
     if (writes.length) for (const s of writes.splice(0)) s.commit();
     if (landings.length) for (const [c, v] of landings.splice(0)) if (!c.disposed) c.take(v);
     if (guesses.length) installGuesses();
-    if (guessWork.length) for (const [install, tx] of guessWork.splice(0)) install(tx && !tx.done ? tx : tickTx && !tickTx.done ? tickTx : null);
+    if (guessWork.length) for (const [install, tx, source] of guessWork.splice(0)) install(tx && !tx.done ? tx : tickTx && !tickTx.done ? tickTx : source ? overFlight(accessors.get(source)) : null);
     for (let passes = 0; dirty.length; passes++) {
       if (passes > 1e5) throw new Error("Potential infinite loop detected.");
       const now = dirty.sort(byOrder);
@@ -2671,16 +2674,25 @@ export function onGuessEnd(end: () => void) {
   else ambientEnds.push(end), schedule();
 }
 
+/** Outside an action: the hold already on `n`, or its own refetch still unanswered (a guess shown until it lands). */
+function overFlight(n: Node | undefined): Transaction | null {
+  if (!n) return null;
+  if (n.tx && !n.tx.done) return n.tx.root;
+  if (n instanceof Computation && (n.flight || n.state === DIRTY)) {
+    if (n.state === DIRTY) n.update();
+    if (n.flight && !n.streamed) {
+      const tx = newTransaction();
+      tx.flights.add(n);
+      return tx;
+    }
+  }
+  return null;
+}
+
 function installGuesses() {
   for (let [n, v, tx] of guesses.splice(0)) {
     // Outside an action: over the hold already on the node, or over its own refetch (shown until that answer lands).
-    if (!tx || tx.done) {
-      tx = n.tx && !n.tx.done ? n.tx.root : null;
-      if (!tx && n instanceof Computation && (n.flight || n.state === DIRTY)) {
-        if (n.state === DIRTY) n.update();
-        if (n.flight) (tx = newTransaction()).flights.add(n);
-      }
-    }
+    if (!tx || tx.done) tx = overFlight(n);
     // Nothing held yet: the frame decides (what this flush parks into), once it has settled.
     if (!tx || tx.done) {
       frameGuesses.push([n, v]);
@@ -2931,11 +2943,11 @@ export const isHydrating = () => sharedConfig.hydrating && (!(sharedConfig as an
 export { enableHydration } from "./hydration.ts";
 
 /** Optimistic store work waiting for the next flush, with the transaction of the action that made it. */
-const guessWork: [(tx: Transaction | null) => void, Transaction | null][] = [];
+const guessWork: [(tx: Transaction | null) => void, Transaction | null, (() => unknown) | undefined][] = [];
 
 /** `install` run at the next flush with the transaction the optimistic write belongs to (null outside an action). */
-export function queueGuess(install: (tx: Transaction | null) => void) {
-  guessWork.push([install, acting?.tx ?? null]);
+export function queueGuess(install: (tx: Transaction | null) => void, source?: () => unknown) {
+  guessWork.push([install, acting?.tx ?? null, source]);
   schedule();
 }
 
