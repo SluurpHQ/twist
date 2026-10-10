@@ -518,7 +518,9 @@ function disappear(f: Fiber) {
 function reappear(f: Fiber) {
   const passive: (() => void)[] = [];
   const each = (x: Fiber) => {
-    for (const c of x.children) if (!(c as any).hidden) each(c);
+    // (Not the children a waiting boundary keeps hidden: they come back when it shows them.)
+    const waiting = x.type === SUSPENSE && x.pending!.peek() > 0;
+    for (const c of x.children) if (!(c as any).hidden && !(waiting && c.key === "kc")) each(c);
     // (Shown again: the fragments above it take it back, the nearest first.)
     if (fragmentRefs && (x.kind === HOST || x.kind === TEXT) && x.dom) for (const inst of fragmentsAbove(x as any)) inst._childAdded(x.dom);
     if (x.kind === COMP) {
@@ -591,6 +593,9 @@ const ROOT_NAME = { displayName: "Root" };
 
 function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) {
   const old = parent.children;
+  // The thenables it stopped at last time: asked again now (still pending, they hold the boundary again).
+  const holds = (parent as any).holds as Hold[] | undefined;
+  if (holds) for (const h of holds.splice(0)) release(h);
   // (None to look up in a fresh list.)
   const byKey = old.length ? new Map<string, Fiber>() : null;
   if (byKey) for (const f of old) byKey.set(f.key, f);
@@ -611,8 +616,12 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       c = unwrapChild(c);
     } catch (e: any) {
       if (!e || typeof e.then !== "function") throw e;
+      lastHold = null;
       caught(parent, e);
+      if (lastHold) ((parent as any).holds ??= []).push(lastHold);
       stoppedAt = e;
+      // Its component did not finish: its effects wait for a render that does (React unwinds it).
+      for (let p: Fiber | null = parent; p; p = p.parent) if (p.kind === COMP) { (p as any).unfinished = true; break; }
       break;
     }
     // An iterable among the children (a Set, a generator, an old `@@iterator` object): a fragment of its items.
@@ -2778,7 +2787,8 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     nestedTime = outerNested + took;
   }
   insertionQueue.push(...f.insertion);
-  if (hiddenActivities && insideHidden(f)) (f as any).waitsToAppear = true;
+  if ((f as any).unfinished) (f as any).unfinished = false;
+  else if (hiddenActivities && insideHidden(f)) (f as any).waitsToAppear = true;
   else {
     if (profilersMounted) for (const fn of f.layout) (fn as any).owner = f;
     if (profilersMounted) for (const fn of f.passive) (fn as any).owner = f;
@@ -3127,6 +3137,15 @@ const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
 
 /** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
 /** (`inclusive`: thrown by `f`'s own elements, below it: `f` itself may be the boundary that takes it.) */
+/** A boundary kept waiting by one thenable: let go when it settles, or when what threw it renders without it. */
+type Hold = { s: Fiber; held: boolean };
+let lastHold: Hold | null = null;
+function release(h: Hold) {
+  if (!h.held) return;
+  h.held = false;
+  h.s.pending!.set(Math.max(0, h.s.pending!.peek() - 1));
+}
+
 function caught(f: Fiber, e: any, inclusive = false) {
   // A pre-warming render's: thrown away with it.
   if (prewarming) return;
@@ -3146,7 +3165,8 @@ function caught(f: Fiber, e: any, inclusive = false) {
       }
     }
     // In a transition, an update keeps what is shown (no fallback) and is drawn again once the data is there.
-    if (applyingTransition && f.committed) {
+    // (Not inside a hidden Activity: nothing there is seen, so its fallback is drawn, hidden, as React does.)
+    if (applyingTransition && f.committed && !(hiddenActivities && insideHidden(f))) {
       // No boundary above: rendered once more after the commit, off the page (React's pre-warming).
       if (!boundaryOf(f.parent ?? f)) prewarmFibers.push(f);
       // React still renders the boundary's fallback, then throws that attempt away: so do we, off the page.
@@ -3168,13 +3188,14 @@ function caught(f: Fiber, e: any, inclusive = false) {
       if (p.type === SUSPENSE && p.pending && !p.dead) {
         const s = p;
         s.pending!.set(s.pending!.peek() + 1);
+        const hold = (lastHold = { s, held: true });
         // Drawing now: it draws again at once with its fallback (React shows it in the same render); before its
         // children were ever shown, the siblings after this one are not rendered (React skips them).
         if (drawing.has(s)) (s as any).resuspend = true;
         // Settled: the boundary shows its children again, and this component (kept, if the children kept
         // their shape) tries again.
         const done = () => {
-          s.pending!.set(Math.max(0, s.pending!.peek() - 1));
+          release(hold);
           if (!f.dead && f.kind === COMP) restart(f);
           flushSignals();
         };
