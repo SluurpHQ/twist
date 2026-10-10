@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3952 pass, 130 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3954 pass, 128 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -59,7 +59,7 @@
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
 | react-dom/ReactDOMLegacyFiber-test.js | 1 | 0 | 42 |  |
 | react-dom/ReactDOMLegacyFloat-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMNativeEventHeuristic-test.js | 6 | 2 | 0 |  |
+| react-dom/ReactDOMNativeEventHeuristic-test.js | 8 | 0 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMOption-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 27 | 0 | 0 |  |

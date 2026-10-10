@@ -3393,7 +3393,24 @@ async function drainAct() {
 }
 
 /** Whether updates, effects or transitions are still waiting to be drawn. */
-export const somethingPending = () => passiveQueue.length > 0 || passiveUnmounts.length > 0 || transitionWork.length > 0;
+export const somethingPending = () => passiveQueue.length > 0 || passiveUnmounts.length > 0 || transitionWork.length > 0 || continuousWork.length > 0;
+/** Updates made during a continuous event (a hover, a move, a scroll): React gives them a lane flushSync() leaves. */
+const continuousWork: (() => void)[] = [];
+const CONTINUOUS_EVENTS = new Set("drag dragenter dragexit dragleave dragover mousemove mouseout mouseover pointermove pointerout pointerover scroll touchmove wheel mouseenter mouseleave pointerenter pointerleave".split(" "));
+/** A state update given its lane: at once while its component renders, as a transition inside one, after the
+ * urgent ones during a continuous event, else now. */
+function enqueueUpdate(f: Fiber, apply: () => void, preview: (p: Preview) => void) {
+  if (current === f) return apply();
+  if (inTransition(apply, preview, f)) return;
+  if (!duringContinuousEvent()) return apply();
+  continuousWork.push(apply);
+  scheduleTransitions(flushTransitions);
+}
+function duringContinuousEvent(): boolean {
+  if (syncing) return false;
+  const e: any = typeof window !== "undefined" ? (window as any).event : undefined;
+  return !!e && CONTINUOUS_EVENTS.has(e.type);
+}
 
 /** Effects waiting for after paint, run now (React's act does this): for tests and tools. */
 export function flushPassiveEffects() {
@@ -3485,7 +3502,7 @@ export const client = {
           const was = p.states.has(box) ? p.states.get(box) : box.v;
           p.states.set(box, typeof v === "function" ? v(was) : v);
         };
-        if (current === f || !inTransition(apply, preview, f)) apply();
+        enqueueUpdate(f, apply, preview);
       };
       return box;
     });
@@ -3502,7 +3519,7 @@ export const client = {
         if (current === f) return void (box.rendering ??= []).push(a), ((f as any).again = true);
         const apply = () => box.put(strictTwice(f, () => box.reducer(box.v, a), true));
         const preview = (p: Preview) => p.states.set(box, box.reducer(p.states.has(box) ? p.states.get(box) : box.v, a));
-        if (current === f || !inTransition(apply, preview, f)) apply();
+        enqueueUpdate(f, apply, preview);
       };
       return box;
     });
@@ -3864,6 +3881,11 @@ let transitionRetried = false;
 
 export function flushTransitions(): boolean {
   transitionBooked = false;
+  // What continuous events updated (their own lane, ahead of transitions).
+  if (continuousWork.length) {
+    for (const apply of continuousWork.splice(0)) apply();
+    flushSignals();
+  }
   if (!transitionWork.length && !transitionEnds.length) return false;
   if (transitionHeld) return false;
   // Tried first, off the page: what suspends holds the whole transition, the screen and state as they are.
