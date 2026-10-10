@@ -8,7 +8,7 @@ import { gateSource } from "./gates.ts";
 const REF = process.env.REACT_REF ?? "main";
 const here = import.meta.dir;
 const clone = join(tmpdir(), "sluurp-react-src");
-const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/react-dom/src/test-utils", "packages/internal-test-utils", "packages/shared", "scripts/jest", "packages/use-sync-external-store/src/__tests__"];
+const PARTS = ["packages/react/src/__tests__", "packages/react-dom/src/__tests__", "packages/react-dom/src/test-utils", "packages/internal-test-utils", "packages/shared", "scripts/jest", "packages/use-sync-external-store/src/__tests__", "packages/dom-event-testing-library"];
 
 const git = (args: string[], cwd?: string) => {
   const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -125,6 +125,8 @@ copy(join(clone, "packages/internal-test-utils"), join(out, "internal-test-utils
 copy(join(clone, "scripts/jest"), join(out, "scripts", "jest"));
 copy(join(clone, "packages/shared"), join(out, "shared"));
 copy(join(clone, "packages/use-sync-external-store/src/__tests__"), join(out, "use-sync-external-store"));
+// React's event-simulation helpers (dom-event-testing-library), which some tests import by package name.
+copy(join(clone, "packages/dom-event-testing-library"), join(out, "dom-event-testing-library"));
 // Tests set flags on this module (Jest's CommonJS allows it; an ES module's exports are read-only): CommonJS here.
 const flagsFile = join(out, "shared", "ReactFeatureFlags.js");
 writeFileSync(

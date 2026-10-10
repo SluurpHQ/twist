@@ -506,6 +506,12 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     // Aborted: no component renders any more; what is rendering unwinds to its boundary (React's abort sigil).
     if (ctx.streaming?.shared.aborted && ctx.streaming.spawn) throw ABORTED;
     if (type.prototype?.isReactComponent) {
+      // A class gets its props without `ref` (React's resolveClassComponentProps): the ref is its instance's.
+      let own = props;
+      if (own && "ref" in own) {
+        const { ref: _ref, ...rest } = own;
+        own = rest;
+      }
       const ct = type.contextType;
       const validCt = ct != null && ct.$$typeof === CONTEXT;
       const name = type.displayName || type.name || "Component";
@@ -522,12 +528,12 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       }
       // No context type: an empty context object, as React gives.
       const c = validCt ? contextValue(ctx, ct) : {};
-      const inst = new type(props, c);
-      checkClassInstance(type, inst, props, "server:");
-      inst.props = props;
+      const inst = new type(own, c);
+      checkClassInstance(type, inst, own, "server:");
+      inst.props = own;
       inst.context = c;
       if (typeof type.getDerivedStateFromProps === "function") {
-        const partial = type.getDerivedStateFromProps(props, inst.state);
+        const partial = type.getDerivedStateFromProps(own, inst.state);
         checkDerivedState(type, partial);
         if (partial != null) inst.state = { ...inst.state, ...partial };
       } else if (typeof inst.getSnapshotBeforeUpdate !== "function" && (inst.UNSAFE_componentWillMount || inst.componentWillMount)) {

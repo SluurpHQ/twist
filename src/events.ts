@@ -196,8 +196,13 @@ const idOf = (o: object) => {
   return id;
 };
 
+/** What core does first for an event whose target has not hydrated yet (React's attemptSynchronousHydration). */
+let hydrateFor: (target: Node, roots: Set<object>, native: Event) => void = () => {};
+export const hydrateBeforeEvents = (fn: typeof hydrateFor) => void (hydrateFor = fn);
+
 /** Runs the handlers for one phase; true when one of them stopped propagation. */
 function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean): boolean {
+  if (native.target) hydrateFor(native.target as Node, roots, native);
   const from = nearest(native.target as Node, roots);
   // Not committed yet: no handler hears it (React's getNearestMountedFiber).
   if (!from || (from as any).placed === false || (from as any).dead) return false;

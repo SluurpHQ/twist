@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3915 pass, 143 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3923 pass, 159 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -8,11 +8,11 @@
 | react-dom/DOMPropertyOperations-test.js | 49 | 0 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
-| react-dom/InvalidEventListeners-test.js | 0 | 1 | 0 |  |
+| react-dom/InvalidEventListeners-test.js | 1 | 1 | 0 |  |
 | react-dom/quoteAttributeValueForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
-| react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactClassComponentPropResolutionFizz-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactComponent-test.js | 18 | 1 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 25 | 1 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 40 | 0 | 0 |  |
@@ -90,8 +90,8 @@
 | react-dom/ReactDOMServerLifecycles-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 48 | 9 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 23 | 14 | 3 |  |
-| react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 3 | 14 | 6 |  |
+| react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 3 | 11 | 6 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 9 | 0 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMSingletonComponents-test.js | 11 | 1 | 10 |  |
@@ -140,7 +140,7 @@
 | react/forwardRef-test.js | 19 | 0 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
 | react/ReactChildren-test.js | 42 | 0 | 0 |  |
-| react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
+| react/ReactClassEquivalence-test.js | 0 | 0 | 2 |  |
 | react/ReactContextValidator-test.js | 8 | 0 | 5 |  |
 | react/ReactCreateElement-test.js | 27 | 0 | 0 |  |
 | react/ReactCreateRef-test.js | 1 | 0 | 0 |  |
@@ -149,7 +149,7 @@
 | react/ReactES6Class-test.js | 24 | 0 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 14 | 0 | 0 |  |
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
-| react/ReactJSXTransformIntegration-test.js | 18 | 1 | 0 |  |
+| react/ReactJSXTransformIntegration-test.js | 18 | 0 | 1 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 3 | 7 |  |
 | react/ReactProfiler-test.internal.js | 25 | 8 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 7 | 0 | 0 |  |
@@ -169,6 +169,6 @@
 | redux-tests/integration/dynamic-reducers.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/integration/server-rendering.spec.tsx | 5 | 0 | 0 |  |
 | redux-tests/integration/ssr.spec.tsx | 6 | 0 | 0 |  |
-| use-sync-external-store/useSyncExternalStoreNative-test.js | 0 | 2 | 0 |  |
+| use-sync-external-store/useSyncExternalStoreNative-test.js | 0 | 0 | 2 |  |
 | use-sync-external-store/useSyncExternalStoreShared-test.js | 16 | 2 | 1 |  |
-| use-sync-external-store/useSyncExternalStoreShimServer-test.js | 0 | 1 | 0 |  |
+| use-sync-external-store/useSyncExternalStoreShimServer-test.js | 0 | 0 | 1 |  |

@@ -108,6 +108,22 @@ for (const [proto, key] of [[Element.prototype, "innerHTML"], [Element.prototype
     },
   });
 }
+// The old initMouseEvent, which jsdom has and happy-dom does not.
+{
+  const proto: any = MouseEvent.prototype;
+  proto.initMouseEvent ??= function (this: any, type: string, bubbles: boolean, cancelable: boolean, view: any, detail: number, screenX: number, screenY: number, clientX: number, clientY: number, ctrlKey: boolean, altKey: boolean, shiftKey: boolean, metaKey: boolean, button: number, relatedTarget: any) {
+    this.initEvent(type, bubbles, cancelable);
+    const set = { view, detail, screenX, screenY, clientX, clientY, ctrlKey, altKey, shiftKey, metaKey, button, relatedTarget };
+    for (const [k, v] of Object.entries(set)) Object.defineProperty(this, k, { value: v, configurable: true });
+  };
+  // document.createEvent("MouseEvents") makes a MouseEvent (happy-dom makes a plain Event).
+  let docProto: any = document;
+  while (docProto && !Object.hasOwn(docProto, "createEvent")) docProto = Object.getPrototypeOf(docProto);
+  const createEvent = docProto.createEvent;
+  docProto.createEvent = function (this: Document, kind: string) {
+    return /^MouseEvents?$/i.test(kind) ? new MouseEvent("") : createEvent.call(this, kind);
+  };
+}
 // Which tags are unknown elements, as browsers (and jsdom) have it: happy-dom calls some obsolete ones unknown and
 // some unknown ones known.
 {
@@ -376,6 +392,35 @@ for (const j of [bunJest, g.jest].filter(Boolean)) {
   j.isolateModules ??= (fn: () => void) => fn();
   j.unmock ??= () => {};
   j.dontMock ??= () => {};
+  // A getter or setter spied on (spyOn(obj, key, "get")), which Bun's spyOn does not do: the accessor replaced by a
+  // mock function calling the original, put back by mockRestore.
+  const spy = j.spyOn;
+  if (spy && !spy.__accessors) {
+    j.spyOn = Object.assign(
+      (obj: any, key: string, access?: "get" | "set") => {
+        if (access !== "get" && access !== "set") return spy.call(j, obj, key);
+        let owner = obj;
+        while (owner && !Object.getOwnPropertyDescriptor(owner, key)) owner = Object.getPrototypeOf(owner);
+        const d = Object.getOwnPropertyDescriptor(owner ?? obj, key) ?? { configurable: true };
+        const fn = bunJest.fn(d[access] ? function (this: any, ...a: any[]) { return d[access]!.apply(this, a); } : undefined);
+        Object.defineProperty(obj, key, { configurable: true, enumerable: d.enumerable, get: d.get, set: d.set, [access]: fn });
+        const mockRestore = () => {
+          if (owner === obj) Object.defineProperty(obj, key, d);
+          else delete obj[key];
+        };
+        // (Bun's mock functions are read-only: mockRestore given through a proxy.)
+        return new Proxy(fn, { get: (t, k) => (k === "mockRestore" ? mockRestore : Reflect.get(t, k)) });
+      },
+      { __accessors: true },
+    );
+  }
+  // The module itself, past a mock of it (our copy for React's packages).
+  j.requireActual ??= (id: string) => require(ours[id] ?? id);
+  // An automock (no factory) of one of React's internal modules: none of ours uses them, so nothing to do.
+  const mock = j.mock;
+  if (mock && !j.mock.__automock) {
+    j.mock = Object.assign((id: string, factory?: () => any, options?: any) => (factory ? mock.call(j, id, factory, options) : undefined), { __automock: true });
+  }
 }
 
 const src = join(import.meta.dir, "..", "src");
@@ -403,6 +448,7 @@ const ours: Record<string, string> = {
 
 // (A package that is not installed is not resolved through the plugin: given as a module.)
 (await import("bun:test")).mock.module("web-streams-polyfill/ponyfill/es6", () => ({ ReadableStream, WritableStream, TransformStream }));
+(await import("bun:test")).mock.module("dom-event-testing-library", () => require(join(import.meta.dir, "react-tests", "dom-event-testing-library", "index.js")));
 (await import("bun:test")).mock.module("react-dom-bindings/src/client/HTMLNodeType", () => ({ ELEMENT_NODE: 1, TEXT_NODE: 3, COMMENT_NODE: 8, DOCUMENT_NODE: 9, DOCUMENT_TYPE_NODE: 10, DOCUMENT_FRAGMENT_NODE: 11 }));
 
 plugin({
@@ -414,3 +460,14 @@ plugin({
     });
   },
 });
+
+// A file in Jest's node environment has no DOM: `window`, by which libraries tell (canUseDOM), taken away again. The
+// rest stays: our renderer draws even a noop root into DOM nodes.
+{
+  const file = process.argv.find((a) => /-test(\.internal)?\.js$/.test(a));
+  let nodeEnv = false;
+  try {
+    nodeEnv = !!file && /@jest-environment node\b/.test((await Bun.file(isAbsolute(file) ? file : join(import.meta.dir, file)).text()).slice(0, 2000));
+  } catch {}
+  if (nodeEnv) delete (globalThis as any).window;
+}

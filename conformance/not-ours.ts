@@ -5,6 +5,7 @@ const RETRY = "React renders the whole tree once more after an error before comm
 const OUTSIDE = "React's behaviour when the DOM it owns was changed by hand, outside React";
 const HAPPY_DOM = "happy-dom cannot do this (React's suite runs in jsdom)";
 const V8_FORMAT = "checks a V8 stack-frame format or a call count of React's own";
+const SHIM_FALLBACK = "checks use-sync-external-store's fallback for a React without useSyncExternalStore; ours always has it";
 
 export const NOT_OURS: Record<string, Record<string, string>> = {
   "react-dom/ReactErrorBoundaries-test.internal.js": {
@@ -61,6 +62,20 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
   },
   "react-dom/ReactDOMSingletonComponents-test.js": {
     "renders into html, head, and body persistently so the node identities never change and extraneous styles are retained": V8_FORMAT,
+  },
+  "use-sync-external-store/useSyncExternalStoreShimServer-test.js": {
+    "basic server render": SHIM_FALLBACK,
+  },
+  "use-sync-external-store/useSyncExternalStoreNative-test.js": {
+    "native version": SHIM_FALLBACK + " (React Native's)",
+    "Using isEqual to bailout": SHIM_FALLBACK + " (React Native's)",
+  },
+  "react/ReactClassEquivalence-test.js": {
+    "tests the same thing for es6 classes and CoffeeScript": "runs React's own Jest on its CoffeeScript test copy",
+    "tests the same thing for es6 classes and TypeScript": "runs React's own Jest on its TypeScript test copy",
+  },
+  "react/ReactJSXTransformIntegration-test.js": {
+    "sanity check: test environment is configured to compile JSX to the jsx() runtime": "reads compiled source: Bun names the import jsxDEV_<hash>, Babel jsxDEV",
   },
   "react-dom/ReactDOMFizzServer-test.js": {
     "supports iterable": "needs the 'immutable' package, not installed",

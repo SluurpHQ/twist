@@ -6,7 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
-import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, listenOnElement } from "./events.ts";
+import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, listenOnElement } from "./events.ts";
 import { configureViewTransitions, renderInViewTransition, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
@@ -1222,8 +1222,57 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
     drawFresh(f, host, removeRegion(region));
     return;
   }
+  (region.start as any)[BOUNDARY] = f;
+  if (selectiveTarget && !inRegion(region, selectiveTarget)) {
+    setDehydrated(f, true);
+    deferTransition(() => retryBoundary(f));
+    return;
+  }
   hydrateRegion(f, host, region, () => (f.type === ACTIVITY ? reconcile(f, toList(f.props?.children), host, before) : start(f, host, before)));
 }
+
+/** The node an event hydrates for (React's selective hydration): boundaries not holding it wait. */
+let selectiveTarget: Node | null = null;
+const BOUNDARY = Symbol("boundary");
+/** Whether `n` is between a boundary's comments. */
+function inRegion(region: { start: Comment; end: Comment }, n: Node): boolean {
+  for (let p: Node | null = n; p; p = p.parentNode) {
+    if (p.parentNode !== region.start.parentNode) continue;
+    for (let s: Node | null = region.start.nextSibling; s && s !== region.end; s = s.nextSibling) if (s === p) return true;
+    return false;
+  }
+  return false;
+}
+
+// An event on what has not hydrated: its root hydrated now, then the dehydrated boundaries around its target,
+// outermost first (each with the target, so the boundaries beside it wait).
+hydrateBeforeEvents((target, roots) => {
+  for (const r of roots) (r as any).hydrateNow?.(target);
+  for (let guard = 0; guard < 20; guard++) {
+    let f: Fiber | null = null;
+    for (let n: Node | null = target; n && !f; n = n.parentNode) {
+      for (let s: Node | null = n.previousSibling, depthIn = 0; s; s = s.previousSibling) {
+        if (s.nodeType !== 8) continue;
+        const d = (s as Comment).data;
+        if (d === "/$" || d === "/&") depthIn++;
+        else if (d === "$" || d === "$?" || d === "$!" || d === "$~" || d === "&") {
+          if (depthIn) depthIn--;
+          else if ((s as any)[DEHYDRATED] && (s as any)[BOUNDARY] && roots.has((s as any)[BOUNDARY].root)) f = (s as any)[BOUNDARY];
+          if (!depthIn && f) break;
+        }
+      }
+    }
+    if (!f || !(f as any).dehydrated) return;
+    const was = selectiveTarget;
+    selectiveTarget = target;
+    try {
+      retryBoundary(f);
+    } finally {
+      selectiveTarget = was;
+    }
+    if ((f as any).dehydrated) return;
+  }
+});
 
 /** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
  * they do not match. */
@@ -3887,6 +3936,21 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
     pending = NONE;
     untrack(() => runWithOwner(null, () => renderNow(children)));
   });
+  // An event on its server markup before it has hydrated: hydrated now, for that event's target (the boundaries not
+  // holding it wait for later).
+  (state as any).hydrateNow = (target: Node) => {
+    const children = hydrateFirst !== NONE ? hydrateFirst : first && hydrating_ ? pending : NONE;
+    if (children === NONE || depth > 0) return;
+    if (hydrateFirst !== NONE) hydrateFirst = NONE;
+    else pending = NONE;
+    const was = selectiveTarget;
+    selectiveTarget = target;
+    try {
+      untrack(() => runWithOwner(null, () => renderNow(children)));
+    } finally {
+      selectiveTarget = was;
+    }
+  };
   /** The first render, off the page and able to stop between components (see the work loop). */
   function renderConcurrently(children: any) {
     first = false;
