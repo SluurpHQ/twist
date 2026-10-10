@@ -129,7 +129,14 @@ function make(type: any, config: any, maybeKey?: any): Element {
 }
 export const jsxDEV = (type: any, config: any, key?: any, isStatic?: boolean) => (isStatic ? jsxs : jsx)(type, config, key);
 
+let toldOldJsx = false;
 export function createElement(type: any, config?: any, ...children: any[]): Element {
+  // __self is only passed by a compiler, and createElement only by the old JSX transform (a static key after a spread
+  // is the new transform's one use of it).
+  if (dev() && !toldOldJsx && config !== null && typeof config === "object" && "__self" in config && !("key" in config)) {
+    toldOldJsx = true;
+    console.warn("Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform");
+  }
   for (const c of children) validate(c, type);
   const props: any = {};
   let key: string | null = null;

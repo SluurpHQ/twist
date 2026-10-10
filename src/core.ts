@@ -937,6 +937,10 @@ class FiberNode {
     this.root = root;
     this.doc = parent?.doc;
   }
+  /** What React's fiber holds as its stateNode (an element's owner is a fiber): the instance, or the node. */
+  get stateNode(): any {
+    return this.inst ?? this.dom ?? null;
+  }
 }
 
 function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
@@ -2629,7 +2633,8 @@ function renderClass(f: Fiber, withRef: any) {
   if (!force && prevProps === props && state === prevState && prevCtx === ctx) return KEEP;
   // A PureComponent compares shallowly, unless it has a shouldComponentUpdate of its own (React's checkShouldComponentUpdate).
   const skip = () => (inst.shouldComponentUpdate ? !untrack(() => shouldUpdate(f, C, inst, props, state, ctx)) : !!C.prototype?.isPureReactComponent && shallowEqual(prevProps, props) && shallowEqual(prevState, state));
-  if (!force && skip()) {
+  // A new value of its contextType updates it whatever shouldComponentUpdate said (still asked), as React has it.
+  if (!force && skip() && prevCtx === ctx) {
     inst.props = props;
     inst.state = state;
     inst.context = ctx;

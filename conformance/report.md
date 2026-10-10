@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3910 pass, 148 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3915 pass, 143 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 11 | 0 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 43 | 2 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 44 | 1 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 23 | 0 | 1 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
@@ -141,8 +141,8 @@
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
 | react/ReactChildren-test.js | 42 | 0 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
-| react/ReactContextValidator-test.js | 6 | 2 | 5 |  |
-| react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
+| react/ReactContextValidator-test.js | 8 | 0 | 5 |  |
+| react/ReactCreateElement-test.js | 27 | 0 | 0 |  |
 | react/ReactCreateRef-test.js | 1 | 0 | 0 |  |
 | react/ReactElementClone-test.js | 21 | 0 | 0 |  |
 | react/ReactElementValidator-test.internal.js | 21 | 0 | 0 |  |
