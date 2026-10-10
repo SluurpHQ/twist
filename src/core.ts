@@ -3115,6 +3115,8 @@ function caught(f: Fiber, e: any, inclusive = false) {
     }
     // In a transition, an update keeps what is shown (no fallback) and is drawn again once the data is there.
     if (applyingTransition && f.committed) {
+      // No boundary above: rendered once more after the commit, off the page (React's pre-warming).
+      if (!boundaryOf(f.parent ?? f)) prewarmFibers.push(f);
       // React still renders the boundary's fallback, then throws that attempt away: so do we, off the page.
       for (let p = f.parent; p; p = p.parent) {
         if (p.type !== SUSPENSE || p.dead) continue;
@@ -3126,7 +3128,8 @@ function caught(f: Fiber, e: any, inclusive = false) {
         break;
       }
       transitionWaits.push(e);
-      e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
+      // Tried again as a transition, in a task of its own (not in the microtask its data settles in).
+      e.then(() => deferTransition(() => !f.dead && restart(f)), () => {});
       return;
     }
     for (let p = f.parent; p; p = p.parent) {
@@ -3280,6 +3283,14 @@ function commit() {
   if (depth === 0) recoveredThisRender = false;
   if (depth === 0 && typeof document !== "undefined" && (document as any).$$reactFormReplay?.length) replayFormActions(document);
   if (prewarms.length && depth === 0) prewarm();
+  // (What a transition left suspended, pre-warmed in a later task, as React schedules it.)
+  if (prewarmFibers.length && depth === 0 && !prewarmBooked) {
+    prewarmBooked = true;
+    deferTransition(() => {
+      prewarmBooked = false;
+      prewarm();
+    });
+  }
   if ((passiveQueue.length || passiveUnmounts.length) && !passiveBooked) {
     passiveBooked = true;
     afterPaint(() => runPassive(true));
@@ -3290,14 +3301,19 @@ function commit() {
  * and thrown away (React's pre-warming, which starts loading what they wait for). */
 const prewarms: Fiber[] = [];
 let prewarming = false;
+/** Components a transition suspended with no boundary above: rendered again after the commit, off the page. */
+const prewarmFibers: Fiber[] = [];
+let prewarmBooked = false;
 function prewarm() {
   const list = prewarms.splice(0);
+  const lone = prewarmFibers.splice(0);
   prewarming = true;
   // Inside a render of its own: nothing it makes is committed, none of its effects run.
   depth++;
   const freshBefore = fresh.length;
   const queued = [layoutQueue.length, passiveQueue.length, insertionQueue.length];
   try {
+    for (const f of lone) if (!f.dead) renderAgain(f);
     for (const s of list) {
       if (s.dead || !s.pending!.peek()) continue;
       const kept = s.children.find((c) => c.key === "kc");
@@ -3902,8 +3918,18 @@ const suspenseAbove = (f: Fiber) => {
 export function inTransition(apply: () => void, preview?: (p: Preview) => void, fiber?: Fiber): boolean {
   if (!transitioning) return false;
   deferTransition(apply, preview, fiber);
+  // Started during a popstate (the browser restoring a page): drawn with that event's urgent updates, in one render
+  // (React's eager transition), still a transition that may wait for data.
+  if (typeof window !== "undefined" && (window as any).event?.type === "popstate" && !eagerBooked) {
+    eagerBooked = true;
+    queueMicrotask(() => {
+      eagerBooked = false;
+      flushTransitions();
+    });
+  }
   return true;
 }
+let eagerBooked = false;
 function deferTransition(apply: () => void, preview?: (p: Preview) => void, fiber?: Fiber) {
   transitionWork.push({ apply, preview, fiber });
   if (transitionBooked) return;
