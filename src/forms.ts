@@ -1,7 +1,7 @@
 // Form fields as React DOM handles them (ported from its ReactDOMInput, ReactDOMTextarea and ReactDOMSelect): the
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
-import { isEventProp, setProp } from "./props.ts";
+import { afterFunctionAction, isEventProp, setProp } from "./props.ts";
 import { checkControlled, checkControlledSwitch, dev, ownerName, warn, PROPS } from "./warnings.ts";
 import { validateProps } from "./validate-props.ts";
 import { fieldString } from "./coercion.ts";
@@ -274,6 +274,7 @@ export function updateForm(el: Element, tag: string, next: any, prev: any, svg: 
   checkControlledSwitch(tag, next, prev);
   for (const k in prev) if (!own.has(k) && !(k in next)) setProp(el, k, undefined, prev[k], svg);
   for (const k in next) if (!own.has(k) && next[k] !== prev[k]) setProp(el, k, next[k], prev[k], svg);
+  afterFunctionAction(el, next, prev, svg);
   if (!own.has("dangerouslySetInnerHTML")) innerHtml(el, next, prev);
   if (tag === "input") updateInput(el as HTMLInputElement, next, prev.defaultValue);
   else if (tag === "textarea") updateTextarea(el as HTMLTextAreaElement, next);

@@ -3253,6 +3253,7 @@ function commit() {
     flushSignals();
   }
   if (depth === 0) recoveredThisRender = false;
+  if (depth === 0 && typeof document !== "undefined" && (document as any).$$reactFormReplay?.length) replayFormActions(document);
   if (prewarms.length && depth === 0) prewarm();
   if ((passiveQueue.length || passiveUnmounts.length) && !passiveBooked) {
     passiveBooked = true;
@@ -4483,6 +4484,21 @@ export function hydrateRoot(container: Element, children: any, options?: any) {
 // ---------------------------------------------------------------- form actions
 
 const IDLE_FORM = Object.freeze({ pending: false, data: null, method: null, action: null });
+
+/** Forms submitted before they hydrated (queued by the server's replaying runtime): their actions run once they have,
+ * with the data of the moment they were submitted, as React replays them. */
+function replayFormActions(doc: any) {
+  const queue: any[] = doc.$$reactFormReplay;
+  for (let i = 0; i < queue.length; i += 3) {
+    const form = queue[i], submitter = queue[i + 1], data = queue[i + 2];
+    const f: Fiber | undefined = form?.[FIBER];
+    // (Not hydrated yet: it waits, and the ones after it with it, to keep their order.)
+    if (!f || f.dead || !(f as any).placed) return void queue.splice(0, i);
+    const act = typeof submitter?.[PROPS]?.formAction === "function" ? submitter[PROPS].formAction : form[PROPS]?.action;
+    if (typeof act === "function") submitForm(form, act, data, submitter);
+  }
+  queue.length = 0;
+}
 
 /** A form's status, kept on its fiber: what useFormStatus reads below it. */
 const formStatus = (f: Fiber): Sig<any> => ((f as any).formStatus ??= signal(IDLE_FORM));

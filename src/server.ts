@@ -121,6 +121,11 @@ function attrs(props: any, ctx: Ctx, tag: string) {
       continue;
     }
     if ((k === "action" || k === "formAction") && typeof v === "function") continue;
+    // (A function action's placeholder, written as it is: not a URL of the user's to block.)
+    if ((k === "action" || k === "formAction") && v === FORM_ACTION_URL) {
+      put(k, v);
+      continue;
+    }
     // A custom element's object and array props are properties the client sets, not attributes (React's Fizz).
     if (isCustomElement(tag, props) && v !== null && typeof v === "object") continue;
     const a = isCustomElement(tag, props) ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg, "server");
@@ -652,7 +657,17 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   // An action that says how it submits without JavaScript (a Server Action's $$FORM_ACTION): its fields instead.
   let fields = "";
   if (!ctx.svg && (tag === "form" || tag === "button" || tag === "input")) {
-    const custom = customFormAction(tag === "form" ? props.action : props.formAction, ctx);
+    const fn = tag === "form" ? props.action : props.formAction;
+    if (typeof fn === "function" && dev()) functionActionWarnings(tag, props);
+    const custom = customFormAction(fn, ctx);
+    // A function with no way to submit without JavaScript: React's placeholder URL, its submit replayed once hydrated.
+    if (!custom && typeof fn === "function") {
+      (ctx.res as any).formReplay = true;
+      props =
+        tag === "form"
+          ? { ...props, action: FORM_ACTION_URL, encType: null, method: null, target: null }
+          : { ...props, formAction: FORM_ACTION_URL, formEncType: null, formMethod: null, formTarget: null, name: null };
+    }
     if (custom) {
       const { action, encType, method, target, name, data } = custom;
       if (tag === "form") {
@@ -715,6 +730,25 @@ function preambleElement(tag: string, props: any, ctx: Ctx, hooks: any): string 
 type Preamble = { html?: string; head?: string; body?: string; headInner?: string };
 
 /** A function action's progressive-enhancement form (React's getCustomFormFields), with a prefix of its own. */
+/** What a function action's form submits to before hydration: nothing (the replaying runtime prevents it). */
+const FORM_ACTION_URL = "javascript:throw new Error('React form unexpectedly submitted.')";
+/** React's inline runtime that queues submits of function actions until hydration replays them. */
+const FORM_REPLAYING =
+  'addEventListener("submit",function(a){if(!a.defaultPrevented){var b=a.target,d=a.submitter,c=b.action,e=d;if(d){var f=d.getAttribute("formAction");null!=f&&(c=f,e=null)}"javascript:throw new Error(\'React form unexpectedly submitted.\')"===c&&(a.preventDefault(),a=new FormData(b,e),c=b.ownerDocument||b,(c.$$reactFormReplay=c.$$reactFormReplay||[]).push(b,d,a))}});';
+/** React's warnings for what a function action overrides (each once). */
+function functionActionWarnings(tag: string, props: any) {
+  if (tag === "form") {
+    if (props.encType != null || props.method != null)
+      warn("Cannot specify a encType or method for a form that specifies a function as the action. React provides those automatically. They will get overridden.", "server:form-action-method");
+    if (props.target != null) warn("Cannot specify a target for a form that specifies a function as the action. The function will always be executed in the same window.", "server:form-action-target");
+    return;
+  }
+  if (props.name != null) warn('Cannot specify a "name" prop for a button that specifies a function as a formAction. React needs it to encode which action should be invoked. It will get overridden.', "server:form-action-name");
+  if (props.formEncType != null || props.formMethod != null)
+    warn("Cannot specify a formEncType or formMethod for a button that specifies a function as a formAction. React provides those automatically. They will get overridden.", "server:form-action-method");
+  if (props.formTarget != null) warn("Cannot specify a formTarget for a button that specifies a function as a formAction. The function will always be executed in the same window.", "server:form-action-target");
+}
+
 function customFormAction(action: any, ctx: Ctx): any {
   if (typeof action !== "function" || typeof action.$$FORM_ACTION !== "function") return null;
   const res: any = ctx.res;
@@ -1107,7 +1141,7 @@ function bootstrapPreloads(options: any, nonce: string | undefined, res: Resourc
   return out;
 }
 /** The bootstrap: its inline content, then its scripts and modules, each async. */
-function bootstrap(options: any, nonce?: string) {
+function bootstrap(options: any, nonce?: string, formReplay = false, wholeDocument = false) {
   // The first carries the completed shell's id (React's, which its client looks for).
   let id = ` id="${escape("_" + (options.identifierPrefix ?? "") + "R_")}"`;
   const takeId = () => {
@@ -1115,7 +1149,11 @@ function bootstrap(options: any, nonce?: string) {
     id = "";
     return out;
   };
-  let out = options.bootstrapScriptContent !== undefined ? `<script${nonce ? ` nonce="${escape(nonce)}"` : ""}${takeId()}>${scriptSafe(String(options.bootstrapScriptContent))}</script>` : "";
+  const scripted = options.bootstrapScriptContent !== undefined || options.bootstrapScripts?.length || options.bootstrapModules?.length;
+  // The form-replaying runtime first; the shell's id with it when it is the document's only script.
+  let replay = "";
+  if (formReplay) replay = `<script${nonce ? ` nonce="${escape(nonce)}"` : ""}${wholeDocument && !scripted ? takeId() : ""}>${FORM_REPLAYING}</script>`;
+  let out = replay + (options.bootstrapScriptContent !== undefined ? `<script${nonce ? ` nonce="${escape(nonce)}"` : ""}${takeId()}>${scriptSafe(String(options.bootstrapScriptContent))}</script>` : "");
   for (const s of options.bootstrapScripts ?? []) out += `<script${scriptAttrs(s, nonce)}${takeId()} async=""></script>`;
   for (const s of options.bootstrapModules ?? []) out += `<script type="module"${scriptAttrs(s, nonce)}${takeId()} async=""></script>`;
   return out;
@@ -1880,7 +1918,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     const paint = !anyPending && !flushedBounds.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
     // The document's closing tags come last, once everything has streamed (React's postamble).
     postamble = (found.body ? "</body>" : "") + (found.html ? "</html>" : "");
-    write(start + withPreamble(shell, "") + paint + bootstrap(options, nonce));
+    write(start + withPreamble(shell, "") + paint + bootstrap(options, nonce, !!(res as any).formReplay, !!(found.html || found.head)));
     flushQueues();
   };
   // Aborted while the shell renders: what is left is aborted once it is done.

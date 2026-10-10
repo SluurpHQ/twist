@@ -424,7 +424,23 @@ export function setProps(el: Element, next: any, prev: any, svg: boolean) {
   }
   const html = next.dangerouslySetInnerHTML?.__html;
   if (html !== (prev?.dangerouslySetInnerHTML?.__html)) (el as HTMLElement).innerHTML = html ?? "";
+  if (prev) afterFunctionAction(el, next, prev, svg);
 }
+
+/**
+ * An action that was a function and is not any more: what the server wrote in its place for the form (encType,
+ * method, target, or a button's name and form* fields) is out of date, so set again from the props now, whatever
+ * they were before (React's switch off a hydrated Server Action).
+ */
+export function afterFunctionAction(el: Element, next: any, prev: any, svg: boolean) {
+  const tag = el.localName;
+  if (typeof prev.action === "function" && typeof next.action !== "function")
+    for (const k of ["encType", "method", "target"]) setProp(el, k, next[k], FORCE, svg);
+  if (typeof prev.formAction === "function" && typeof next.formAction !== "function")
+    for (const k of tag === "input" ? ["formEncType", "formMethod", "formTarget"] : ["name", "formEncType", "formMethod", "formTarget"]) setProp(el, k, next[k], FORCE, svg);
+}
+/** A previous value no prop can have: the property set whatever it is. */
+const FORCE = Symbol("force");
 
 /** An event prop React listens for (onClick, onClickCapture…), as opposed to an attribute. */
 export const isEventProp = (k: string) => k.length > 2 && k[0] === "o" && k[1] === "n" && k[2] === k[2]!.toUpperCase() && k[2] !== k[2]!.toLowerCase();
