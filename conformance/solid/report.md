@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5556 pass, 1145 fail, 714 files (32 did not load, 121 test Solid's internals)
+5557 pass, 1144 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -478,7 +478,7 @@
 | web/test/hydration/preload-failure-document-root.spec.tsx | 0 | 3 |  |
 | web/test/hydration/refresh-hmr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/hydration/show-fallback.spec.tsx | 4 | 0 |  |
-| web/test/hydration/slot-hydration-3567.spec.tsx | 23 | 3 |  |
+| web/test/hydration/slot-hydration-3567.spec.tsx | 24 | 2 |  |
 | web/test/hydration/spread-innerhtml.spec.tsx | 1 | 0 |  |
 | web/test/hydration/stateful-input-adoption.spec.tsx | 5 | 0 |  |
 | web/test/hydration/style-adoption.spec.tsx | 5 | 0 |  |

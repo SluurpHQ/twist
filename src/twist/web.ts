@@ -296,6 +296,8 @@ export function spread(el: Element, props: any, skipChildren?: boolean) {
 /** A spread applied: `claiming` the server's element, its first value is what the page shows already. */
 function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: boolean) {
   if (!props) return;
+  // (Whether the children are claimed is decided now: the attribute effect below clears its own flag.)
+  const claimingChildren = claiming;
   // A spread's handlers: listeners of their own, swapped as the spread changes.
   const isEvent = (k: string) => /^on[A-Z]/.test(k);
   const listeners = new Map<string, EventListener>();
@@ -335,7 +337,7 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
   const ref = untrack(() => props.ref);
   if (ref) applyRef(ref, el);
   if (skipChildren || !untrack(() => "children" in props)) return;
-  if (claiming) claimChildren(props.children, { parent: el, next: el.firstChild });
+  if (claimingChildren) claimChildren(props.children, { parent: el, next: el.firstChild });
   else insert(el, () => props.children);
 }
 
