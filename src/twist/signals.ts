@@ -304,6 +304,11 @@ export class Transaction {
   /** Render effects that showed the committed frame over what it holds: run again when it commits. */
   stale = new Set<Computation<any>>();
   merged: Transaction | null = null;
+  /** A lane: the sub-frame a guess opens in this transaction (its own holds, revealed on its own, ended with this). */
+  lane: Transaction | null = null;
+  /** For a lane: the transaction it is a lane of, and the nodes guessed in it. */
+  parentTx: Transaction | null = null;
+  guessed = new Map<Node, unknown>();
   get root(): Transaction {
     let t: Transaction = this;
     while (t.merged) t = t.merged;
@@ -330,7 +335,22 @@ abstract class Node<T = any> {
   override: T | typeof NONE = NONE;
   /** The value in the world being read: an optimistic override, else staged while a pass runs, else committed. */
   current(): T {
-    if (this.override !== NONE) return this.override as T;
+    if (this.override !== NONE) {
+      const lane = (this as any).laneTx as Transaction | undefined;
+      if (lane && !lane.done && listener) {
+        // A derivation reading the guess is the lane's work; an effect reads the screen: not the guess until the lane
+        // is revealed (then it runs again).
+        if (listener.kind === MEMO) listener.passLane = lane;
+        else {
+          lane.stale.add(listener);
+          listener.staleRead = true;
+          return (!inPass || this.staged === NONE ? this.value : this.staged) as T;
+        }
+      }
+      return this.override as T;
+    }
+    // A direct read sees a lane's work (as it sees its guess).
+    if (!listener && this.staged !== NONE && this.tx && !this.tx.root.done && this.tx.root.parentTx) return this.staged as T;
     if (!inPass || this.staged === NONE) return this.value;
     if (!this.tx) return this.staged as T;
     return heldRead(this);
@@ -344,7 +364,9 @@ abstract class Node<T = any> {
     // the truth differs.
     if (this.override !== NONE) return;
     this.version++;
-    for (const o of this.observers) o.mark(DIRTY);
+    // Lane work: derivations follow now; effects at the lane's reveal.
+    const lane = this.tx && !this.tx.root.done && this.tx.root.parentTx ? this.tx.root : null;
+    for (const o of this.observers) lane && o.kind !== MEMO && !o.verdict?.has(this) ? lane.stale.add(o) : o.mark(DIRTY);
   }
   /** The staged value made the committed one. */
   promote() {
@@ -483,6 +505,10 @@ export class Computation<T> extends Node<T> implements Owner {
   quiet = false;
   /** Why its last run failed (an error read rethrows it). */
   error: unknown = NONE;
+  /** The lane this pass is work of (it read a guess in an unrevealed lane), else null. */
+  passLane: Transaction | null = null;
+  /** This pass read the frame under a hold or an unrevealed lane (it runs again when that lands). */
+  staleRead = false;
   /** An effect's apply half, what it last applied, and the cleanup it gave back. */
   apply?: (value: T, prev?: T) => void | (() => void);
   applied: T | typeof NONE = NONE;
@@ -638,6 +664,13 @@ export class Computation<T> extends Node<T> implements Owner {
       for (let i = 0; i < this.sources.length; i++) {
         const s = this.sources[i]!;
         if (s instanceof Computation) s.update();
+        // An effect reading a guess or lane work: it runs at the lane's reveal.
+        // (Read through latest() or isPending: it sees the lane now.)
+        const lane = this.kind === MEMO || this.verdict?.has(s) ? null : s.override !== NONE ? unrevealed((s as any).laneTx) : s.tx && unrevealed(s.tx.root.parentTx ? s.tx.root : null);
+        if (lane && s.version !== this.seen[i]) {
+          lane.stale.add(this);
+          continue;
+        }
         if (s.version !== this.seen[i]) {
           this.state = DIRTY;
           break;
@@ -649,6 +682,8 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   run() {
     if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
+    this.passLane = null;
+    this.staleRead = false;
     disposeOwned(this);
     this.childCount = 0;
     if (this.attached) for (const s of this.sources) s.unsubscribe(this);
@@ -753,7 +788,9 @@ export class Computation<T> extends Node<T> implements Owner {
     this.recovered = false;
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
-      if (changed || this.applied === NONE || this.equals === Object.is) {
+      // (A pass that read the frame and found what it shows already applies nothing: it runs again at the reveal.)
+      const shown = this.staleRead && this.applied !== NONE && this.equals !== false && this.equals(this.applied as T, next);
+      if (!shown && (changed || this.applied === NONE || this.equals === Object.is)) {
         const joins = this.readHeld && !this.tx ? this.readHeld : null;
         if (flushing || this.tx || joins) this.staged = next;
         else this.value = next;
@@ -764,6 +801,8 @@ export class Computation<T> extends Node<T> implements Owner {
       return;
     }
     if (!changed) return;
+    // Lane work: held in its lane (revealed with it).
+    if (this.passLane && !this.passLane.done && !this.tx) hold(this, this.passLane);
     // Derived from a held world: held with it (born held when it never committed a value).
     if (this.readHeld && !this.tx) hold(this, this.readHeld), first && ((this as any).bornHeld = true);
     if (flushing || this.tx) this.stage(next);
@@ -814,6 +853,11 @@ export class Computation<T> extends Node<T> implements Owner {
     // Asked again by an action (a refresh there): the action's transaction waits for this answer.
     const joins = (this as any).joins as Transaction | undefined;
     if (joins && !joins.done) joins.flights.add(this), ((this as any).joins = undefined);
+    // Lane work in flight: its lane waits for it.
+    if (this.passLane && !this.passLane.done) {
+      if (!this.ready) (this as any).bornHeld = true;
+      hold(this, this.passLane), this.passLane.flights.add(this);
+    }
     statusChanged();
   }
   /** Values to come from an async iterator: each taken when it lands (at once, when it answers synchronously). */
@@ -1122,6 +1166,7 @@ function settleRound() {
   } finally {
     // The transaction this flush parked into (what a guess made in it is optimistic over).
     if (tx) frameTx = (tx as Transaction).root;
+    freshLanes.clear();
   }
 }
 
@@ -1133,7 +1178,9 @@ const frameGuesses: [Node, unknown][] = [];
 /** Frame guesses installed over the transaction their flush parked into, or void (lane contract 2). */
 function settleFrameGuesses() {
   for (const [n, v] of frameGuesses.splice(0)) {
-    const t = (frameTx && !frameTx.done ? frameTx : null) ?? (n.tx && !n.tx.done ? n.tx.root : null);
+    // (A node already guessed over a transaction still running: a new guess replaces it, in that transaction.)
+    const guessed = (n as any).guessTx as Transaction | null | undefined;
+    const t = (frameTx && !frameTx.done ? frameTx : null) ?? (guessed && !guessed.done ? guessed.root : null) ?? (n.tx && !n.tx.done ? n.tx.root : null);
     if (t) installGuess(n, v, t);
   }
 }
@@ -1142,14 +1189,36 @@ function settleFrameGuesses() {
 function installGuess(n: Node, v: unknown, t: Transaction) {
   const was = n.override;
   n.override = v as any;
+  (n as any).guessTx = t;
+  // Its lane: the parent's (one per parent while it is not yet revealed).
+  const lane = t.lane && !t.lane.done ? t.lane : (t.lane = newLane(t));
+  (n as any).laneTx = lane;
+  if (!lane.guessed.has(n)) lane.guessed.set(n, truthOf(n));
   if (was === NONE)
     t.ends.push(() => {
+      (n as any).guessTx = null;
       if (n.override === NONE) return;
       const guess = n.override;
       n.override = NONE;
       if (!(n as any).equals?.(n.value, guess)) n.bump();
     });
-  n.bump();
+  // What reads it: derivations re-run in the lane now; effects at the lane's reveal.
+  clock++;
+  for (const o of n.observers) o.kind === MEMO ? o.mark(DIRTY) : lane.stale.add(o);
+}
+
+/** Lanes whose work has not had a round yet: not committable while it waits to run. */
+const freshLanes = new Set<Transaction>();
+
+/** `l` if it is a lane not yet revealed. */
+const unrevealed = (l: Transaction | null | undefined) => (l && !l.done ? l : null);
+
+/** A lane of `t`: a transaction of its own (not merged with `t`), which `t` waits for. */
+function newLane(t: Transaction): Transaction {
+  const l = newTransaction();
+  l.parentTx = t;
+  freshLanes.add(l);
+  return l;
 }
 
 function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => void) {
@@ -1160,6 +1229,12 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       continue;
     }
     if (n.tx || held.has(n)) continue;
+    const lane = n instanceof Computation && n.passLane && !n.passLane.done ? n.passLane : null;
+    if (lane) {
+      hold(n, lane);
+      held.add(n);
+      continue;
+    }
     const below = downstream(n);
     let holds = false;
     let joins: Transaction | null = null;
@@ -1211,6 +1286,7 @@ function heldRead<T>(n: Node<T>): T {
   }
   if (!born && (l.kind === RENDER || l.verdictReader) && l.tx?.root !== t && !(l.ranAt === -1 && l.tx)) {
     t.stale.add(l);
+    l.staleRead = true;
     return n.value;
   }
   l.readHeld = t;
@@ -1263,13 +1339,67 @@ function committable() {
   return false;
 }
 
+/** `t`'s lane, still blocked, keeps it: while each guess in it is the truth (or the truth is still to come). */
+function laneBlocks(t: Transaction): boolean {
+  const l = t.lane;
+  if (!l || l.done) return false;
+  for (const n of l.guessed.keys()) {
+    if (n.override === NONE) continue;
+    if (n instanceof Computation && (n.flight || n.state === DIRTY)) return true;
+    const truth = n.staged !== NONE ? n.staged : n.value;
+    if (!((n as any).equals?.(truth, n.override) ?? truth === n.override)) return false;
+  }
+  return true;
+}
+
+/** What a node is under its guess (NONE while it is still to come). */
+function truthOf(n: Node): unknown {
+  if (n instanceof Computation && (n.flight || n.state === DIRTY)) return NONE;
+  return n.staged !== NONE ? n.staged : n.value;
+}
+
+/** A truth arrived since the guess, and it is not the guess. */
+function superseded(l: Transaction): boolean {
+  for (const [n, before] of l.guessed) {
+    if (n.override === NONE) continue;
+    const truth = truthOf(n);
+    if (truth === NONE || truth === before) continue;
+    if (!((n as any).equals?.(truth, n.override) ?? truth === n.override)) return true;
+  }
+  return false;
+}
+
+/** A blocked lane whose guess the truth superseded: it never showed, so it is void (its work re-derives from the truth). */
+function voidLane(l: Transaction) {
+  l.done = true;
+  transactions.delete(l);
+  freshLanes.delete(l);
+  for (const n of l.nodes) {
+    n.tx = null;
+    n.staged = NONE as any;
+    if (n instanceof Computation && !n.disposed) (n.flight = null), flights.delete(n), n.mark(DIRTY);
+  }
+  // The truth under each guess is the parent's: held with it.
+  const parent = l.parentTx!.root;
+  for (const n of l.guessed.keys()) {
+    if (n.staged !== NONE && !n.tx && !parent.done) hold(n, parent);
+    if (n.override === NONE) continue;
+    n.override = NONE as any;
+    // (Effects never showed the guess: nothing changes for them; lane work re-derives.)
+    for (const o of n.observers) if (o.kind === MEMO) o.mark(DIRTY);
+  }
+  statusChanged();
+}
+
 /** A transaction with no flight left (and no action open): it commits this round. */
 function committableTx(t: Transaction) {
-  return !t.merged && !t.open && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
+  return !t.merged && !t.open && !(freshLanes.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
 }
 
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
 function commitTransactions() {
+  // A truth arriving that differs from a guess its blocked lane never showed: the guess is void.
+  for (const l of [...transactions]) if (l.parentTx && !l.done && superseded(l)) voidLane(l);
   for (const t of [...transactions]) {
     if (t.merged) {
       transactions.delete(t);
@@ -1279,7 +1409,9 @@ function commitTransactions() {
     for (const f of t.flights) if (!f.flight || f.disposed || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
     // A flight in progress at any node it holds keeps it.
     for (const n of t.nodes) if (n instanceof Computation && n.flight && shownFlight(n)) t.flights.add(n);
-    if (t.flights.size || t.open) continue;
+    if (t.flights.size || t.open || (freshLanes.has(t) && dirty.length)) continue;
+    if (laneBlocks(t)) continue;
+    if (t.lane && !t.lane.done) voidLane(t.lane);
     // A node still loading that nothing on screen reads (behind a fallback) leaves the hold: its answer commits on its
     // own when it lands.
     for (const n of t.nodes) if (n instanceof Computation && n.flight && !shownFlight(n)) (t.nodes.delete(n), (n.tx = null));
