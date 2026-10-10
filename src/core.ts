@@ -2409,6 +2409,8 @@ function shallowEqual(a: any, b: any) {
   return n === 0;
 }
 
+/** A root's hydration attempt being thrown away: the server's nodes in the singletons stay. */
+let discardingHydration = false;
 function unmount(f: Fiber, removeDom: boolean) {
   if (f.dead) return;
   // A singleton let go: what React set on it unset, the element kept (React's releaseSingletonInstance): what others
@@ -2416,10 +2418,11 @@ function unmount(f: Fiber, removeDom: boolean) {
   if ((f as any).singleton && f.dom) {
     const el = f.dom as HTMLElement;
     // Its children's nodes go with them; what others put in it (resources, extensions' nodes) stays.
-    for (const c of f.children) unmount(c, true);
+    // (A hydration attempt thrown away: the server's markup stays, as it was, for the next attempt.)
+    for (const c of f.children) unmount(c, !discardingHydration);
     f.children = [];
     // (Taken over since by another fiber, a fallback's say: what it set stays.)
-    if ((el as any)[FIBER] === f) {
+    if ((el as any)[FIBER] === f && !discardingHydration) {
       const props = f.props ?? {};
       setProps(el, {}, props, false);
       if (props.dangerouslySetInnerHTML != null) el.textContent = "";
@@ -4612,7 +4615,12 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           mismatched = false;
           attrsDiffer = false;
           for (const n of madeWhileHydrating.splice(0)) n.parentNode?.removeChild(n);
-          for (const c of top.children) unmount(c, false);
+          discardingHydration = true;
+          try {
+            for (const c of top.children) unmount(c, false);
+          } finally {
+            discardingHydration = false;
+          }
           top.children = [];
           first = true;
           hydrationWaiting = true;
