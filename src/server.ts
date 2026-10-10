@@ -2052,8 +2052,9 @@ export function renderToPipeableStream(node: any, options: any = {}) {
   const write = (c: string) => {
     if (dropped) return;
     if (!out) return void chunks.push(c);
-    // Ended or destroyed by its owner (its close event may come later): closed early.
-    if (out.writableEnded || out.destroyed) return cancel("The destination stream closed early.")();
+    // Destroyed by its owner (its close event may come later): closed early. (Written after its end, it errors, and
+    // that error aborts the render, as React's pipe hears it.)
+    if (out.destroyed) return cancel("The destination stream closed early.")();
     out.write(c);
   };
   const finish = () => ((ended = true), out && !dropped ? out.end?.() : undefined);
@@ -2074,7 +2075,15 @@ export function renderToPipeableStream(node: any, options: any = {}) {
     fatal = { error: e };
     out?.destroy?.(e);
   };
+  // Aborted before it began: nothing renders, the shell fails with the reason (React aborts the request first).
+  let abortedEarly: { reason: unknown } | null = null;
   setImmediateOr(() => {
+    if (abortedEarly) {
+      const why = abortedEarly.reason;
+      options.onError?.(why);
+      shellError(why);
+      return;
+    }
     run = startStream(node, { ...options, onShellError: shellError }, write, finish, out !== null, (a, f) => ((abortNow = a), (flowNow = f)));
     // Piped while its shell rendered (from onShellReady): it flows now.
     if (out) run.flow();
@@ -2093,6 +2102,10 @@ export function renderToPipeableStream(node: any, options: any = {}) {
       return w;
     },
     abort(reason?: unknown) {
+      if (!run && !abortNow) {
+        abortedEarly ??= { reason: reason === undefined ? new Error("The render was aborted by the server without a reason.") : reason };
+        return;
+      }
       abortNow ? abortNow(reason) : run?.abort(reason);
     },
   };
