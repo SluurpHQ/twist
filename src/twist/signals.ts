@@ -509,6 +509,7 @@ export class Computation<T> extends Node<T> implements Owner {
   passLane: Transaction | null = null;
   /** This pass read the frame under a hold or an unrevealed lane (it runs again when that lands). */
   staleRead = false;
+  heldOnly = false;
   /** An effect's apply half, what it last applied, and the cleanup it gave back. */
   apply?: (value: T, prev?: T) => void | (() => void);
   applied: T | typeof NONE = NONE;
@@ -684,6 +685,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
     this.passLane = null;
     this.staleRead = false;
+    // Run again only for what a hold or a guess changed (nothing on screen moved)?
+    this.heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
     disposeOwned(this);
     this.childCount = 0;
     if (this.attached) for (const s of this.sources) s.unsubscribe(this);
@@ -789,7 +792,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
       // (A pass that read the frame and found what it shows already applies nothing: it runs again at the reveal.)
-      const shown = this.staleRead && this.applied !== NONE && this.equals !== false && this.equals(this.applied as T, next);
+      const shown = this.staleRead && this.heldOnly && this.applied !== NONE && this.equals !== false && this.equals(this.applied as T, next);
       if (!shown && (changed || this.applied === NONE || this.equals === Object.is)) {
         const joins = this.readHeld && !this.tx ? this.readHeld : null;
         if (flushing || this.tx || joins) this.staged = next;
@@ -857,6 +860,9 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.passLane && !this.passLane.done) {
       if (!this.ready) (this as any).bornHeld = true;
       hold(this, this.passLane), this.passLane.flights.add(this);
+    } else if (this.readHeld && !this.readHeld.root.done && !this.tx && this.ready) {
+      // Asked again from a held world: the transaction holding it waits for the answer (a first load never holds it).
+      hold(this, this.readHeld), this.readHeld.root.flights.add(this);
     }
     statusChanged();
   }
@@ -1166,7 +1172,7 @@ function settleRound() {
   } finally {
     // The transaction this flush parked into (what a guess made in it is optimistic over).
     if (tx) frameTx = (tx as Transaction).root;
-    freshLanes.clear();
+    awaitingRound.clear();
   }
 }
 
@@ -1207,8 +1213,8 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
   for (const o of n.observers) o.kind === MEMO ? o.mark(DIRTY) : lane.stale.add(o);
 }
 
-/** Lanes whose work has not had a round yet: not committable while it waits to run. */
-const freshLanes = new Set<Transaction>();
+/** Transactions with work that has not had a round yet (a new lane's, a voided lane's parent's): not committable while it waits to run. */
+const awaitingRound = new Set<Transaction>();
 
 /** `l` if it is a lane not yet revealed. */
 const unrevealed = (l: Transaction | null | undefined) => (l && !l.done ? l : null);
@@ -1217,7 +1223,7 @@ const unrevealed = (l: Transaction | null | undefined) => (l && !l.done ? l : nu
 function newLane(t: Transaction): Transaction {
   const l = newTransaction();
   l.parentTx = t;
-  freshLanes.add(l);
+  awaitingRound.add(l);
   return l;
 }
 
@@ -1247,7 +1253,13 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       if (c.kind !== MEMO ? c.applied !== NONE && !hidden(c) : rendered(c)) for (const s of c.sources) if (s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !c.before.includes(s) && !heldFlight(s) && c.born !== flushes) (holds = true), revealed.push(s);
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
-    if (n instanceof Computation) for (const s of n.sources) if (s.tx && !n.verdict?.has(s)) joins = s.tx.root;
+    // (A render effect showed the frame of what it holds: it runs again at the commit instead.)
+    if (n instanceof Computation)
+      for (const s of n.sources) {
+        if (!s.tx || n.verdict?.has(s)) continue;
+        if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld) s.tx.root.stale.add(n);
+        else joins = s.tx.root;
+      }
     const by = (n as any).writtenIn as Transaction | null;
     if (by && !by.done) joins = by.root;
     if (!holds && !joins) continue;
@@ -1373,7 +1385,7 @@ function superseded(l: Transaction): boolean {
 function voidLane(l: Transaction) {
   l.done = true;
   transactions.delete(l);
-  freshLanes.delete(l);
+  awaitingRound.delete(l);
   for (const n of l.nodes) {
     n.tx = null;
     n.staged = NONE as any;
@@ -1381,6 +1393,7 @@ function voidLane(l: Transaction) {
   }
   // The truth under each guess is the parent's: held with it.
   const parent = l.parentTx!.root;
+  awaitingRound.add(parent);
   for (const n of l.guessed.keys()) {
     if (n.staged !== NONE && !n.tx && !parent.done) hold(n, parent);
     if (n.override === NONE) continue;
@@ -1393,7 +1406,7 @@ function voidLane(l: Transaction) {
 
 /** A transaction with no flight left (and no action open): it commits this round. */
 function committableTx(t: Transaction) {
-  return !t.merged && !t.open && !(freshLanes.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
+  return !t.merged && !t.open && !(awaitingRound.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
 }
 
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
@@ -1409,9 +1422,10 @@ function commitTransactions() {
     for (const f of t.flights) if (!f.flight || f.disposed || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
     // A flight in progress at any node it holds keeps it.
     for (const n of t.nodes) if (n instanceof Computation && n.flight && shownFlight(n)) t.flights.add(n);
-    if (t.flights.size || t.open || (freshLanes.has(t) && dirty.length)) continue;
+    if (t.flights.size || t.open || (awaitingRound.has(t) && dirty.length)) continue;
     if (laneBlocks(t)) continue;
-    if (t.lane && !t.lane.done) voidLane(t.lane);
+    // (Its lane voided: its work re-derives under it first.)
+    if (t.lane && !t.lane.done && (voidLane(t.lane), dirty.length)) continue;
     // A node still loading that nothing on screen reads (behind a fallback) leaves the hold: its answer commits on its
     // own when it lands.
     for (const n of t.nodes) if (n instanceof Computation && n.flight && !shownFlight(n)) (t.nodes.delete(n), (n.tx = null));

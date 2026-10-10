@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-4360 pass, 1019 fail, 703 files (5 did not load, 319 test Solid's internals)
+4365 pass, 1014 fail, 703 files (5 did not load, 319 test Solid's internals)
 
 ## Why files did not load
 
@@ -96,7 +96,7 @@
 | signals/tests/flatten-needs-unwrap.test.ts | 1 | 2 |  |
 | signals/tests/flush-in-action.test.ts | 3 | 3 |  |
 | signals/tests/flush.test.ts | 6 | 0 |  |
-| signals/tests/fuzz-findings-l2.test.ts | 15 | 5 |  |
+| signals/tests/fuzz-findings-l2.test.ts | 16 | 4 |  |
 | signals/tests/gc.test.ts | 1 | 0 |  |
 | signals/tests/getOwner.test.ts | 2 | 0 |  |
 | signals/tests/graph-size-diagnostics.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
@@ -121,11 +121,11 @@
 | signals/tests/l2-contract.test.ts | 0 | 15 |  |
 | signals/tests/l2-fuzz-existing-rules.test.ts | 0 | 5 |  |
 | signals/tests/lane-ambient-write-replay.test.ts | 3 | 0 |  |
-| signals/tests/lane-contract.test.ts | 11 | 5 |  |
+| signals/tests/lane-contract.test.ts | 12 | 4 |  |
 | signals/tests/lane-frame-deferred-run-3662.test.ts | 0 | 3 |  |
 | signals/tests/lane-frame-held-lane-3662.test.ts | 1 | 4 |  |
 | signals/tests/lane-hold-on-observation.test.ts | 4 | 5 |  |
-| signals/tests/lane-outside-view.test.ts | 1 | 7 |  |
+| signals/tests/lane-outside-view.test.ts | 2 | 6 |  |
 | signals/tests/lane-pass-stamped-effect-3662.test.ts | 0 | 1 |  |
 | signals/tests/lane-uninitialized-landing-3648.test.ts | 3 | 2 |  |
 | signals/tests/late-pending-equality.test.ts | 6 | 2 |  |
@@ -151,7 +151,7 @@
 | signals/tests/mapArray-smallmove.test.ts | 0 | 1 | not ours: Cannot find module '../src/map.js' |
 | signals/tests/maparray-store-nonkeyed.test.ts | 2 | 0 |  |
 | signals/tests/mapArray.test.ts | 7 | 0 |  |
-| signals/tests/mount-over-foreign-hold-3761.test.ts | 4 | 1 |  |
+| signals/tests/mount-over-foreign-hold-3761.test.ts | 5 | 0 |  |
 | signals/tests/nested-render-effect-async-cleanup.test.ts | 0 | 5 |  |
 | signals/tests/observe-exclude.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
 | signals/tests/observe-idle-cost.test.ts | 0 | 0 |  |
@@ -189,7 +189,7 @@
 | signals/tests/repeat.test.ts | 11 | 0 |  |
 | signals/tests/resolve-in-action.test.ts | 3 | 2 |  |
 | signals/tests/resolve.test.ts | 3 | 1 |  |
-| signals/tests/reveal-carve-out.test.ts | 2 | 2 |  |
+| signals/tests/reveal-carve-out.test.ts | 3 | 1 |  |
 | signals/tests/reveal-gating-contract.test.ts | 2 | 0 |  |
 | signals/tests/root-dispose-pending-action-3561.test.ts | 0 | 9 |  |
 | signals/tests/router-transition-error-commit.test.ts | 1 | 0 |  |
