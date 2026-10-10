@@ -1039,10 +1039,10 @@ function settleRound() {
     const revealed: Computation<any>[] = [];
     for (const c of below) {
       if (c.tx) joins = c.tx.root;
-      if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO || rendered(c))) holds = true;
+      if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO ? !hidden(c) : rendered(c))) holds = true;
       // A reveal: what the write brings on screen reads a flight already up — the write waits for its answer.
       // (Nothing shown yet, a first mount, is no reveal.)
-      if (c.kind !== MEMO ? c.applied !== NONE : rendered(c)) for (const s of c.sources) if (s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !c.before.includes(s) && !heldFlight(s) && c.born !== flushes) (holds = true), revealed.push(s);
+      if (c.kind !== MEMO ? c.applied !== NONE && !hidden(c) : rendered(c)) for (const s of c.sources) if (s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !c.before.includes(s) && !heldFlight(s) && c.born !== flushes) (holds = true), revealed.push(s);
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
     if (n instanceof Computation) for (const s of n.sources) if (s.tx && !n.verdict?.has(s)) joins = s.tx.root;
@@ -1093,7 +1093,21 @@ function heldRead<T>(n: Node<T>): T {
 function rendered(c: Computation<any>, seen = new Set<Computation<any>>()): boolean {
   if (seen.has(c)) return false;
   seen.add(c);
-  for (const o of c.observers) if (o.kind !== MEMO || rendered(o, seen)) return true;
+  for (const o of c.observers) if (o.kind !== MEMO ? !hidden(o) : !hidden(o) && rendered(o, seen)) return true;
+  return false;
+}
+
+/** A held node's flight that keeps its transaction: one something on screen reads (all of them, but a memo whose
+ * readers are all behind a fallback). */
+const shownFlight = (n: Computation<any>) => n.kind !== MEMO || !n.observers.length || rendered(n);
+
+/** Under a Loading boundary showing its fallback: not on screen, so it holds nothing. */
+function hidden(c: Computation<any>): boolean {
+  for (let o: Owner | null = c; o; o = o.parent) {
+    if ((o as any).loading?.onFallback) return true;
+    // (A boundary's output is on screen, showing the fallback; only what it made is not.)
+    if (o !== c && (o as any).shows?.onFallback) return true;
+  }
   return false;
 }
 
@@ -1123,7 +1137,7 @@ function committable() {
 
 /** A transaction with no flight left (and no action open): it commits this round. */
 function committableTx(t: Transaction) {
-  return !t.merged && !t.open && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight);
+  return !t.merged && !t.open && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
 }
 
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
@@ -1136,8 +1150,11 @@ function commitTransactions() {
     // A flight nothing shows any more (its readers moved on) holds nothing.
     for (const f of t.flights) if (!f.flight || f.disposed || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
     // A flight in progress at any node it holds keeps it.
-    for (const n of t.nodes) if (n instanceof Computation && n.flight) t.flights.add(n);
+    for (const n of t.nodes) if (n instanceof Computation && n.flight && shownFlight(n)) t.flights.add(n);
     if (t.flights.size || t.open) continue;
+    // A node still loading that nothing on screen reads (behind a fallback) leaves the hold: its answer commits on its
+    // own when it lands.
+    for (const n of t.nodes) if (n instanceof Computation && n.flight && !shownFlight(n)) (t.nodes.delete(n), (n.tx = null));
     transactions.delete(t);
     t.done = true;
     for (const n of t.nodes) n.promote();
@@ -1573,6 +1590,8 @@ export function until<T>(fn: () => T, options?: { timeout?: number; signal?: Abo
 /** A Loading boundary's state: the computations under it waiting on a first load. */
 class LoadingState {
   waiting = new Set<Computation<any>>();
+  /** Its last pass showed the fallback: what is under it is not on screen. */
+  onFallback = false;
   count = new (class extends Node<number> {})();
   wait(c: Computation<any>) {
     if (this.waiting.has(c)) return;
@@ -1593,7 +1612,7 @@ function boundaryOf(c: Computation<any>): LoadingState | null {
 }
 
 /** `fn`'s value, or `fallback()` while what is under it waits on a first load. */
-export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _options?: { on?: () => unknown }): () => T | F {
+export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, options?: { on?: () => unknown }): () => T | F {
   const state = new LoadingState();
   state.count.value = 0;
   // A slot of the reveal order around it, if any: what the order forces on it (gated, collapsed) until it has shown
@@ -1601,6 +1620,44 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _opt
   const order = (owner?.context?.[REVEAL] as RevealOrderController | undefined) ?? null;
   const slot: Slot = { gated: false, collapsed: false, owner: null, draw: new (class extends Node<number> {})(), ready: () => false };
   slot.draw.value = 0;
+  // `on`: what it reads, tracked outside the boundary (as a condition around it would be). A change after the first
+  // re-arms it once the flush ends: something it shows still loading, its fallback shows again until that lands.
+  let armed = false;
+  if (options?.on) {
+    const on = options.on;
+    let first = true;
+    // What it read last time: each node's version, and which were loading (a source going pending re-arms too).
+    let seen = new Map<Node, [number, boolean]>();
+    // (Transparent, as `shown`: a boundary takes one id, its content's, as the server's does.)
+    const watch = new Computation<void>(MEMO, () => {
+      listener!.track(status);
+      try {
+        on();
+      } catch (e) {
+        if (!(e instanceof NotReadyError)) throw e;
+      }
+      const now = new Map<Node, [number, boolean]>();
+      let changed = false;
+      for (const src of watch.sources) {
+        if (src === status) continue;
+        const was = seen.get(src);
+        const entry: [number, boolean] = [src.version, waiting(src)];
+        now.set(src, entry);
+        if (!was || was[0] !== entry[0] || (entry[1] && !was[1])) changed = true;
+      }
+      if (now.size !== seen.size) changed = true;
+      seen = now;
+      if (first) first = false;
+      else if (changed)
+        endWith(null, () => {
+          if (content.disposed || !(pendingUnder(content) || pendingUnder(shown))) return;
+          armed = true;
+          slot.draw.bump();
+          schedule();
+        });
+    }, { transparent: true } as any);
+    watch.run();
+  }
   // The content: built once under the boundary (what under it waits on a first load tells the boundary), built
   // again only when what it reads changes.
   const NOT_READY = {};
@@ -1633,10 +1690,20 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _opt
     for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
     // Its readiness may have changed: the order looks again.
     if (slot.owner) slot.owner.evaluate();
+    state.onFallback = true;
     if (slot.owner && slot.gated) return slot.collapsed ? (undefined as any) : untrack(fallback);
     if (c === NOT_READY || state.waiting.size) return untrack(fallback);
     try {
       const v = resolveChildren(c);
+      // Re-armed: the fallback until what it shows has landed (looked at again whenever something stops loading: an
+      // answer equal to the last changes nothing it reads). What it shows is made by now (lazy children are made
+      // here, owned by this pass), so all of it is looked at.
+      if (armed) {
+        listener!.track(status);
+        if (pendingUnder(content) || pendingUnder(shown)) return untrack(fallback);
+        armed = false;
+      }
+      state.onFallback = false;
       // Content shown: the slot leaves the order (shown is shown); the order looks again.
       if (slot.owner) {
         const o = slot.owner;
@@ -1648,15 +1715,40 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _opt
       if (e instanceof NotReadyError) return untrack(fallback);
       throw e;
     }
-  });
+  }, { transparent: true } as any);
   if (order) {
     order.add(slot);
     onCleanup(() => order.remove(slot));
   }
+  // What it makes (lazy children) is behind its fallback too, when that shows.
+  (shown as any).shows = state;
   shown.run();
   const read = () => shown.read();
   accessors.set(read, shown);
   return read;
+}
+
+/**
+ * Whether something `root` shows is still loading: an async node in flight among what it, or anything it owns,
+ * reads (upstream through memos).
+ */
+function pendingUnder(root: Computation<any>): boolean {
+  const seen = new Set<Node<any>>();
+  const upstream = (n: Node<any>): boolean => {
+    if (seen.has(n)) return false;
+    seen.add(n);
+    if (!(n instanceof Computation)) return false;
+    if (n.flight && !n.disposed) return true;
+    for (const src of n.sources) if (upstream(src)) return true;
+    return false;
+  };
+  const owners: Owner[] = [root];
+  while (owners.length) {
+    const o = owners.pop()!;
+    if (o instanceof Computation && upstream(o)) return true;
+    if (o.owned) owners.push(...o.owned);
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- reveal order

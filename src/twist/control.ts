@@ -173,7 +173,7 @@ export function Reveal(props: { order?: RevealOrder; collapsed?: boolean; childr
 }
 
 export function Loading(props: { fallback?: any; on?: unknown; children: any }) {
-  return createLoadingBoundary(() => props.children, () => props.fallback);
+  return createLoadingBoundary(() => props.children, () => props.fallback, "on" in props ? { on: () => props.on } : undefined);
 }
 
 /** Shows `fallback` (or `fallback(error, reset)`) once something under it throws. */

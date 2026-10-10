@@ -17,6 +17,8 @@ import {
   sharedConfig,
   createSignal,
   createOwner,
+  createLoadingBoundary,
+  peekNextChildId,
 } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
@@ -332,6 +334,12 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
   if (value == null || value === true || value === false || value === "") return out;
   const claimed = typeof value === "object" && claimedNodes.get(value);
   if (claimed) return out.push(...claimed), out;
+  // A description made while hydrating but never claimed (a fallback built then, shown later): drawn now.
+  if (typeof value === "object" && (value[EL] || value[COMP])) {
+    const made = clientOnlyRun(() => (value[EL] ? jsx(value.tag, value.props) : jsx(value.fn, value.props)));
+    claimedNodes.set(value, nodesOf(made, [], []));
+    return out.push(...claimedNodes.get(value)!), out;
+  }
   if (typeof value === "function") return nodesOf(value(), out, reuse);
   if (Array.isArray(value)) {
     for (const v of value) nodesOf(v, out, reuse);
@@ -622,16 +630,43 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
 }
 
 /**
+ * A Loading boundary whose content the server drew in place: a live boundary (its fallback can show later, `on`
+ * re-arms it), its content's first pass claiming the server's nodes, later ones drawing anew. The boundary's content
+ * takes the id the server's boundary took.
+ */
+function claimLiveBoundary(props: { fallback?: any; children?: any; on?: unknown }, at: Cursor): Node[] {
+  let claimed: Node[] | null = null;
+  const read = createLoadingBoundary(
+    () => {
+      if (claimed === null) return (claimed = claimHtml(props.children, false, at));
+      return props.children;
+    },
+    () => props.fallback,
+    "on" in props ? { on: () => props.on } : undefined,
+  );
+  const nodes = untrack(() => nodesOf(read(), [], []));
+  // Kept current from here (the nodes are where they belong: the binding puts them before what follows them).
+  bind(at.parent, read, at.next);
+  return nodes;
+}
+
+/**
  * A Loading boundary the server rendered: its owner takes the id the server's did. Content rendered in place is claimed
  * under it; content the server streamed later shows its fallback (claimed) until the fragment record settles, the
  * reveal script having swapped the content in, which is claimed then.
  */
 function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): Node[] {
   const parent = getOwner();
-  const boundary = createOwner(parent) as any;
-  const id = boundary.id as string | undefined;
+  // The id the server's boundary took, looked at (not taken) to tell the two shapes apart.
+  let id: string | undefined;
+  try {
+    id = parent ? peekNextChildId(parent) : undefined;
+  } catch {
+    id = undefined;
+  }
   const pl = at.next as Element | null;
-  if (id == null || !pl || pl.nodeName !== "TEMPLATE" || pl.id !== "pl-" + id) return runWithOwner(boundary, () => claimHtml(props.children, false, at));
+  if (id == null || !pl || pl.nodeName !== "TEMPLATE" || pl.id !== "pl-" + id) return claimLiveBoundary(props, at);
+  const boundary = createOwner(parent) as any;
   // The fallback, between the placeholder template and its end comment.
   const end = (() => {
     for (let n = pl.nextSibling; n; n = n.nextSibling) if (n.nodeType === 8 && (n as Comment).data === "pl-" + id) return n;
