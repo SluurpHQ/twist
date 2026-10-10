@@ -40,8 +40,7 @@ export function ssrHandleError(err: any, probe?: boolean): Promise<any> | undefi
   throw err;
 }
 
-/** A projection's trace (Twist keeps none yet). */
-export const getProjectionTrace = (_value: unknown): undefined => undefined;
+export { getProjectionTrace } from "./container-trace.ts";
 
 // ---------------------------------------------------------------- shared async iterables
 

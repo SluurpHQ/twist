@@ -2,7 +2,8 @@
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, type Transaction } from "./signals.ts";
+import { Signal, DEV, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
+import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
 export const $PROXY = Symbol("store-proxy");
@@ -374,14 +375,36 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   const target = unwrap(seed) as Raw;
   if (options?.shallow) markShallow(target);
   const key = options?.key ?? "id";
+  // On a server, a projection's trace (what crosses a frame's border): told of each change, and of its source's end.
+  const traced = !writable && isServerRender();
+  let streaming = false;
+  let ended = false;
+  let waiters: (() => void)[] = [];
+  const changed = () => {
+    for (const w of waiters.splice(0)) w();
+  };
+  const endsWith = (it: AsyncIterable<any>): AsyncIterable<any> => ({
+    [Symbol.asyncIterator]() {
+      const inner = it[Symbol.asyncIterator]();
+      return {
+        next: (...a: any[]) =>
+          Promise.resolve((inner.next as any)(...a)).then((res: IteratorResult<any>) => {
+            if (res.done) (ended = true), queueMicrotask(changed);
+            return res;
+          }),
+        return: (v?: any) => ((ended = true), queueMicrotask(changed), Promise.resolve(inner.return ? inner.return(v) : { done: true, value: v })),
+      } as AsyncIterator<any>;
+    },
+  });
   // The derive: run as a memo, its draft writes staged like a setter's (owned writes are allowed here).
   // An async derive makes the memo async: the store is not ready until its first derive lands.
   let runs = 0;
   const m = createMemo(() => {
     const d = draftOf(target);
     const before = new Set(dirtyRecords);
-    const r = fn(d as T);
+    let r = fn(d as T);
     ++runs;
+    if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // An async derive's answers are reconciled as they land (onTake, below): the memo flies on its promise or generator.
     if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return r;
     if (r !== undefined) reconcileInto(target, unwrap(r) as Raw, key);
@@ -390,6 +413,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     return runs;
   }, { writes: true, ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   onTake(m, (v) => {
+    if (traced) queueMicrotask(changed);
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
     reconcileInto(target, unwrap(v) as Raw, key);
@@ -420,6 +444,14 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     },
   });
   refreshTarget(proxy, () => m);
+  if (traced)
+    registerProjectionTrace(
+      proxy,
+      target,
+      () => void m(),
+      () => new Promise<void>((ok) => waiters.push(ok)),
+      () => !streaming || ended,
+    );
   const set: StoreSetter<T> = (change) => {
     guardStoreWrite();
     const d = draftOf(target);

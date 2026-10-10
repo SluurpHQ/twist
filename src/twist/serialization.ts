@@ -1,10 +1,12 @@
 // Values over the wire (JSON node trees, read without eval) and into pages (script): Solid's serialization API on
 // our serializer, with the web platform's values as plugins.
 // @ts-nocheck
+import { ContainerTracePlugin, setContainerTraceStreamMint } from "./frames/frame-container-plugin.ts";
 import {
   Feature,
   Serializer,
   createPlugin as createPluginImpl,
+  createStream,
   OpaqueReference as OpaqueReferenceImpl,
   crossHeader,
   fromCrossJSON,
@@ -57,7 +59,23 @@ export const DEFAULT_WEB_PLUGINS = /* @__PURE__ */ Object.freeze([
   ResponsePlugin,
   URLSearchParamsPlugin,
   URLPlugin,
+  // Projections across a frame's border as traces: protocol, so in every serializer's set (inert without a peer).
+  ContainerTracePlugin,
 ]);
+
+// A trace crosses as a raw seroval stream, its snapshot replayed synchronously where it is decoded.
+setContainerTraceStreamMint((iterable: AsyncIterable<unknown>) => {
+  const stream = createStream();
+  (async () => {
+    try {
+      for await (const value of iterable) stream.next(value);
+      stream.return(undefined);
+    } catch (error) {
+      stream.throw(error);
+    }
+  })();
+  return stream;
+});
 
 /** `customPlugins` ahead of the defaults (so they can take a value a default would). */
 export function resolveSerializerPlugins(customPlugins?: SerializerPlugin[]): SerializerPlugin[] {

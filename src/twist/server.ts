@@ -14,6 +14,12 @@ export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
 import { reportServerError, ssrSanitizeError } from "./request.ts";
+// The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
+import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
+import { getProjectionTrace } from "./container-trace.ts";
+import { shareAsyncIterable } from "./server-internal.ts";
+setContainerTraceResolver(getProjectionTrace);
+setAsyncIterableSharer(shareAsyncIterable);
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, serializeFragmentAssets, type AssetTracking } from "./server-assets.ts";
 import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition } from "./server-slots.ts";
 export {

@@ -304,6 +304,8 @@ const noop = () => {};
 let serverRender = false;
 const answered = new WeakMap<object, [boolean, unknown]>();
 /** Server mode on or off; answers what it was. */
+/** Whether a server render is under way. */
+export const isServerRender = () => serverRender;
 export const setServerRender = (on: boolean) => {
   const was = serverRender;
   serverRender = on;

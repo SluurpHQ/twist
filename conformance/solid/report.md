@@ -1,13 +1,13 @@
 # Solid's tests on Twist
 
-5497 pass, 1202 fail, 714 files (37 did not load, 121 test Solid's internals)
+5509 pass, 1192 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
 - 9 × SyntaxError: Export named 'httpStatus' not found
-- 8 × SyntaxError: Export named 'materializeContainerTrace' not found
 - 4 × Cannot find module '../../src/server.js'
 - 4 × SyntaxError: Export named 'createSSRResponse' not found
+- 3 × SyntaxError: [class SyntaxError extends Error],
 - 3 × SyntaxError: Export named 'getHydrationWriter' not found
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
@@ -411,8 +411,8 @@
 | web/test/frames-assets-client.spec.ts | 17 | 0 |  |
 | web/test/frames-binding-slots.spec.tsx | 15 | 6 |  |
 | web/test/frames-client.spec.tsx | 15 | 0 |  |
-| web/test/frames-container-lazy-codec.spec.tsx | 1 | 1 |  |
-| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/frames-container-lazy-codec.spec.tsx | 2 | 0 |  |
+| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 |  |
 | web/test/frames-dynamic-contract.spec.tsx | 1 | 0 |  |
 | web/test/frames-errored-reset-refetch.spec.tsx | 6 | 12 |  |
 | web/test/frames-flight-delivery.spec.tsx | 0 | 1 | Cannot find module '../src/response.js' |
@@ -439,10 +439,10 @@
 | web/test/hydration/buffered-projection-repeat.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/class.spec.tsx | 1 | 0 |  |
 | web/test/hydration/client-only.spec.tsx | 0 | 2 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\dist\server.js' |
-| web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
-| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 1 | 3 |  |
-| web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 4 | SyntaxError: Export named 'materializeContainerTrace' not found |
-| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
+| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 2 | 2 |  |
+| web/test/hydration/container-trace-hold-interruption.spec.tsx | 2 | 2 |  |
+| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
 | web/test/hydration/container-trace-hold-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal/container-trace' |
 | web/test/hydration/diagnostics.spec.tsx | 4 | 9 |  |
 | web/test/hydration/document-live-channel.spec.tsx | 1 | 0 |  |
@@ -488,9 +488,9 @@
 | web/test/hydration/truncated-stream-template.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/truncated-stream.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/wait-asset-hydration.spec.tsx | 0 | 1 | SyntaxError: Export named 'waitAsset' not found |
-| web/test/hydration/welcome-status-lazy.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
-| web/test/hydration/welcome-status-loaded.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
-| web/test/hydration/welcome-status-streamed.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/hydration/welcome-status-lazy.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
+| web/test/hydration/welcome-status-loaded.spec.tsx | 1 | 0 |  |
+| web/test/hydration/welcome-status-streamed.spec.tsx | 1 | 0 |  |
 | web/test/hydration/write-before-resume.spec.tsx | 0 | 1 |  |
 | web/test/inherited-dom-properties.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
 | web/test/insert-falsy-sole-child-issue-3571.spec.tsx | 8 | 0 |  |
@@ -510,7 +510,7 @@
 | web/test/lifecycle-matrix/call-driven-args.spec.tsx | 5 | 2 |  |
 | web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 12 | 7 |  |
 | web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 11 | 0 |  |
-| web/test/lifecycle-matrix/container-args.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
+| web/test/lifecycle-matrix/container-args.spec.tsx | 1 | 2 |  |
 | web/test/lifecycle-matrix/document-adoption.spec.tsx | 5 | 1 |  |
 | web/test/lifecycle-matrix/document-live-holes.spec.tsx | 4 | 0 |  |
 | web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 1 | 0 |  |
@@ -562,7 +562,7 @@
 | web/test/server/concurrent-render-lazy-assets.spec.tsx | 4 | 2 |  |
 | web/test/server/concurrent-render-serialize.spec.tsx | 5 | 0 |  |
 | web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
-| web/test/server/container-traces.spec.tsx | 2 | 7 |  |
+| web/test/server/container-traces.spec.tsx | 5 | 4 |  |
 | web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
 | web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
@@ -712,7 +712,7 @@
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 10 | 0 |  |
-| web/test/server/tier-announce.spec.tsx | 11 | 3 |  |
+| web/test/server/tier-announce.spec.tsx | 13 | 1 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
 | web/test/server/welcome-status-parity.spec.tsx | 0 | 2 |  |
