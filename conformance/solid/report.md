@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-4370 pass, 1009 fail, 703 files (5 did not load, 319 test Solid's internals)
+4372 pass, 1007 fail, 703 files (5 did not load, 319 test Solid's internals)
 
 ## Why files did not load
 
@@ -121,7 +121,7 @@
 | signals/tests/l2-contract.test.ts | 0 | 15 |  |
 | signals/tests/l2-fuzz-existing-rules.test.ts | 0 | 5 |  |
 | signals/tests/lane-ambient-write-replay.test.ts | 3 | 0 |  |
-| signals/tests/lane-contract.test.ts | 14 | 2 |  |
+| signals/tests/lane-contract.test.ts | 15 | 1 |  |
 | signals/tests/lane-frame-deferred-run-3662.test.ts | 0 | 3 |  |
 | signals/tests/lane-frame-held-lane-3662.test.ts | 1 | 4 |  |
 | signals/tests/lane-hold-on-observation.test.ts | 4 | 5 |  |
@@ -202,7 +202,7 @@
 | signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |
 | signals/tests/snapshot-derived-store-rows.test.ts | 4 | 1 |  |
 | signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
-| signals/tests/spec-async-semantics.test.ts | 28 | 24 |  |
+| signals/tests/spec-async-semantics.test.ts | 29 | 23 |  |
 | signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
 | signals/tests/store-unchanged-read-independent-write-3688.test.ts | 2 | 2 |  |
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |

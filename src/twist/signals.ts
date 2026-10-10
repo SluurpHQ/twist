@@ -1466,8 +1466,9 @@ function commitTransactions() {
     t.done = true;
     for (const n of t.nodes) n.promote();
     for (const end of t.ends.splice(0)) end();
-    for (const e of t.effects) if (e.due) applies[e.kind as 1 | 2].push(e);
-    for (const e of t.stale) if (!e.disposed) e.mark(DIRTY);
+    // (An effect that also read this frame stale runs again now: what it held is dropped, one frame shows.)
+    for (const e of t.effects) if (e.due && !t.stale.has(e)) applies[e.kind as 1 | 2].push(e);
+    for (const e of t.stale) if (!e.disposed) e.due && !e.tracked && ((e.due = false), (e.staged = NONE as any)), e.mark(DIRTY);
     statusChanged();
   }
 }
