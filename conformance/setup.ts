@@ -350,6 +350,8 @@ const ours: Record<string, string> = {
   "react-dom/server.node": join(src, "server.ts"),
   "react-dom/server.edge": join(src, "server.ts"),
   "react-dom/static": join(src, "server.ts"),
+  "react-dom/static.browser": join(src, "server.ts"),
+  "react-dom/static.edge": join(src, "server.ts"),
   "react-dom/test-utils": join(shim, "test-utils.ts"),
   scheduler: join(shim, "scheduler.ts"),
   "scheduler/unstable_mock": join(shim, "scheduler.ts"),
@@ -358,10 +360,13 @@ const ours: Record<string, string> = {
   "react-reconciler/constants": join(shim, "reconciler-constants.ts"),
 };
 
+// (A package that is not installed is not resolved through the plugin: given as a module.)
+(await import("bun:test")).mock.module("web-streams-polyfill/ponyfill/es6", () => ({ ReadableStream, WritableStream, TransformStream }));
+
 plugin({
   name: "sluurp-dom-conformance",
   setup(b) {
-    b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils|react-noop-renderer|react-reconciler)(\/.*)?$/ }, (a) => {
+    b.onResolve({ filter: /^(react|react-dom|scheduler|internal-test-utils|react-noop-renderer|react-reconciler|web-streams-polyfill)(\/.*)?$/ }, (a) => {
       const to = ours[a.path];
       return to ? { path: to } : undefined;
     });

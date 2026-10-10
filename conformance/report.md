@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3794 pass, 191 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3835 pass, 215 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -31,15 +31,15 @@
 | react-dom/ReactDOMEventPropagation-test.js | 90 | 2 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 31 | 0 | 6 |  |
 | react-dom/ReactDOMFiberAsync-test.js | 14 | 4 | 1 |  |
-| react-dom/ReactDOMFizzDeferredValue-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzForm-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMFizzDeferredValue-test.js | 1 | 1 | 0 |  |
+| react-dom/ReactDOMFizzForm-test.js | 10 | 5 | 0 |  |
 | react-dom/ReactDOMFizzServer-test.js | 154 | 17 | 13 |  |
-| react-dom/ReactDOMFizzServerBrowser-test.js | 0 | 1 | 0 |  |
-| react-dom/ReactDOMFizzServerEdge-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMFizzServerBrowser-test.js | 10 | 7 | 0 |  |
+| react-dom/ReactDOMFizzServerEdge-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServerNode-test.js | 16 | 5 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 10 | 2 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 4 | 2 | 0 |  |
-| react-dom/ReactDOMFizzStaticBrowser-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMFizzStaticBrowser-test.js | 18 | 14 | 2 |  |
 | react-dom/ReactDOMFizzStaticNode-test.js | 15 | 2 | 0 |  |
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 11 | 1 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
@@ -95,7 +95,7 @@
 | react-dom/ReactDOMServerSuspense-test.internal.js | 9 | 0 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMSingletonComponents-test.js | 11 | 1 | 10 |  |
-| react-dom/ReactDOMSrcObject-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactDOMSrcObject-test.js | 0 | 0 | 6 |  |
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 2 | 0 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
@@ -150,7 +150,7 @@
 | react/ReactJSXElementValidator-test.js | 14 | 0 | 0 |  |
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 18 | 1 | 0 |  |
-| react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
+| react/ReactMismatchedVersions-test.js | 0 | 3 | 7 |  |
 | react/ReactProfiler-test.internal.js | 25 | 8 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 7 | 0 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 3 | 0 |  |
