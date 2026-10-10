@@ -121,8 +121,20 @@ function uncaught(root: RootState, e: unknown, at?: Fiber | null) {
   const tell = () => {
     // The root's own handler takes it; only React's default (reporting it) is what act rethrows.
     if (root.onUncaughtError) root.onUncaughtError(e, { componentStack: componentStackOf(at) });
-    else if (uncaughtListener) uncaughtListener(e);
-    else report(e);
+    else {
+      if (uncaughtListener) uncaughtListener(e);
+      else report(e);
+      // React's default adds, in development, which component it was and what would have caught it (not under act,
+      // which collects the error and throws it instead).
+      if (dev() && !uncaughtListener) {
+        const name = at && typeof at.type !== "string" && typeof at.type !== "symbol" ? nameOf(at.type) : null;
+        console.warn(
+          "%s\n\n%s\n",
+          name ? `An error occurred in the <${name}> component.` : "An error occurred in one of your React components.",
+          "Consider adding an error boundary to your tree to customize error handling behavior.\nVisit https://react.dev/link/error-boundaries to learn more about error boundaries.",
+        );
+      }
+    }
   };
   // In a root's render: rendered once more first (as React does), and told after, once.
   if (rendering) {
