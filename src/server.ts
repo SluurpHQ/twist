@@ -19,7 +19,9 @@ const SKIP = new Set(["children", "key", "ref", "dangerouslySetInnerHTML", "supp
 
 /** Why the server gave a boundary to the client, in its template as React writes it: the digest onError gave, and
  * in development the message (the client reports it). */
-const RENDER_TO_STRING_SUSPENSE = 'The server used "renderToString" which does not support Suspense. If you intended for this Suspense boundary to render the fallback content on the server consider throwing an Error somewhere within the Suspense boundary. If you intended to have the server wait for the suspended component please switch to "renderToPipeableStream" which supports Suspense on the server';
+/** A string render's message for a boundary that suspended, naming the streaming API of its build. */
+const renderToStringSuspense = (api: string) =>
+  `The server used "renderToString" which does not support Suspense. If you intended for this Suspense boundary to render the fallback content on the server consider throwing an Error somewhere within the Suspense boundary. If you intended to have the server wait for the suspended component please switch to "${api}" which supports Suspense on the server`;
 const errored = (e: any) => "Switched to client rendering because the server rendering errored:\n\n" + (e?.message ?? String(e));
 const aborted = (reason: string) => "Switched to client rendering because the server rendering aborted due to:\n\n" + reason;
 function errorTemplate(digest: unknown, message: string, error?: unknown, at?: string) {
@@ -36,6 +38,8 @@ function style(s: any) {
 }
 
 type Ctx = {
+  /** The streaming API this build offers, named by a string render's Suspense message. */
+  streamApi: string;
   values: Map<any, any>;
   ids: number;
   waiting: Promise<any>[];
@@ -119,7 +123,7 @@ function attrs(props: any, ctx: Ctx, tag: string) {
     if ((k === "action" || k === "formAction") && typeof v === "function") continue;
     // A custom element's object and array props are properties the client sets, not attributes (React's Fizz).
     if (isCustomElement(tag, props) && v !== null && typeof v === "object") continue;
-    const a = isCustomElement(tag, props) ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg);
+    const a = isCustomElement(tag, props) ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg, "server");
     if (a) put(a[0], a[1]);
   }
   return out;
@@ -464,7 +468,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           }
           ctx.waiting.push(e);
           if (ctx.static) return fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
-          return `<!--$!-->${errorTemplate(undefined, aborted(RENDER_TO_STRING_SUSPENSE))}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
+          return `<!--$!-->${errorTemplate(undefined, aborted(renderToStringSuspense(ctx.streamApi)))}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
         }
         // Asked for in the browser only: the fallback, left to the client (no error to tell).
         if (!stream && isBrowserOnly(e)) return ctx.static ? fallbackFrame(ctx, () => render(props.fallback, ctx, hooks)) : `<!--$!-->${errorTemplate("", "")}${fallbackFrame(ctx, () => render(props.fallback, ctx, hooks))}<!--/$-->`;
@@ -961,6 +965,7 @@ let rendering_: Resources | null = null;
 }
 
 const fresh = (res = new Resources(writeTag)): Ctx => ({
+  streamApi: "renderToPipeableStream",
   values: new Map(),
   ids: 0,
   waiting: [],
@@ -1150,8 +1155,9 @@ const frameName = (type: any): string =>
               ? "Lazy"
               : "";
 
-export function renderToString(node: any, options?: any) {
+export function renderToString(node: any, options?: any, streamApi?: string) {
   const ctx = fresh();
+  if (streamApi) ctx.streamApi = streamApi;
   ctx.idPrefix = options?.identifierPrefix ?? "";
   const html = onceSync(node, ctx);
   return withPreamble(html, ctx.res.preamble("", ""));
@@ -1245,8 +1251,9 @@ function snapshotFallback(fallback: any, ctx: Ctx) {
 const snapshot = (ctx: Ctx, pushed: boolean): Ctx => ({ ...ctx, values: new Map(ctx.values), stack: pushed ? ctx.stack.slice(0, -1) : ctx.stack.slice() });
 
 /** Plain markup, for pages no client hydrates: no text separators and no Suspense or Activity comments. */
-export function renderToStaticMarkup(node: any, options?: any) {
+export function renderToStaticMarkup(node: any, options?: any, streamApi?: string) {
   const ctx = fresh();
+  if (streamApi) ctx.streamApi = streamApi;
   ctx.static = true;
   ctx.idPrefix = options?.identifierPrefix ?? "";
   const html = onceSync(node, ctx);

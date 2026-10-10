@@ -14,7 +14,7 @@ import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
-import { assertValidProps, checkTagName, customTag } from "./attributes.ts";
+import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
 
@@ -1772,7 +1772,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // Taken from a fiber still there (a fallback over shown content): it gets the element back when this one lets go.
     else if (single && !hydrating && (single as any)[FIBER] && !(single as any)[FIBER].dead && (single as any)[FIBER] !== f) ((single as any).displaced ??= []).push((single as any)[FIBER]);
     if (single && !hydrating && !held) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
-    const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
+    const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName.toLowerCase() === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
     // A customized built-in (is="…") is made as one.
     const doc = parent.doc ?? docOf(host);
     const el = (f.dom = server ?? (ns ? doc.createElementNS(ns, type) : type === "script" ? inertScript(doc) : typeof props.is === "string" ? doc.createElement(type, { is: props.is }) : doc.createElement(type)));
@@ -1790,6 +1790,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (!server && hydrationStopped()) return f;
     // As the server drew it, to compare once the props are applied (and have warned as they do).
     const had = server && dev() && !props.suppressHydrationWarning ? attrsOf(server) : null;
+    // (Taken over, its props are not set: what React's hydration diff warns of itself.)
+    if (server && "inert" in props) inertEmpty(props.inert);
     if (!held) (el as any)[PROPS] = props;
     if (FORM_TAGS.has(type) && !ns) {
       // A select chooses among its options, so they come first; a textarea's children are its value, not nodes.
@@ -3295,6 +3297,9 @@ export const client = {
   // dispatcher.readContext: a context read allowed anywhere React renders (a class's render method too).
   readContext(ctx: any) {
     if (!current) throw new Error(INVALID_HOOK_CALL);
+    // Inside a hook's own function (React's nested-hooks dispatcher): read, and warned about.
+    if (inHook)
+      warn("Context can only be read while React is rendering. In classes, you can read it in the render method or getDerivedStateFromProps. In function components, you can read it directly in the function body, but not inside Hooks like useReducer() or useMemo().");
     return readContext(current, ctx);
   },
   useContext(ctx: any) {

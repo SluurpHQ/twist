@@ -62,21 +62,26 @@ export function customAttribute(tag: string, name: string, value: any): [string,
   return [attr, value === true ? "" : attributeString(value, name)];
 }
 
+/** `inert` once took "" for true: React says it now means false (once on each side, as its client and server keep a
+ * flag each; hydrating counts as the client). */
+export function inertEmpty(value: any, side = "client") {
+  if (value === "")
+    warn(
+      "Received an empty string for a boolean attribute `inert`. This will treat the attribute as if it were false. Either pass `false` to silence this warning, or pass `true` if you used an empty string in earlier versions of React to indicate this attribute is true.",
+      side + ":inert-empty",
+    );
+}
+
 /**
  * The attribute `name` on `tag` becomes, and its value: [attribute, value] to write, [attribute, null] to leave out,
  * or null when the prop is not an attribute at all (events, children, value…, handled elsewhere).
  */
-export function attribute(tag: string, name: string, value: any, svg: boolean): [string, string | null] | null {
+export function attribute(tag: string, name: string, value: any, svg: boolean, side = "client"): [string, string | null] | null {
   const t = typeof value;
   // Anything named on… is never written (an event handler, or a string posing as one).
   if (name.length > 2 && (name[0] === "o" || name[0] === "O") && (name[1] === "n" || name[1] === "N")) return null;
   if (BOOLEAN.has(name)) {
-    // `inert` once took "" for true: React says it now means false.
-    if (name === "inert" && value === "")
-      warn(
-        "Received an empty string for a boolean attribute `inert`. This will treat the attribute as if it were false. Either pass `false` to silence this warning, or pass `true` if you used an empty string in earlier versions of React to indicate this attribute is true.",
-        "inert-empty",
-      );
+    if (name === "inert") inertEmpty(value, side);
     return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
   }
   if (BOOLEANISH.has(name)) {

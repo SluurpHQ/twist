@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3905 pass, 153 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3909 pass, 149 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -66,13 +66,13 @@
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMSelect-test.js | 60 | 0 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
-| react-dom/ReactDOMServerIntegrationAttributes-test.js | 546 | 1 | 3 |  |
+| react-dom/ReactDOMServerIntegrationAttributes-test.js | 547 | 0 | 3 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 55 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 329 | 1 | 6 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 330 | 0 | 6 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 20 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationHooks-test.js | 140 | 1 | 0 |  |
+| react-dom/ReactDOMServerIntegrationHooks-test.js | 141 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 35 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContext-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationLegacyContextDisabled-test.internal.js | 10 | 0 | 0 |  |
@@ -124,7 +124,7 @@
 | react-dom/ReactRenderDocument-test.js | 11 | 0 | 0 |  |
 | react-dom/ReactServerRendering-test.js | 43 | 2 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactServerRenderingHydration-test.js | 22 | 1 | 1 |  |
+| react-dom/ReactServerRenderingHydration-test.js | 23 | 0 | 1 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactTestUtilsAct-test.js | 19 | 5 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 4 | 1 | 0 |  |
