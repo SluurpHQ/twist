@@ -6,7 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
-import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, listenOnElement } from "./events.ts";
+import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, listenOnElement, replayQueued } from "./events.ts";
 import { configureViewTransitions, renderInViewTransition, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
@@ -1223,13 +1223,40 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
     return;
   }
   (region.start as any)[BOUNDARY] = f;
+  // A continuous event's target inside: it hydrates before the others (React raises its lane).
+  for (const t of hoverTargets) if (inRegion(region, t.node)) (f as any).targeted = Math.min((f as any).targeted ?? Infinity, t.seq);
   if (selectiveTarget && !inRegion(region, selectiveTarget)) {
     setDehydrated(f, true);
-    deferTransition(() => retryBoundary(f));
+    scheduleHydration(f);
     return;
   }
   hydrateRegion(f, host, region, () => (f.type === ACTIVITY ? reconcile(f, toList(f.props?.children), host, before) : start(f, host, before)));
 }
+
+/** Dehydrated boundaries ready to hydrate, done together after what is urgent (React's lower hydration lanes). */
+const toHydrate = new Set<Fiber>();
+/** Events that targeted a boundary still waiting, counted: it hydrates first, in their order (React raises its lane). */
+let targetSeq = 0;
+function scheduleHydration(f: Fiber) {
+  toHydrate.add(f);
+  // (A run each time, which takes all that are waiting then: the later ones find nothing left.)
+  deferTransition(() => {
+    if (!toHydrate.size) return;
+    const ready = [...toHydrate].sort((a, b) => {
+      const ta = (a as any).targeted ?? Infinity, tb = (b as any).targeted ?? Infinity;
+      if (ta !== tb) return ta - tb;
+      const sa = (a as any).region?.start as Node | undefined, sb = (b as any).region?.start as Node | undefined;
+      return sa && sb ? (sa.compareDocumentPosition(sb) & 4 ? -1 : 1) : 0;
+    });
+    toHydrate.clear();
+    for (const g of ready) {
+      retryBoundary(g);
+      replayQueued();
+    }
+  });
+}
+/** Where continuous events went before what they hovered could hydrate: its boundary goes first, when there is one. */
+const hoverTargets: { node: Node; seq: number }[] = [];
 
 /** The node an event hydrates for (React's selective hydration): boundaries not holding it wait. */
 let selectiveTarget: Node | null = null;
@@ -1246,8 +1273,25 @@ function inRegion(region: { start: Comment; end: Comment }, n: Node): boolean {
 
 // An event on what has not hydrated: its root hydrated now, then the dehydrated boundaries around its target,
 // outermost first (each with the target, so the boundaries beside it wait).
-hydrateBeforeEvents((target, roots) => {
+hydrateBeforeEvents((target, roots, _native, continuous) => {
+  if (continuous) {
+    // Not hydrated at once: its boundary raised, the root's hydration left to its turn, the event queued.
+    const pending = [...roots].some((r) => (r as any).hydratePending?.());
+    const f = dehydratedAround(target, roots);
+    if (f) {
+      (f as any).targeted = ++targetSeq;
+      scheduleHydration(f);
+      return true;
+    }
+    if (pending) {
+      hoverTargets.push({ node: target, seq: ++targetSeq });
+      if (hoverTargets.length > 20) hoverTargets.shift();
+      return true;
+    }
+    return false;
+  }
   for (const r of roots) (r as any).hydrateNow?.(target);
+  replayQueued();
   for (let guard = 0; guard < 20; guard++) {
     let f: Fiber | null = null;
     for (let n: Node | null = target; n && !f; n = n.parentNode) {
@@ -1262,7 +1306,7 @@ hydrateBeforeEvents((target, roots) => {
         }
       }
     }
-    if (!f || !(f as any).dehydrated) return;
+    if (!f || !(f as any).dehydrated) return false;
     const was = selectiveTarget;
     selectiveTarget = target;
     try {
@@ -1270,9 +1314,28 @@ hydrateBeforeEvents((target, roots) => {
     } finally {
       selectiveTarget = was;
     }
-    if ((f as any).dehydrated) return;
+    // Still waiting (it suspended): it goes first once it can.
+    if ((f as any).dehydrated) return void ((f as any).targeted ??= ++targetSeq), true;
+    replayQueued();
   }
+  return false;
 });
+
+/** The innermost dehydrated boundary of one of `roots` holding `target`. */
+function dehydratedAround(target: Node, roots: Set<object>): Fiber | null {
+  for (let n: Node | null = target; n; n = n.parentNode) {
+    for (let s: Node | null = n.previousSibling, depthIn = 0; s; s = s.previousSibling) {
+      if (s.nodeType !== 8) continue;
+      const d = (s as Comment).data;
+      if (d === "/$" || d === "/&") depthIn++;
+      else if (d === "$" || d === "$?" || d === "$!" || d === "$~" || d === "&") {
+        if (depthIn) depthIn--;
+        else if ((s as any)[DEHYDRATED] && (s as any)[BOUNDARY] && roots.has((s as any)[BOUNDARY].root)) return (s as any)[BOUNDARY];
+      }
+    }
+  }
+  return null;
+}
 
 /** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
  * they do not match. */
@@ -1311,7 +1374,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
     setDehydrated(f, true);
-    const again = () => deferTransition(() => retryBoundary(f));
+    const again = () => scheduleHydration(f);
     r.suspended.then(again, again);
     return;
   }
@@ -3130,7 +3193,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), resetViewTransitions());
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), (hoverTargets.length = 0), resetViewTransitions());
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -3938,6 +4001,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   });
   // An event on its server markup before it has hydrated: hydrated now, for that event's target (the boundaries not
   // holding it wait for later).
+  (state as any).hydratePending = () => hydrateFirst !== NONE || (first && hydrating_ && pending !== NONE);
   (state as any).hydrateNow = (target: Node) => {
     const children = hydrateFirst !== NONE ? hydrateFirst : first && hydrating_ ? pending : NONE;
     if (children === NONE || depth > 0) return;

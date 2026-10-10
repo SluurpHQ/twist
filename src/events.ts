@@ -196,13 +196,34 @@ const idOf = (o: object) => {
   return id;
 };
 
-/** What core does first for an event whose target has not hydrated yet (React's attemptSynchronousHydration). */
-let hydrateFor: (target: Node, roots: Set<object>, native: Event) => void = () => {};
+/** What core does first for an event whose target has not hydrated yet (React's attemptSynchronousHydration); true
+ * when the target is still waiting to hydrate. */
+let hydrateFor: (target: Node, roots: Set<object>, native: Event, continuous: boolean) => boolean = () => false;
 export const hydrateBeforeEvents = (fn: typeof hydrateFor) => void (hydrateFor = fn);
 
+/** Events that hover or move over what is still hydrating: the latest of each kind, replayed once it has hydrated. */
+export const CONTINUOUS = new Set("focusin focusout dragenter dragleave mouseover mouseout pointerover pointerout gotpointercapture lostpointercapture".split(" "));
+const queued = new Map<string, { native: Event; container: EventTarget; roots: Set<object> }>();
+const kindOf = (e: Event) =>
+  e.type.startsWith("focus") ? "focus" : e.type.startsWith("drag") ? "drag" : e.type.startsWith("mouse") ? "mouse" : "pointer:" + ((e as PointerEvent).pointerId ?? "");
+/** The queued events whose target has hydrated, run now (both phases, with the original native event). */
+export function replayQueued() {
+  for (const [kind, q] of [...queued]) {
+    if (!nearest(q.native.target as Node, q.roots)) continue;
+    queued.delete(kind);
+    if (!dispatch(q.native, q.container, q.roots, true, true)) dispatch(q.native, q.container, q.roots, false, true);
+  }
+}
+
 /** Runs the handlers for one phase; true when one of them stopped propagation. */
-function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean): boolean {
-  if (native.target) hydrateFor(native.target as Node, roots, native);
+function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean, replay = false): boolean {
+  if (native.target && !replay) {
+    const continuous = CONTINUOUS.has(native.type);
+    if (hydrateFor(native.target as Node, roots, native, continuous) && continuous && capture) {
+      queued.set(kindOf(native), { native, container, roots });
+      return false;
+    }
+  }
   const from = nearest(native.target as Node, roots);
   // Not committed yet: no handler hears it (React's getNearestMountedFiber).
   if (!from || (from as any).placed === false || (from as any).dead) return false;
