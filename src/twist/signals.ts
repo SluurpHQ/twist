@@ -338,9 +338,12 @@ abstract class Node<T = any> {
   /** A new value staged: committed at the flush's end, or held by a transaction. */
   stage(next: T) {
     this.staged = next;
-    this.version++;
     clock++;
     if (!this.tx) staged.push(this);
+    // Shown through a guess: its readers see the guess, not this (no change for them); the guess's end tells them if
+    // the truth differs.
+    if (this.override !== NONE) return;
+    this.version++;
     for (const o of this.observers) o.mark(DIRTY);
   }
   /** The staged value made the committed one. */
@@ -1114,6 +1117,43 @@ function settleRound() {
   staged = [];
   let tx: Transaction | null = null;
   const held = new Set<Node>();
+  try {
+    settleRoundIn(now, held, (t) => (tx = t));
+  } finally {
+    // The transaction this flush parked into (what a guess made in it is optimistic over).
+    if (tx) frameTx = (tx as Transaction).root;
+  }
+}
+
+/** The transaction the running flush parked into, if any (reset when the outermost flush ends). */
+let frameTx: Transaction | null = null;
+/** Guesses written outside an action and over no hold yet: decided once the flush has parked (or not). */
+const frameGuesses: [Node, unknown][] = [];
+
+/** Frame guesses installed over the transaction their flush parked into, or void (lane contract 2). */
+function settleFrameGuesses() {
+  for (const [n, v] of frameGuesses.splice(0)) {
+    const t = (frameTx && !frameTx.done ? frameTx : null) ?? (n.tx && !n.tx.done ? n.tx.root : null);
+    if (t) installGuess(n, v, t);
+  }
+}
+
+/** `v` shown over `n` until `t` lands; then the truth (a truth equal to the guess changes nothing on screen). */
+function installGuess(n: Node, v: unknown, t: Transaction) {
+  const was = n.override;
+  n.override = v as any;
+  if (was === NONE)
+    t.ends.push(() => {
+      if (n.override === NONE) return;
+      const guess = n.override;
+      n.override = NONE;
+      if (!(n as any).equals?.(n.value, guess)) n.bump();
+    });
+  n.bump();
+}
+
+function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => void) {
+  let tx: Transaction | null = null;
   for (const n of now) {
     if ((n as any).revealNow) {
       (n as any).revealNow = false;
@@ -1137,6 +1177,7 @@ function settleRound() {
     if (by && !by.done) joins = by.root;
     if (!holds && !joins) continue;
     const t: Transaction = joins ?? (tx ??= newTransaction());
+    setTx(t);
     hold(n, t);
     held.add(n);
     for (const s of revealed) t.flights.add(s);
@@ -1254,7 +1295,7 @@ function commitTransactions() {
 
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; settledQueue.length || statusMoved || writes.length || landings.length || guesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
+  for (let rounds = 0; settledQueue.length || statusMoved || writes.length || landings.length || guesses.length || frameGuesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.length && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (TRACE && rounds && rounds % 10000 === 0) trace(`round ${rounds} writes ${writes.length} dirty ${dirty.length} tx ${transactions.size}`);
     if (writes.length) for (const s of writes.splice(0)) s.commit();
@@ -1268,6 +1309,7 @@ function drain() {
       for (const c of now) if (!c.disposed && !c.released) ownersFirst(c), c.disposed || c.update();
     }
     settleRound();
+    if (frameGuesses.length) settleFrameGuesses();
     commitTransactions();
     tellStatus();
     if (uncaught.length) throw uncaught.splice(0)[0];
@@ -1335,6 +1377,7 @@ export function flush<T>(fn?: () => T): T {
     throw e;
   } finally {
     flushing--;
+    if (!flushing) frameTx = null;
     // A refresh counts for the flush it was asked in.
     if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
   }
@@ -2161,14 +2204,12 @@ function installGuesses() {
         if (n.flight) (tx = newTransaction()).flights.add(n);
       }
     }
-    // No transaction to be optimistic over: void (lane contract 2).
-    if (!tx || tx.done) continue;
-    const was = n.override;
-    n.override = v as any;
-    if (tx && !tx.done) {
-      if (was === NONE) tx.ends.push(() => n.override !== NONE && ((n.override = NONE), n.bump()));
-    } else if (!ambient.includes(n)) ambient.push(n);
-    n.bump();
+    // Nothing held yet: the frame decides (what this flush parks into), once it has settled.
+    if (!tx || tx.done) {
+      frameGuesses.push([n, v]);
+      continue;
+    }
+    installGuess(n, v, tx);
   }
 }
 
