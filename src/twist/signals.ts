@@ -1232,6 +1232,8 @@ function newLane(t: Transaction): Transaction {
 
 function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => void) {
   let tx: Transaction | null = null;
+  /** The transaction this round parked into (new or joined). */
+  let parked: Transaction | null = null;
   for (const n of now) {
     if ((n as any).revealNow) {
       (n as any).revealNow = false;
@@ -1268,6 +1270,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     if (!holds && !joins) continue;
     const t: Transaction = joins ?? (tx ??= newTransaction());
     setTx(t);
+    parked ??= t.root;
     hold(n, t);
     held.add(n);
     for (const s of revealed) t.flights.add(s);
@@ -1277,6 +1280,28 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       if (c.flight) t.flights.add(c);
     }
   }
+  // The tick entangles: a round that parked holds its plain writes with it.
+  if (parked && !parked.done)
+    for (const n of now) {
+      if (n.tx || !(n instanceof Signal)) continue;
+      // (A write back to the committed value, or one no reader changed with, proposes nothing.)
+      if (n.staged === NONE || (n.equals !== false && n.equals(n.value, n.staged as any))) continue;
+      const below = downstream(n);
+      if (n.observers.length && ![...below].some((c) => !c.tx && (c.staged !== NONE || c.due))) continue;
+      hold(n, parked);
+      held.add(n);
+      for (const c of below) {
+        if (c.tx || (c.staged === NONE && !c.due)) continue;
+        if (c.kind === MEMO) hold(c, parked);
+        else {
+          // (A reader that saw the write before it was held: run again, against the held world.)
+          if (c.due) (c.due = false), remove(applies[c.kind as 1 | 2], c);
+          c.staged = NONE as any;
+          c.state = CLEAN;
+          c.mark(DIRTY);
+        }
+      }
+    }
   for (const n of now) if (!n.tx) n.promote();
   if (held.size) statusChanged();
 }

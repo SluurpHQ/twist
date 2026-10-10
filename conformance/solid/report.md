@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-4366 pass, 1013 fail, 703 files (5 did not load, 319 test Solid's internals)
+4370 pass, 1009 fail, 703 files (5 did not load, 319 test Solid's internals)
 
 ## Why files did not load
 
@@ -121,7 +121,7 @@
 | signals/tests/l2-contract.test.ts | 0 | 15 |  |
 | signals/tests/l2-fuzz-existing-rules.test.ts | 0 | 5 |  |
 | signals/tests/lane-ambient-write-replay.test.ts | 3 | 0 |  |
-| signals/tests/lane-contract.test.ts | 13 | 3 |  |
+| signals/tests/lane-contract.test.ts | 14 | 2 |  |
 | signals/tests/lane-frame-deferred-run-3662.test.ts | 0 | 3 |  |
 | signals/tests/lane-frame-held-lane-3662.test.ts | 1 | 4 |  |
 | signals/tests/lane-hold-on-observation.test.ts | 4 | 5 |  |
@@ -146,7 +146,7 @@
 | signals/tests/loading-on-rearm-3540.test.ts | 6 | 1 |  |
 | signals/tests/loading-on-rearm-reveal-3540.test.ts | 4 | 3 |  |
 | signals/tests/loading-reset-collects-forwarded-3459.test.ts | 0 | 1 |  |
-| signals/tests/loading-value.test.ts | 23 | 13 |  |
+| signals/tests/loading-value.test.ts | 25 | 11 |  |
 | signals/tests/mapArray-notready-safety.test.ts | 3 | 9 |  |
 | signals/tests/mapArray-smallmove.test.ts | 0 | 1 | not ours: Cannot find module '../src/map.js' |
 | signals/tests/maparray-store-nonkeyed.test.ts | 2 | 0 |  |
@@ -196,7 +196,7 @@
 | signals/tests/rules-index.test.ts | 0 | 3 | not ours: runs Solid's built packages in a child process |
 | signals/tests/runWithOwner.test.ts | 3 | 0 |  |
 | signals/tests/scheduler-livelock.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/constants.js' |
-| signals/tests/settle-folds-queued-writes.test.ts | 0 | 2 |  |
+| signals/tests/settle-folds-queued-writes.test.ts | 1 | 1 |  |
 | signals/tests/settle-walk-invariant.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/async.js' |
 | signals/tests/shallow-store-proxy-children.test.ts | 0 | 1 | not ours: Cannot find module '../src/store/store.js' |
 | signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |
