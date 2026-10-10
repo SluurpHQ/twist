@@ -101,6 +101,17 @@ for (const [proto, key] of [[Element.prototype, "innerHTML"], [Element.prototype
     },
   });
 }
+// document.open() leaves no doctype, as in browsers (happy-dom adds one); a written <!doctype> still brings its own.
+{
+  let proto: any = document.implementation.createHTMLDocument("");
+  while (!Object.hasOwn(proto, "open")) proto = Object.getPrototypeOf(proto);
+  const open = proto.open;
+  proto.open = function (this: Document, ...args: any[]) {
+    const r = open.apply(this, args);
+    for (const n of [...this.childNodes]) if (n.nodeType === 10) this.removeChild(n);
+    return r;
+  };
+}
 // Node's abort() with no reason gives "This operation was aborted" (Bun's says "signal is aborted without reason").
 {
   const abort = AbortController.prototype.abort;

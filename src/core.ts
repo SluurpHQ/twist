@@ -1679,8 +1679,9 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     } else {
       if (hydrating && text !== "") {
         const next = nextServerNode(host);
-        // An element's only text (React sets it as its text content): the element's difference.
-        const content = parent.kind === HOST && /^(string|number|bigint)$/.test(typeof parent.props?.children);
+        // An element's only text (React sets it as its text content): the element's difference. Not a singleton's:
+        // React hydrates its text as a text node.
+        const content = parent.kind === HOST && !(parent as any).singleton && /^(string|number|bigint)$/.test(typeof parent.props?.children);
         markMismatch(content || next?.nodeType === 3);
         const scope = diffScope();
         if (content) {
