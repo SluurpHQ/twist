@@ -1,7 +1,7 @@
 // A projection across the frame border as Solid's container tier carries it: on the server, its trace (a snapshot once
 // it is ready, then a patch batch per change, until its source ends); on the client, a projection materialized from
 // one (ported from Solid's client/container-trace.ts, MIT, Ryan Carniato and contributors).
-import { createRoot, createSignal, getOwner, NotReadyError, runWithOwner, settlesOf, sharedConfig } from "./signals.ts";
+import { createRoot, createSignal, getOwner, NotReadyError, runWithOwner, settlesOf, sharedConfig, untrack } from "./signals.ts";
 import { createProjection } from "./store.ts";
 
 export type PatchOp = [path: PropertyKey[]] | [path: PropertyKey[], value: any] | [path: PropertyKey[], value: any, insert: 1];
@@ -37,29 +37,40 @@ export function diffPatches(a: any, b: any, path: PropertyKey[] = [], out: Patch
  * next change, `ended` says whether its source can still change it.
  */
 export function registerProjectionTrace(proxy: object, target: object, ready: () => void, changed: () => Promise<void>, ended: () => boolean) {
+  // The render it was made in: its response stays open while a consumer reads the trace.
+  const ctx = sharedConfig.context as any;
   traces.set(proxy, {
     array: Array.isArray(target),
     async *subscribe() {
-      for (;;) {
-        try {
-          ready();
-          break;
-        } catch (e) {
-          if (!(e instanceof NotReadyError)) throw e;
-          await (settlesOf(e) ?? Promise.resolve());
-        }
-      }
-      let last = clone(target);
-      yield last;
-      while (!ended()) {
-        await changed();
-        const now = clone(target);
-        const ops = diffPatches(last, now);
-        last = now;
-        if (ops.length) yield ops;
+      const release: () => void = ctx?.hold?.() ?? (() => {});
+      try {
+        yield* follow();
+      } finally {
+        release();
       }
     },
   });
+  /** Its snapshot once ready, then the patches of each change, until its source ends. */
+  async function* follow() {
+    for (;;) {
+      try {
+        ready();
+        break;
+      } catch (e) {
+        if (!(e instanceof NotReadyError)) throw e;
+        await (settlesOf(e) ?? Promise.resolve());
+      }
+    }
+    let last = untrack(() => clone(proxy));
+    yield last;
+    while (!ended()) {
+      await changed();
+      const now = untrack(() => clone(proxy));
+      const ops = diffPatches(last, now);
+      last = now;
+      if (ops.length) yield ops;
+    }
+  }
 }
 
 /** Patch ops applied to a draft (a delete, an insert, or a set). */

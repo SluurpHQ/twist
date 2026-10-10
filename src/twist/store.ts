@@ -413,7 +413,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     return runs;
   }, { writes: true, ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   onTake(m, (v) => {
-    if (traced) queueMicrotask(changed);
+    // (On a server, what its source wrote before this answer is the state it answers with.)
+    if (traced) promoteWrites(new Set()), queueMicrotask(changed);
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
     reconcileInto(target, unwrap(v) as Raw, key);
