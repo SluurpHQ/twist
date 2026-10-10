@@ -539,7 +539,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
       if (parent) (parent as any).childCount = at - 1;
       return { t: later(r, () => (Loading(props) as any).t, waits, parent, at - 1) };
     }
-    const fallback = runWithOwner(parent, () => html(props.fallback, false));
+    // The fallback under an owner of its own with the boundary's id: it takes no id from what follows (as Solid).
+    const fallback = runWithOwner(createOwner(parent, { id }), () => html(props.fallback, false));
     if (!r || !r.async || !waits || id == null) return { t: fallback };
     const retry = (p: Promise<void>) => {
       r.waiting.add(p);
@@ -839,6 +840,8 @@ export function renderToStream(code: () => any, options: { renderId?: string; no
   let sent = 0;
   let done = false;
   const drain = () => {
+    // Ended: the sinks are closed (a wake-up after the last write has nothing left to send).
+    if (done) return;
     const data = takeData(r);
     if (data) r.chunks.push(data);
     for (; sent < r.chunks.length; sent++) for (const w of sinks) w.write(r.chunks[sent]!);

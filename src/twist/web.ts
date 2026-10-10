@@ -321,8 +321,17 @@ function dispatch(e: Event, root: Node) {
 // ---------------------------------------------------------------- inserting
 
 /** What a value puts in the page: nodes, text (as text nodes), nothing; accessors read. */
+/**
+ * The nodes a description claimed while hydrating: what it stands for after (a list keeps the row it made then, the
+ * description, and gives it again when it changes).
+ */
+const claimedNodes = new WeakMap<object, Node[]>();
+const claimedBy = (d: object, nodes: Node[]) => (claimedNodes.set(d, nodes), nodes);
+
 function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
   if (value == null || value === true || value === false || value === "") return out;
+  const claimed = typeof value === "object" && claimedNodes.get(value);
+  if (claimed) return out.push(...claimed), out;
   if (typeof value === "function") return nodesOf(value(), out, reuse);
   if (Array.isArray(value)) {
     for (const v of value) nodesOf(v, out, reuse);
@@ -586,7 +595,7 @@ function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): No
     return null;
   })();
   at.next = pl.nextSibling;
-  const fallback = runWithOwner(parent, () => claimHtml(props.fallback, false, at));
+  const fallback = runWithOwner(createOwner(parent, { id }), () => claimHtml(props.fallback, false, at));
   at.next = end ? end.nextSibling : at.next;
   // What comes before the boundary stays put: the content, once revealed, starts right after it.
   const ahead = pl.previousSibling;
@@ -664,8 +673,8 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
       if (viaFn) out.push(...claimList([resolveDeep(x)].flat(), own, inTemplate, true, at));
       else out.push(...bindAt(x, at));
     } else if (Array.isArray(x)) out.push(...claimList(x, !!(x as any)[OWN], inTemplate && own, viaFn, at));
-    else if (x[EL]) out.push(claimElement(x, x.keyed ?? !(inTemplate && own && !viaFn), at));
-    else if (x[COMP]) out.push(...marked(at, () => claimHtml(x, false, at)));
+    else if (x[EL]) out.push(...claimedBy(x, [claimElement(x, x.keyed ?? !(inTemplate && own && !viaFn), at)]));
+    else if (x[COMP]) out.push(...claimedBy(x, marked(at, () => claimHtml(x, false, at))));
     else if ((x as Node).nodeType) out.push(x as Node);
     else out.push(...claimText(x, at));
   }

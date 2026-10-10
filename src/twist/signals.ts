@@ -115,8 +115,8 @@ export function getOwner(): Owner | null {
 export const isDisposed = (o: Owner) => o.disposed;
 
 /** A new owner under the current one (or under `parent`), for code that builds outside a computation. */
-export function createOwner(parent: Owner | null = owner): Owner {
-  return new Root(parent);
+export function createOwner(parent: Owner | null = owner, options?: { transparent?: boolean; id?: string }): Owner {
+  return new Root(parent, options);
 }
 
 export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
@@ -444,6 +444,8 @@ export class Computation<T> extends Node<T> implements Owner {
     this.lazy = !!options?.lazy;
     if ((options as any)?.deferStream) (this as any).deferStream = true;
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
+    // Its compute writes (a store's derive): not run while it takes the server's answer.
+    if ((options as any)?.writes) (this as any).writes = true;
     this.unobserved = options?.unobserved;
     // A declared first paint: born committed with it; its first flight is quiet (never pending, never held).
     if (options && "loadingValue" in options) {
@@ -599,10 +601,12 @@ export class Computation<T> extends Node<T> implements Owner {
     let next: T;
     let threw: unknown = NONE;
     try {
-      // Hydrating: what the server sent under this node's id is its first answer (its compute does not run).
+      // Hydrating: what the server sent under this node's id is its first answer. Its compute still runs, for what it
+      // reads (so it runs again when that changes); what it answers now is set aside.
       const sent = this.ranAt === -1 && sharedConfig.hydrating ? serverSent(this) : NONE;
       if (sent !== NONE) {
         const ref = sent as any;
+        if ((this as any).ssrSource !== "hybrid" && !(this as any).writes) traceOnly(this.fn, this.current());
         if (ref && typeof ref === "object" && ref.s === 2) {
           if (typeof ref.then === "function") ref.then(undefined, noop);
           throw ref.v;
@@ -1889,6 +1893,49 @@ export function createReaction(onChange: () => void) {
 
 /** Hydration (a server's HTML adopted): Twist renders on the client only, for now. */
 export const sharedConfig: { hydrating: boolean; context: unknown } = { hydrating: false, context: null };
+
+/** A promise that never settles: what `fetch` and `Promise` give while a compute runs only for what it reads. */
+class Stalled {
+  then() {
+    return new Stalled();
+  }
+  catch() {
+    return new Stalled();
+  }
+  finally() {
+    return new Stalled();
+  }
+  static withResolvers() {
+    return { promise: new Stalled(), resolve() {}, reject() {} };
+  }
+}
+for (const k of ["all", "allSettled", "any", "race", "reject", "resolve", "try"]) (Stalled as any)[k] = () => new Stalled();
+
+/**
+ * A compute run for what it reads, its answer set aside (the server's is used): no request goes out and nothing after
+ * its first await runs, as `fetch` and `Promise` never settle meanwhile (as Solid does).
+ */
+function traceOnly(fn: (prev: any) => any, prev: any) {
+  const g = globalThis as any;
+  const fetchWas = g.fetch;
+  const PromiseWas = g.Promise;
+  try {
+    g.fetch = () => new Stalled();
+    g.Promise = Stalled;
+    const r = fn(prev);
+    // An async generator runs to its first await too.
+    if (r && typeof r.next === "function" && typeof r[Symbol.asyncIterator] === "function") {
+      const it = r[Symbol.asyncIterator]();
+      if (it === r) it.next().then?.(undefined, noop);
+    }
+    if (r && typeof r.then === "function") r.then(undefined, noop);
+  } catch {
+    // What it read before it threw is tracked; the answer is the server's either way.
+  } finally {
+    g.fetch = fetchWas;
+    g.Promise = PromiseWas;
+  }
+}
 
 /** The value the server sent for an async node (in `_$HY.r` by its id), or NONE. */
 function serverSent(n: { id?: string; kind: number }): unknown {

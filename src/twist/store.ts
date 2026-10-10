@@ -353,7 +353,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
     return runs;
-  }, options?.seedLoadingValue ? { loadingValue: 0 } : undefined);
+  }, { writes: true, ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   onTake(m, (v) => {
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
