@@ -494,6 +494,8 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     return render(props.children, ctx, hooks);
   }
   if (typeof type === "function") {
+    // Aborted: no component renders any more; what is rendering unwinds to its boundary (React's abort sigil).
+    if (ctx.streaming?.shared.aborted && ctx.streaming.spawn) throw ABORTED;
     if (type.prototype?.isReactComponent) {
       const ct = type.contextType;
       const validCt = ct != null && ct.$$typeof === CONTEXT;
@@ -590,6 +592,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     case MEMO:
       return render(createElement(type.type, props), ctx, hooks);
     case LAZY: {
+      if (ctx.streaming?.shared.aborted && ctx.streaming.spawn) throw ABORTED;
       const p = type._payload;
       if (p.status === 1) return render(createElement(p.value, props), ctx, hooks);
       if (p.status === -1) {
@@ -1217,6 +1220,9 @@ export async function prerenderToNodeStream(node: any, options: any = {}) {
 const RUNTIME_SOURCE =
   "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m,k){var t=document.getElementById(b);if(!t)return;if(g!=null)t.dataset.dgst=g;if(m)t.dataset.msg=m;if(k)t.dataset.cstck=k;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}};$SM=new Map;$SR=function(n,w,p){function u(q){this._p=null;q()}for(var r=new Map,t=document,h,b,e=t.querySelectorAll(\"link[data-precedence],style[data-precedence]\"),v=[],k=0;b=e[k++];)\"not all\"===b.getAttribute(\"media\")?v.push(b):(\"LINK\"===b.tagName&&$SM.set(b.getAttribute(\"href\"),b),r.set(b.dataset.precedence,h=b));e=0;b=[];var l,a;for(k=!0;;){if(k){var f=p[e++];if(!f){k=!1;e=0;continue}var c=!1,m=0;var d=f[m++];if(a=$SM.get(d)){var g=a._p;c=!0}else{a=t.createElement(\"link\");a.href=d;a.rel=\"stylesheet\";for(a.dataset.precedence=l=f[m++];g=f[m++];)a.setAttribute(g,f[m++]);g=a._p=new Promise(function(q,x){a.onload=u.bind(a,q);a.onerror=u.bind(a,x)});$SM.set(d,a)}d=a.getAttribute(\"media\");!g||d&&!matchMedia(d).matches||b.push(g);if(c)continue}else{a=v[e++];if(!a)break;l=a.getAttribute(\"data-precedence\");a.removeAttribute(\"media\")}c=r.get(l)||h;c===h&&(h=a);r.set(l,a);c?c.parentNode.insertBefore(a,c.nextSibling):(c=t.head,c.insertBefore(a,c.firstChild))}if(p=document.getElementById(n))p.previousSibling.data=\"$~\";Promise.all(b).then($SC.bind(null,n,w),$SX.bind(null,n,\"CSS failed to load\"))};</script>";
 
+/** Thrown by what renders after an abort: it unwinds to the boundary (or the shell) that is then aborted. */
+const ABORTED = { aborted: true };
+
 /** A part sent after its placeholder: put in its place (React's completeSegment). */
 const RS_RUNTIME = "$RS=function(a,b){a=document.getElementById(a);b=document.getElementById(b);for(a.parentNode.removeChild(a);a.firstChild;)b.parentNode.insertBefore(a.firstChild,b);b.parentNode.removeChild(b)};";
 
@@ -1406,6 +1412,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       rendering_ = was;
       res.boundary = null;
     }
+    if (t.state !== 0) return;
     // A text-embedded segment ending in text: closed with a separator (React's pushSegmentFinale).
     // (A prerender's are written in place, without it, as React writes them.)
     if (ctx.lastText && embedded && !options.prerendering) out += "<!-- -->";
@@ -1445,7 +1452,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       finish();
       return;
     }
-    if (c.status === 0) giveUp(c, { digest: onError(e), message: errored(e), error: e });
+    // (Unwound by an abort: the abort is what it tells.)
+    if (c.status === 0 && e === ABORTED) {
+      const why = shared.aborted!.reason;
+      giveUp(c, { digest: onError(why, t.at), message: aborted((why as any)?.message ?? String(why)), at: t.at });
+    } else if (c.status === 0) giveUp(c, { digest: onError(e), message: errored(e), error: e });
     settled(t, 2);
   };
   /** A boundary left to the client: its fallback stays (in place, or by a script once its parent is out). */
@@ -1624,6 +1635,30 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     // (Piped from onShellReady, before the shell's render returns: it flows at once, as React's pipe writes.)
     () => flow(),
   );
+  /** Aborted before the shell is done: each part still waiting told the reason (React's abortTask), and the part
+   * that was rendering (inFlight), then the shell fails with it. A browser() reason: a boundary's part bails out to
+   * the browser, a part of the shell is fatal, each its own. */
+  const abortShell = (reason: unknown, inFlight?: string, known?: Error | null) => {
+    if (closed) return;
+    // (A browser() reason is resolved once: its initializer runs once.)
+    const browserReason = known !== undefined ? known : reason && typeof reason === "object" && (reason as any).$typeof === RECOVERABLE ? browserError(reason) : null;
+    const plain = reason ?? new Error("The render was aborted by the server without a reason.");
+    let why: unknown = null;
+    const tell = (inShell: boolean, at?: string) => {
+      const e = browserReason ? (inShell ? fatalBrowserError(browserReason) : browserReason) : plain;
+      if (inShell) why ??= e;
+      onError(e, at);
+    };
+    for (const t of tasks) {
+      if (t.state !== 0) continue;
+      t.state = 2;
+      tell(!t.container, t.at);
+    }
+    if (inFlight !== undefined || why === null) tell(true, inFlight);
+    options.onShellError?.(why);
+    closed = true;
+    finish();
+  };
   // The shell, rendered now; what suspends in it is retried as it settles.
   const failedShell = (() => {
     const ctx = ctxFor();
@@ -1632,6 +1667,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     try {
       rootContent = once(node, ctx);
     } catch (e: any) {
+      if (e === ABORTED || shared.aborted) {
+        renderingShell = false;
+        abortShell(shared.aborted!.reason, stackText(ctx.stack));
+        return shared.aborted!.reason ?? e;
+      }
       if (isBrowserOnly(e)) e = fatalBrowserError(e);
       onError(e);
       options.onShellError?.(e);
@@ -1651,16 +1691,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     abort(reason?: unknown) {
       if (closed) return;
       const browserReason = reason && typeof reason === "object" && (reason as any).$$typeof === RECOVERABLE ? browserError(reason) : null;
-      if (!shellDone) {
-        // Aborted before the shell: the shell fails with the reason.
-        const why = browserReason ? fatalBrowserError(browserReason) : reason ?? new Error("The render was aborted by the server without a reason.");
-        onError(why);
-        options.onShellError?.(why);
-        closed = true;
-        finish();
-        return;
-      }
+      if (!shellDone) return abortShell(reason, undefined, browserReason);
       const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
+      shared.aborted = { reason: why };
       for (const t of tasks) {
         if (t.state !== 0) continue;
         const b = t.container;
