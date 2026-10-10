@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3983 pass, 96 fail, 362 skipped (gated off for stable React 19), 48 set aside as not ours (not-ours.ts).
+3984 pass, 94 fail, 362 skipped (gated off for stable React 19), 48 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -106,7 +106,7 @@
 | react-dom/ReactEmptyComponent-test.js | 24 | 0 | 0 |  |
 | react-dom/ReactErrorBoundaries-test.internal.js | 39 | 1 | 10 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 1 | 0 | 0 |  |
-| react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
+| react-dom/ReactErrorLoggingRecovery-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactFunctionComponent-test.js | 10 | 0 | 2 |  |
 | react-dom/ReactIdentity-test.js | 11 | 0 | 0 |  |
@@ -162,7 +162,6 @@
 | redux-tests/components/connect.spec.tsx | 66 | 1 | 0 |  |
 | redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
 | redux-tests/components/Provider.spec.tsx | 8 | 0 | 0 |  |
-| redux-tests/connect/wrapMapToProps.spec.ts | 0 | 1 | 0 |  |
 | redux-tests/hooks/useDispatch.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useReduxContext.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useSelector.spec.tsx | 28 | 1 | 0 |  |

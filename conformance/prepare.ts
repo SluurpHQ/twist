@@ -140,7 +140,8 @@ writeFileSync(join(out, "REF"), at + "\n");
 console.log(`React's tests at ${at} in react-tests/`);
 
 // react-redux's own suite (its public behaviour: hooks, components, integration), into redux-tests/. Its type
-// tests and its React Server Components test are left out; those reaching its internals (@internal/…) stay, failing.
+// tests, its React Server Components test and the files testing its internal connect modules (@internal/connect/…,
+// which our react-redux does not have: it implements the public API) are left out.
 const REDUX_REF = process.env.REACT_REDUX_REF ?? "master";
 const rclone = join(tmpdir(), "sluurp-react-redux-src");
 if (!existsSync(join(rclone, ".git"))) git(["clone", "-q", "--depth", "1", "https://github.com/reduxjs/react-redux.git", rclone]);
@@ -150,7 +151,12 @@ rmSync(rout, { recursive: true, force: true });
 for (const part of ["components", "hooks", "integration", "connect"]) {
   const from = join(rclone, "test", part);
   mkdirSync(join(rout, part), { recursive: true });
-  for (const f of readdirSync(from)) if (!f.includes("-rsc")) writeFileSync(join(rout, part, f), readFileSync(join(from, f)));
+  for (const f of readdirSync(from)) {
+    if (f.includes("-rsc")) continue;
+    const code = readFileSync(join(from, f), "utf8");
+    if (/import \{[^}]*\} from ['"]@internal\/connect\//.test(code)) continue;
+    writeFileSync(join(rout, part, f), code);
+  }
 }
 writeFileSync(join(rout, "REF"), git(["rev-parse", "--short", "HEAD"], rclone) + "\n");
 console.log("react-redux's tests in redux-tests/");

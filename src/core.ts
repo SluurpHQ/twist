@@ -121,6 +121,17 @@ function uncaught(root: RootState, e: unknown, at?: Fiber | null) {
   // Outside a render (an effect after paint): taken down now.
   if (depth === 0) commit();
   const tell = () => {
+    try {
+      tellNow();
+    } catch (x) {
+      // What telling it threw (a broken console.error, a handler that throws): thrown on its own later, so React
+      // goes on (React's logUncaughtError).
+      setTimeout(() => {
+        throw x;
+      });
+    }
+  };
+  const tellNow = () => {
     // The root's own handler takes it; only React's default (reporting it) is what act rethrows.
     if (root.onUncaughtError) root.onUncaughtError(e, { componentStack: componentStackOf(at) });
     else {
