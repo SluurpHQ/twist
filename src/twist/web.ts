@@ -23,7 +23,7 @@ import {
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, markBuiltin } from "./control.ts";
 
 export * from "./control.ts";
 import { inOrder } from "../shared/in-order.ts";
@@ -520,6 +520,7 @@ export function Dynamic<P>(props: P & { component: any }) {
   return createComponent(Comp, omit(props as any, "component") as any);
 }
 __twist_mark(Dynamic);
+markBuiltin(Dynamic, (Portal as any)[Symbol.for("twist.component")]);
 
 // Server rendering, asked for in the browser (shared code imports it): said, and nothing done.
 const serverOnly = (name: string) => console.error(new Error(name + " is not supported in the browser, returning undefined"));

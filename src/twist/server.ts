@@ -1,10 +1,10 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
-import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
+import { childIdCount, setChildIdCount, createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
-import { __twist_mark, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
+import { __twist_mark, markBuiltin, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 export * from "./server-solid.ts";
 export * from "./control.ts";
@@ -68,6 +68,8 @@ export function Dynamic<P>(props: P & { component: any }) {
 
 // Twist's own: never handed to React.
 for (const f of [Portal, Dynamic]) __twist_mark(f);
+// (Their bodies read what they render: no strict-read scope; functions declared below are hoisted.)
+markBuiltin(Portal, Dynamic, Errored, NoHydration, Hydration, Loading, HydrationScript);
 
 export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
   const make = (w: any, props: any) => (typeof w === "string" ? ssrElement(w, props, undefined, true) : typeof w === "function" ? createComponent(w, props) : undefined);
@@ -367,7 +369,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
       const f = x;
       const rr = render;
       const o = getOwner() as any;
-      const at = o?.childCount ?? 0;
+      const at = childIdCount(o);
       try {
         while (typeof x === "function") (x = x()), (fn = true);
       } catch (e) {
@@ -480,7 +482,7 @@ function hole(fn: () => string): string {
   const r = render;
   if (!r || !r.async || boundaries > 0) return fn();
   const o = getOwner() as any;
-  const at = o?.childCount ?? 0;
+  const at = childIdCount(o);
   try {
     return fn();
   } catch (e) {
@@ -500,7 +502,7 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
         const again = (w: Promise<void>) =>
           w.then(() => {
             // From the same ids: the hole takes again what it took the first time.
-            if (o) o.childCount = at;
+            setChildIdCount(o, at);
             try {
               ok(rendering(r, r.options, () => runWithOwner(o, fn)));
             } catch (e2) {
@@ -550,9 +552,9 @@ export function Loading(props: { fallback?: any; children?: any }) {
     // What holds the shell (a module loading, data marked deferStream): the boundary waits in the shell, unseen.
     if (r && r.async && !r.shellSent && waits && holdsShell(e)) {
       resetOwner(boundary);
-      const at = (parent as any)?.childCount ?? 0;
+      const at = childIdCount(parent);
       (parent as any).owned?.splice((parent as any).owned.indexOf(boundary), 1);
-      if (parent) (parent as any).childCount = at - 1;
+      setChildIdCount(parent, at - 1);
       return { t: later(r, () => (Loading(props) as any).t, waits, parent, at - 1) };
     }
     // The fallback under an owner of its own with the boundary's id: it takes no id from what follows (as Solid).

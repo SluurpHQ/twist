@@ -56,6 +56,11 @@ const idOwner = (o: Owner) => {
   return at;
 };
 
+/** How many child ids `o` (through the owner that hands them out) has given. */
+export const childIdCount = (o: Owner | null): number => (o ? (idOwner(o).childCount ?? 0) : 0);
+/** Its child-id count set back (a part rendered again takes the same ids). */
+export const setChildIdCount = (o: Owner | null, n: number) => void (o && (idOwner(o).childCount = n));
+
 /** The id the next child of `o` takes (without taking it). */
 export function peekNextChildId(o: Owner): string {
   const at = idOwner(o);
@@ -174,15 +179,41 @@ function remove<T>(list: T[], item: T) {
   if (i >= 0) list.splice(i, 1);
 }
 
-export function untrack<T>(fn: () => T): T {
-  if (!listener) return fn();
+/**
+ * `fn` run with nothing tracked. `strictReadLabel` (a component body, `<Name>`): a reactive value read directly in it
+ * will not update, and says so.
+ */
+export function untrack<T>(fn: () => T, strictReadLabel?: string): T {
+  if (!listener && !strictRead && !strictReadLabel) return fn();
   const prev = listener;
+  const prevStrict = strictRead;
   listener = null;
+  strictRead = strictReadLabel || false;
   try {
     return fn();
   } finally {
     listener = prev;
+    strictRead = prevStrict;
   }
+}
+
+/** The strict-read scope we are in (a component body's label), or none. */
+let strictRead: string | false = false;
+function strictReadUntracked(n: Node<any>) {
+  // Named when the name says something (the defaults would only restate "reactive value").
+  const named = n.name !== undefined && n.name !== "signal" && n.name !== "computed";
+  diagnose({
+    code: "STRICT_READ_UNTRACKED",
+    kind: "strict-read",
+    severity: "warn",
+    message:
+      `[STRICT_READ_UNTRACKED] Reactive value${named ? ` "${n.name}"` : ""} read directly in ` +
+      `${strictRead} will not update. ` +
+      `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`,
+    data: { strictRead },
+    ownerName: (owner as any)?.name,
+    nodeName: n.name,
+  }, owner);
 }
 
 // ---------------------------------------------------------------- nodes
@@ -285,6 +316,8 @@ let flushes = 0;
 
 /** What signals and computations share: a committed value, a staged one, and who reads them. */
 abstract class Node<T = any> {
+  /** Its name (the `name` option, a store key): what diagnostics call it. */
+  name?: string;
   value!: T;
   staged: T | typeof NONE = NONE;
   tx: Transaction | null = null;
@@ -344,10 +377,14 @@ export class Signal<T> extends Node<T> {
     this.equals = options?.equals ?? Object.is;
     this.unobserved = options?.unobserved;
     this.ownedWrite = !!options?.ownedWrite;
+    if (options?.name) this.name = options.name;
   }
   read(): T {
     if (listener) listener.track(this);
-    else if (foreignRead) foreignRead(this);
+    else {
+      if (strictRead) strictReadUntracked(this);
+      if (foreignRead) foreignRead(this);
+    }
     return this.current();
   }
   write(next: T) {
@@ -462,6 +499,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.context = owner?.context ?? null;
     if (owner) (owner.owned ??= []).push(this);
     this.transparent = (options as any)?.transparent;
+    if (options?.name) this.name = options.name;
     giveId(this, owner);
     this.equals = options?.equals ?? Object.is;
     this.lazy = !!options?.lazy;
@@ -549,6 +587,7 @@ export class Computation<T> extends Node<T> implements Owner {
     for (const o of this.observers) o.mark(CHECK);
   }
   read(): T {
+    if (strictRead && !listener) strictReadUntracked(this);
     if (!this.disposed) {
       // Released at a flush (read with nothing subscribed): built again from scratch.
       // (Nothing changed since it ran: subscribed again as it was.)
@@ -618,8 +657,10 @@ export class Computation<T> extends Node<T> implements Owner {
     this.attached = true;
     const prevOwner = owner;
     const prevListener = listener;
+    const prevStrict = strictRead;
     owner = this;
     listener = this;
+    strictRead = false;
     inPass++;
     let next: T;
     let threw: unknown = NONE;
@@ -652,6 +693,7 @@ export class Computation<T> extends Node<T> implements Owner {
     } finally {
       owner = prevOwner;
       listener = prevListener;
+      strictRead = prevStrict;
       inPass--;
     }
     this.state = CLEAN;

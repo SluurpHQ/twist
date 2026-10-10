@@ -1,6 +1,6 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
-import { createErrorBoundary, createLoadingBoundary, createMemo, createRevealOrder, flatten, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
+import { createErrorBoundary, createLoadingBoundary, createMemo, createOwner, createRevealOrder, flatten, getOwner, runWithOwner, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
 import { LIVE, mapArray, merge, repeat } from "./flow.ts";
 
 // ---------------------------------------------------------------- marks from the pass
@@ -58,10 +58,21 @@ export const isChildren = (v: any): v is () => any => typeof v === "function" &&
 
 
 /** A component, run once, untracked. */
+/**
+ * A component's body run: under an owner of its own named `<Name>` (transparent: no id of its own), untracked, a
+ * direct reactive read in it said to never update (as Solid's).
+ */
 export function createComponent<P>(Comp: (props: P) => any, props: P) {
   const own = ownOf(Comp);
-  return untrack(() => own(props));
+  const label = `<${own.name || "Anonymous"}>`;
+  const o = createOwner(getOwner(), { transparent: true }) as any;
+  o.name = label;
+  return runWithOwner(o, () => untrack(() => own(props), builtins.has(own) ? undefined : label));
 }
+
+/** Twist's own components (control flow, boundaries): their bodies read what they need, as Solid's computations do. */
+const builtins = new WeakSet<Function>();
+export const markBuiltin = (...fs: Function[]) => fs.forEach((f) => builtins.add(f));
 
 
 /** A component's props: marked parts as getters, spreads read where used, children lazy. */
@@ -232,4 +243,4 @@ export function Hydration(props: { children?: any }) {
 }
 
 // The control flow here is Solid-style.
-for (const f of [For, Repeat, Show, Switch, Match, Loading, Errored, Reveal, NoHydration, Hydration]) __twist_mark(f);
+for (const f of [For, Repeat, Show, Switch, Match, Loading, Errored, Reveal, NoHydration, Hydration]) __twist_mark(f), markBuiltin(f);
