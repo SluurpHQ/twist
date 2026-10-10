@@ -73,6 +73,7 @@ import {
   renderToStream,
   createLiveHoles,
   CLAIMS_STREAM,
+  isServerNode,
   CLAIMS_DOCUMENT,
   slotValue,
   isSlotValue,
@@ -1392,10 +1393,11 @@ function resolveRegionHtml(ctx, node) {
 /** Whether a slot-arg value is server JSX: an SSR template object, or an */
 function isServerContent(value) {
   if (value && typeof value === "object") {
-    if ("t" in value) return true;
+    // (Twist's JSX is a description until rendered: markup all the same.)
+    if ("t" in value || isServerNode(value)) return true;
     if (Array.isArray(value) && value.length > 0) {
       for (const item of value) {
-        if (!(item && typeof item === "object" && "t" in item)) return false;
+        if (!(item && typeof item === "object" && ("t" in item || isServerNode(item)))) return false;
       }
       return true;
     }

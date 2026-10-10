@@ -39,6 +39,8 @@ setDescribedNode((v) => (v && v[COMP] ? createComponent(v.fn, componentProps(v.p
 
 const EL = Symbol("twist.ssr.element");
 const COMP = Symbol("twist.ssr.component");
+/** Whether `v` is markup made here and not rendered yet (Twist's JSX describes; html() renders). */
+export const isServerNode = (v: any) => !!v && typeof v === "object" && (v[EL] === true || v[COMP] === true);
 
 type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; skip?: (k: string) => boolean; attrs?: string; sources?: boolean };
 type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string, any> };
@@ -1313,9 +1315,20 @@ let stringCtx: any = null;
 
 type Writable = { write(chunk: string): void; end(): void };
 
+/** A value rendered to Solid's template shape: its html, or a hole (re-resolved once `p` settles) when it waits. */
+function resolveTemplate(v: any): { t: string[]; h: any[]; p: Promise<unknown>[] } {
+  try {
+    return { t: [html(v, false)], h: [], p: [] };
+  } catch (e) {
+    const waits = e instanceof NotReadyError && settlesOf(e);
+    if (!waits) throw e;
+    return { t: ["", ""], h: [v], p: [waits] };
+  }
+}
+
 /** The context a string render's code reads: nothing waits, nothing is sent. */
 function stringContext(id: string) {
-  return { id, count: 0, async: false, document: true, escape, ssr, resolve: (v: any) => ({ t: html(v, false) }), serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} };
+  return { id, count: 0, async: false, document: true, escape, ssr, resolve: resolveTemplate, serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} };
 }
 
 /** The context of a stream: Solid's render context API over this render. */
@@ -1330,7 +1343,7 @@ function streamContext(r: Render, options: StreamOptions) {
     live: {},
     escape,
     ssr,
-    resolve: (v: any) => ({ t: html(v, false) }),
+    resolve: resolveTemplate,
     serialize(id: string, p: unknown, deferStream?: boolean) {
       if (!r.serializer) return;
       if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add(p as Promise<unknown>);

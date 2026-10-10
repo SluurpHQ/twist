@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5492 pass, 1207 fail, 714 files (37 did not load, 121 test Solid's internals)
+5497 pass, 1202 fail, 714 files (37 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -585,7 +585,7 @@
 | web/test/server/frame-binding-slots.spec.tsx | 23 | 9 |  |
 | web/test/server/frame-fragment-error-outcome.spec.tsx | 1 | 5 |  |
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
-| web/test/server/frame-hn.spec.tsx | 0 | 2 |  |
+| web/test/server/frame-hn.spec.tsx | 2 | 0 |  |
 | web/test/server/frame-live-document-artifact.spec.tsx | 0 | 3 |  |
 | web/test/server/frame-live-document.spec.tsx | 1 | 5 |  |
 | web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |
@@ -626,7 +626,7 @@
 | web/test/server/server-component-context.spec.tsx | 4 | 2 |  |
 | web/test/server/server-diagnostics.spec.tsx | 1 | 16 |  |
 | web/test/server/server-error-hook.spec.tsx | 24 | 0 |  |
-| web/test/server/server-frame-records.spec.tsx | 4 | 3 |  |
+| web/test/server/server-frame-records.spec.tsx | 5 | 2 |  |
 | web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-adapter-request.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-addressing.spec.tsx | 24 | 0 |  |
@@ -712,7 +712,7 @@
 | web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 10 | 0 |  |
-| web/test/server/tier-announce.spec.tsx | 9 | 5 |  |
+| web/test/server/tier-announce.spec.tsx | 11 | 3 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
 | web/test/server/welcome-status-parity.spec.tsx | 0 | 2 |  |
