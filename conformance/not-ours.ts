@@ -7,6 +7,7 @@ const HAPPY_DOM = "happy-dom cannot do this (React's suite runs in jsdom)";
 const V8_FORMAT = "checks a V8 stack-frame format or a call count of React's own";
 const TEST_RENDERER = "renders with react-test-renderer, a renderer of React's we do not ship";
 const ONE_PACKAGE = "checks that separately installed react and react-dom packages agree on a version; ours are one package";
+const TWO_COPIES = "loads a second, separate copy of React and its scheduler with jest.resetModules; Bun keeps one module registry";
 const SHIM_FALLBACK = "checks use-sync-external-store's fallback for a React without useSyncExternalStore; ours always has it";
 
 export const NOT_OURS: Record<string, Record<string, string>> = {
@@ -94,6 +95,10 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
   },
   "react/ReactJSXTransformIntegration-test.js": {
     "sanity check: test environment is configured to compile JSX to the jsx() runtime": "reads compiled source: Bun names the import jsxDEV_<hash>, Babel jsxDEV",
+  },
+  "react-dom/ReactDOMServerSelectiveHydration-test.internal.js": {
+    "Inner hydrates first then Outer": TWO_COPIES,
+    "Outer hydrates first then Inner": TWO_COPIES,
   },
   "react-dom/ReactDOMFizzServer-test.js": {
     "supports iterable": "needs the 'immutable' package, not installed",

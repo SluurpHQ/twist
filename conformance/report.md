@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3989 pass, 84 fail, 362 skipped (gated off for stable React 19), 53 set aside as not ours (not-ours.ts).
+3990 pass, 81 fail, 362 skipped (gated off for stable React 19), 55 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -90,7 +90,7 @@
 | react-dom/ReactDOMServerLifecycles-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 51 | 6 | 10 |  |
 | react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 27 | 10 | 3 |  |
-| react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 12 | 5 | 6 |  |
+| react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 13 | 2 | 8 |  |
 | react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 12 | 2 | 6 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 9 | 0 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 1 | 0 | 0 |  |

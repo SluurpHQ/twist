@@ -4338,11 +4338,14 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   let hydrationWaiting = false;
   let clientInstead = false;
   let earlyTold = false;
-  (state as any).hydratePending = () => hydrateFirst !== NONE || (first && hydrating_ && pending !== NONE);
+  // (Suspended with no boundary: tried again at once too, as React attempts a sync hydration.)
+  const waitingAgain = () => hydrationWaiting && !clientInstead && first && latest !== NONE;
+  (state as any).hydratePending = () => hydrateFirst !== NONE || (first && hydrating_ && pending !== NONE) || waitingAgain();
   (state as any).hydrateNow = (target: Node) => {
-    const children = hydrateFirst !== NONE ? hydrateFirst : first && hydrating_ ? pending : NONE;
+    const children = hydrateFirst !== NONE ? hydrateFirst : first && hydrating_ && pending !== NONE ? pending : waitingAgain() ? latest : NONE;
     if (children === NONE || depth > 0) return;
     if (hydrateFirst !== NONE) hydrateFirst = NONE;
+    else if (children === latest && hydrationWaiting) hydrationWaiting = false;
     else pending = NONE;
     const was = selectiveTarget;
     selectiveTarget = target;
@@ -4516,9 +4519,9 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           first = true;
           hydrationWaiting = true;
           const again = () => {
+            // (Updated meanwhile: drawn on the client already; or hydrated by an event since.)
+            if (clientInstead || !first || !hydrationWaiting) return;
             hydrationWaiting = false;
-            // (Updated meanwhile: drawn on the client already.)
-            if (clientInstead) return;
             hydrateFirst = latest;
             pending = NONE;
             asked.set(asked.peek() + 1);

@@ -310,6 +310,7 @@ export function replayQueued() {
 /** Whether events wait to be replayed. */
 export const replaysWaiting = () => queued.size > 0;
 
+const hydrationAsked = new WeakMap<Event, boolean>();
 /** Runs the handlers for one phase; true when one of them stopped propagation. */
 function dispatch(native: Event, container: EventTarget, roots: Set<object>, capture: boolean, replay = native === replaying): boolean {
   // (The select plugin hears each event once, at its bubbling listener.)
@@ -317,7 +318,9 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   if (!capture && !replay && (native.type === "textInput" || native.type === "keypress")) beforeInputPlugin(native, container, roots);
   if (native.target && !replay) {
     const continuous = CONTINUOUS.has(native.type);
-    const blocked = hydrateFor(native.target as Node, roots, native, continuous);
+    // (Asked once per event: its capture and bubble phases share the answer.)
+    let blocked = hydrationAsked.get(native);
+    if (blocked === undefined) hydrationAsked.set(native, (blocked = hydrateFor(native.target as Node, roots, native, continuous)));
     if (blocked && continuous && capture) {
       if (ENTERING.has(native.type)) queued.set(kindOf(native), { native, target: native.target as Node, container, roots });
       else queued.delete(kindOf(native));
