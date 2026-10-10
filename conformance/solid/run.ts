@@ -57,9 +57,6 @@ for (const r of rows) if (r.note && INTERNAL.test(r.note)) r.note = "not ours: "
 // More of the same: Solid's dev hooks, its own source modules, its diagnostics package, its build output.
 const INTERNAL_MORE = /Export named '(\$DEVCOMP|_resetExternalSourceConfig)'|Cannot find module '(\.\.\/)+src\/(map|render|refresh\/index|server-mock)\.js'|Cannot find module 'solid-js\/internal\/|Cannot find module '@solidjs\/diagnostics'|[\\/]dist[\\/]/;
 for (const r of rows) if (r.note && !r.note.startsWith("not ours") && INTERNAL_MORE.test(r.note)) r.note = "not ours: " + r.note;
-// Files that test only what Twist leaves out on purpose (Solid 1 compat helpers).
-const LEFT_OUT = /store\/storePath\.test\.ts$/;
-for (const r of rows) if (LEFT_OUT.test(r.file)) r.note = "not ours: a Solid 1 compat helper";
 // Files that test Solid's published build or its package layout (its dist, its export conditions).
 const BUILD = /(^|\/)(dist-[^/]*|exports-server-conditions)\.(test|spec)\.tsx?$/;
 for (const r of rows) if (BUILD.test(r.file)) r.note = "not ours: Solid's published build";

@@ -7,7 +7,7 @@
 // transaction instead: what is on screen keeps the committed values, and the transaction commits as one when its last
 // flight lands. Writes on graphs no flight touches commit at once.
 
-import { diagnose, emitDiagnostic } from "./diagnostics.ts";
+import { diagnose, emitDiagnostic, reportDiagnostic } from "./diagnostics.ts";
 
 // Messages Solid's diagnostics carry, word for word (tools and tests match them).
 const OWNED_WRITE_MESSAGE =
@@ -32,6 +32,36 @@ const TRACE = !!(globalThis as any).process?.env?.TWIST_TRACE;
 let runs = 0;
 let microFlushes = 0;
 const trace = (what: string) => console.error(`[twist] ${what}`, new Error().stack?.split("\n").slice(2, 9).join(" | "));
+
+// ---------------------------------------------------------------- dev tools
+
+/** What devtools are told: owners made, values made (and their owner), flushes done, store keys changed. */
+export interface DevHooks {
+  onOwner?: (owner: Owner) => void;
+  onGraph?: (value: any, owner: Owner | null) => void;
+  onUpdate?: () => void;
+  onStoreNodeUpdate?: (state: any, property: PropertyKey, value: any, prev: any) => void;
+}
+/** An owner's flag: it takes no id slot of its own (Solid's bit for it). */
+export const CONFIG_TRANSPARENT = 1 << 2;
+const GUIDE_URL = "https://github.com/solidjs/solid/blob/main/packages/solid/skills/reactivity-diagnostics/SKILL.md";
+/** Solid's devtools API: hooks, and the owner and dependency graph. */
+export const DEV = {
+  hooks: {} as DevHooks,
+  getChildren: (o: Owner): Owner[] => [...(o.owned ?? [])],
+  getSignals: (o: Owner): any[] => [...((o as any)._signals ?? [])],
+  getParent: (o: Owner): Owner | null => o.parent,
+  getSources: (c: Computation<any>): Node[] => [...c.sources],
+  getObservers: (n: Node): Computation<any>[] => [...n.observers],
+  report: reportDiagnostic,
+  guideUrl: (code: string) => `${GUIDE_URL}#${code.toLowerCase()}`,
+};
+/** A value (a signal, a store) recorded on the owner it was made under. */
+export function registerGraph(value: any, o: Owner | null) {
+  value._owner = o;
+  if (o) ((o as any)._signals ??= []).push(value);
+  DEV.hooks.onGraph?.(value, o);
+}
 
 // ---------------------------------------------------------------- owners
 
@@ -102,6 +132,10 @@ class Root implements Owner {
     this.transparent = options?.transparent;
     if (options?.id != null) this.id = options.id;
     else giveId(this, parent);
+    DEV.hooks.onOwner?.(this);
+  }
+  get _config() {
+    return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
 }
 
@@ -113,6 +147,7 @@ export function resetOwner(o: Owner) {
 
 /** What `o` owns disposed: its children first (last made first), then its cleanups (last registered first). */
 function disposeOwned(o: Owner) {
+  (o as any)._signals = undefined;
   const owned = o.owned;
   if (owned) {
     o.owned = null;
@@ -328,6 +363,9 @@ abstract class Node<T = any> {
   tx: Transaction | null = null;
   observers: Computation<any>[] = [];
   height = 0;
+  get _name(): string {
+    return this.name ?? (this instanceof Computation ? (this.kind === MEMO ? "computed" : "effect") : "signal");
+  }
   /** Counts its changes: a reader compares it with the count it saw. */
   version = 0;
   unobserved?: () => void;
@@ -544,6 +582,10 @@ export class Computation<T> extends Node<T> implements Owner {
       this.ready = true;
       this.loadingWindow = true;
     }
+    DEV.hooks.onOwner?.(this);
+  }
+  get _config() {
+    return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
   /** Settles when the answer in flight lands or fails (what a server render waits on). */
   settles: Promise<void> | null = null;
@@ -1562,6 +1604,7 @@ export function flush<T>(fn?: () => T): T {
   } finally {
     flushing--;
     if (!flushing) frameTx = null;
+    if (!flushing) DEV.hooks.onUpdate?.();
     // A refresh counts for the flush it was asked in.
     if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
   }
@@ -1579,6 +1622,7 @@ export type SourceAccessor<T> = Accessor<T>;
 export function createSignal<T>(value: T | ((prev?: T) => T), options?: SignalOptions<T>): [Accessor<T>, Setter<T>] {
   if (typeof value === "function") return writableMemo(value as (prev?: T) => T, options);
   const s = new Signal(value as T, options);
+  registerGraph(s, owner);
   const set: Setter<T> = (next) => {
     const v = typeof next === "function" ? (next as (prev: T) => T)(s.pending !== NONE ? (s.pending as T) : s.staged !== NONE ? (s.staged as T) : s.value) : next;
     s.write(v);
@@ -2419,6 +2463,7 @@ export function createOptimistic<T>(value: T | ((prev?: T) => T), options?: Sign
           return m;
         })()
       : new Signal(value as T, { ...options, ownedWrite: true });
+  if (n instanceof Signal) registerGraph(n, owner);
   const read = n instanceof Computation ? () => n.read() : () => (n as Signal<T>).read();
   accessors.set(read, n as any);
   const set: Setter<T> = (next) => {

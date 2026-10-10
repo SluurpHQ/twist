@@ -2,7 +2,7 @@
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, type Transaction } from "./signals.ts";
+import { Signal, DEV, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, type Transaction } from "./signals.ts";
 
 export const $TARGET = Symbol("store-target");
 export const $PROXY = Symbol("store-proxy");
@@ -217,7 +217,12 @@ export function commitRecord(r: Record_) {
   const t = r.target;
   let shape = false;
   const lenBefore = Array.isArray(t) ? t.length : 0;
+  const told = DEV.hooks.onStoreNodeUpdate;
   for (const [key, v] of p) {
+    if (told) {
+      const prev = t[key];
+      if (v === DELETE ? key in t : !Object.is(prev, v)) told(wrap(t), key, v === DELETE ? undefined : v, prev);
+    }
     if (v === DELETE) {
       if (!(key in t)) continue;
       delete t[key];
@@ -291,7 +296,14 @@ const draftHandler: ProxyHandler<Raw> = {
   },
   defineProperty(target, key, desc) {
     if ("value" in desc) stage(target, key, unwrap(desc.value));
-    else Object.defineProperty(target, key, desc);
+    else {
+      // An accessor: defined now, its readers (and the key set's, for a new key) told.
+      const had = Object.prototype.hasOwnProperty.call(target, key);
+      Object.defineProperty(target, key, desc);
+      const r = records.get(target);
+      r?.nodes.get(key)?.bump();
+      if (!had) r?.keys.bump();
+    }
     return true;
   },
 };
@@ -346,7 +358,9 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
     // A reconcile given to the setter: its diff visible at once.
     if (before) promoteWrites(before);
   };
-  return [wrap(target) as T, set];
+  const proxy = wrap(target) as T;
+  registerGraph(proxy, getOwner());
+  return [proxy, set];
 }
 
 /** A read-only store derived from what `fn` reads: it changes its draft, or returns a value reconciled into it. */
@@ -646,4 +660,60 @@ export function createOptimisticStore<T extends object>(init: T | ((draft: T) =>
     } else for (const k of Reflect.ownKeys(fn as object)) (d as any)[k] = (fn as any)[k];
   };
   return [store, set];
+}
+
+/** A path step over an array: indices, a filter, or a range. */
+type PathPart = PropertyKey | PropertyKey[] | ((v: any, i: number) => boolean) | { from?: number; to?: number; by?: number };
+const UNSAFE = new Set<PropertyKey>(["__proto__", "constructor", "prototype"]);
+const STORE_PATH_DELETE: unique symbol = Symbol("storePath.DELETE");
+
+/**
+ * A setter for a store, made from a path and a value: `setStore(storePath("todos", 0, "done", true))`. Steps may be keys,
+ * lists of keys, filters `(item, index) => boolean` or ranges `{ from, to, by }`. The value may be a function of the old
+ * one, an object merged into the one there, or `storePath.DELETE`.
+ */
+export function storePath(...args: any[]): (draft: any) => void {
+  return (draft) => walk(draft, args, 0);
+}
+storePath.DELETE = STORE_PATH_DELETE;
+
+function walk(at: any, args: any[], i: number) {
+  if (i === args.length - 1) return assign(at, args[i]);
+  const part = args[i] as PathPart;
+  const each = (k: PropertyKey) => {
+    if (UNSAFE.has(k)) return;
+    if (i === args.length - 2) return setKey(at, k, args[i + 1]);
+    const next = at[k];
+    if (next && typeof next === "object") walk(next, args, i + 1);
+  };
+  if (Array.isArray(part)) for (const k of part) each(k);
+  else if (typeof part === "function") {
+    const n = at.length;
+    for (let j = 0; j < n; j++) if ((part as (v: any, i: number) => boolean)(at[j], j)) each(j);
+  } else if (part && typeof part === "object") {
+    const { from = 0, to = at.length - 1, by = 1 } = part as { from?: number; to?: number; by?: number };
+    for (let j = from; j <= to; j += by) each(j);
+  } else each(part as PropertyKey);
+}
+
+function setKey(at: any, k: PropertyKey, value: any) {
+  const prev = at[k];
+  const v = typeof value === "function" ? value(prev) : value;
+  if (v === STORE_PATH_DELETE) return void delete at[k];
+  if (Object.is(v, prev)) return;
+  if (isWrappable(v) && !Array.isArray(v) && isWrappable(prev) && !Array.isArray(prev)) return assign(prev, v);
+  const d = isWrappable(v) ? Object.getOwnPropertyDescriptors(v) : null;
+  if (d && Object.values(d).some((x) => x.get)) at[k] = Object.defineProperties({}, d);
+  else at[k] = v;
+}
+
+/** An object merged into `at`: its own safe keys, getters kept as getters. */
+function assign(at: any, value: any) {
+  if (!isWrappable(value) || Array.isArray(value)) return;
+  for (const k of Reflect.ownKeys(value)) {
+    if (UNSAFE.has(k)) continue;
+    const d = Object.getOwnPropertyDescriptor(value, k)!;
+    if (d.get || d.set) Object.defineProperty(at, k, { ...d, configurable: true, enumerable: true });
+    else at[k] = d.value;
+  }
 }

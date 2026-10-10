@@ -1,10 +1,9 @@
 # Solid's tests on Twist
 
-4394 pass, 985 fail, 703 files (5 did not load, 319 test Solid's internals)
+4463 pass, 972 fail, 703 files (4 did not load, 318 test Solid's internals)
 
 ## Why files did not load
 
-- 1 × SyntaxError: Export named 'CONFIG_TRANSPARENT' not found
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
 - 1 × SyntaxError: Export named 'waitAsset' not found
@@ -74,7 +73,7 @@
 | signals/tests/createSignal.test.ts | 10 | 0 |  |
 | signals/tests/createTrackedEffect.test.ts | 18 | 1 |  |
 | signals/tests/derived-write-then-derivation-3733.test.ts | 34 | 3 |  |
-| signals/tests/dev.test.ts | 0 | 1 | SyntaxError: Export named 'CONFIG_TRANSPARENT' not found |
+| signals/tests/dev.test.ts | 28 | 0 |  |
 | signals/tests/diagnostics.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
 | signals/tests/direct-commit-readers-posture.test.ts | 1 | 2 |  |
 | signals/tests/direction-rule-probe.test.ts | 2 | 2 |  |
@@ -118,7 +117,7 @@
 | signals/tests/ispending-memo-unstamped-hold-3457.test.ts | 1 | 0 |  |
 | signals/tests/issue-3800-repro.test.ts | 8 | 0 |  |
 | signals/tests/iterator-supersede-close.test.ts | 0 | 2 |  |
-| signals/tests/l2-contract.test.ts | 0 | 15 |  |
+| signals/tests/l2-contract.test.ts | 3 | 12 |  |
 | signals/tests/l2-fuzz-existing-rules.test.ts | 0 | 5 |  |
 | signals/tests/lane-ambient-write-replay.test.ts | 3 | 0 |  |
 | signals/tests/lane-contract.test.ts | 15 | 1 |  |
@@ -191,7 +190,7 @@
 | signals/tests/resolve.test.ts | 3 | 1 |  |
 | signals/tests/reveal-carve-out.test.ts | 3 | 1 |  |
 | signals/tests/reveal-gating-contract.test.ts | 2 | 0 |  |
-| signals/tests/root-dispose-pending-action-3561.test.ts | 0 | 9 |  |
+| signals/tests/root-dispose-pending-action-3561.test.ts | 2 | 7 |  |
 | signals/tests/router-transition-error-commit.test.ts | 1 | 0 |  |
 | signals/tests/rules-index.test.ts | 0 | 3 | not ours: runs Solid's built packages in a child process |
 | signals/tests/runWithOwner.test.ts | 3 | 0 |  |
@@ -212,7 +211,7 @@
 | signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
 | signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
 | signals/tests/store/createProjection.test.ts | 7 | 13 |  |
-| signals/tests/store/createStore.test.ts | 53 | 12 |  |
+| signals/tests/store/createStore.test.ts | 55 | 10 |  |
 | signals/tests/store/deep-chained-view.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
 | signals/tests/store/deep-held-visibility.test.ts | 0 | 1 |  |
 | signals/tests/store/deep-overlay-rewalk.test.ts | 3 | 0 |  |
@@ -260,7 +259,7 @@
 | signals/tests/store/sidecar-composition.test.ts | 1 | 0 |  |
 | signals/tests/store/signal-store-twins-qd.test.ts | 1 | 3 |  |
 | signals/tests/store/store-in-store-tracking.test.ts | 0 | 7 |  |
-| signals/tests/store/storePath.test.ts | 0 | 29 | not ours: a Solid 1 compat helper |
+| signals/tests/store/storePath.test.ts | 29 | 0 |  |
 | signals/tests/store/unchanged-presence-no-hold-3743.test.ts | 1 | 8 |  |
 | signals/tests/store/utilities-no-proxy.test.ts | 0 | 1 | SyntaxError: Export named 'hasStaticKeys' not found |
 | signals/tests/store/utilities.test.ts | 0 | 1 | not ours: SyntaxError: Export named '$RECORD' not found |
@@ -292,9 +291,9 @@
 | signals/tests/visibility-oracle-store.test.ts | 112 | 41 |  |
 | signals/tests/visibility-oracle.test.ts | 96 | 30 |  |
 | signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
-| signals/tests/zombie-create-path-keeps-flag.test.ts | 0 | 1 |  |
-| signals/tests/zombie-recompute-keeps-flag.test.ts | 0 | 1 |  |
-| signals/tests/zombie-rerun-after-commit-3546.test.ts | 0 | 3 |  |
+| signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |
+| signals/tests/zombie-recompute-keeps-flag.test.ts | 1 | 0 |  |
+| signals/tests/zombie-rerun-after-commit-3546.test.ts | 1 | 2 |  |
 | solid/test/client-hydration.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
 | solid/test/client-recovery-record.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
 | solid/test/component.spec.ts | 0 | 1 | not ours: SyntaxError: Export named '$DEVCOMP' not found |
@@ -338,7 +337,7 @@
 | solid/test/shallow-hydration.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
 | solid/test/signals.spec.ts | 35 | 1 |  |
 | web/test/async-landing-deps-3461.spec.tsx | 0 | 2 |  |
-| web/test/binding-names.spec.tsx | 0 | 4 |  |
+| web/test/binding-names.spec.tsx | 1 | 3 |  |
 | web/test/capturing-event-listener.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
 | web/test/class-binding.spec.tsx | 4 | 1 |  |
 | web/test/class-object-undefined.spec.tsx | 1 | 0 |  |
@@ -716,4 +715,4 @@
 | web/test/use-head-loading-client.spec.tsx | 2 | 0 |  |
 | web/test/wait-asset.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/render.js' |
 | web/test/wide-scope-insert-3739.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/zombie-show-leak-3543.spec.tsx | 0 | 1 |  |
+| web/test/zombie-show-leak-3543.spec.tsx | 1 | 0 |  |
