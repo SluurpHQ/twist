@@ -259,7 +259,7 @@ function bindText(f: Fiber, sig: () => any) {
         return;
       }
       const s = textOf(v);
-      if ((f.dom as Text).data !== s) (f.dom as Text).data = s;
+      setText(f.dom as Text, s);
     }),
   );
 }
@@ -389,6 +389,12 @@ function hiddenNodes(f: Fiber, out: Node[] = []): Node[] {
   if (f.kind === HOST || f.kind === TEXT || (f as any).dehydrated || f.kind === PORTAL_F) return domNodes(f, out);
   for (const c of f.children) hiddenNodes(c, out);
   return out;
+}
+/** A text's content: kept for when it shows again while a suspended tree hides it. */
+function setText(n: Text, s: string) {
+  const hidden = (n as any).__hidden;
+  if (hidden) hidden.text = s;
+  else if (n.data !== s) n.data = s;
 }
 /** One node hidden (display none, a text emptied) or shown as it was; counted, as two things may hide it. */
 function hideNode(n: Node, hide: boolean) {
@@ -1888,7 +1894,7 @@ function update(f: Fiber, c: any) {
     (f as any).unbind = undefined;
     f.props = c;
     if (typeof c === "function") bindText(f, c);
-    else (f.dom as Text).data = "" + c;
+    else setText(f.dom as Text, "" + c);
     return;
   }
   if (f.kind === FRAG) {
@@ -2289,9 +2295,10 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
       f.passive = [];
     }
   } catch (e) {
-    // An update that suspends in a transition, or with no Suspense around it: what was on the page stays (React
+    // An update that suspends: what was on the page stays (React
     // keeps the committed UI and tries again when the data is there), rather than its children going and coming.
-    const keep = f.committed && e && typeof (e as any).then === "function" && (applyingTransition || !suspenseAbove(f));
+    // (Under a Suspense outside a transition too: the committed output stays, hidden behind the fallback.)
+    const keep = f.committed && e && typeof (e as any).then === "function";
     out = keep ? KEEP : null;
     current = prevCurrent;
     hookAt = prevAt;
