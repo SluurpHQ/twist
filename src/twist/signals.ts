@@ -1200,8 +1200,11 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
   const lane = t.lane && !t.lane.done ? t.lane : (t.lane = newLane(t));
   (n as any).laneTx = lane;
   if (!lane.guessed.has(n)) lane.guessed.set(n, truthOf(n));
+  // It ends with the parent the lanes are of.
+  let base = t;
+  while (base.parentTx) base = base.parentTx.root;
   if (was === NONE)
-    t.ends.push(() => {
+    base.ends.push(() => {
       (n as any).guessTx = null;
       if (n.override === NONE) return;
       const guess = n.override;
@@ -1351,15 +1354,18 @@ function committable() {
   return false;
 }
 
-/** `t`'s lane, still blocked, keeps it: while each guess in it is the truth (or the truth is still to come). */
+/**
+ * `t`'s lane, not yet revealed, keeps it, unless a truth arrived that its guess never showed. A transaction ending (not
+ * a lane) also ends a guess its truth does not confirm. Either way the guess is void.
+ */
 function laneBlocks(t: Transaction): boolean {
   const l = t.lane;
-  if (!l || l.done) return false;
+  if (!l || l.done || superseded(l)) return false;
+  if (t.parentTx) return true;
   for (const n of l.guessed.keys()) {
     if (n.override === NONE) continue;
-    if (n instanceof Computation && (n.flight || n.state === DIRTY)) return true;
-    const truth = n.staged !== NONE ? n.staged : n.value;
-    if (!((n as any).equals?.(truth, n.override) ?? truth === n.override)) return false;
+    const truth = truthOf(n);
+    if (truth !== NONE && !((n as any).equals?.(truth, n.override) ?? truth === n.override)) return false;
   }
   return true;
 }
@@ -1423,6 +1429,8 @@ function commitTransactions() {
     // A flight in progress at any node it holds keeps it.
     for (const n of t.nodes) if (n instanceof Computation && n.flight && shownFlight(n)) t.flights.add(n);
     if (t.flights.size || t.open || (awaitingRound.has(t) && dirty.length)) continue;
+    // (A guess written in it still to install.)
+    if (guesses.some((g) => g[2]?.root === t)) continue;
     if (laneBlocks(t)) continue;
     // (Its lane voided: its work re-derives under it first.)
     if (t.lane && !t.lane.done && (voidLane(t.lane), dirty.length)) continue;
@@ -2361,7 +2369,10 @@ function installGuesses() {
 
 /** An optimistic write to `n`: shown from the next flush until the action that made it ends. */
 export function guess(n: Node, v: unknown) {
-  guesses.push([n, v, acting?.tx ?? null]);
+  // Written in a lane's own pass: the lane is its parent.
+  const l = listener;
+  const lane = l ? unrevealed(l.passLane) ?? unrevealed(l.readHeld?.root.parentTx ? l.readHeld.root : null) : null;
+  guesses.push([n, v, acting?.tx ?? lane]);
   schedule();
 }
 

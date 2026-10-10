@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-4365 pass, 1014 fail, 703 files (5 did not load, 319 test Solid's internals)
+4366 pass, 1013 fail, 703 files (5 did not load, 319 test Solid's internals)
 
 ## Why files did not load
 
@@ -121,7 +121,7 @@
 | signals/tests/l2-contract.test.ts | 0 | 15 |  |
 | signals/tests/l2-fuzz-existing-rules.test.ts | 0 | 5 |  |
 | signals/tests/lane-ambient-write-replay.test.ts | 3 | 0 |  |
-| signals/tests/lane-contract.test.ts | 12 | 4 |  |
+| signals/tests/lane-contract.test.ts | 13 | 3 |  |
 | signals/tests/lane-frame-deferred-run-3662.test.ts | 0 | 3 |  |
 | signals/tests/lane-frame-held-lane-3662.test.ts | 1 | 4 |  |
 | signals/tests/lane-hold-on-observation.test.ts | 4 | 5 |  |
