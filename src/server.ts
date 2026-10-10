@@ -71,6 +71,8 @@ type Ctx = {
     /** A child that suspended: a task of its own, the marker of its place returned. */
     spawn?: (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => string;
   };
+  /** A form's custom action fields, written first inside it. */
+  formFields?: string;
   /** The boundary being rendered into (null: the shell), and the one whose fallback is. */
   container?: SBoundary | null;
   fallbackOf?: SBoundary | null;
@@ -626,6 +628,23 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   if (hoisted !== undefined) return hoisted;
   if (ctx.streaming?.spawn && !ctx.static && !ctx.svg && (tag === "html" ? ctx.parent === null : (tag === "head" || tag === "body") && (ctx.parent === null || ctx.parent === "html")))
     return preambleElement(tag, props, ctx, hooks);
+  // An action that says how it submits without JavaScript (a Server Action's $$FORM_ACTION): its fields instead.
+  let fields = "";
+  if (!ctx.svg && (tag === "form" || tag === "button" || tag === "input")) {
+    const custom = customFormAction(tag === "form" ? props.action : props.formAction, ctx);
+    if (custom) {
+      const { action, encType, method, target, name, data } = custom;
+      if (tag === "form") {
+        props = { ...props, action: action || "", encType, method, target };
+        if (name != null) fields = `<input type="hidden" name="${escape(String(name))}"/>` + hiddenFields(data);
+      } else {
+        props = { ...props, formAction: action || "", formEncType: encType, formMethod: method, formTarget: target, name };
+        // (A button holds its extra fields; an input has them right after it.)
+        fields = hiddenFields(data);
+      }
+    }
+  }
+  ctx.formFields = fields;
   const svg = ctx.svg;
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
@@ -674,6 +693,29 @@ function preambleElement(tag: string, props: any, ctx: Ctx, hooks: any): string 
 /** What a render (or a boundary, or its fallback) gives the document's start: its tags, and its <head>'s content. */
 type Preamble = { html?: string; head?: string; body?: string; headInner?: string };
 
+/** A function action's progressive-enhancement form (React's getCustomFormFields), with a prefix of its own. */
+function customFormAction(action: any, ctx: Ctx): any {
+  if (typeof action !== "function" || typeof action.$$FORM_ACTION !== "function") return null;
+  const res: any = ctx.res;
+  const prefix = ctx.idPrefix + (res.nextFormID = (res.nextFormID ?? -1) + 1);
+  try {
+    const custom = action.$$FORM_ACTION(prefix);
+    custom?.data?.forEach?.((v: unknown) => {
+      if (typeof v !== "string") throw new Error("File/Blob fields are not yet supported in progressive forms. Will fallback to client hydration.");
+    });
+    return custom ?? null;
+  } catch (e) {
+    if (dev()) console.error("Failed to serialize an action for progressive enhancement:\n%s", e);
+    return null;
+  }
+}
+/** A custom action's extra data, as hidden inputs. */
+function hiddenFields(data: any): string {
+  let out = "";
+  data?.forEach?.((v: string, k: string) => (out += `<input type="hidden" name="${escape(k)}" value="${escape(v)}"/>`));
+  return out;
+}
+
 function hostRest(tag: string, props: any, ctx: Ctx, hooks: any, open: string, svg: boolean): string {
   if (tag === "option") {
     const chosen = ctx.select;
@@ -683,9 +725,13 @@ function hostRest(tag: string, props: any, ctx: Ctx, hooks: any, open: string, s
   // A void element closes itself, as React writes it.
   if (VOID.has(tag) && tag !== "menuitem") {
     ctx.svg = svg;
-    return open + "/>";
+    const after = tag === "input" && ctx.formFields ? ctx.formFields : "";
+    ctx.formFields = "";
+    return open + "/>" + after;
   }
   open += ">";
+  // (A form's custom action's own fields: first inside it.)
+  if ((tag === "form" || tag === "button") && ctx.formFields) (open += ctx.formFields), (ctx.formFields = "");
   let inner: string;
   if (props.dangerouslySetInnerHTML?.__html != null) inner = props.dangerouslySetInnerHTML.__html;
   else if (tag === "script" && !ctx.svg) {

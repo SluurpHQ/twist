@@ -1161,7 +1161,8 @@ function drawBoundary(f: Fiber, host: Node, before: Node | null) {
 
 function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   let raw: Node | null = hydrating!.has(host) ? hydrating!.get(host)! : host.firstChild;
-  while (raw && raw.nodeType === 3 && !(raw as Text).data.trim()) raw = raw.nextSibling;
+  // (Past blank text, and hidden inputs, which a form action's server fields put there: React passes them too.)
+  while (raw && ((raw.nodeType === 3 && !(raw as Text).data.trim()) || hiddenInput(raw))) raw = raw.nextSibling;
   const kind = raw && raw.nodeType === 8 ? (raw as Comment).data : null;
   const expected = f.type === ACTIVITY ? kind === "&" : kind === "$" || kind === "$?" || kind === "$!" || kind === "$~";
   const end = expected ? boundaryEnd(raw as Comment) : null;
