@@ -12,8 +12,12 @@ type AnyNode = { type: string; start: number; end: number; [k: string]: any };
 
 const RUNTIME = "@solidjs/web";
 
-/** `source` with its JSX's dynamic parts marked (unchanged if it has no JSX). */
-export function compile(source: string, filename = "file.tsx"): string {
+/**
+ * `source` with its JSX's dynamic parts marked (unchanged if it has no JSX). `hot`: each component's mark also names
+ * it (hot reload keeps one component per name across edits).
+ */
+export function compile(source: string, filename = "file.tsx", options: { hot?: boolean } = {}): string {
+  const named = (name: string) => (options.hot ? `, ${JSON.stringify(name)}` : "");
   if (!/<[A-Za-z>]/.test(source)) return source;
   const { program, errors } = parseSync(filename, source);
   if (errors.length) throw new SyntaxError(`${filename}: ${errors.map((e) => e.message).join("; ")}`);
@@ -165,12 +169,12 @@ export function compile(source: string, filename = "file.tsx"): string {
     let s = top;
     if ((s.type === "ExportNamedDeclaration" || s.type === "ExportDefaultDeclaration") && s.declaration) s = s.declaration;
     if (s.type === "FunctionDeclaration" && s.id && /^[A-Z]/.test(s.id.name)) {
-      edits.push({ start: top.end, end: top.end, text: `\n${s.id.name} = __twist_mark(${s.id.name});` });
+      edits.push({ start: top.end, end: top.end, text: `\n${s.id.name} = __twist_mark(${s.id.name}${named(s.id.name)});` });
       marks++;
     } else if (s.type === "VariableDeclaration")
       for (const d of s.declarations)
         if (d.id?.type === "Identifier" && /^[A-Z]/.test(d.id.name) && /FunctionExpression$/.test(d.init?.type ?? "")) {
-          edits.push({ start: d.init.start, end: d.init.end, text: `__twist_mark(${text(d.init)})` });
+          edits.push({ start: d.init.start, end: d.init.end, text: `__twist_mark(${text(d.init)}${named(d.id.name)})` });
           marks++;
         }
   }
