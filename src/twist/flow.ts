@@ -1,5 +1,6 @@
 // Lists and props helpers: mapArray (by identity, by position or by key), repeat, merge, omit.
 import { createMemo, keepMemo, ownerUnder, getOwner, runWithOwner, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
+import { $PROXY } from "./store.ts";
 
 type Accessor<T> = () => T;
 type Keyed<T> = boolean | ((item: T) => unknown) | undefined;
@@ -184,7 +185,8 @@ export function merge<T extends object[]>(...sources: T): any {
   // (A function source is read for its object, keys and values alike.)
   const at = (s: any) => (typeof s === "function" ? s() ?? {} : s);
   // A source whose keys can change (a function, a live view): the merge is live too, its keys read each time.
-  if (list.some((s) => typeof s === "function" || (s as any)[LIVE])) {
+  // (A proxy answering for keys it does not list — a store, a slot props proxy — is read per key too, as Solid's merge does.)
+  if (list.some((s) => typeof s === "function" || (s as any)[LIVE] || (typeof s === "object" && $PROXY in s))) {
     const ordered = () => {
       const ks = new Set<PropertyKey>();
       for (const s of list) for (const k of Reflect.ownKeys(at(s))) ks.delete(k), ks.add(k);

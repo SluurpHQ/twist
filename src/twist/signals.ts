@@ -712,8 +712,14 @@ export class Computation<T> extends Node<T> implements Owner {
     if (!(this.lazy && !this.observers.length)) queue(this);
     for (const o of this.observers) o.mark(CHECK);
   }
+  /** The commit epoch of the frame render it last computed in (a later epoch computes it again: Solid's per-commit cache). */
+  epoch: number | undefined = undefined;
   read(): T {
     if (strictRead && !listener) strictReadUntracked(this);
+    if (this.epoch !== undefined && this.state === CLEAN && !this.flight) {
+      const at = this.renderCtx?.commitEpoch?.();
+      if (at !== undefined && at !== this.epoch) this.state = DIRTY;
+    }
     if (!this.disposed) {
       // Released at a flush (read with nothing subscribed): built again from scratch.
       // (Nothing changed since it ran: subscribed again as it was.)
@@ -779,6 +785,8 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** The server render it was made in (it runs in it again when a landing re-runs it outside). */
   scope: ServerScope | null = serverScope;
+  /** The render context it was made in (a frame render's: an answer landing there is a commit the response sends on). */
+  renderCtx: any = serverRender ? sharedConfig.context : null;
   run() {
     const s = this.scope;
     if (s && serverScope?.key !== s.key) return s.enter(() => this.runIn());
@@ -884,6 +892,8 @@ export class Computation<T> extends Node<T> implements Owner {
     this.take(next!);
     // (After its own staging ticked the clock: it is current.)
     this.ranAt = clock;
+    // In a frame render: computed for this commit epoch.
+    if (this.kind === MEMO && this.renderCtx?.commitEpoch) this.epoch = this.renderCtx.commitEpoch();
     this.wake();
   }
   /** A value it computed or that landed: staged (or committed outside a flush), its readers told if it changed. */
@@ -1077,6 +1087,7 @@ export class Computation<T> extends Node<T> implements Owner {
     statusChanged();
     landNow();
     this.wake();
+    this.renderCtx?.commit?.();
   }
   fail(e: unknown) {
     stampThrower(e, this);

@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5514 pass, 1187 fail, 714 files (32 did not load, 121 test Solid's internals)
+5522 pass, 1179 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -567,9 +567,9 @@
 | web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-treeshake.spec.tsx | 0 | 1 | not ours: Solid's published build |
-| web/test/server/document-face-arg-tiers.spec.tsx | 2 | 2 |  |
+| web/test/server/document-face-arg-tiers.spec.tsx | 3 | 1 |  |
 | web/test/server/document-live-channel-artifact.spec.tsx | 1 | 0 |  |
-| web/test/server/document-live-holes.spec.tsx | 4 | 3 |  |
+| web/test/server/document-live-holes.spec.tsx | 6 | 1 |  |
 | web/test/server/document-shell.spec.tsx | 1 | 3 |  |
 | web/test/server/dynamic-async-component-diagnostic.spec.tsx | 3 | 2 |  |
 | web/test/server/dynamic-async-loading-3666.spec.tsx | 2 | 0 |  |
@@ -595,7 +595,7 @@
 | web/test/server/frame-live-resume.spec.tsx | 4 | 5 |  |
 | web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |
 | web/test/server/frame-plain-bound.spec.tsx | 11 | 1 |  |
-| web/test/server/frame-server-component.spec.tsx | 6 | 3 |  |
+| web/test/server/frame-server-component.spec.tsx | 9 | 0 |  |
 | web/test/server/frame-ssr-seam.spec.tsx | 2 | 0 |  |
 | web/test/server/frame-sweep-ops.spec.tsx | 1 | 1 |  |
 | web/test/server/frame-teardown.spec.tsx | 4 | 1 |  |
@@ -715,7 +715,7 @@
 | web/test/server/tier-announce.spec.tsx | 13 | 1 |  |
 | web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
-| web/test/server/welcome-status-parity.spec.tsx | 0 | 2 |  |
+| web/test/server/welcome-status-parity.spec.tsx | 2 | 0 |  |
 | web/test/server/write-before-resume.gen.spec.tsx | 1 | 0 |  |
 | web/test/show-in-for.spec.tsx | 1 | 0 |  |
 | web/test/show-optimistic-sync-write-3698.spec.tsx | 2 | 0 |  |

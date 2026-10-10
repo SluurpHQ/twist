@@ -1,6 +1,6 @@
 // What Solid's frames server reads from "solid-js/internal", from Twist: the server-component scope, the creation
 // stamp, shared async iterables, and the SSR error hook.
-import { createOwner, creationStamp, getOwner, NotReadyError, runWithOwner, sharedConfig, type Owner } from "./signals.ts";
+import { createOwner, creationStamp, getOwner, NotReadyError, runWithOwner, settlesOf, sharedConfig, type Owner } from "./signals.ts";
 
 export { creationStamp, sharedConfig };
 export { ssrSanitizeError } from "./request.ts";
@@ -34,7 +34,7 @@ export const inLiveServerComponentScope = (o: Owner | null = getOwner()) => !!o?
 
 /** A pending read's promise (for the renderer to wait on); any other error goes to the nearest boundary, else thrown. */
 export function ssrHandleError(err: any, probe?: boolean): Promise<any> | undefined {
-  if (err instanceof NotReadyError) return (err as any).source;
+  if (err instanceof NotReadyError) return settlesOf(err) ?? undefined;
   if (probe) return;
   for (let o: any = getOwner(); o; o = o.parent) if (o.catch && o.catch(err)) return;
   throw err;
