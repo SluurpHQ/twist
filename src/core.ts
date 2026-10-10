@@ -2082,6 +2082,8 @@ export function performWork(shouldYield: () => boolean = () => false): boolean {
  * if it cannot hydrate yet, what the server drew goes and it is drawn on the client, as React does. */
 function updateDehydrated(f: Fiber, props: any, redraw: () => void) {
   retryBoundary(f);
+  // Hydrated with the props it had: the render that brought new ones starts again from the top, as React's does.
+  if (!(f as any).dehydrated && drawing.size && props !== f.props) throw RESTART;
   f.props = props;
   if (!(f as any).dehydrated) return redraw();
   const region = (f as any).region;
@@ -2571,7 +2573,17 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   try {
     reconcile(f, toList(out), host, before);
   } catch (e) {
-    caught(f, e, true);
+    // A dehydrated boundary below hydrated for an update: the render goes again from the outermost component drawn.
+    if (e === RESTART) {
+      let outer = true;
+      for (let p = f.parent; p && outer; p = p.parent) if (drawing.has(p)) outer = false;
+      if (!outer) {
+        drawing.delete(f);
+        depth--;
+        throw e;
+      }
+      (f as any).restartDraw = true;
+    } else caught(f, e, true);
   }
   // A Suspense whose children suspended as it drew them: drawn again now, its fallback in place.
   if ((f as any).resuspend) {
@@ -2625,6 +2637,13 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     }
   }
   drawing.delete(f);
+  // Started again (a boundary below hydrated for this update): this pass's effects dropped, the next one's kept.
+  if ((f as any).restartDraw) {
+    (f as any).restartDraw = false;
+    draw(f, placeHost, placeBefore);
+    if (--depth === 0) commit();
+    return;
+  }
   if (profilersMounted) {
     const took = now() - began;
     if (!kept) profile(f, took - nestedTime);
@@ -2640,6 +2659,8 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   }
   if (--depth === 0) commit();
 }
+/** Thrown up to the outermost component drawn, which draws again (React's SelectiveHydrationException). */
+const RESTART = Symbol("restart");
 
 /** A render beginning: its start time, and whether an update set in the last commit set it off. */
 function startRender() {
@@ -4279,6 +4300,15 @@ Check the render method of ${nameOf(owner.type)}.`));
       if (first && hydrating_ && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
       else pending = children;
       asked.set(asked.peek() + 1);
+    },
+    /** What holds `target` hydrated before the rest, the last one asked first (React's scheduleHydration). */
+    unstable_scheduleHydration(target: Node) {
+      if (!target) return;
+      const f = dehydratedAround(target, new Set([state]));
+      if (f) {
+        (f as any).targeted = -++targetSeq;
+        scheduleHydration(f);
+      } else hoverTargets.push({ node: target, seq: -++targetSeq });
     },
     unmount(...rest: any[]) {
       if (dev() && typeof rest[0] === "function") console.error("does not support a callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
