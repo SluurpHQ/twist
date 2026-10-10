@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3858 pass, 192 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3862 pass, 188 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -70,7 +70,7 @@
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 55 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 30 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationClassContextType-test.js | 35 | 0 | 0 |  |
-| react-dom/ReactDOMServerIntegrationElements-test.js | 326 | 4 | 6 |  |
+| react-dom/ReactDOMServerIntegrationElements-test.js | 329 | 1 | 6 |  |
 | react-dom/ReactDOMServerIntegrationFragment-test.js | 20 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationHooks-test.js | 140 | 1 | 0 |  |
 | react-dom/ReactDOMServerIntegrationInput-test.js | 35 | 0 | 0 |  |
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 3 | 1 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 9 | 2 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 42 | 3 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 43 | 2 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 22 | 1 | 1 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |

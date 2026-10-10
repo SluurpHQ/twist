@@ -8,7 +8,7 @@ import "./gates.ts";
 
 // jsdom loads no frames (React's tests render <iframe src="https://…">), and has `nonce` on every element.
 // (Inline scripts run, as under Jest's jsdom, which runs them dangerously.)
-GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: true, disableJavaScriptFileLoading: true } });
+GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: true, disableJavaScriptFileLoading: true, suppressInsecureJavaScriptEnvironmentWarning: true } });
 // happy-dom tells the console a frame or script it did not load; jsdom says nothing.
 {
   const { default: Context } = await import("happy-dom/lib/window/WindowBrowserContext.js" as any);

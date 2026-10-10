@@ -602,17 +602,21 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       if (p.status === 1) return render(createElement(p.value, props), ctx, hooks);
       if (p.status === -1) {
         p.status = 0;
+        // (A thenable that settles at once: what it gives is used now, no promise to throw.)
+        let sync = true;
         // (A failed load rejects, so what waits on it hears why.)
         p.promise = p.load().then(
           (m: any) => ((p.status = 1), (p.value = m.default ?? m)),
           (e: any) => {
             p.status = 2;
             p.value = e;
-            throw e;
+            if (!sync) throw e;
           },
         );
+        sync = false;
         p.promise?.catch?.(() => {});
       }
+      if (p.status === 1) return render(createElement(p.value, props), ctx, hooks);
       if (p.status === 2) throw p.value;
       throw p.promise;
     }

@@ -1000,7 +1000,7 @@ function serverDifferences(server: Element, had: Attrs, type: string, ns: string
     return (v !== null && typeof v === "object") || typeof v === "function" || typeof v === "symbol";
   };
   // The server's view transition annotations (vt-*) are the client's to read, not props.
-  for (const n of names) if (!skip.has(n) && !n.startsWith("vt-") && !unseen(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
+  for (const n of names) if (!skip.has(n) && !n.startsWith("vt-") && !unseen(n) && !sameMarkup(had.names.get(n), probe.getAttribute(n))) (out[keyFor(n)] = had.names.get(n) ?? null), (any = true);
   const want = props.style == null ? null : styleText(props.style) || null;
   if ((had.names.get("style") ?? null) !== want) (out.style = had.names.has("style") ? had.style : null), (any = true);
   if (inner?.__html != null) {
@@ -1011,6 +1011,9 @@ function serverDifferences(server: Element, had: Attrs, type: string, ns: string
   }
   return any ? out : null;
 }
+/** Text or an attribute as an HTML parser leaves it (React's normalizeMarkupForTextOrAttribute). */
+const parsedMarkup = (v: string) => v.replace(/\r\n?/g, "\n").replace(/\u0000|\uFFFD/g, "");
+const sameMarkup = (a: string | null | undefined, b: string | null | undefined) => (a ?? null) === (b ?? null) || (a != null && b != null && parsedMarkup(a) === parsedMarkup(b));
 function serverAttrsDiffer(server: Element, had: Attrs, type: string, ns: string | null, props: any): boolean {
   const doc = server.ownerDocument;
   const probe = ns ? doc.createElementNS(ns, type) : doc.createElement(type);
@@ -1023,7 +1026,7 @@ function serverAttrsDiffer(server: Element, had: Attrs, type: string, ns: string
   // Form state is the element's, not an attribute; style is compared as text with what React would have written.
   const skip = new Set(["value", "checked", "selected", "style"]);
   const names = new Set([...had.names.keys(), ...probe.getAttributeNames()]);
-  for (const n of names) if (!skip.has(n) && (had.names.get(n) ?? null) !== probe.getAttribute(n)) return true;
+  for (const n of names) if (!skip.has(n) && !sameMarkup(had.names.get(n), probe.getAttribute(n))) return true;
   const want = props.style == null ? null : styleText(props.style) || null;
   return (had.names.get("style") ?? null) !== want;
 }
@@ -1650,9 +1653,11 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // In an element that suppresses hydration warnings: the server's text kept as it is (React tells nothing and does
     // not fix it).
     const suppressed = hydrating && parent.kind === HOST && parent.props?.suppressHydrationWarning === true;
-    const had = hydrating && text !== "" ? (claim(host, (n) => n.nodeType === 3 && (suppressed || (n as Text).data.startsWith(text))) as Text | null) : null;
+    // (Compared as the HTML parser leaves text: CR and CRLF as LF, no NUL — React's normalizeMarkupForTextOrAttribute.)
+    const parsedText = parsedMarkup(text);
+    const had = hydrating && text !== "" ? (claim(host, (n) => n.nodeType === 3 && (suppressed || parsedMarkup((n as Text).data).startsWith(parsedText))) as Text | null) : null;
     if (had) {
-      if (!suppressed && had.data.length > text.length) hydrating!.set(host, had.splitText(text.length));
+      if (!suppressed && had.data.length > parsedText.length) hydrating!.set(host, had.splitText(parsedText.length));
       f.dom = had;
     } else {
       if (hydrating && text !== "") {
