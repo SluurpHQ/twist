@@ -1,6 +1,6 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
-import { createErrorBoundary, createLoadingBoundary, createMemo, flatten, sharedConfig, untrack } from "./signals.ts";
+import { createErrorBoundary, createLoadingBoundary, createMemo, createRevealOrder, flatten, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
 import { LIVE, mapArray, merge, repeat } from "./flow.ts";
 
 // ---------------------------------------------------------------- marks from the pass
@@ -167,6 +167,11 @@ export function Switch(props: { fallback?: any; children: any }) {
 }
 
 /** Shows `fallback` while what is under it waits on a first load. */
+/** The order in which the Loading boundaries directly inside show their content (see createRevealOrder). */
+export function Reveal(props: { order?: RevealOrder; collapsed?: boolean; children: any }) {
+  return createRevealOrder(() => props.children, { order: () => props.order ?? "sequential", collapsed: () => !!props.collapsed });
+}
+
 export function Loading(props: { fallback?: any; on?: unknown; children: any }) {
   return createLoadingBoundary(() => props.children, () => props.fallback);
 }
@@ -227,4 +232,4 @@ export function Hydration(props: { children?: any }) {
 }
 
 // The control flow here is Solid-style.
-for (const f of [For, Repeat, Show, Switch, Match, Loading, Errored, NoHydration, Hydration]) __twist_mark(f);
+for (const f of [For, Repeat, Show, Switch, Match, Loading, Errored, Reveal, NoHydration, Hydration]) __twist_mark(f);

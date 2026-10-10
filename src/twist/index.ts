@@ -4,4 +4,4 @@ export { $PROXY, $TARGET, $TRACK, createOptimisticStore, createProjection, creat
 /** Solid's default equality for signals and memos. */
 export const isEqual = (a: unknown, b: unknown) => a === b;
 export { mapArray, merge, omit, repeat, isStatic } from "./flow.ts";
-export { For, Repeat, Show, Switch, Match, Loading, Errored, createComponent, lazy, NoHydration, Hydration } from "./control.ts";
+export { For, Repeat, Show, Switch, Match, Loading, Errored, Reveal, createComponent, lazy, NoHydration, Hydration } from "./control.ts";

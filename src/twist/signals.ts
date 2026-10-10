@@ -1596,6 +1596,11 @@ function boundaryOf(c: Computation<any>): LoadingState | null {
 export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _options?: { on?: () => unknown }): () => T | F {
   const state = new LoadingState();
   state.count.value = 0;
+  // A slot of the reveal order around it, if any: what the order forces on it (gated, collapsed) until it has shown
+  // its content.
+  const order = (owner?.context?.[REVEAL] as RevealOrderController | undefined) ?? null;
+  const slot: Slot = { gated: false, collapsed: false, owner: null, draw: new (class extends Node<number> {})(), ready: () => false };
+  slot.draw.value = 0;
   // The content: built once under the boundary (what under it waits on a first load tells the boundary), built
   // again only when what it reads changes.
   const NOT_READY = {};
@@ -1609,25 +1614,216 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, _opt
     }
   });
   (content as any).loading = state;
+  // Only boundaries made directly under a reveal order are its members: not those inside this one.
+  if (content.context?.[REVEAL]) content.context = { ...content.context, [REVEAL]: undefined };
   content.run();
+  // Ready: its content made, nothing under it waiting.
+  slot.ready = () =>
+    untrack(() => {
+      if (content.read() === NOT_READY) return false;
+      for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
+      return !state.waiting.size;
+    });
   // What shows: the fallback while something under it waits, else the content (its accessors read here, so a
-  // change inside it never builds the content again).
+  // change inside it never builds the content again). Held by a reveal order: its fallback (or nothing, collapsed).
   const shown = new Computation<T | F>(MEMO, () => {
     listener!.track(state.count);
+    listener!.track(slot.draw);
     const c = content.read();
     for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
+    // Its readiness may have changed: the order looks again.
+    if (slot.owner) slot.owner.evaluate();
+    if (slot.owner && slot.gated) return slot.collapsed ? (undefined as any) : untrack(fallback);
     if (c === NOT_READY || state.waiting.size) return untrack(fallback);
     try {
-      return resolveChildren(c);
+      const v = resolveChildren(c);
+      // Content shown: the slot leaves the order (shown is shown); the order looks again.
+      if (slot.owner) {
+        const o = slot.owner;
+        slot.owner = null;
+        o.evaluate();
+      }
+      return v;
     } catch (e) {
       if (e instanceof NotReadyError) return untrack(fallback);
       throw e;
     }
   });
+  if (order) {
+    order.add(slot);
+    onCleanup(() => order.remove(slot));
+  }
   shown.run();
   const read = () => shown.read();
   accessors.set(read, shown);
   return read;
+}
+
+// ---------------------------------------------------------------- reveal order
+
+const REVEAL = Symbol("reveal order");
+
+/** A Loading boundary as a reveal order sees it. */
+type Slot = {
+  /** Forced to its fallback by the order. */
+  gated: boolean;
+  /** Forced to nothing (a collapsed sequential tail). */
+  collapsed: boolean;
+  /** The order that still owns it (null once it has shown its content). */
+  owner: RevealOrderController | null;
+  /** Bumped to make the boundary decide again what it shows. */
+  draw: Node<number>;
+  /** Its content made and nothing under it waiting. */
+  ready: () => boolean;
+};
+type Member = Slot | RevealOrderController;
+export type RevealOrder = "sequential" | "together" | "natural";
+
+const isOrder = (m: Member): m is RevealOrderController => m instanceof RevealOrderController;
+const memberReady = (m: Member) => (isOrder(m) ? m.allReady() : m.ready());
+const memberSomeReady = (m: Member) => (isOrder(m) ? m.someReady() : m.ready());
+
+/** What the order forces on a member: a boundary decides again; a nested order passes it on to its own. */
+function force(m: Member, by: RevealOrderController, gated: boolean, collapsed: boolean) {
+  if (isOrder(m)) {
+    m.gated = gated;
+    m.collapsed = collapsed;
+    m.evaluate();
+    // Released and ready (all of its own shown), a nested order leaves its parent, as a boundary that showed.
+    if (!gated && m.wasReady && m.parent === by) m.parent = null;
+    return;
+  }
+  if (m.gated !== gated || m.collapsed !== collapsed) {
+    m.gated = gated;
+    m.collapsed = collapsed;
+    m.draw.bump();
+  }
+}
+
+/**
+ * The order in which the Loading boundaries made directly under it (its members; a nested order is one member) show
+ * their content: sequential (front to back: the first not ready shows its fallback, those behind it theirs, or nothing
+ * when collapsed), together (all once each can show something), natural (each when it is ready). A member leaves the
+ * order once it has shown its content.
+ */
+class RevealOrderController {
+  members: Member[] = [];
+  /** The order gating this one, until it releases it. */
+  parent: RevealOrderController | null = null;
+  /** What a parent forces on this whole group. */
+  gated = false;
+  collapsed = false;
+  wasReady = true;
+  wasSomeReady = true;
+  private busy = false;
+  constructor(
+    public order: () => RevealOrder,
+    public collapse: () => boolean,
+  ) {}
+  /** A member that has left: a boundary that showed its content, a nested order that is ready. */
+  gone(m: Member) {
+    return (isOrder(m) ? m.parent : m.owner) !== this;
+  }
+  /** `fn` for each member still owned, in order; false as soon as one says false. */
+  each(fn: (m: Member) => boolean | void) {
+    for (const m of this.members) if (!this.gone(m) && fn(m) === false) return false;
+    return true;
+  }
+  allReady() {
+    return this.each((m) => memberReady(m));
+  }
+  /** Something to show under its own order (what an enclosing `together` waits for). */
+  someReady() {
+    const order = untrack(this.order);
+    const ms = this.members;
+    if (!ms.length) return true;
+    if (order === "sequential") return this.gone(ms[0]!) || memberSomeReady(ms[0]!);
+    for (const m of ms) {
+      const r = this.gone(m) || memberSomeReady(m);
+      if (order === "natural" ? r : !r) return order === "natural";
+    }
+    return order !== "natural";
+  }
+  add(m: Member) {
+    if (this.members.includes(m)) return;
+    this.members.push(m);
+    // Gated from the start (nothing, in a collapsed sequential tail); evaluating releases what the order allows.
+    const collapsed = untrack(this.order) === "sequential" && !!untrack(this.collapse);
+    if (isOrder(m)) {
+      m.parent = this;
+      m.gated = true;
+      m.collapsed = collapsed;
+      m.evaluate();
+    } else {
+      m.owner = this;
+      m.gated = true;
+      m.collapsed = collapsed;
+    }
+    untrack(() => this.evaluate());
+  }
+  remove(m: Member) {
+    const at = this.members.indexOf(m);
+    if (at >= 0) this.members.splice(at, 1);
+    untrack(() => this.evaluate());
+  }
+  /** The order applied to the members still owned (or a parent's state forced on all of them). */
+  evaluate() {
+    if (this.busy) return;
+    this.busy = true;
+    const wasReady = this.wasReady;
+    const wasSomeReady = this.wasSomeReady;
+    try {
+      const order = untrack(this.order);
+      const tail = order === "sequential" && !!untrack(this.collapse);
+      if (this.gated) this.each((m) => force(m, this, true, this.collapsed));
+      else if (order === "natural") this.each((m) => force(m, this, isOrder(m) ? false : !m.ready(), false));
+      else if (order === "together") {
+        const all = this.each(memberSomeReady);
+        this.each((m) => force(m, this, !all, false));
+      } else {
+        let frontier = false;
+        this.each((m) => {
+          if (frontier) return force(m, this, true, tail);
+          if (memberReady(m)) return force(m, this, false, false);
+          frontier = true;
+          // The frontier shows its fallback; a nested order at the frontier runs its own.
+          force(m, this, !isOrder(m), false);
+        });
+      }
+    } finally {
+      this.wasReady = this.allReady();
+      this.wasSomeReady = this.someReady();
+      this.busy = false;
+    }
+    if (this.parent && (wasReady !== this.wasReady || wasSomeReady !== this.wasSomeReady)) this.parent.evaluate();
+  }
+}
+
+/**
+ * The order in which the Loading boundaries `fn` makes directly show their content (`<Reveal>`'s primitive).
+ * `order`: "sequential" (default), "together" or "natural"; `collapsed`: in a sequential order, those behind the
+ * first not ready show nothing rather than their fallbacks.
+ */
+export function createRevealOrder<T>(fn: () => T, options?: { order?: () => RevealOrder; collapsed?: () => boolean }): T {
+  const o = createOwner();
+  const outer = (o.context?.[REVEAL] as RevealOrderController | undefined) ?? null;
+  const ctrl = new RevealOrderController(options?.order ?? (() => "sequential"), options?.collapsed ?? (() => false));
+  o.context = { ...o.context, [REVEAL]: ctrl };
+  return runWithOwner(o, () => {
+    const out = fn();
+    // The order and collapse options tracked: a change applies the order again.
+    const watch = new Computation<void>(MEMO, () => {
+      ctrl.order();
+      ctrl.collapse();
+      ctrl.evaluate();
+    });
+    watch.run();
+    if (outer) {
+      outer.add(ctrl);
+      onCleanup(() => outer.remove(ctrl));
+    }
+    return out;
+  });
 }
 
 /** `fn`'s value, or `fallback(error, reset)` once something under it throws. */
@@ -1669,6 +1865,8 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
       return showFallback();
     }
   });
+  // Only boundaries made directly under a reveal order are its members: not those inside this one.
+  if (m.context?.[REVEAL]) m.context = { ...m.context, [REVEAL]: undefined };
   m.run();
   const read = () => m.read();
   accessors.set(read, m);
