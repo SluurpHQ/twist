@@ -233,7 +233,8 @@ function toList(children: any): any[] {
   if (children == null || typeof children === "boolean") return [];
   if (Array.isArray(children)) return children;
   const items = iterated(children);
-  if (items) return items;
+  // (An iterable's items are a list: keys checked, as an array's are.)
+  if (items) return checkKeys(items, null), items;
   const one: any = [children];
   one[LONE] = true;
   return one;
@@ -1674,6 +1675,11 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   if (type === FRAGMENT) {
     const props = Array.isArray(c) ? null : c.props;
     const f = fiber(FRAG, type, key, props, parent);
+    // A prop a Fragment cannot take: React's warning (the first one).
+    if (dev() && props) {
+      const bad = Object.keys(props).find((k) => k !== "children" && k !== "key" && k !== "ref");
+      if (bad) withFiber(parent, () => console.error(`Invalid prop \`${bad}\` supplied to \`React.Fragment\`. React.Fragment can only have \`key\`, \`ref\`, and \`children\` props.`));
+    }
     reconcile(f, props ? toList(props.children) : c, host, before);
     // A ref on a Fragment: an instance that treats its top-level elements as one (React 19.2's fragment refs).
     if (props?.ref != null) {

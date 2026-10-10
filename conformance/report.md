@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3754 pass, 231 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3759 pass, 226 fail, 314 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -139,15 +139,15 @@
 | react/forwardRef-test.internal.js | 6 | 0 | 0 |  |
 | react/forwardRef-test.js | 19 | 0 | 0 |  |
 | react/onlyChild-test.js | 5 | 0 | 0 |  |
-| react/ReactChildren-test.js | 41 | 1 | 0 |  |
+| react/ReactChildren-test.js | 42 | 0 | 0 |  |
 | react/ReactClassEquivalence-test.js | 0 | 2 | 0 |  |
 | react/ReactContextValidator-test.js | 6 | 2 | 5 |  |
 | react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
 | react/ReactCreateRef-test.js | 0 | 1 | 0 |  |
 | react/ReactElementClone-test.js | 21 | 0 | 0 |  |
-| react/ReactElementValidator-test.internal.js | 18 | 3 | 0 |  |
+| react/ReactElementValidator-test.internal.js | 20 | 1 | 0 |  |
 | react/ReactES6Class-test.js | 23 | 1 | 0 |  |
-| react/ReactJSXElementValidator-test.js | 12 | 2 | 0 |  |
+| react/ReactJSXElementValidator-test.js | 14 | 0 | 0 |  |
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 18 | 1 | 0 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 0 | did not run |
