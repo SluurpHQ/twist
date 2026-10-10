@@ -108,6 +108,16 @@ for (const [proto, key] of [[Element.prototype, "innerHTML"], [Element.prototype
     },
   });
 }
+// An exception thrown in an event listener reported as jsdom reports it (React's suite runs in jsdom): an `error` event
+// on the window, then, unless a listener prevented it, the console's "unhandled exception" with the error as detail.
+{
+  const PS: any = await import("happy-dom/lib/PropertySymbol.js" as any);
+  const { default: BrowserWindow }: any = await import("happy-dom/lib/window/BrowserWindow.js" as any);
+  BrowserWindow.prototype[PS.dispatchError] = function (this: any, error: any) {
+    const ev = new this.ErrorEvent("error", { message: error?.message, error, cancelable: true });
+    if (this.dispatchEvent(ev)) console.error(Object.assign(new Error(`Uncaught [${error}]`), { type: "unhandled exception", detail: error }));
+  };
+}
 // The old initMouseEvent, which jsdom has and happy-dom does not.
 {
   const proto: any = MouseEvent.prototype;

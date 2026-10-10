@@ -108,7 +108,8 @@ export function onAfterEvent(fn: typeof afterEvent) {
 function propsFor(el: Element, type: string, capture: boolean, props: any, native: Event): string[] {
   const out: string[] = [];
   for (const k in props) {
-    if (k[0] !== "o" || k[1] !== "n" || k.length < 3 || k[2] !== k[2]!.toUpperCase() || typeof props[k] !== "function") continue;
+    // (Any value set, as React reads it: one that is not a function is thrown about at dispatch.)
+    if (k[0] !== "o" || k[1] !== "n" || k.length < 3 || k[2] !== k[2]!.toUpperCase() || !props[k]) continue;
     const change = k === "onChange" || k === "onChangeCapture";
     // onChange is the target's change, whoever listens: a text field's input event is every ancestor's onChange.
     const target = change && native.target instanceof Element ? native.target : el;

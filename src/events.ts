@@ -196,6 +196,12 @@ const idOf = (o: object) => {
   return id;
 };
 
+/** How an error thrown by a handler is told (core's report, as React's reportGlobalError). */
+let reportHandlerError: (e: unknown) => void = (e) => {
+  throw e;
+};
+export const reportHandlerErrorsWith = (fn: typeof reportHandlerError) => void (reportHandlerError = fn);
+
 /** What core does first for an event whose target has not hydrated yet (React's attemptSynchronousHydration); true
  * when the target is still waiting to hydrate. */
 let hydrateFor: (target: Node, roots: Set<object>, native: Event, continuous: boolean) => boolean = () => false;
@@ -284,6 +290,12 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   }
   if (capture) path.reverse();
   else path.push(...bubbling.splice(0));
+  // A listener that is not a function: thrown before any runs (React's getListener).
+  for (const [el, names] of path)
+    for (const n of names) {
+      const fn = (el as any)[PROPS]?.[n];
+      if (fn && typeof fn !== "function") throw new Error(`Expected \`${n}\` listener to be a function, instead got a value of \`${typeof fn}\` type.`);
+    }
   const synthetic = wrap(native);
   const transitionsBefore = !capture && native.type === "submit" ? transitionsStarted() : 0;
   for (const [el, names] of path) {
@@ -292,7 +304,13 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
     for (const n of names) {
       const fn = (el as any)[PROPS]?.[n];
       synthetic.__type = POLYFILLED[n.endsWith("Capture") ? n.slice(0, -7) : n];
-      if (typeof fn === "function") fn.call(undefined, synthetic);
+      // What one throws is reported, and the others still run (React's reportGlobalError).
+      if (typeof fn === "function")
+        try {
+          fn.call(undefined, synthetic);
+        } catch (e) {
+          reportHandlerError(e);
+        }
     }
   }
   synthetic.__current = null;

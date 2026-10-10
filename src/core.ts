@@ -6,6 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
+import { reportHandlerErrorsWith } from "./events.ts";
 import { CONTINUOUS, DEHYDRATED, ENTERING, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, kindOf, listenOnElement, replayQueued, replaysWaiting, want } from "./events.ts";
 import { configureViewTransitions, renderInViewTransition, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
@@ -208,6 +209,7 @@ const passiveQueue: (() => void)[] = [];
 const passiveUnmounts: (() => void)[] = [];
 let passiveBooked = false;
 
+reportHandlerErrorsWith((e) => report(e));
 /** An error told as a browser's reportError tells it: an `error` event on the window, then the console unless a
  * listener handled it. The browser's own when it has one; a test DOM's (jsdom, happy-dom) is not always callable. */
 export function report(e: unknown) {

@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3950 pass, 132 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3952 pass, 130 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -8,9 +8,9 @@
 | react-dom/DOMPropertyOperations-test.js | 49 | 0 | 0 |  |
 | react-dom/escapeTextForBrowser-test.js | 8 | 0 | 0 |  |
 | react-dom/findDOMNodeFB-test.js | 0 | 0 | 8 |  |
-| react-dom/InvalidEventListeners-test.js | 1 | 1 | 0 |  |
+| react-dom/InvalidEventListeners-test.js | 2 | 0 | 0 |  |
 | react-dom/quoteAttributeValueForBrowser-test.js | 8 | 0 | 0 |  |
-| react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
+| react-dom/ReactBrowserEventEmitter-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactComponent-test.js | 19 | 0 | 2 |  |
