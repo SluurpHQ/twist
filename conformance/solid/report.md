@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5509 pass, 1192 fail, 714 files (32 did not load, 121 test Solid's internals)
+5514 pass, 1187 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -562,7 +562,7 @@
 | web/test/server/concurrent-render-lazy-assets.spec.tsx | 4 | 2 |  |
 | web/test/server/concurrent-render-serialize.spec.tsx | 5 | 0 |  |
 | web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
-| web/test/server/container-traces.spec.tsx | 5 | 4 |  |
+| web/test/server/container-traces.spec.tsx | 7 | 2 |  |
 | web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
 | web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
@@ -582,14 +582,14 @@
 | web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
-| web/test/server/frame-binding-slots.spec.tsx | 23 | 9 |  |
+| web/test/server/frame-binding-slots.spec.tsx | 24 | 8 |  |
 | web/test/server/frame-fragment-error-outcome.spec.tsx | 1 | 5 |  |
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-hn.spec.tsx | 2 | 0 |  |
 | web/test/server/frame-live-document-artifact.spec.tsx | 0 | 3 |  |
 | web/test/server/frame-live-document.spec.tsx | 1 | 5 |  |
 | web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |
-| web/test/server/frame-live-holes-chat.spec.tsx | 0 | 1 |  |
+| web/test/server/frame-live-holes-chat.spec.tsx | 1 | 0 |  |
 | web/test/server/frame-live-holes-projection.spec.tsx | 3 | 3 |  |
 | web/test/server/frame-live-holes.spec.tsx | 1 | 0 |  |
 | web/test/server/frame-live-resume.spec.tsx | 4 | 5 |  |
@@ -605,7 +605,7 @@
 | web/test/server/hybrid-memo-handoff.spec.tsx | 4 | 0 |  |
 | web/test/server/hybrid-store-handoff-3574.spec.tsx | 1 | 1 |  |
 | web/test/server/hydration-harness.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/server/hydration-payload-handled-rejection-3769.spec.tsx | 0 | 3 |  |
+| web/test/server/hydration-payload-handled-rejection-3769.spec.tsx | 1 | 2 |  |
 | web/test/server/hydration-transfer.spec.tsx | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
 | web/test/server/lazy-assets-livelock.spec.tsx | 0 | 2 |  |
 | web/test/server/lazy-nested-late-assets.spec.tsx | 1 | 0 |  |
@@ -626,7 +626,7 @@
 | web/test/server/server-component-context.spec.tsx | 4 | 2 |  |
 | web/test/server/server-diagnostics.spec.tsx | 1 | 16 |  |
 | web/test/server/server-error-hook.spec.tsx | 24 | 0 |  |
-| web/test/server/server-frame-records.spec.tsx | 5 | 2 |  |
+| web/test/server/server-frame-records.spec.tsx | 6 | 1 |  |
 | web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-adapter-request.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-addressing.spec.tsx | 24 | 0 |  |
@@ -644,7 +644,7 @@
 | web/test/server/server-functions-error-carrier-guard.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-event-hook.spec.tsx | 11 | 0 |  |
 | web/test/server/server-functions-extensions.spec.tsx | 12 | 0 |  |
-| web/test/server/server-functions-failure-sanitization.spec.tsx | 15 | 2 |  |
+| web/test/server/server-functions-failure-sanitization.spec.tsx | 14 | 3 |  |
 | web/test/server/server-functions-failure-signal.spec.tsx | 6 | 0 |  |
 | web/test/server/server-functions-flash-bound-form.spec.tsx | 2 | 0 |  |
 | web/test/server/server-functions-flash-bounds.spec.tsx | 5 | 0 |  |

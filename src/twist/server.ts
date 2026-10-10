@@ -429,7 +429,7 @@ const DYNAMIC_KIDS = Symbol("twist.ssr.dynamic-children");
 function children(c: any): string {
   if (c && c[DYNAMIC_KIDS]) {
     const raw = c[DYNAMIC_KIDS];
-    return liveHole(() => read(raw)) ?? hole(() => children(read(raw)));
+    return hole(() => liveHole(() => read(raw)) ?? children(read(raw)));
   }
   return Array.isArray(c) ? list(c, !!(c as any)[OWN], true) : typeof c === "function" ? hole(() => list([c], true, true)) : c && c[EL] ? element(c, c.keyed ?? false) : html(c, false);
 }
@@ -463,16 +463,16 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
     }
     if (typeof x === "function") {
       const f = x;
-      // A live frame's hole: rendered (between markers) by the live-hole engine, which re-sends it as it changes.
-      const live = liveHole(f);
-      if (live != null) {
-        parts.push({ s: live, text: false, split: false });
-        continue;
-      }
       const rr = render;
       const o = getOwner() as any;
       const at = childIdCount(o);
       try {
+        // A live frame's hole: rendered (between markers) by the live-hole engine, which re-sends it as it changes.
+        const live = liveHole(f);
+        if (live != null) {
+          parts.push({ s: live, text: false, split: false });
+          continue;
+        }
         while (typeof x === "function") (x = x()), (fn = true);
       } catch (e) {
         // A part of the shell not ready yet waits on its own, like any hole.
@@ -1460,13 +1460,17 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       try {
         filled(r, rendering(r, options, () => runWithOwner(root, () => html(code(), false))))
           .then(async (shell) => {
-            // What blocks the shell, until none is left: settling one can register another (a lazy chunk's data).
-            while (r.blocks.size) {
-              const now = [...r.blocks];
-              await Promise.allSettled(now);
-              for (const p of now) r.blocks.delete(p);
-              if (!r.blocks.size) await new Promise((ok) => (typeof setImmediate === "function" ? setImmediate(ok) : setTimeout(ok, 0)));
-            }
+            // What blocks the shell, until none is left: settling one can register another (a lazy chunk's data). The
+            // flush itself waits a macrotask, as Solid's: a boundary settling within microtasks goes out inline.
+            const macrotask = () => new Promise((ok) => (typeof setImmediate === "function" ? setImmediate(ok) : setTimeout(ok, 0)));
+            do {
+              while (r.blocks.size) {
+                const now = [...r.blocks];
+                await Promise.allSettled(now);
+                for (const p of now) r.blocks.delete(p);
+              }
+              await macrotask();
+            } while (r.blocks.size);
             return shellHead(r, shell);
           })
           .then(ok, fail);
@@ -1502,6 +1506,11 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     const data = takeData(r);
     if (data) r.chunks.push(data);
     for (; sent < r.chunks.length && !done; sent++) for (const w of sinks) write(w, r.chunks[sent]!);
+    // A frame stream ends after its serializer's last record (a trace still writing is part of the response).
+    if (!r.waiting.size && !r.pendingData && !r.holds && !done && options.sink && (r.serializer as any)?.pending > 0) {
+      setTimeout(() => r.wake?.(), 0);
+      return;
+    }
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
       done = true;
       options.onCompleteAll?.();

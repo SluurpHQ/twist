@@ -305,6 +305,10 @@ export function createJSONSerializer({ onData, onDone, onError, plugins, disable
       });
       if (!settled) cancels.add((cancel = stop));
     },
+    /** Values still being written (streams of values in flight). */
+    get pending() {
+      return pendingWrites;
+    },
     flush() {
       flushed = true;
       maybeDone();
