@@ -1397,6 +1397,8 @@ function settleRound() {
 
 /** The transaction the running flush parked into, if any (reset when the outermost flush ends). */
 let frameTx: Transaction | null = null;
+/** The first action opened since the last flush: guesses written outside an action in that tick join it. */
+let tickTx: Transaction | null = null;
 /** Guesses written outside an action and over no hold yet: decided once the flush has parked (or not). */
 const frameGuesses: [Node, unknown][] = [];
 
@@ -1405,7 +1407,7 @@ function settleFrameGuesses() {
   for (const [n, v] of frameGuesses.splice(0)) {
     // (A node already guessed over a transaction still running: a new guess replaces it, in that transaction.)
     const guessed = (n as any).guessTx as Transaction | null | undefined;
-    const t = (frameTx && !frameTx.done ? frameTx : null) ?? (guessed && !guessed.done ? guessed.root : null) ?? (n.tx && !n.tx.done ? n.tx.root : null);
+    const t = (frameTx && !frameTx.done ? frameTx : null) ?? (tickTx && !tickTx.done ? tickTx : null) ?? (guessed && !guessed.done ? guessed.root : null) ?? (n.tx && !n.tx.done ? n.tx.root : null);
     if (t) installGuess(n, v, t);
   }
 }
@@ -1714,7 +1716,7 @@ function drain() {
     if (writes.length) for (const s of writes.splice(0)) s.commit();
     if (landings.length) for (const [c, v] of landings.splice(0)) if (!c.disposed) c.take(v);
     if (guesses.length) installGuesses();
-    if (guessWork.length) for (const [install, tx] of guessWork.splice(0)) install(tx && !tx.done ? tx : null);
+    if (guessWork.length) for (const [install, tx] of guessWork.splice(0)) install(tx && !tx.done ? tx : tickTx && !tickTx.done ? tickTx : null);
     for (let passes = 0; dirty.length; passes++) {
       if (passes > 1e5) throw new Error("Potential infinite loop detected.");
       const now = dirty.sort(byOrder);
@@ -1790,7 +1792,7 @@ export function flush<T>(fn?: () => T): T {
     throw e;
   } finally {
     flushing--;
-    if (!flushing) frameTx = null;
+    if (!flushing) frameTx = tickTx = null;
     if (!flushing) DEV.hooks.onUpdate?.();
     // A refresh counts for the flush it was asked in.
     if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
@@ -2109,6 +2111,7 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
     }
     return new Promise<R>((ok, fail) => {
       const tx = newTransaction();
+      if (!acting && !flushing) tickTx ??= tx;
       tx.open++;
       const me = { tx };
       const it = gen(...args);

@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5568 pass, 1133 fail, 714 files (32 did not load, 121 test Solid's internals)
+5573 pass, 1128 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -27,7 +27,7 @@
 | signals/tests/action-await-contract.test.ts | 4 | 0 |  |
 | signals/tests/action-completion-race.test.ts | 0 | 1 |  |
 | signals/tests/action-done-window.test.ts | 0 | 3 |  |
-| signals/tests/action-loading-rail.test.ts | 4 | 1 |  |
+| signals/tests/action-loading-rail.test.ts | 5 | 0 |  |
 | signals/tests/action-thenable-assimilation.test.ts | 1 | 3 |  |
 | signals/tests/action.test.ts | 66 | 1 |  |
 | signals/tests/adoption-unchanged-key-read-3706.test.ts | 8 | 11 |  |
@@ -75,7 +75,7 @@
 | signals/tests/createLoadingBoundary.on.test.ts | 7 | 0 |  |
 | signals/tests/createLoadingBoundary.test.ts | 19 | 7 |  |
 | signals/tests/createMemo.test.ts | 69 | 11 |  |
-| signals/tests/createOptimistic.test.ts | 51 | 17 |  |
+| signals/tests/createOptimistic.test.ts | 53 | 15 |  |
 | signals/tests/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
 | signals/tests/createReaction.test.ts | 2 | 3 |  |
 | signals/tests/createRevealOrder.test.ts | 38 | 0 |  |
@@ -217,7 +217,7 @@
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
 | signals/tests/store/async-setter.test.ts | 6 | 2 |  |
 | signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |
-| signals/tests/store/createOptimisticStore.test.ts | 57 | 23 |  |
+| signals/tests/store/createOptimisticStore.test.ts | 59 | 21 |  |
 | signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
 | signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
 | signals/tests/store/createProjection.test.ts | 7 | 13 |  |
