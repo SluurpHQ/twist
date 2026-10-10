@@ -1427,15 +1427,23 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
   // It ends with the parent the lanes are of.
   let base = t;
   while (base.parentTx) base = base.parentTx.root;
-  if (was === NONE)
+  // (Overlapping actions guessing it: the truth shows once the last of them ends.)
+  const bases: Set<Transaction> = ((n as any).guessBases ??= new Set());
+  if (!bases.has(base)) {
+    bases.add(base);
     base.ends.push(() => {
+      bases.delete(base);
+      if (bases.size) return;
       (n as any).guessTx = null;
       if (n.override === NONE) return;
       const guess = n.override;
       n.override = NONE;
       if (!(n as any).equals?.(n.value, guess)) n.bump();
     });
-  // What reads it: derivations re-run in the lane now; effects at the lane's reveal.
+  }
+  // What reads it: derivations re-run in the lane now; effects at the lane's reveal (none when what shows is the same).
+  const shown = was !== NONE ? was : n.value;
+  if (typeof (n as any).equals === "function" ? (n as any).equals(shown, v) : Object.is(shown, v)) return;
   clock++;
   for (const o of n.observers) o.kind === MEMO ? o.mark(DIRTY) : lane.stale.add(o);
 }
@@ -2733,7 +2741,14 @@ export function createOptimistic<T>(value: T | ((prev?: T) => T), options?: Sign
   const read = n instanceof Computation ? () => n.read() : () => (n as Signal<T>).read();
   accessors.set(read, n as any);
   const set: Setter<T> = (next) => {
-    const v = typeof next === "function" ? (next as (prev: T) => T)(n.override !== NONE ? (n.override as T) : n.value) : next;
+    if (typeof next !== "function") return guess(n, next), next;
+    // The updater sees this tick's own last guess, else what shows.
+    let prev: T = n.override !== NONE ? (n.override as T) : n.value;
+    for (let i = guesses.length - 1; i >= 0; i--) if (guesses[i]![0] === n) {
+      prev = guesses[i]![1] as T;
+      break;
+    }
+    const v = (next as (prev: T) => T)(prev);
     guess(n, v);
     return v;
   };

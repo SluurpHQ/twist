@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5594 pass, 1107 fail, 714 files (32 did not load, 121 test Solid's internals)
+5601 pass, 1100 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -75,7 +75,7 @@
 | signals/tests/createLoadingBoundary.on.test.ts | 7 | 0 |  |
 | signals/tests/createLoadingBoundary.test.ts | 19 | 7 |  |
 | signals/tests/createMemo.test.ts | 69 | 11 |  |
-| signals/tests/createOptimistic.test.ts | 53 | 15 |  |
+| signals/tests/createOptimistic.test.ts | 58 | 10 |  |
 | signals/tests/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
 | signals/tests/createReaction.test.ts | 2 | 3 |  |
 | signals/tests/createRevealOrder.test.ts | 38 | 0 |  |
@@ -169,7 +169,7 @@
 | signals/tests/onCleanup.test.ts | 5 | 0 |  |
 | signals/tests/onSettled.test.ts | 13 | 0 |  |
 | signals/tests/optimistic-lane-release.test.ts | 1 | 3 |  |
-| signals/tests/optimistic-lane-transaction-ownership.test.ts | 0 | 2 |  |
+| signals/tests/optimistic-lane-transaction-ownership.test.ts | 1 | 1 |  |
 | signals/tests/optimistic-mount-binding-3835.test.ts | 0 | 2 |  |
 | signals/tests/optimistic-mount-nested-memo-3835.test.ts | 1 | 3 |  |
 | signals/tests/optimistic-move-duplicate-3548.test.ts | 1 | 0 |  |
@@ -288,9 +288,9 @@
 | signals/tests/transitionEntanglement.test.ts | 0 | 2 |  |
 | signals/tests/transitionMerge.test.ts | 0 | 1 |  |
 | signals/tests/treeshake.test.ts | 0 | 1 |  |
-| signals/tests/uninitialized-visibility.test.ts | 1 | 6 |  |
+| signals/tests/uninitialized-visibility.test.ts | 2 | 5 |  |
 | signals/tests/until-entanglement.test.ts | 1 | 5 |  |
-| signals/tests/until.test.ts | 7 | 10 |  |
+| signals/tests/until.test.ts | 8 | 9 |  |
 | signals/tests/untrack.test.ts | 3 | 0 |  |
 | signals/tests/untracked-async-read.test.ts | 1 | 2 |  |
 | signals/tests/untracked-read-after-await.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
@@ -657,7 +657,7 @@
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
 | web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 19 | 2 |  |
 | web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |
