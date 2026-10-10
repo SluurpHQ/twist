@@ -1950,7 +1950,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   /** A prerender: the boundaries it leaves pending, for a resume to finish (React's postponed state). */
   const reportPostponed = () => {
     if (!options.prerendering) return;
-    const left = (shared.bounds ?? []).filter((b) => b.flushed && b.status === 0).map((b) => [b.key!, b.id] as [string, number]);
+    // (Its shell never written, no preamble ready: the whole render is left to a resume.)
+    if (!shellWritten) return options.onPostponed?.({ root: true, next: 0, boundaries: [] });
+    const left =(shared.bounds ?? []).filter((b) => b.flushed && b.status === 0).map((b) => [b.key!, b.id] as [string, number]);
     options.onPostponed?.(left.length ? { next: shared.next, boundaries: left } : null);
   };
   const flow = () => {
