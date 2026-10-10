@@ -110,7 +110,8 @@ const BY_TAG: Record<string, string[]> = {
 
 /** An element just made: React's own listeners for the non-bubbling events its tag fires, bubbled in its root. */
 export function listenOnElement(el: Element, tag: string) {
-  for (const type of BY_TAG[tag] ?? []) listenAt(el, type);
+  // (Own entries only: a tag named like an object's property, <toString>, has none.)
+  for (const type of Object.hasOwn(BY_TAG, tag) ? BY_TAG[tag]! : []) listenAt(el, type);
 }
 
 /** A listener on the element for a non-bubbling `type` (onScroll's, a popover's toggle), once. */
