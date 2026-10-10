@@ -434,7 +434,15 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
             const b: Boundary = { prefix: ctx.idPrefix, tree: ctx.tree, id, children: props.children, values: new Map(ctx.values), svg: ctx.svg, select: ctx.select, vt: ctx.vt, scope: ctx.scope, waiting: e, stack: ctx.stack.slice(), deps, wrap: segmentWrap(ctx), suspendedAt: ctx.suspendedAt };
             ctx.suspendedAt = undefined;
             stream.shared.boundaries.push(b);
-            b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+            try {
+              b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+            } catch (f: any) {
+              // Its fallback suspends too: nothing to show yet, so what is around it waits on whichever settles first
+              // (the content, done, is then written in place; the fallback is never needed).
+              if (!f || typeof f.then !== "function") throw f;
+              stream.shared.boundaries.pop();
+              throw Promise.race([e, f]);
+            }
             ctx.lastText = false;
             return pendingMarkup(b);
           }
