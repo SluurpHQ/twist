@@ -2773,10 +2773,14 @@ function renderClass(f: Fiber, withRef: any) {
   const C = f.type;
   let props = withRef;
   if (withRef && "ref" in withRef) {
-    const { ref: _ref, ...rest } = withRef;
-    props = rest;
-    // The same props object while nothing else changed, so an update with equal props still bails out.
-    if (f.inst && shallowEqual(f.inst.props, rest)) props = f.inst.props;
+    // One object per props given (React resolves them once per element): rendered again with the same, it is the same.
+    if ((f as any).propsGiven === withRef) props = (f as any).propsResolved;
+    else {
+      const { ref: _ref, ...rest } = withRef;
+      props = rest;
+      (f as any).propsGiven = withRef;
+      (f as any).propsResolved = rest;
+    }
   }
   const ref = withRef?.ref;
   const ct = C.contextType;
@@ -2848,25 +2852,26 @@ function renderClass(f: Fiber, withRef: any) {
     const out = strictTwice(f, () => classRender(inst), true);
     propsReassigned(C, inst, props);
     if (inst.componentDidMount) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidMount()));
-    if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
     (f as any).classRef = ref;
     const done = inst.__done?.splice(0);
     if (done?.length) f.layout!.push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
+    if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
     return out;
   }
   const prevProps = inst.props;
   const prevState = inst.state;
   const prevCtx = inst.context;
   const prevRef = (f as any).classRef;
+  // Its ref attached after its other layout work (pushed last, below), the old one let go first.
+  const attach = prevRef !== ref && ref != null ? () => f.layout!.push(() => setRef(f, ref, inst)) : null;
   if (prevRef !== ref) {
     (f as any).classRef = ref;
     if (prevRef != null) deletions.push(() => clearRef(f, prevRef));
-    if (ref != null) f.layout!.push(() => setRef(f, ref, inst));
   }
   if (prevProps !== props || prevCtx !== ctx) call("componentWillReceiveProps", props, ctx);
   let [state, force] = apply(prevState, props);
   if (C.getDerivedStateFromProps) state = { ...state, ...derived(f, C, props, state) };
-  if (!force && prevProps === props && state === prevState && prevCtx === ctx) return KEEP;
+  if (!force && prevProps === props && state === prevState && prevCtx === ctx) return attach?.(), KEEP;
   // A PureComponent compares shallowly, unless it has a shouldComponentUpdate of its own (React's checkShouldComponentUpdate).
   const skip = () => (inst.shouldComponentUpdate ? !untrack(() => shouldUpdate(f, C, inst, props, state, ctx)) : !!C.prototype?.isPureReactComponent && shallowEqual(prevProps, props) && shallowEqual(prevState, state));
   // A new value of its contextType updates it whatever shouldComponentUpdate said (still asked), as React has it.
@@ -2877,6 +2882,7 @@ function renderClass(f: Fiber, withRef: any) {
     // Its setState callbacks are called even so (React's).
     const skipped = inst.__done?.splice(0);
     if (skipped?.length) f.layout!.push(() => lifecycle(f, () => skipped.forEach((cb: any) => callCallback(cb, inst))));
+    attach?.();
     return KEEP;
   }
   call("componentWillUpdate", props, state, ctx);
@@ -2891,6 +2897,7 @@ function renderClass(f: Fiber, withRef: any) {
   if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
   if (done?.length) f.layout!.push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
+  attach?.();
   return out;
 }
 const FORCE = Symbol("force");

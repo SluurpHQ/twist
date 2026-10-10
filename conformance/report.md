@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3949 pass, 133 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3950 pass, 132 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -13,7 +13,7 @@
 | react-dom/ReactBrowserEventEmitter-test.js | 9 | 1 | 0 |  |
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactComponent-test.js | 18 | 1 | 2 |  |
+| react-dom/ReactComponent-test.js | 19 | 0 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 25 | 1 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 40 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
