@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5605 pass, 1096 fail, 714 files (32 did not load, 121 test Solid's internals)
+5607 pass, 1094 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -211,7 +211,7 @@
 | signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |
 | signals/tests/snapshot-derived-store-rows.test.ts | 4 | 1 |  |
 | signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
-| signals/tests/spec-async-semantics.test.ts | 32 | 20 |  |
+| signals/tests/spec-async-semantics.test.ts | 33 | 19 |  |
 | signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
 | signals/tests/store-unchanged-read-independent-write-3688.test.ts | 2 | 2 |  |
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
@@ -236,7 +236,7 @@
 | signals/tests/store/fold-scheduling.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
 | signals/tests/store/fold-slot-identity.test.ts | 0 | 6 |  |
 | signals/tests/store/kanban-a17-fixture.test.ts | 2 | 1 |  |
-| signals/tests/store/lane-authority-twins.test.ts | 1 | 6 |  |
+| signals/tests/store/lane-authority-twins.test.ts | 3 | 4 |  |
 | signals/tests/store/latest-read-after-write-3576.test.ts | 0 | 1 |  |
 | signals/tests/store/native-collections.test.ts | 9 | 1 |  |
 | signals/tests/store/next-smoke.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/target.js' |
@@ -657,7 +657,7 @@
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
 | web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 19 | 2 |  |
 | web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |

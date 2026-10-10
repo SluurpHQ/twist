@@ -248,7 +248,7 @@ export function commitRecord(r: Record_) {
   for (const [key, v] of p) {
     // A new value of a key it has (not its length), on an object read through a store: staged on its node, as a signal's write (a hold keeps it off).
     const own = Object.getOwnPropertyDescriptor(t, key);
-    if (isFlushing() && proxies.has(t) && v !== DELETE && key !== "length" && own && "value" in own && (own.writable || own.configurable)) {
+    if (isFlushing() && (proxies.has(t) || derives.has(t)) && v !== DELETE && key !== "length" && own && "value" in own && (own.writable || own.configurable)) {
       const n = node(t, key);
       const prev = latestGet(t, key);
       if (Object.is(prev, v)) continue;
