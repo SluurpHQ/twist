@@ -2,7 +2,7 @@
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -55,7 +55,8 @@ class KeyNode extends Signal<number> {
     if (this.raw !== NO_RAW) {
       const t = this.record.target;
       const desc = Object.getOwnPropertyDescriptor(t, this.key);
-      if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(t, this.key, { ...desc, value: this.raw });
+      if (this.raw === DELETE) delete t[this.key];
+      else if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(t, this.key, { ...desc, value: this.raw });
       else t[this.key] = this.raw;
       this.raw = NO_RAW;
     }
@@ -66,14 +67,62 @@ const NO_RAW: unique symbol = Symbol("no-raw");
 
 /** `target[key]` in the world being read: a staged write where the reader sees it, else the object's. */
 function rawGet(target: Raw, key: PropertyKey): any {
+  const n = seenStaged(target, key);
+  if (!n) return target[key];
+  return n.raw === DELETE ? undefined : n.raw;
+}
+function rawHas(target: Raw, key: PropertyKey): boolean {
+  const n = seenStaged(target, key);
+  if (!n) return key in target;
+  return n.raw !== DELETE;
+}
+/** The keys in the world being read: the object's, with the staged additions and removals the reader sees. */
+function rawKeys(target: Raw): (string | symbol)[] {
+  const r = records.get(target);
+  const own = Reflect.ownKeys(target);
+  if (!r) return own;
+  let keys: Set<string | symbol> | null = null;
+  for (const [k, n] of r.nodes) {
+    if (n.raw === NO_RAW || k === "length" || typeof k === "symbol" && k === $TRACK) continue;
+    if (n.current() === n.value) continue;
+    keys ??= new Set(own);
+    n.raw === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+  }
+  if (!keys) return own;
+  if (Array.isArray(target)) {
+    const len = rawGet(target, "length");
+    for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+  }
+  return [...keys];
+}
+/** The key's node when it has a staged write the reader sees. */
+function seenStaged(target: Raw, key: PropertyKey): KeyNode | null {
   const n = records.get(target)?.nodes.get(key);
-  if (!n || n.raw === NO_RAW) return target[key];
-  return n.current() === n.value ? target[key] : n.raw;
+  if (!n || n.raw === NO_RAW) return null;
+  return n.current() === n.value ? null : n;
 }
 /** The newest `target[key]`, staged or not (what a draft builds on). */
 function latestGet(target: Raw, key: PropertyKey): any {
   const n = records.get(target)?.nodes.get(key);
-  return n && n.raw !== NO_RAW ? n.raw : target[key];
+  if (!n || n.raw === NO_RAW) return target[key];
+  return n.raw === DELETE ? undefined : n.raw;
+}
+function latestHas(target: Raw, key: PropertyKey): boolean {
+  const n = records.get(target)?.nodes.get(key);
+  if (!n || n.raw === NO_RAW) return key in target;
+  return n.raw !== DELETE;
+}
+function latestKeys(target: Raw): (string | symbol)[] {
+  const r = records.get(target);
+  const own = Reflect.ownKeys(target);
+  if (!r) return own;
+  const keys = new Set(own);
+  for (const [k, n] of r.nodes) if (n.raw !== NO_RAW && k !== "length") n.raw === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+  if (Array.isArray(target)) {
+    const len = latestGet(target, "length");
+    for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+  }
+  return [...keys];
 }
 
 /**
@@ -107,7 +156,8 @@ const readHandler: ProxyHandler<Raw> = {
     const desc = Object.getOwnPropertyDescriptor(target, key);
     // Getters run against the proxy, so what they read is tracked.
     if (desc?.get) return desc.get.call(receiver);
-    if (isTracking()) node(target, key).read();
+    // (Through an overlay the guess is the value: no held write under it is read.)
+    if (isTracking()) records.get(target)?.overlay?.has(key) ? trackNode(node(target, key)) : node(target, key).read();
     const v = viewGet(target, key);
     if (Array.isArray(target) && key === "length") return v;
     // A method of an array (or anything inherited) is not a property of the state.
@@ -116,7 +166,7 @@ const readHandler: ProxyHandler<Raw> = {
   },
   has(target, key) {
     if (key === $PROXY || key === $TARGET) return true;
-    if (isTracking()) node(target, key).read();
+    if (isTracking()) records.get(target)?.overlay?.has(key) ? trackNode(node(target, key)) : node(target, key).read();
     return viewHas(target, key);
   },
   ownKeys(target) {
@@ -126,6 +176,8 @@ const readHandler: ProxyHandler<Raw> = {
   getOwnPropertyDescriptor(target, key) {
     const o = records.get(target)?.overlay?.get(key);
     if (o) return o.v === DELETE ? undefined : { value: leaf(target, key, o.v), writable: true, enumerable: true, configurable: true };
+    const n = seenStaged(target, key);
+    if (n) return n.raw === DELETE ? undefined : { value: leaf(target, key, n.raw), writable: true, enumerable: true, configurable: true };
     const desc = Reflect.getOwnPropertyDescriptor(target, key);
     if (!desc || desc.get || !desc.configurable) return desc;
     return { ...desc, value: leaf(target, key, desc.value) };
@@ -153,12 +205,12 @@ function viewGet(target: Raw, key: PropertyKey): any {
 function viewHas(target: Raw, key: PropertyKey): boolean {
   const o = records.get(target)?.overlay?.get(key);
   if (o) return o.v !== DELETE;
-  return key in target;
+  return rawHas(target, key);
 }
 function viewKeys(target: Raw): (string | symbol)[] {
   const overlay = records.get(target)?.overlay;
-  if (!overlay?.size) return Reflect.ownKeys(target);
-  const keys = new Set<string | symbol>(Reflect.ownKeys(target));
+  if (!overlay?.size) return rawKeys(target);
+  const keys = new Set<string | symbol>(rawKeys(target));
   for (const [k, o] of overlay) o.v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
   if (Array.isArray(target)) {
     const len = viewGet(target, "length");
@@ -213,7 +265,7 @@ function pendingValue(target: Raw, key: PropertyKey): any {
 function pendingHas(target: Raw, key: PropertyKey): boolean {
   const p = records.get(target)?.pending;
   if (p && p.has(key)) return p.get(key) !== DELETE;
-  return key in target;
+  return latestHas(target, key);
 }
 
 /** Records with pending writes, committed at the next flush. */
@@ -243,18 +295,22 @@ export function commitRecord(r: Record_) {
   if (!p) return false;
   const t = r.target;
   let shape = false;
+  let stagedShape = false;
   const lenBefore = Array.isArray(t) ? t.length : 0;
   const told = DEV.hooks.onStoreNodeUpdate;
   for (const [key, v] of p) {
     // A new value of a key it has (not its length), on an object read through a store: staged on its node, as a signal's write (a hold keeps it off).
     const own = Object.getOwnPropertyDescriptor(t, key);
-    if (isFlushing() && (proxies.has(t) || derives.has(t)) && v !== DELETE && key !== "length" && own && "value" in own && (own.writable || own.configurable)) {
-      const n = node(t, key);
+    if (isFlushing() && (proxies.has(t) || derives.has(t)) && (!own || ("value" in own && (own.writable || own.configurable)))) {
+      const had = latestHas(t, key);
       const prev = latestGet(t, key);
-      if (Object.is(prev, v)) continue;
-      if (told) told(wrap(t), key, v, prev);
+      if (v === DELETE ? !had : had && Object.is(prev, v) && key !== "length") continue;
+      if (key === "length" && Object.is(prev, v)) continue;
+      if (told) told(wrap(t), key, v === DELETE ? undefined : v, prev);
+      const n = node(t, key);
       n.raw = v;
       n.stage(++n.seq);
+      if (v === DELETE || !had || key === "length") stagedShape = true;
       continue;
     }
     if (told) {
@@ -281,6 +337,8 @@ export function commitRecord(r: Record_) {
     // Indices past a shorter length are gone: their readers told.
     for (const [k, n] of r.nodes) if (typeof k === "string" && /^\d+$/.test(k) && +k >= t.length && +k < lenBefore) n.bump();
   }
+  // (Staged shape changes: what enumerates the object follows them as a staged write too.)
+  if (stagedShape) r.keys.stage(++r.keys.seq);
   return shape;
 }
 
@@ -298,7 +356,7 @@ const draftHandler: ProxyHandler<Raw> = {
   },
   has: (target, key) => pendingHas(target, key),
   ownKeys(target) {
-    const keys = new Set<string | symbol>(Reflect.ownKeys(target));
+    const keys = new Set<string | symbol>(latestKeys(target));
     const p = records.get(target)?.pending;
     if (p) for (const [k, v] of p) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
     if (Array.isArray(target)) {

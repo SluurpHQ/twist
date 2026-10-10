@@ -554,6 +554,14 @@ export class Signal<T> extends Node<T> {
 /** Whether a flush is running (a write staged now is promoted by it). */
 export const isFlushing = () => flushing > 0;
 
+/** `n` tracked by what reads now, its value not read (a store key shown through an optimistic overlay). */
+export function trackNode(n: Node<any>) {
+  if (!listener) return;
+  listener.track(n);
+  // (Like a verdict read: what it shows is not the held write, so it joins no hold.)
+  (listener.verdict ??= new Set()).add(n);
+}
+
 /** Whether something tracks what is read now. */
 export const isTracking = () => listener !== null;
 

@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5608 pass, 1093 fail, 714 files (32 did not load, 121 test Solid's internals)
+5631 pass, 1070 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -140,7 +140,7 @@
 | signals/tests/late-pending-equality.test.ts | 6 | 2 |  |
 | signals/tests/latest-async.test.ts | 1 | 0 |  |
 | signals/tests/latest-created-inside-window.test.ts | 2 | 0 |  |
-| signals/tests/latest-held-till-flush.test.ts | 15 | 7 |  |
+| signals/tests/latest-held-till-flush.test.ts | 18 | 4 |  |
 | signals/tests/latest-isPending-consistency.test.ts | 6 | 2 |  |
 | signals/tests/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |
 | signals/tests/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |
@@ -213,7 +213,7 @@
 | signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
 | signals/tests/spec-async-semantics.test.ts | 33 | 19 |  |
 | signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
-| signals/tests/store-unchanged-read-independent-write-3688.test.ts | 2 | 2 |  |
+| signals/tests/store-unchanged-read-independent-write-3688.test.ts | 3 | 1 |  |
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
 | signals/tests/store/async-setter.test.ts | 6 | 2 |  |
 | signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |
@@ -225,7 +225,7 @@
 | signals/tests/store/deep-chained-view.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
 | signals/tests/store/deep-held-visibility.test.ts | 0 | 1 |  |
 | signals/tests/store/deep-overlay-rewalk.test.ts | 3 | 0 |  |
-| signals/tests/store/derived-optimistic-retained-row-3859.test.ts | 0 | 2 |  |
+| signals/tests/store/derived-optimistic-retained-row-3859.test.ts | 2 | 0 |  |
 | signals/tests/store/derived-optimistic-shadow.test.ts | 4 | 0 |  |
 | signals/tests/store/derived-presence-async-3726.test.ts | 3 | 5 |  |
 | signals/tests/store/derived-retained-draft-row-3767.test.ts | 2 | 1 |  |
@@ -270,7 +270,7 @@
 | signals/tests/store/signal-store-twins-qd.test.ts | 1 | 3 |  |
 | signals/tests/store/store-in-store-tracking.test.ts | 2 | 5 |  |
 | signals/tests/store/storePath.test.ts | 29 | 0 |  |
-| signals/tests/store/unchanged-presence-no-hold-3743.test.ts | 1 | 8 |  |
+| signals/tests/store/unchanged-presence-no-hold-3743.test.ts | 3 | 6 |  |
 | signals/tests/store/utilities-no-proxy.test.ts | 0 | 1 | SyntaxError: Export named 'hasStaticKeys' not found |
 | signals/tests/store/utilities.test.ts | 0 | 1 | not ours: SyntaxError: Export named '$RECORD' not found |
 | signals/tests/store/woken-transaction-adopts-staged-bump.test.ts | 1 | 0 |  |
@@ -298,7 +298,7 @@
 | signals/tests/verdict-mount-first-pass-3851.test.ts | 0 | 3 |  |
 | signals/tests/verdict-mount-loading-flush-loop.test.ts | 4 | 0 |  |
 | signals/tests/visibility-oracle-posture.test.ts | 1184 | 0 |  |
-| signals/tests/visibility-oracle-store.test.ts | 112 | 41 |  |
+| signals/tests/visibility-oracle-store.test.ts | 127 | 26 |  |
 | signals/tests/visibility-oracle.test.ts | 96 | 30 |  |
 | signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
 | signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |
