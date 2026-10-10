@@ -30,11 +30,11 @@ function hostPath(f: FiberLike | null): FiberLike[] {
   return out;
 }
 
-function enterLeave(native: Event, roots: Set<object>) {
+function enterLeave(native: Event, roots: Set<object>, replay = false) {
   const [enter, leave, over] = ENTER_LEAVE[native.type]!;
   const related = (native as MouseEvent).relatedTarget as Node | null;
   // Coming from an element React draws: its mouseout already did this.
-  if (over && related && nearestAny(related)) return;
+  if (over && related && nearestAny(related) && !replay) return;
   const fromNode = over ? null : (native.target as Node);
   const toNode = over ? (native.target as Node) : related;
   const from = fromNode ? nearest(fromNode, roots) : null;
@@ -203,8 +203,10 @@ export const hydrateBeforeEvents = (fn: typeof hydrateFor) => void (hydrateFor =
 
 /** Events that hover or move over what is still hydrating: the latest of each kind, replayed once it has hydrated. */
 export const CONTINUOUS = new Set("focusin focusout dragenter dragleave mouseover mouseout pointerover pointerout gotpointercapture lostpointercapture".split(" "));
+/** Those that enter something: queued; the others (out, leave, focusout…) clear what their kind queued. */
+export const ENTERING = new Set("focusin dragenter mouseover pointerover gotpointercapture".split(" "));
 const queued = new Map<string, { native: Event; container: EventTarget; roots: Set<object> }>();
-const kindOf = (e: Event) =>
+export const kindOf = (e: Event) =>
   e.type.startsWith("focus") ? "focus" : e.type.startsWith("drag") ? "drag" : e.type.startsWith("mouse") ? "mouse" : "pointer:" + ((e as PointerEvent).pointerId ?? "");
 /** The queued events whose target has hydrated, run now (both phases, with the original native event). */
 export function replayQueued() {
@@ -220,7 +222,8 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
   if (native.target && !replay) {
     const continuous = CONTINUOUS.has(native.type);
     if (hydrateFor(native.target as Node, roots, native, continuous) && continuous && capture) {
-      queued.set(kindOf(native), { native, container, roots });
+      if (ENTERING.has(native.type)) queued.set(kindOf(native), { native, container, roots });
+      else queued.delete(kindOf(native));
       return false;
     }
   }
@@ -273,7 +276,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
     }
   }
   synthetic.__current = null;
-  if (!capture && native.type in ENTER_LEAVE) enterLeave(native, roots);
+  if (!capture && native.type in ENTER_LEAVE) enterLeave(native, roots, replay);
   // A form's action, after its onSubmit handlers (they may prevent it).
   if (!capture && native.type === "submit") onSubmit(native as SubmitEvent, transitionsStarted() !== transitionsBefore);
   if (!capture) after((native.target as Element) ?? (container as Element), native);

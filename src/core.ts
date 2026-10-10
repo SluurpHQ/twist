@@ -6,7 +6,7 @@ import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRA
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
-import { DEHYDRATED, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, listenOnElement, replayQueued } from "./events.ts";
+import { CONTINUOUS, DEHYDRATED, ENTERING, addContainer, countDehydrated, countTransitionsWith, hydrateBeforeEvents, kindOf, listenOnElement, replayQueued, want } from "./events.ts";
 import { configureViewTransitions, renderInViewTransition, resetViewTransitions, viewTransitionUnmounted, viewTransitionsBegin, viewTransitionsCommit } from "./view-transition.ts";
 import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
@@ -1224,7 +1224,7 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   }
   (region.start as any)[BOUNDARY] = f;
   // A continuous event's target inside: it hydrates before the others (React raises its lane).
-  for (const t of hoverTargets) if (inRegion(region, t.node)) (f as any).targeted = Math.min((f as any).targeted ?? Infinity, t.seq);
+  for (const t of hoverTargets.values()) if (inRegion(region, t.node)) (f as any).targeted = Math.min((f as any).targeted ?? Infinity, t.seq);
   // Hydrated in a pass of its own after this one (React's OffscreenLane: the server's content is shown already), unless
   // an event is hydrating its way to a target inside.
   if ((!selectiveTarget || !inRegion(region, selectiveTarget)) && !holdsSingleton(region) && !rendersSingleton(f.props?.children)) {
@@ -1257,11 +1257,17 @@ function scheduleHydration(f: Fiber) {
     toHydrate.clear();
     // Those an event targeted each in a render of its own (their raised lanes), its events replayed after; the rest
     // together, in one render and one commit (React's OffscreenLane).
-    const rest: Fiber[] = [];
+    let rest: Fiber[] = [];
     for (const g of ready) {
       if ((g as any).targeted === undefined) rest.push(g);
       else retryBoundary(g), replayQueued();
     }
+    // (With those the targeted ones left waiting inside them, in document order.)
+    for (const g of toHydrate) if ((g as any).targeted === undefined) rest.push(g), toHydrate.delete(g);
+    rest = rest.sort((a, b) => {
+      const sa = (a as any).region?.start as Node | undefined, sb = (b as any).region?.start as Node | undefined;
+      return sa && sb ? (sa.compareDocumentPosition(sb) & 4 ? -1 : 1) : 0;
+    });
     if (rest.length) {
       depth++;
       try {
@@ -1275,7 +1281,9 @@ function scheduleHydration(f: Fiber) {
   });
 }
 /** Where continuous events went before what they hovered could hydrate: its boundary goes first, when there is one. */
-const hoverTargets: { node: Node; seq: number }[] = [];
+const hoverTargets = new Map<string, { node: Node; seq: number }>();
+/** The kind of continuous event, of which only the latest counts (React's queuedFocus, queuedDrag, queuedMouse…). */
+const hoverKind = kindOf;
 
 /** The node an event hydrates for (React's selective hydration): boundaries not holding it wait. */
 let selectiveTarget: Node | null = null;
@@ -1306,19 +1314,23 @@ function inRegion(region: { start: Comment; end: Comment }, n: Node): boolean {
 
 // An event on what has not hydrated: its root hydrated now, then the dehydrated boundaries around its target,
 // outermost first (each with the target, so the boundaries beside it wait).
-hydrateBeforeEvents((target, roots, _native, continuous) => {
+hydrateBeforeEvents((target, roots, native, continuous) => {
   if (continuous) {
     // Not hydrated at once: its boundary raised, the root's hydration left to its turn, the event queued.
     const pending = [...roots].some((r) => (r as any).hydratePending?.());
     const f = dehydratedAround(target, roots);
+    // Leaving: what its kind queued is cleared, nothing raised.
+    if (!ENTERING.has(native.type)) {
+      hoverTargets.delete(hoverKind(native));
+      return !!f || pending;
+    }
     if (f) {
       (f as any).targeted = ++targetSeq;
       scheduleHydration(f);
       return true;
     }
     if (pending) {
-      hoverTargets.push({ node: target, seq: ++targetSeq });
-      if (hoverTargets.length > 20) hoverTargets.shift();
+      hoverTargets.set(hoverKind(native), { node: target, seq: ++targetSeq });
       return true;
     }
     return false;
@@ -3248,7 +3260,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), (hoverTargets.length = 0), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), hoverTargets.clear(), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -3993,6 +4005,9 @@ const HYDRATE = Symbol("hydrate");
 export function createRoot(container: Element | DocumentFragment, options?: any) {
   if (!validContainer(container)) throw new Error("Target container is not a DOM element.");
   const hydrating_ = !!options?.[HYDRATE];
+  // Heard from the start while it hydrates (React listens to every event at once): what hovers or moves over markup
+  // not hydrated yet is queued and replayed.
+  if (hydrating_) for (const t of CONTINUOUS) want(t);
   if (dev()) {
     if ((container as any).__root) {
       console.error("You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before. Instead, call root.render() on the existing root instead if you want to update it.");
@@ -4308,7 +4323,7 @@ Check the render method of ${nameOf(owner.type)}.`));
       if (f) {
         (f as any).targeted = -++targetSeq;
         scheduleHydration(f);
-      } else hoverTargets.push({ node: target, seq: -++targetSeq });
+      } else hoverTargets.set("explicit:" + targetSeq, { node: target, seq: -++targetSeq });
     },
     unmount(...rest: any[]) {
       if (dev() && typeof rest[0] === "function") console.error("does not support a callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
