@@ -623,6 +623,9 @@ export class Computation<T> extends Node<T> implements Owner {
   error: unknown = NONE;
   /** The lane this pass is work of (it read a guess in an unrevealed lane), else null. */
   passLane: Transaction | null = null;
+  /** The parent whose lane's reveal runs it next (and, while that run lasts, `revealing`). */
+  revealOf: Transaction | null = null;
+  revealing: Transaction | null = null;
   /** This pass read the frame under a hold or an unrevealed lane (it runs again when that lands). */
   staleRead = false;
   heldOnly = false;
@@ -834,6 +837,8 @@ export class Computation<T> extends Node<T> implements Owner {
 
     if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
     this.passLane = null;
+    this.revealing = this.revealOf;
+    this.revealOf = null;
     this.staleRead = false;
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     this.heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
@@ -1568,7 +1573,7 @@ function heldRead<T>(n: Node<T>): T {
       return n.value;
     }
   }
-  if (!born && (l.kind === RENDER || l.verdictReader) && l.tx?.root !== t && !(l.ranAt === -1 && l.tx)) {
+  if (!born && (l.kind === RENDER || l.verdictReader) && (l.tx?.root !== t || (l.revealing === t && !(n instanceof Computation))) && !(l.ranAt === -1 && l.tx)) {
     t.stale.add(l);
     l.staleRead = true;
     return n.value;
@@ -1714,7 +1719,12 @@ function commitTransactions() {
     for (const end of t.ends.splice(0)) end();
     // (An effect that also read this frame stale runs again now: what it held is dropped, one frame shows.)
     for (const e of t.effects) if (e.due && !t.stale.has(e)) applies[e.kind as 1 | 2].push(e);
-    for (const e of t.stale) if (!e.disposed) e.due && !e.tracked && ((e.due = false), (e.staged = NONE as any)), e.mark(DIRTY);
+    for (const e of t.stale) {
+      if (e.disposed) continue;
+      e.due && !e.tracked && ((e.due = false), (e.staged = NONE as any)), e.mark(DIRTY);
+      // A lane revealed: its effects show it over the parent's world as committed (the parent's commit runs them again).
+      if (t.parentTx && e.kind !== MEMO) e.revealOf = t.parentTx.root;
+    }
     statusChanged();
   }
 }

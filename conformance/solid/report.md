@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5601 pass, 1100 fail, 714 files (32 did not load, 121 test Solid's internals)
+5603 pass, 1098 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -75,7 +75,7 @@
 | signals/tests/createLoadingBoundary.on.test.ts | 7 | 0 |  |
 | signals/tests/createLoadingBoundary.test.ts | 19 | 7 |  |
 | signals/tests/createMemo.test.ts | 69 | 11 |  |
-| signals/tests/createOptimistic.test.ts | 58 | 10 |  |
+| signals/tests/createOptimistic.test.ts | 59 | 9 |  |
 | signals/tests/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
 | signals/tests/createReaction.test.ts | 2 | 3 |  |
 | signals/tests/createRevealOrder.test.ts | 38 | 0 |  |
@@ -657,7 +657,7 @@
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
 | web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 19 | 2 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
 | web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |
