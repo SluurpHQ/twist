@@ -65,7 +65,15 @@ type Ctx = {
   vt: VTContext | null;
   scope: number;
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
-  streaming?: { shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown }; chunk: number; inlined: number }; onError: (e: unknown, at?: string) => any };
+  streaming?: {
+    shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown }; chunk: number; inlined: number; bounds?: SBoundary[] };
+    onError: (e: unknown, at?: string) => any;
+    /** A child that suspended: a task of its own, the marker of its place returned. */
+    spawn?: (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => string;
+  };
+  /** The boundary being rendered into (null: the shell), and the one whose fallback is. */
+  container?: SBoundary | null;
+  fallbackOf?: SBoundary | null;
 };
 
 function attrs(props: any, ctx: Ctx, tag: string) {
@@ -299,6 +307,8 @@ function render(node: any, ctx: Ctx, hooks: any): string {
     return renderFrame(node, ctx, hooks);
   } catch (e) {
     if (e && typeof e === "object" && typeof (e as any).then !== "function" && !stacks.has(e)) stacks.set(e, stackText(ctx.stack));
+    // Streaming: what suspends is retried on its own later (React's spawned task); its siblings go on.
+    else if (e && typeof (e as any).then === "function" && ctx.streaming?.spawn && !ctx.static) return ctx.streaming.spawn(node, ctx, !!name, e as any);
     else if (e && typeof (e as any).then === "function" && ctx.suspendedAt === undefined) ctx.suspendedAt = stackText(ctx.stack);
     throw e;
   } finally {
@@ -377,6 +387,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
   if (typeof type === "string") return host(type, props, ctx, hooks);
   if (typeof type === "symbol") {
     if (type === SUSPENSE) {
+      if (ctx.streaming?.spawn && !ctx.static) return streamSuspense(props, ctx, hooks);
       // Between markers, so the client finds the boundary: complete ($), pending ($?), or left to the client ($!).
       const queued = ctx.streaming?.shared.boundaries.length ?? 0;
       // Its own stylesheets and style rules: its parent's if it completes here, its own if it waits.
@@ -1036,6 +1047,77 @@ export function renderToString(node: any, options?: any) {
   const html = onceSync(node, ctx);
   return withPreamble(html, ctx.res.preamble("", ""));
 }
+/**
+ * A streamed Suspense boundary (React's renderSuspenseBoundary): its content rendered now, each part that suspends a
+ * task of the boundary's; done when they are. Its fallback only when it waits, its tasks the parent's (dropped if
+ * the content is done first). In the output, a marker: what it becomes is decided when its parent is written.
+ */
+function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
+  const s = ctx.streaming!;
+  const bounds = (s.shared.bounds ??= []);
+  const parent = ctx.container ?? null;
+  const b: SBoundary = { idx: bounds.length, id: -1, prefix: ctx.idPrefix, status: 0, pending: 0, content: "", fallback: "", parent, flushed: false, deps: { sheets: new Set(), styles: new Set() }, wrap: segmentWrap(ctx), stack: ctx.stack.slice(), fallbackTasks: new Set() };
+  bounds.push(b);
+  const parentDeps = ctx.res.boundary;
+  ctx.res.boundary = b.deps;
+  ctx.container = b;
+  ctx.lastText = false;
+  try {
+    b.content = suspenseFrame(ctx, false, () => render(props.children, ctx, hooks));
+  } catch (e: any) {
+    // An error inside it: its fallback, the client renders it again (React's behaviour). (After an abort, the abort
+    // is what it tells.)
+    if (!s.shared.aborted) {
+      b.status = 2;
+      b.error = { digest: s.onError(e), message: errored(e), error: e };
+    }
+  } finally {
+    ctx.res.boundary = parentDeps;
+    ctx.container = parent;
+  }
+  // Aborted while it rendered (or before): left to the client, the reason told for it.
+  const why = s.shared.aborted;
+  if (why && b.status !== 2 && b.status !== 1) {
+    const at = stackText(ctx.stack);
+    b.status = 2;
+    b.error = { digest: s.onError(why.reason, at), message: aborted((why.reason as any)?.message ?? String(why.reason)), at };
+  }
+  if (b.status === 0 && b.pending === 0) {
+    b.status = 1;
+    mergeDeps(b, parentDeps);
+  }
+  if (b.status !== 1) {
+    const was = ctx.fallbackOf;
+    ctx.fallbackOf = b;
+    ctx.lastText = false;
+    try {
+      b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+    } finally {
+      ctx.fallbackOf = was;
+    }
+  } else b.renderFallback = snapshotFallback(props.fallback, ctx);
+  ctx.lastText = false;
+  return `\u0000B${b.idx}\u0000`;
+}
+
+/** A boundary done before its parent is out: its stylesheets and style rules are its parent's (React hoists them). */
+function mergeDeps(b: SBoundary, into: { sheets: Set<any>; styles: Set<any> } | null | undefined) {
+  if (into) for (const k of ["sheets", "styles"] as const) for (const x of b.deps[k]) into[k].add(x);
+}
+
+/** A complete boundary's fallback, rendered later if it is outlined (sent after its parent). */
+function snapshotFallback(fallback: any, ctx: Ctx) {
+  const snap = snapshot(ctx, false);
+  return () => {
+    const c: Ctx = { ...snap, values: new Map(snap.values), stack: snap.stack.slice() };
+    const hooks = serverHooks(c);
+    return withHooks(hooks, () => fallbackFrame(c, () => render(fallback, c, hooks)));
+  };
+}
+
+/** Where rendering is, kept for a task that renders there later. */
+const snapshot = (ctx: Ctx, pushed: boolean): Ctx => ({ ...ctx, values: new Map(ctx.values), stack: pushed ? ctx.stack.slice(0, -1) : ctx.stack.slice() });
+
 /** Plain markup, for pages no client hydrates: no text separators and no Suspense or Activity comments. */
 export function renderToStaticMarkup(node: any, options?: any) {
   const ctx = fresh();
@@ -1094,6 +1176,8 @@ function prerenderHtml(node: any, options: any): Promise<string> {
     };
     const abort = (reason: unknown) => {
       aborting = true;
+      // Aborted while its shell renders: told through the render's own hook.
+      if (!run && abortNow) return abortNow(reason);
       // Not started yet: started now, and aborted at once (its errors told as React tells them).
       if (!run) begin();
       run?.abort(reason);
@@ -1139,6 +1223,27 @@ const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c
 /** A boundary as the shell writes it while it waits: its template, then its fallback. */
 const pendingMarkup = (b: Boundary) => `<!--$?--><template id="${b.prefix ?? ""}B:${b.id}"></template>${b.fallback}<!--/$-->`;
 
+/** A streamed boundary: pending (0), complete (1), or left to the client (2). */
+type SBoundary = {
+  idx: number;
+  id: number;
+  prefix: string;
+  status: 0 | 1 | 2;
+  pending: number;
+  content: string;
+  fallback: string;
+  renderFallback?: () => string;
+  parent: SBoundary | null;
+  /** Its parent was written: what becomes of it now is sent as a script. */
+  flushed: boolean;
+  deps: { sheets: Set<any>; styles: Set<any> };
+  wrap: [string, string];
+  stack: string[];
+  fallbackTasks: Set<STask>;
+  error?: { digest: unknown; message: string; error?: unknown; at?: string };
+};
+/** A part that suspended: rendered again on its own when what it waits on settles. 0 pending, 1 done, 2 dropped. */
+type STask = { idx: number; node: any; snap: Ctx; container: SBoundary | null; fallbackOf: SBoundary | null; lastText: boolean; at: string; out?: string; state: 0 | 1 | 2 };
 type Boundary = { prefix?: string; tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; vt?: VTContext | null; scope?: number; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
 
 /** A string's size in UTF-8 bytes (what React measures a boundary by). */
@@ -1232,6 +1337,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     streaming: { shared, onError },
   });
   let postamble = "";
+  // Every task (each a part that suspended), the shell's still pending, and all still pending.
+  const tasks: STask[] = [];
+  let rootPending = 0;
+  let allPending = 0;
+  let rootContent = "";
   const close = () => {
     if (closed) return;
     closed = true;
@@ -1240,131 +1350,184 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     if (postamble) write(postamble);
     finish();
   };
-  /** In the held shell: the boundary's pending markup replaced. */
-  const inShell = (b: Boundary, markup: string) => {
-    if (held === null) return false;
-    const at = held.indexOf(pendingMarkup(b));
-    if (at < 0) return false;
-    held = held.slice(0, at) + markup + held.slice(at + pendingMarkup(b).length);
-    return true;
+  const maybeClose = () => {
+    if (shellDone && allPending === 0 && !closed) close();
   };
-  const watch = () => {
-    for (const b of shared.boundaries.splice(0)) {
-      pending.add(b);
-      const retry = () => (closed ? undefined : settle(b));
-      b.waiting.then(retry, retry);
-    }
-    if (!pending.size) close();
+  const spawn = (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => {
+    const t: STask = { idx: tasks.length, node, snap: snapshot(ctx, pushed), container: ctx.container ?? null, fallbackOf: ctx.fallbackOf ?? null, lastText: ctx.lastText, at: stackText(ctx.stack), state: 0 };
+    tasks.push(t);
+    // (The new segment takes the text before it: what follows it starts afresh.)
+    ctx.lastText = false;
+    if (t.container) t.container.pending++;
+    else rootPending++;
+    allPending++;
+    t.fallbackOf?.fallbackTasks.add(t);
+    const ping = () => retry(t);
+    thenable.then(ping, ping);
+    return `\u0000T${t.idx}\u0000`;
   };
-  const settle = (b: Boundary) => {
-    pending.delete(b);
-    const ctx = ctxFor(b);
-    let inner: string;
-    if (b.done !== undefined) return reveal(b, ctx, b.done);
-    // Its stylesheets and style rules, kept across its renders (each retry meets what the last one did).
-    const deps = (b.deps ??= { sheets: new Set<any>(), styles: new Set<any>() });
-    // What it sent before is sent once only; this render records it all again.
-    res.replay = new Map();
-    for (const h of (deps as any).emitted ?? []) res.replay.set(h, (res.replay.get(h) ?? 0) + 1);
-    (deps as any).emitted = [];
-    res.boundary = deps;
-    const queued = shared.boundaries.length;
+  /** A task's part rendered again where it was (React's retryTask). */
+  const retry = (t: STask) => {
+    if (t.state !== 0 || closed) return;
+    // Its boundary given to the client meanwhile: nothing to render.
+    if (t.container?.status === 2) return settled(t, 2);
+    const ctx: Ctx = { ...t.snap, values: new Map(t.snap.values), stack: t.snap.stack.slice(), lastText: t.lastText };
+    ctx.res.boundary = t.container ? t.container.deps : null;
+    const was = rendering_;
+    rendering_ = res;
+    let out: string;
     try {
-      inner = suspenseFrame(ctx, false, () => once(b.children, ctx));
+      const hooks = serverHooks(ctx);
+      out = withHooks(hooks, () => render(t.node, ctx, hooks));
     } catch (e: any) {
-      res.boundary = res.replay = null;
-      if (e && typeof e.then === "function") {
-        // Still waiting on something else: the boundary waits again; what it found so far is preloaded now,
-        // as React flushes the resources of the parts that have rendered.
-        b.waiting = e;
-        if (ctx.suspendedAt !== undefined) b.suspendedAt = ctx.suspendedAt;
-        shared.boundaries.length = queued;
-        shared.boundaries.push(b);
-        if (flowing) {
-          const early = res.late() + res.lateStyleTags(deps);
-          if (early) write(early);
-        }
-        return watch();
-      }
-      const digest = onError(e);
-      if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, errored(e), e)}${b.fallback}<!--/$-->`)) return watch();
-      write(`${res.late()}${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("${b.prefix ?? ""}B:${b.id}"${sxArgs(digest, errored(e), e)})</script>`);
-      runtimeSent = true;
-      return watch();
+      return failed(t, e);
+    } finally {
+      rendering_ = was;
+      res.boundary = null;
     }
-    res.boundary = res.replay = null;
-    // Done before the first flush: in the shell, its resources with the shell's (text at its end kept apart).
-    if (!flowing && inShell(b, `<!--$-->${inner}${ctx.lastText && !options.prerendering ? "<!-- -->" : ""}<!--/$-->`)) return watch();
-    reveal(b, ctx, inner);
+    // A text-embedded segment ending in text: closed with a separator (React's pushSegmentFinale).
+    // (A prerender's are written in place, without it, as React writes them.)
+    if (ctx.lastText && !options.prerendering) out += "<!-- -->";
+    t.out = out;
+    settled(t, 1);
+    if (flowing && shellWritten && !closed) {
+      // What the parts done so far found, sent now (React flushes a partial boundary's resources and styles).
+      const c = t.container;
+      const early = res.late() + (c && c.status === 0 ? res.lateStyleTags(c.deps) : "");
+      if (early) write(early);
+    }
   };
-  /** A boundary's content sent after the shell, and the script that puts it in place of its fallback. */
-  const reveal = (b: Boundary, ctx: Ctx, inner: string) => {
-    const deps = (b.deps ??= { sheets: new Set<any>(), styles: new Set<any>() });
-    const late = res.late();
-    const { styleTags, sheets } = res.boundaryStyles(deps);
-    // With stylesheets (or style rules) of its own, the boundary is revealed once they have loaded ($SR).
-    const hoist = res.stylesToHoist;
-    res.stylesToHoist = false;
-    const reveal =
-      hoist || sheets.length
-        ? `$SR("${b.prefix ?? ""}B:${b.id}","${b.prefix ?? ""}S:${b.id}",${jsArg(sheets.map((s) => (s[1] === "" ? [s[0]] : [s[0], s[1], ...Object.entries(s[2]).flat()])))})`
-        : `$SC("${b.prefix ?? ""}B:${b.id}","${b.prefix ?? ""}S:${b.id}")`;
-    write(`${late}${runtimeSent ? "" : RUNTIME}${(b.wrap ?? segmentWrap(ctx))[0]}${b.prefix ?? ""}S:${b.id}">${inner}${(b.wrap ?? segmentWrap(ctx))[1]}${styleTags}${scriptOpen}${reveal}</script>`);
-    runtimeSent = true;
-    watch();
+  /** A task done (or dropped): its boundary, or the shell, one closer to complete. */
+  const settled = (t: STask, state: 1 | 2) => {
+    t.state = state;
+    allPending--;
+    t.fallbackOf?.fallbackTasks.delete(t);
+    const c = t.container;
+    if (!c) {
+      if (--rootPending === 0 && !shellDone && !closed) shellReady();
+    } else if (--c.pending === 0 && c.status === 0) complete(c);
+    maybeClose();
   };
-  // The shell: when it suspends outside any boundary, rendered again once what it waits on settles (React waits).
-  let shellDone = false;
-  const tryShell = (): unknown => {
-    let shell: string;
-    try {
-      shell = once(node, ctxFor());
-    } catch (e: any) {
-      if (e && typeof e.then === "function") {
-        sendHeaders(false);
-        shared.boundaries.length = 0;
-        shared.ids = 0;
-        const again = () => (closed ? undefined : tryShell());
-        e.then(again, again);
-        return null;
-      }
+  const failed = (t: STask, e: unknown) => {
+    const c = t.container;
+    if (!c) {
+      // In the shell: the whole render fails (React's fatal error).
+      t.state = 2;
       if (isBrowserOnly(e)) e = fatalBrowserError(e);
       onError(e);
-      options.onShellError?.(e);
+      if (!shellDone) options.onShellError?.(e);
       closed = true;
-      return e;
+      finish();
+      return;
     }
+    if (c.status === 0) giveUp(c, { digest: onError(e), message: errored(e), error: e });
+    settled(t, 2);
+  };
+  /** A boundary left to the client: its fallback stays (in place, or by a script once its parent is out). */
+  const giveUp = (b: SBoundary, error: NonNullable<SBoundary["error"]>) => {
+    b.status = 2;
+    b.error = error;
+    if (b.flushed && flowing) {
+      write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("${b.prefix}B:${b.id}"${sxArgs(error.digest, error.message, error.error, error.at)})</script>`);
+      runtimeSent = true;
+    }
+  };
+  const complete = (b: SBoundary) => {
+    b.status = 1;
+    if (!b.flushed) mergeDeps(b, b.parent ? b.parent.deps : null);
+    // Its fallback is not needed: what it waits on is dropped (React's abortTaskSoft).
+    if (!b.flushed) for (const t of [...b.fallbackTasks]) if (t.state === 0) settled(t, 2);
+    if (b.flushed && flowing) revealBoundary(b);
+  };
+  /** A boundary's content and the script that swaps it in, once its parent is out. */
+  const revealBoundary = (b: SBoundary) => {
+    const inner = assemble(b.content, b);
+    const late = res.late();
+    const { styleTags, sheets } = res.boundaryStyles(b.deps);
+    const hoist = res.stylesToHoist;
+    res.stylesToHoist = false;
+    const p = b.prefix;
+    const swap =
+      hoist || sheets.length
+        ? `$SR("${p}B:${b.id}","${p}S:${b.id}",${jsArg(sheets.map((x) => (x[1] === "" ? [x[0]] : [x[0], x[1], ...Object.entries(x[2]).flat()])))})`
+        : `$SC("${p}B:${b.id}","${p}S:${b.id}")`;
+    write(`${late}${runtimeSent ? "" : RUNTIME}${b.wrap[0]}${p}S:${b.id}">${inner}${b.wrap[1]}${styleTags}${scriptOpen}${swap}</script>`);
+    runtimeSent = true;
+    for (const o of outlined.splice(0)) revealBoundary(o);
+  };
+  /** Boundaries complete but sent after their parent (too large to inline). */
+  const outlined: SBoundary[] = [];
+  /** Markup with its markers resolved: tasks' parts in place, boundaries as they now are (React's flushSegment). */
+  const assemble = (html: string, into: SBoundary | null): string =>
+    html.replace(/\u0000([TB])(\d+)\u0000/g, (_m, kind: string, n: string) => {
+      if (kind === "T") {
+        const t = tasks[+n]!;
+        return t.state === 1 ? assemble(t.out!, into) : "";
+      }
+      const b = (shared as any).bounds[+n] as SBoundary;
+      if (b.status === 1) {
+        const inner = assemble(b.content, b);
+        const size = utf8Bytes(inner);
+        // Large (past React's progressiveChunkSize with what was inlined before it): sent after its parent.
+        if (size > 500 && shared.inlined + size > shared.chunk && !/<(html|head|body)[\s>]/.test(inner) && b.renderFallback) {
+          let fallback: string | null = null;
+          try {
+            fallback = b.renderFallback();
+          } catch {}
+          if (fallback !== null) {
+            b.id = shared.next++;
+            b.flushed = true;
+            b.fallback = fallback;
+            outlined.push(b);
+            return `<!--$?--><template id="${b.prefix}B:${b.id}"></template>${fallback}<!--/$-->`;
+          }
+        }
+        shared.inlined += size;
+        return `<!--$-->${inner}<!--/$-->`;
+      }
+      const fallback = assemble(b.fallback, into);
+      if (b.status === 2) {
+        const e = b.error!;
+        return `<!--$!-->${errorTemplate(e.digest, e.message, e.error, e.at)}${fallback}<!--/$-->`;
+      }
+      b.id = shared.next++;
+      b.flushed = true;
+      anyPending = true;
+      return `<!--$?--><template id="${b.prefix}B:${b.id}"></template>${fallback}<!--/$-->`;
+    });
+  let anyPending = false;
+  let shellDone = false;
+  let shellWritten = false;
+  const shellReady = () => {
     shellDone = true;
     sendHeaders(true);
-    held = shell;
     options.onShellReady?.();
-    // (Piped from onShellReady: written already.)
-    if (flowing && held !== null) writeShell();
-    watch();
-    return null;
+    if (flowing && !shellWritten) writeShell();
+    maybeClose();
   };
   const writeShell = () => {
-  const shell = held!;
-  held = null;
-  // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
-  // bootstrap scripts after it, as React writes them.
-  const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res)));
-  // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
-  const paint = !shared.boundaries.length && !pending.size ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
-  // The document's closing tags come last, once everything has streamed (React's postamble).
-  const end = /(<\/body>)?<\/html>$/.exec(shellWithPreamble);
-  postamble = end ? end[0] : "";
-  write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
+    shellWritten = true;
+    anyPending = false;
+    const shell = assemble(rootContent, null);
+    // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
+    // bootstrap scripts after it, as React writes them.
+    const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res)));
+    // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
+    const paint = !anyPending && !outlined.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
+    // The document's closing tags come last, once everything has streamed (React's postamble).
+    const endTag = /(<\/body>)?<\/html>$/.exec(shellWithPreamble);
+    postamble = endTag ? endTag[0] : "";
+    write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
+    for (const o of outlined.splice(0)) revealBoundary(o);
   };
   // Aborted while the shell renders: what is left is aborted once it is done.
   let renderingShell = true;
-  // (A shell that failed has nothing left to abort.)
   let api: { abort(reason?: unknown): void } | null = null;
   // The stream flows (piped): the shell and what completed into it written, then the rest as it comes.
   const flow = () => {
     if (flowing) return;
     flowing = true;
-    if (held !== null) writeShell();
+    if (shellDone && !shellWritten) writeShell();
     if (endHeld) {
       if (postamble) write(postamble);
       finish();
@@ -1378,9 +1541,26 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     // (Piped from onShellReady, before the shell's render returns: it flows at once, as React's pipe writes.)
     () => flow(),
   );
-  const failed = tryShell();
+  // The shell, rendered now; what suspends in it is retried as it settles.
+  const failedShell = (() => {
+    const ctx = ctxFor();
+    ctx.streaming!.spawn = spawn;
+    ctx.container = null;
+    try {
+      rootContent = once(node, ctx);
+    } catch (e: any) {
+      if (isBrowserOnly(e)) e = fatalBrowserError(e);
+      onError(e);
+      options.onShellError?.(e);
+      closed = true;
+      return e;
+    }
+    if (rootPending === 0) shellReady();
+    else sendHeaders(false);
+    return null;
+  })();
   renderingShell = false;
-  if (failed) return { abort() {}, failed, flow() {} };
+  if (failedShell) return { abort() {}, failed: failedShell, flow() {} };
   const handle = {
     failed: null,
     flow,
@@ -1397,14 +1577,14 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         finish();
         return;
       }
-      for (const b of pending) {
-        const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
-        const digest = onError(why, b.suspendedAt);
-        if (!flowing && inShell(b, `<!--$!-->${errorTemplate(digest, aborted((why as any)?.message ?? String(why)), undefined, b.suspendedAt)}${b.fallback}<!--/$-->`)) continue;
-        write(`${runtimeSent ? "" : RUNTIME}${scriptOpen}$SX("${b.prefix ?? ""}B:${b.id}"${sxArgs(digest, aborted((why as any)?.message ?? String(why)), undefined, b.suspendedAt)})</script>`);
-        runtimeSent = true;
+      const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
+      for (const t of tasks) {
+        if (t.state !== 0) continue;
+        const b = t.container;
+        if (b && b.status === 0) giveUp(b, { digest: onError(why, t.at), message: aborted((why as any)?.message ?? String(why)), at: t.at });
+        t.state = 2;
+        allPending--;
       }
-      pending.clear();
       close();
     },
   };
