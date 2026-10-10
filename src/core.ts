@@ -3874,7 +3874,7 @@ export const client = {
     // (Mounting while hydrating, even in a transition: the initial value, as the server drew it.)
     const hydratingMount = hydrating && !h.seen;
     h.seen = true;
-    if (Object.is(value, shown) || (applyingTransition && !hydratingMount)) {
+    if (Object.is(value, shown) || (applyingTransition && !hydratingMount && !eagerTransition)) {
       if (!Object.is(value, shown)) h.v = value;
       return value;
     }
@@ -4076,12 +4076,19 @@ export function inTransition(apply: () => void, preview?: (p: Preview) => void, 
     eagerBooked = true;
     queueMicrotask(() => {
       eagerBooked = false;
-      flushTransitions();
+      eagerTransition = true;
+      try {
+        flushTransitions();
+      } finally {
+        eagerTransition = false;
+      }
     });
   }
   return true;
 }
 let eagerBooked = false;
+/** A popstate's transition being drawn at once (React's SyncLane for it): deferred values still wait in it. */
+let eagerTransition = false;
 function deferTransition(apply: () => void, preview?: (p: Preview) => void, fiber?: Fiber) {
   transitionWork.push({ apply, preview, fiber });
   if (transitionBooked) return;
