@@ -407,7 +407,7 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
       severity: "warn",
       message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof value}).`,
       data: { type: typeof value, value },
-    });
+    }, getOwner());
     return out;
   }
   const text = String(value);
@@ -555,7 +555,7 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
   createRoot((dispose) => {
     disposer = dispose;
     // Held as a whole while what it shows first waits on a first load (no half-made page): a boundary with no fallback.
-    insert(element, createLoadingBoundary(code, () => undefined));
+    insert(element, createLoadingBoundary(code, () => undefined, { mountRoot: true } as any));
   });
   // Rendered by the time render returns.
   flush();

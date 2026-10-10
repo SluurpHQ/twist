@@ -1711,10 +1711,27 @@ class LoadingState {
   /** Its last pass showed the fallback: what is under it is not on screen. */
   onFallback = false;
   count = new (class extends Node<number> {})();
+  /** A mount's own boundary (render()'s): a wait reaching it was outside every Loading. */
+  mountRoot = false;
+  private warned = false;
   wait(c: Computation<any>) {
     if (this.waiting.has(c)) return;
     this.waiting.add(c);
     this.count.bump();
+    if (this.mountRoot && !this.warned) {
+      this.warned = true;
+      diagnose(
+        {
+          code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+          kind: "async",
+          severity: "warn",
+          message:
+            "[ASYNC_OUTSIDE_LOADING_BOUNDARY] An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.",
+          ownerName: c.name,
+        },
+        c,
+      );
+    }
   }
   ready(c: Computation<any>) {
     if (this.waiting.delete(c)) this.count.bump();
@@ -1732,6 +1749,7 @@ function boundaryOf(c: Computation<any>): LoadingState | null {
 /** `fn`'s value, or `fallback()` while what is under it waits on a first load. */
 export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, options?: { on?: () => unknown }): () => T | F {
   const state = new LoadingState();
+  state.mountRoot = !!(options as any)?.mountRoot;
   state.count.value = 0;
   // A slot of the reveal order around it, if any: what the order forces on it (gated, collapsed) until it has shown
   // its content.
