@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5685 pass, 1016 fail, 714 files (32 did not load, 121 test Solid's internals)
+5689 pass, 1012 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -290,7 +290,7 @@
 | signals/tests/treeshake.test.ts | 0 | 1 |  |
 | signals/tests/uninitialized-visibility.test.ts | 2 | 5 |  |
 | signals/tests/until-entanglement.test.ts | 1 | 5 |  |
-| signals/tests/until.test.ts | 10 | 7 |  |
+| signals/tests/until.test.ts | 11 | 6 |  |
 | signals/tests/untrack.test.ts | 3 | 0 |  |
 | signals/tests/untracked-async-read.test.ts | 1 | 2 |  |
 | signals/tests/untracked-read-after-await.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
@@ -298,7 +298,7 @@
 | signals/tests/verdict-mount-first-pass-3851.test.ts | 0 | 3 |  |
 | signals/tests/verdict-mount-loading-flush-loop.test.ts | 4 | 0 |  |
 | signals/tests/visibility-oracle-posture.test.ts | 1184 | 0 |  |
-| signals/tests/visibility-oracle-store.test.ts | 139 | 14 |  |
+| signals/tests/visibility-oracle-store.test.ts | 142 | 11 |  |
 | signals/tests/visibility-oracle.test.ts | 118 | 8 |  |
 | signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
 | signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |

@@ -190,7 +190,7 @@ const readHandler: ProxyHandler<Raw> = {
     return viewKeys(target);
   },
   getOwnPropertyDescriptor(target, key) {
-    const o = records.get(target)?.overlay?.get(key);
+    const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
     if (o) return o.v === DELETE ? undefined : { value: leaf(target, key, o.v), writable: true, enumerable: true, configurable: true };
     const n = seenStaged(target, key);
     if (n) return n.raw === DELETE ? undefined : { value: leaf(target, key, n.raw), writable: true, enumerable: true, configurable: true };
