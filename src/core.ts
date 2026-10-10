@@ -1559,8 +1559,16 @@ function retryBoundary(f: Fiber) {
   const waiting = (f as any).propsAfterHydration;
   if (waiting !== undefined && !(f as any).dehydrated) {
     (f as any).propsAfterHydration = undefined;
-    f.props = waiting;
-    restart(f);
+    if (f.kind === COMP) (f.props = waiting), restart(f);
+    // (An Activity: updated as an element of its own would be.)
+    else {
+      depth++;
+      try {
+        update(f, { props: waiting });
+      } finally {
+        if (--depth === 0) commit();
+      }
+    }
   }
   flushSignals();
 }
@@ -2134,7 +2142,7 @@ function updateDehydrated(f: Fiber, props: any, redraw: () => void) {
   // Hydrated with the props it had: the render that brought new ones starts again from the top, as React's does.
   if (!(f as any).dehydrated && drawing.size && props !== f.props) throw RESTART;
   // Still waiting, in a transition: it keeps what the server drew, and takes the new props once it has hydrated.
-  if ((f as any).dehydrated && applyingTransition && f.kind === COMP) {
+  if ((f as any).dehydrated && applyingTransition) {
     (f as any).propsAfterHydration = props;
     return;
   }
