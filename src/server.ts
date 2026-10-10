@@ -1749,7 +1749,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     b.status = 1;
     if (!b.flushed) mergeDeps(b, b.parent ? b.parent.deps : null);
     // Its fallback is not needed: what it waits on is dropped (React's abortTaskSoft).
-    if (!b.flushed) for (const t of [...b.fallbackTasks]) if (t.state === 0) settled(t, 2);
+    for (const t of [...b.fallbackTasks]) if (t.state === 0) settled(t, 2);
   };
   /** The task a segment holds when it holds nothing else, still pending. */
   const loneTask = (html: string) => {
