@@ -66,7 +66,7 @@ type Ctx = {
   scope: number;
   /** While streaming: ids and suspended boundaries shared by the shell and every boundary's render. */
   streaming?: {
-    shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown }; chunk: number; inlined: number; bounds?: SBoundary[] };
+    shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown }; chunk: number; inlined: number; bounds?: SBoundary[]; rootPre?: Preamble };
     onError: (e: unknown, at?: string) => any;
     /** A child that suspended: a task of its own, the marker of its place returned. */
     spawn?: (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => string;
@@ -624,6 +624,8 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   validateProps(tag, props, false);
   const hoisted = hoist(tag, props, ctx);
   if (hoisted !== undefined) return hoisted;
+  if (ctx.streaming?.spawn && !ctx.static && !ctx.svg && (tag === "html" ? ctx.parent === null : (tag === "head" || tag === "body") && (ctx.parent === null || ctx.parent === "html")))
+    return preambleElement(tag, props, ctx, hooks);
   const svg = ctx.svg;
   if (tag === "svg") ctx.svg = true;
   // A whole document: React writes its doctype first.
@@ -642,6 +644,35 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
     ctx.svg = svg;
   }
 }
+
+/**
+ * The document's <html>, <head> or <body> (React's preamble): its start tag kept for the start of the document, and
+ * a <head>'s children too; the rest renders in place. In a boundary, a comment marks where it was given.
+ */
+function preambleElement(tag: string, props: any, ctx: Ctx, hooks: any): string {
+  const s = ctx.streaming!;
+  const pre: Preamble = ctx.fallbackOf ? (ctx.fallbackOf.fallbackPre ??= {}) : ctx.container ? (ctx.container.preamble ??= {}) : (s.shared.rootPre ??= {});
+  if (pre[tag as "html"] !== undefined) throw new Error(`The \`<${tag}>\` tag may only be rendered once.`);
+  pre[tag as "html"] = `${tag === "html" ? "<!DOCTYPE html>" : ""}<${tag}${attrs(props, ctx, tag)}${vtAttributes(ctx)}>`;
+  const marker = ctx.container || ctx.fallbackOf ? `<!--${tag}-->` : "";
+  const { parent, vt, scope } = ctx;
+  ctx.parent = tag;
+  ctx.vt = null;
+  ctx.scope = scope & ~(VT_ENTER | VT_EXIT);
+  ctx.lastText = false;
+  try {
+    const inner = render(props.children, ctx, hooks);
+    if (tag === "head") return (pre.headInner = inner), marker;
+    return marker + inner;
+  } finally {
+    ctx.parent = parent;
+    ctx.vt = vt;
+    ctx.scope = scope;
+    ctx.lastText = false;
+  }
+}
+/** What a render (or a boundary, or its fallback) gives the document's start: its tags, and its <head>'s content. */
+type Preamble = { html?: string; head?: string; body?: string; headInner?: string };
 
 function hostRest(tag: string, props: any, ctx: Ctx, hooks: any, open: string, svg: boolean): string {
   if (tag === "option") {
@@ -1068,11 +1099,13 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   const s = ctx.streaming!;
   const bounds = (s.shared.bounds ??= []);
   const parent = ctx.container ?? null;
-  const b: SBoundary = { idx: bounds.length, id: -1, prefix: ctx.idPrefix, status: 0, pending: 0, content: "", fallback: "", parent, flushed: false, deps: { sheets: new Set(), styles: new Set() }, wrap: segmentWrap(ctx), stack: ctx.stack.slice(), fallbackTasks: new Set() };
+  const b: SBoundary = { idx: bounds.length, id: -1, prefix: ctx.idPrefix, status: 0, pending: 0, content: "", fallback: "", parent, flushed: false, deps: { sheets: new Set(), styles: new Set() }, wrap: segmentWrap(ctx), stack: ctx.stack.slice(), fallbackTasks: new Set(), canPre: !ctx.svg && (ctx.parent === null || ctx.parent === "html") };
   bounds.push(b);
   const parentDeps = ctx.res.boundary;
   ctx.res.boundary = b.deps;
   ctx.container = b;
+  const outerFallback = ctx.fallbackOf;
+  ctx.fallbackOf = null;
   ctx.lastText = false;
   try {
     b.content = suspenseFrame(ctx, false, () => render(props.children, ctx, hooks));
@@ -1086,6 +1119,7 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   } finally {
     ctx.res.boundary = parentDeps;
     ctx.container = parent;
+    ctx.fallbackOf = outerFallback;
   }
   // Aborted while it rendered (or before): left to the client, the reason told for it.
   const why = s.shared.aborted;
@@ -1261,6 +1295,10 @@ type SBoundary = {
   wrap: [string, string];
   stack: string[];
   fallbackTasks: Set<STask>;
+  /** At the document's level: it may give the document its <html>, <head> or <body>. */
+  canPre?: boolean;
+  preamble?: Preamble;
+  fallbackPre?: Preamble;
   error?: { digest: unknown; message: string; error?: unknown; at?: string };
 };
 /** A part that suspended: rendered again on its own when what it waits on settles. 0 pending, 1 done, 2 dropped. */
@@ -1306,7 +1344,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   let held: string | null = null;
   let endHeld = false;
   // chunk: React's progressiveChunkSize; inlined: the bytes of the boundaries written in place so far.
-  const shared = { ids: 0, boundaries: [] as Boundary[], next: 0, chunk: options.progressiveChunkSize ?? 12800, inlined: 0, aborted: undefined as { reason: unknown } | undefined };
+  const shared = { ids: 0, boundaries: [] as Boundary[], next: 0, chunk: options.progressiveChunkSize ?? 12800, inlined: 0, aborted: undefined as { reason: unknown } | undefined, bounds: undefined as SBoundary[] | undefined, rootPre: undefined as Preamble | undefined };
   const res = new Resources(writeTag, typeof options.nonce === "object" ? options.nonce?.style : undefined);
   if (typeof options.onHeaders === "function") {
     if (typeof options.maxHeadersLength === "number" && options.maxHeadersLength <= 0)
@@ -1372,7 +1410,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     finish();
   };
   const maybeClose = () => {
-    if (shellDone && allPending === 0 && !closed) close();
+    if (shellDone && allPending === 0 && !closed && (shellWritten || !flowing)) close();
   };
   const spawn = (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => {
     const t: STask = { idx: tasks.length, node, snap: snapshot(ctx, pushed), container: ctx.container ?? null, fallbackOf: ctx.fallbackOf ?? null, lastText: ctx.lastText, at: stackText(ctx.stack), state: 0 };
@@ -1459,6 +1497,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   };
   /** After work: what can be written is, then the stream ends if nothing is left. */
   const after = () => {
+    if (shellDone && flowing && !shellWritten && !closed) writeShell();
     flushQueues();
     maybeClose();
   };
@@ -1621,19 +1660,53 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     if (flowing && !shellWritten) writeShell();
     maybeClose();
   };
+  /** The document's start as far as it is known, and whether a boundary still waiting could add to it. */
+  const preambleNow = () => {
+    const found: Preamble & { inners: string[] } = { inners: [] };
+    let waiting = false;
+    const take = (p?: Preamble) => {
+      if (!p) return;
+      found.html ??= p.html;
+      found.head ??= p.head;
+      found.body ??= p.body;
+      if (p.headInner !== undefined) found.inners.push(p.headInner);
+    };
+    const walk = (html: string) => {
+      for (const m of html.matchAll(/\u0000([TB])(\d+)\u0000/g)) {
+        if (m[1] === "T") {
+          const t = tasks[+m[2]!]!;
+          if (t.state === 1) walk(t.out!);
+          continue;
+        }
+        const b = shared.bounds![+m[2]!]!;
+        if (!b.canPre) continue;
+        if (b.status === 1) take(b.preamble), walk(b.content), b.preamble?.headInner && walk(b.preamble.headInner);
+        else if (b.status === 2) take(b.fallbackPre), walk(b.fallback);
+        else waiting = true;
+      }
+    };
+    take(shared.rootPre);
+    walk(rootContent);
+    if (shared.rootPre?.headInner) walk(shared.rootPre.headInner);
+    return { found, ready: !waiting || !!(found.head && found.body) };
+  };
   const writeShell = () => {
+    const { found, ready } = preambleNow();
+    // A boundary that could still give the document its <html>, <head> or <body>: the shell waits for it.
+    if (!ready) return;
     shellWritten = true;
     anyPending = false;
     const shell = assemble(rootContent, null);
-    // The preamble (an import map, the bootstrap scripts' preloads) in the shell's <head>, or before the shell; the
-    // bootstrap scripts after it, as React writes them.
-    const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res)));
+    const inners = found.inners.map((h) => assemble(h, null)).join("");
+    // The preamble (an import map, the bootstrap scripts' preloads) in the document's <head>, or before the shell;
+    // the bootstrap scripts after it, as React writes them.
+    const resources = res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res));
+    const start = found.html || found.head ? `${found.html ?? ""}${found.head ?? "<head>"}${resources}${inners}</head>${found.body ?? ""}` : `${resources}${found.body ?? ""}`;
     // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
     const paint = !anyPending && !flushedBounds.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
     // The document's closing tags come last, once everything has streamed (React's postamble).
-    const endTag = /(<\/body>)?<\/html>$/.exec(shellWithPreamble);
-    postamble = endTag ? endTag[0] : "";
-    write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
+    postamble = (found.body ? "</body>" : "") + (found.html ? "</html>" : "");
+    write(start + withPreamble(shell, "") + paint + bootstrap(options, nonce));
     flushQueues();
   };
   // Aborted while the shell renders: what is left is aborted once it is done.
@@ -1722,7 +1795,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       // between is told with its own reason.
       for (const t of tasks) if (t.state === 0) t.aborting = true;
       // (A task later, as React's scheduleWork: rejections already on their way are heard first.)
-      (typeof setImmediate === "function" ? setImmediate : setTimeout)(() => {
+      ((globalThis as any).setImmediate ?? setTimeout)(() => {
         for (const t of tasks) if (t.state === 0 && t.aborting) finishAborted(t, why);
         flushQueues();
         close();
