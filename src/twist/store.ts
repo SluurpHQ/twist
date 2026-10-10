@@ -48,13 +48,23 @@ class KeyNode extends Signal<number> {
   }
 }
 
-/** Whether a value is wrapped in a store proxy: plain objects and arrays (and objects with no prototype). */
+/**
+ * Whether a value is wrapped in a store proxy (as Solid 2): plain objects, arrays, objects with no prototype, and class
+ * instances that are plain records (not DOM nodes, dates, maps…); never a frozen one.
+ */
 export function isWrappable(v: any): v is Raw {
-  if (v == null || typeof v !== "object") return false;
+  if (v == null || typeof v !== "object" || Object.isFrozen(v)) return false;
   if (v[$PROXY]) return false;
   const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null || Array.isArray(v);
+  if (proto === Object.prototype || proto === null || Array.isArray(v)) return true;
+  let plain = wrappableProtos.get(proto);
+  if (plain === undefined) {
+    plain = Object.prototype.toString.call(v) === "[object Object]" && (typeof Node === "undefined" || !(v instanceof Node));
+    wrappableProtos.set(proto, plain);
+  }
+  return plain;
 }
+const wrappableProtos = new WeakMap<object, boolean>();
 
 /** The backing object under a store proxy (or the value itself). */
 export const unwrap = <T>(v: T): T => ((v as any)?.[$TARGET] ?? v);
