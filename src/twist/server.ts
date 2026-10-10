@@ -143,8 +143,8 @@ export function Errored(props: { fallback: any; children?: any }) {
     const e = ssrSanitizeError(err, boundary, { kind: "render", handling: "fallback", boundary: id }, (sharedConfig.context as any)?.errorPolicy);
     // The error goes to the client under the content's id: the fallback hydrates against it.
     const r = render;
-    if (r?.serializer && id != null && noHydration === 0 && !r.written.has(id)) r.written.add(id), r.serializer.write(id, e);
-    else if (!r && id != null && noHydration === 0) (sharedConfig.context as any)?.serialize?.(id, e);
+    if (r?.serializer && id != null && !isNoHydration() && !r.written.has(id)) r.written.add(id), r.serializer.write(id, e);
+    else if (!r && id != null && !isNoHydration()) (sharedConfig.context as any)?.serialize?.(id, e);
     const f = props.fallback;
     return runWithOwner(ownerUnder(boundary), () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
   };
@@ -206,7 +206,7 @@ export function clientOnly<P extends object>(_load: () => Promise<any>, _options
 /** The next hydration key, while a hydratable render runs (none under NoHydration). */
 export function getHydrationKey(): string | undefined {
   const o = getOwner();
-  if (!(sharedConfig.context as any) || !o || (o as any).id == null || noHydration > 0) return undefined;
+  if (!(sharedConfig.context as any) || !o || (o as any).id == null || isNoHydration()) return undefined;
   return getNextChildId(o);
 }
 
@@ -216,14 +216,22 @@ export function ssrHydrationKey() {
 }
 
 let noHydration = 0;
+/** NoHydration and Hydration mark their owners: what renders under them later (a boundary's retry) still knows. */
+const NO_HYDRATE = Symbol.for("twist.ssr.no-hydrate");
+// (Registered: it crosses a server component's context barrier, as Solid's NoHydrateContext does — see server-internal.)
 /** Whether rendering under NoHydration (nothing hydrates there). */
-export const isNoHydration = () => noHydration > 0;
+export const isNoHydration = () => {
+  const marked = (getOwner() as any)?.context?.[NO_HYDRATE];
+  return marked !== undefined ? marked : noHydration > 0;
+};
 
 /** Its children render with no hydration keys (they will not be hydrated). */
 export function NoHydration(props: { children?: any }) {
+  const o = createOwner({ transparent: true }) as any;
+  o.context = { ...o.context, [NO_HYDRATE]: true };
   noHydration++;
   try {
-    return { t: html(props.children, false) };
+    return { t: runWithOwner(o, () => html(props.children, false)) };
   } finally {
     noHydration--;
   }
@@ -232,12 +240,14 @@ export function NoHydration(props: { children?: any }) {
 /** Its children hydrate (inside NoHydration). */
 export function Hydration(props: { id?: string; children?: any }) {
   // Hydrating already: its children as they are.
-  if (noHydration === 0) return props.children;
+  if (!isNoHydration()) return props.children;
   const was = noHydration;
   noHydration = 0;
+  const o = ownerUnder(getOwner(), { id: props.id ?? "" }) as any;
+  o.context = { ...o.context, [NO_HYDRATE]: false };
   try {
     // Keys from `id` on (a server component's client content claims under its occurrence's prefix).
-    return runWithOwner(ownerUnder(getOwner(), { id: props.id ?? "" }), () => {
+    return runWithOwner(o, () => {
       const v = props.children;
       // A slot's range keeps itself (its caller reads it): its parts rendered in place.
       if (Array.isArray(v) && (v as any).$slot) {
@@ -834,7 +844,7 @@ function boundaryRecord(r: Render, boundary: object, id: string) {
   record.catch(() => {});
   fragments.set(boundary, revealed);
   failures.set(boundary, (e: unknown) => failed(ssrSanitizeError(e, boundary, { kind: "render", handling: "client", boundary: id }, (r.ctx as any)?.errorPolicy)));
-  if (r.serializer && noHydration === 0) {
+  if (r.serializer && !isNoHydration()) {
     r.serializer.write(id + "_fr", record);
     // The stream ends after the record's settling is written.
     r.pendingData++;
@@ -1231,7 +1241,7 @@ function sendAnswer(node: any, answer: unknown) {
   if (r && node?.deferStream && !r.shellSent && answer && typeof (answer as any).then === "function")
     r.blocks.add((answer as Promise<unknown>).then(noopFn, noopFn));
   const id = node?.id as string | undefined;
-  if (!r?.serializer || id == null || noHydration > 0 || !sharedConfig.context || r.written.has(id)) return;
+  if (!r?.serializer || id == null || isNoHydration() || !sharedConfig.context || r.written.has(id)) return;
   r.written.add(id);
   if (answer && typeof (answer as any).then === "function") {
     r.pendingData++;

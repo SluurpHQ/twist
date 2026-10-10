@@ -9,7 +9,7 @@ import { html } from "./server.ts";
 const SERVER_COMPONENT = Symbol("server component");
 const LIVE_SERVER_COMPONENT = Symbol("live server component");
 /** The context keys that cross a server component's barrier (reveal order coordination). */
-const crossing: symbol[] = [];
+const crossing: symbol[] = [Symbol.for("twist.ssr.no-hydrate")];
 export const crossesBarrier = (key: symbol) => void crossing.push(key);
 
 /**

@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5522 pass, 1179 fail, 714 files (32 did not load, 121 test Solid's internals)
+5524 pass, 1177 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -562,7 +562,7 @@
 | web/test/server/concurrent-render-lazy-assets.spec.tsx | 4 | 2 |  |
 | web/test/server/concurrent-render-serialize.spec.tsx | 5 | 0 |  |
 | web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
-| web/test/server/container-traces.spec.tsx | 7 | 2 |  |
+| web/test/server/container-traces.spec.tsx | 8 | 1 |  |
 | web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
 | web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
@@ -590,7 +590,7 @@
 | web/test/server/frame-live-document.spec.tsx | 1 | 5 |  |
 | web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-live-holes-chat.spec.tsx | 1 | 0 |  |
-| web/test/server/frame-live-holes-projection.spec.tsx | 3 | 3 |  |
+| web/test/server/frame-live-holes-projection.spec.tsx | 4 | 2 |  |
 | web/test/server/frame-live-holes.spec.tsx | 1 | 0 |  |
 | web/test/server/frame-live-resume.spec.tsx | 4 | 5 |  |
 | web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |
