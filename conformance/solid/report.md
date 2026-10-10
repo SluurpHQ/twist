@@ -1,13 +1,20 @@
 # Solid's tests on Twist
 
-4463 pass, 972 fail, 703 files (4 did not load, 318 test Solid's internals)
+4487 pass, 1070 fail, 714 files (85 did not load, 245 test Solid's internals)
 
 ## Why files did not load
 
+- 60 × Cannot find module '@solidjs/web/server-functions/server'
+- 9 × SyntaxError: Export named 'httpStatus' not found
+- 4 × Cannot find module '../../src/server.js'
+- 3 × SyntaxError: Export named 'createRequestEvent' not found
+- 2 × SyntaxError: Export named 'getTraceContext' not found
+- 2 × SyntaxError: Export named 'getHydrationWriter' not found
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
 - 1 × SyntaxError: Export named 'waitAsset' not found
-- 1 × Cannot find module '@solidjs/web/serialization'
+- 1 × Cannot find module '../../src/response.js'
+- 1 × SyntaxError: Export named 'httpHeader' not found
 
 ## Files
 
@@ -353,32 +360,32 @@
 | web/test/consistency/c02-revealed-occurrence-mounts.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c03-hydration-done-counts-holds.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c04-record-applies-once.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c05-data-response-scoped.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c07-store-is-truth.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c08-fanout-equal.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/consistency/c05-data-response-scoped.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c07-store-is-truth.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-client.js' |
+| web/test/consistency/c08-fanout-equal.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/consistency/c09-no-phantom.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/c10-ids-timing-independent.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/consistency/c12-boundary-parity.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/c13-sweep-atomic.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c14-dispose-clean.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c15-staging-atomic.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c16-reference-identity.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c17-gate-bound-address.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/consistency/c13-sweep-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c14-dispose-clean.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c15-staging-atomic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c16-reference-identity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c17-gate-bound-address.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-client.js' |
 | web/test/consistency/generic/campaign.spec.tsx | 0 | 1 |  |
 | web/test/consistency/generic/preload-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/generic/replay.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/consistency/harness/campaign.spec.tsx | 0 | 1 |  |
-| web/test/consistency/harness/replay.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/sref-table-pending-read.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/tier-assets-ready.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/consistency/harness/replay.spec.tsx | 0 | 1 | not ours: Cannot find module '../../../frames/src/client.js' |
+| web/test/consistency/sref-table-pending-read.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/tier-assets-ready.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/consistency/tier-bind-hold.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/consistency/tier-prepare.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/tier-regions-hold.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/tier-trace-hold.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/consistency/tier-wire-preload.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/consistency/tier-prepare.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-client.js' |
+| web/test/consistency/tier-regions-hold.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/tier-trace-hold.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/consistency/tier-wire-preload.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/context.spec.tsx | 7 | 0 |  |
 | web/test/delegated-event-cross-runtime.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/client.js' |
 | web/test/delegated-event-listener-object.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
@@ -397,74 +404,74 @@
 | web/test/for.nonkeyed.spec.tsx | 50 | 0 |  |
 | web/test/for.nonkeyed.store.spec.tsx | 0 | 1 |  |
 | web/test/for.spec.tsx | 50 | 0 |  |
-| web/test/frames-adopted-region-fragments.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-assets-client.spec.ts | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-binding-slots.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-client.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-container-lazy-codec.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-dynamic-contract.spec.tsx | 1 | 0 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-errored-reset-refetch.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-flight-delivery.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-get.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-hn-client.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-late-boundary-client.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-live-resume.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-live-showing.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-live.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-marker-corruption.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-morph-in-transition.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-occlusion-client.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-optimistic-hold.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-plain-bound.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-slot-arg-flights-3852.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/frames-used-region-client.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/frames-adopted-region-fragments.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-assets-client.spec.ts | 0 | 1 | not ours: Cannot find module '../frames/src/frame-client.js' |
+| web/test/frames-binding-slots.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-container-lazy-codec.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-dynamic-contract.spec.tsx | 1 | 0 |  |
+| web/test/frames-errored-reset-refetch.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-flight-delivery.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-get.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-hn-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-late-boundary-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-live-resume.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-live-showing.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-live.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-marker-corruption.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-morph-in-transition.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-occlusion-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-optimistic-hold.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-plain-bound.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
+| web/test/frames-slot-arg-flights-3852.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
+| web/test/frames-used-region-client.spec.tsx | 0 | 1 | not ours: Cannot find module '../frames/src/client.js' |
 | web/test/halt-error-logging.spec.tsx | 1 | 0 |  |
 | web/test/held-action-memo-mount-3802.spec.tsx | 1 | 0 |  |
-| web/test/hydration/adopted-claim-args-address.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/adopted-fallback-residue.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/adopted-slot-late-record.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/adopted-slot-live.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/binding-slot-adoption.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/buffered-projection-repeat.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/hydration/adopted-claim-args-address.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/adopted-fallback-residue.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/adopted-slot-late-record.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/adopted-slot-live.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/binding-slot-adoption.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/buffered-projection-repeat.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/class.spec.tsx | 1 | 0 |  |
 | web/test/hydration/client-only.spec.tsx | 0 | 2 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\dist\server.js' |
 | web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/container-trace-hold-interruption.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/hydration/container-trace-hold-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal/container-trace' |
 | web/test/hydration/diagnostics.spec.tsx | 4 | 9 |  |
-| web/test/hydration/document-live-channel.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/hydration/document-live-channel.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/hydration/document-shell.spec.tsx | 2 | 2 |  |
 | web/test/hydration/dynamic-async-loading-3666.spec.tsx | 0 | 3 |  |
-| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/hydration/dynamic-hydration-events.spec.tsx | 0 | 1 |  |
 | web/test/hydration/eager-jsx-falsy-show.spec.tsx | 1 | 1 |  |
-| web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/frame-live-document.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/frame-live-document.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/src/client.js' |
 | web/test/hydration/hybrid-memo-handoff.spec.tsx | 0 | 8 |  |
 | web/test/hydration/hybrid-store-handoff-3574.spec.tsx | 0 | 4 |  |
 | web/test/hydration/hydrate-falsy-sole-child-issue-3571.spec.tsx | 1 | 0 |  |
 | web/test/hydration/insert-refresh-drift.spec.tsx | 2 | 0 |  |
-| web/test/hydration/late-fragment-after-done.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/hydration/late-fragment-after-done.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/live-shell-source-3764.spec.tsx | 2 | 2 |  |
-| web/test/hydration/loading-fallback-reactive-text.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/hydration/loading-fallback-reactive-text.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/loading-late-fragment.spec.tsx | 0 | 1 |  |
 | web/test/hydration/loading-lazy-resume-3749.spec.tsx | 1 | 2 |  |
 | web/test/hydration/multi-root-registry.spec.tsx | 1 | 0 |  |
 | web/test/hydration/nav-before-resume.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/hydration/null-owner-3609.spec.tsx | 4 | 0 |  |
 | web/test/hydration/onsettled-hydrate.spec.tsx | 1 | 2 |  |
-| web/test/hydration/parity-harness.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/hydration/parity-harness.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/preload-failure-document-root.spec.tsx | 0 | 3 |  |
 | web/test/hydration/refresh-hmr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/hydration/show-fallback.spec.tsx | 4 | 0 |  |
@@ -473,10 +480,10 @@
 | web/test/hydration/stateful-input-adoption.spec.tsx | 5 | 0 |  |
 | web/test/hydration/style-adoption.spec.tsx | 5 | 0 |  |
 | web/test/hydration/text-node-adoption.spec.tsx | 2 | 0 |  |
-| web/test/hydration/truncated-registry.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
-| web/test/hydration/truncated-stream-late-boundary.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
-| web/test/hydration/truncated-stream-template.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
-| web/test/hydration/truncated-stream.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/hydration/truncated-registry.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
+| web/test/hydration/truncated-stream-late-boundary.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
+| web/test/hydration/truncated-stream-template.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
+| web/test/hydration/truncated-stream.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/hydration/wait-asset-hydration.spec.tsx | 0 | 1 | SyntaxError: Export named 'waitAsset' not found |
 | web/test/hydration/welcome-status-lazy.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/hydration/welcome-status-loaded.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
@@ -497,14 +504,14 @@
 | web/test/latest-conditional-async-issue-3276.spec.tsx | 0 | 1 |  |
 | web/test/latest-ispending-issue-3041.spec.tsx | 2 | 0 |  |
 | web/test/latest-shadow-owned-write-issue-3378.spec.tsx | 1 | 0 |  |
-| web/test/lifecycle-matrix/call-driven-args.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/lifecycle-matrix/container-args.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/lifecycle-matrix/document-adoption.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/lifecycle-matrix/document-live-holes.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/lifecycle-matrix/remount.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/lifecycle-matrix/call-driven-args.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/container-args.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/document-adoption.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/document-live-holes.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
+| web/test/lifecycle-matrix/remount.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/client.js' |
 | web/test/loading-fallback-in-flush-3540.spec.tsx | 0 | 3 |  |
 | web/test/loading-on-keyed-boundary-3540.spec.tsx | 5 | 5 |  |
 | web/test/loading-on-outside-reader-3412.spec.tsx | 4 | 0 |  |
@@ -524,66 +531,77 @@
 | web/test/polymorphic-chain.spec.tsx | 3 | 0 |  |
 | web/test/portal.spec.tsx | 30 | 0 |  |
 | web/test/preload-links-adopt-client.spec.tsx | 4 | 6 |  |
-| web/test/preload-links-frame-client.spec.ts | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/preload-links-frame-client.spec.ts | 0 | 1 | not ours: Cannot find module '../frames/src/frame-client.js' |
 | web/test/projection-async-stream.spec.tsx | 2 | 0 |  |
 | web/test/refresh-hmr-flow.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/refresh-render.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/render-halt-recovery.spec.tsx | 0 | 1 |  |
 | web/test/repeat.spec.tsx | 50 | 1 |  |
-| web/test/runtime/chunk-reader-hardening.spec.ts | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/runtime/chunk-reader.spec.ts | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/runtime/asset-registry.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
+| web/test/runtime/chunk-reader-hardening.spec.ts | 0 | 1 | not ours: Cannot find module '../../server-functions/src/shared.js' |
+| web/test/runtime/chunk-reader.spec.ts | 0 | 1 | not ours: Cannot find module '../../server-functions/src/shared.js' |
+| web/test/runtime/cookies-client.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
+| web/test/runtime/cookies.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
+| web/test/runtime/head-takeover.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
+| web/test/runtime/head.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
+| web/test/runtime/inline-styles.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
+| web/test/runtime/insert.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
+| web/test/runtime/preload-links.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
+| web/test/runtime/redirect-href.spec.js | 0 | 1 | Cannot find module '../../src/response.js' |
+| web/test/runtime/serializer.spec.js | 23 | 1 |  |
+| web/test/runtime/stylesheet-gate.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
 | web/test/select-multiple.spec.tsx | 4 | 0 |  |
-| web/test/server-functions-live-loop.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server-functions-live-loop.spec.tsx | 0 | 1 | not ours: Cannot find module '../server-functions/src/client.js' |
 | web/test/server-mock.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/server-mock.js' |
 | web/test/server/client-hole-derived-async-3659.spec.tsx | 0 | 6 |  |
 | web/test/server/client-only-preload.spec.tsx | 2 | 2 |  |
 | web/test/server/concurrent-render-error-policy.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/server/concurrent-render-lazy-assets.spec.tsx | 1 | 5 |  |
 | web/test/server/concurrent-render-serialize.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/concurrent-render-trace.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
-| web/test/server/container-traces.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/concurrent-render-trace.spec.tsx | 0 | 1 | SyntaxError: Export named 'getTraceContext' not found |
+| web/test/server/container-traces.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
 | web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
 | web/test/server/dist-server-treeshake.spec.tsx | 0 | 1 | not ours: Solid's published build |
-| web/test/server/document-face-arg-tiers.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/document-live-channel-artifact.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/document-live-holes.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/document-face-arg-tiers.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/document-live-channel-artifact.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/document-live-holes.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/document-shell.spec.tsx | 1 | 3 |  |
-| web/test/server/dynamic-async-component-diagnostic.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/dynamic-async-component-diagnostic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/dynamic-async-loading-3666.spec.tsx | 1 | 1 |  |
-| web/test/server/dynamic-component-parity.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/dynamic-component-parity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/dynamic-hydration.spec.tsx | 0 | 3 |  |
-| web/test/server/dynamic-shell-gating.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/dynamic-shell-gating.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |
 | web/test/server/dynamic-xmlns.spec.tsx | 2 | 0 |  |
 | web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 1 | 3 |  |
 | web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
 | web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
 | web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
-| web/test/server/frame-binding-slots.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-get.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-hn.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-live-document-artifact.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-live-document.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-live-framing.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-live-holes-chat.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-live-holes-projection.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-live-holes.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-live-resume.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-nonlive-document-3666.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-plain-bound.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-server-component.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-ssr-seam.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-sweep-ops.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/frame-teardown.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/frame-binding-slots.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
+| web/test/server/frame-fragment-error-outcome.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-get.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-hn.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-live-document-artifact.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-live-document.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-live-holes-chat.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/server.js' |
+| web/test/server/frame-live-holes-projection.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-live-holes.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-live-resume.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-nonlive-document-3666.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-plain-bound.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-server-component.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-ssr-seam.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-sweep-ops.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/frame-teardown.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/generic-hydration.gen.spec.tsx | 0 | 2 |  |
 | web/test/server/hole-retry-shared-slot-3815.spec.tsx | 3 | 0 |  |
-| web/test/server/http-components.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/server/http-components.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpHeader' not found |
 | web/test/server/hybrid-memo-handoff.spec.tsx | 4 | 0 |  |
 | web/test/server/hybrid-store-handoff-3574.spec.tsx | 1 | 1 |  |
-| web/test/server/hydration-harness.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/server/hydration-harness.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
 | web/test/server/hydration-payload-handled-rejection-3769.spec.tsx | 0 | 3 |  |
 | web/test/server/hydration-transfer.spec.tsx | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
 | web/test/server/lazy-assets-livelock.spec.tsx | 0 | 2 |  |
@@ -593,108 +611,108 @@
 | web/test/server/loading-dynamic-fragments.spec.tsx | 0 | 1 |  |
 | web/test/server/loading-recreated-async-source-3734.spec.tsx | 5 | 5 |  |
 | web/test/server/lowercase-on-attribute.spec.tsx | 5 | 0 |  |
-| web/test/server/nav-before-resume.gen.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/server/nav-before-resume.gen.spec.tsx | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
 | web/test/server/polymorphic-chain.spec.tsx | 0 | 2 |  |
 | web/test/server/projection-body-read.spec.tsx | 1 | 3 |  |
-| web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createRequestEvent' not found |
 | web/test/server/request-event-concurrent.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/response-invariants.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/response-invariants.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
 | web/test/server/retry-robustness.spec.tsx | 1 | 4 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
-| web/test/server/server-component-context.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/server-component-context.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/server-diagnostics.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/server-error-hook.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-frame-records.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-abort-conforming-length.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-adapter-request.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-addressing.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-body-buffering.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-body-cap-declaration-trust.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-body-formats.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-content-length.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-cors-origin.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-csrf.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-decoder-rejection-ownership.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-derived-locals.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-dev-rebind-grant.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-direct-provide-event-once.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-encode-hygiene.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-error-carrier-guard.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-event-hook.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-extensions.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-failure-sanitization.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-failure-signal.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flash-bound-form.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flash-bounds.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flash-encryption.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flash-falsy-outcomes.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flash-key-derivation.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flash-url-bound.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flight-markup.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flight-result-ownership.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-flight-source-dedupe.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-get-grant-binding.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-invocation-wrap.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-invoke.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-live-lifetime.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-live-retry.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-negative-zero.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-nested-deferred-scope.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-nojs-destination.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-open-gaps.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-outcome-digest.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-proto-keys.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-redirect-scheme.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-redirect-status.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-registry-reload.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-request-bounds.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-request-event-scope.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-response-aliasing.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-result-descriptors.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-single-flight.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-transform-result-thrown.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-transport-failure.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-undefined-arguments.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-version-skew.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-wrap-invocation-validation.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-functions-wrap-nested-direct.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/server-observe-invocations.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/server-error-hook.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-frame-records.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/server-functions-abort-conforming-length.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-adapter-request.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-addressing.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-body-buffering.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-body-cap-declaration-trust.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-body-formats.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-content-length.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-cors-origin.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-csrf.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-decoder-rejection-ownership.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-derived-locals.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-dev-rebind-grant.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-direct-provide-event-once.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-encode-hygiene.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-error-carrier-guard.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-event-hook.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-extensions.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-failure-sanitization.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-failure-signal.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flash-bound-form.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flash-bounds.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flash-encryption.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flash-falsy-outcomes.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flash-key-derivation.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flash-url-bound.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flight-markup.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flight-result-ownership.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-flight-source-dedupe.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-get-grant-binding.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-invocation-wrap.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-invoke.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-live-lifetime.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-live-retry.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-negative-zero.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-nested-deferred-scope.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-nojs-destination.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-open-gaps.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-outcome-digest.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-proto-keys.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-redirect-scheme.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-redirect-status.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-registry-reload.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-request-bounds.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-request-event-scope.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-response-aliasing.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-result-descriptors.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-single-flight.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-transform-result-thrown.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-transport-failure.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-undefined-arguments.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-version-skew.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-wrap-invocation-validation.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-functions-wrap-nested-direct.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/server-observe-invocations.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
 | web/test/server/server-owner-walks.spec.tsx | 0 | 5 | not ours: runs Solid's built packages in a child process |
 | web/test/server/server-render-route.spec.tsx | 2 | 7 |  |
-| web/test/server/server-trace.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/shared-async-sources.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/shell-suspend-loading-inline.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/server-trace.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/server-functions/server' |
+| web/test/server/shared-async-sources.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/shell-suspend-loading-inline.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/slot-hydration-3567.spec.tsx | 27 | 4 |  |
 | web/test/server/spread-function-source.spec.tsx | 10 | 0 |  |
 | web/test/server/spread-hydration.spec.tsx | 3 | 4 |  |
 | web/test/server/spread-omit.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/server/spread-static-tail.spec.tsx | 6 | 3 |  |
 | web/test/server/spread-static-text.spec.tsx | 3 | 1 |  |
-| web/test/server/ssr-async-rejection-3569.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/server/ssr-async-rejection-3569.spec.tsx | 0 | 1 | SyntaxError: Export named 'createRequestEvent' not found |
 | web/test/server/ssr-async-rejection-3570.spec.tsx | 5 | 1 |  |
 | web/test/server/ssr-class-style-separators.spec.tsx | 2 | 0 |  |
 | web/test/server/ssr-class.spec.tsx | 2 | 1 |  |
-| web/test/server/ssr-element-names.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/ssr-element-names.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/ssr-element-nullish-attrs.spec.tsx | 4 | 0 |  |
 | web/test/server/ssr-element-sources.spec.tsx | 24 | 0 |  |
 | web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 | not ours: runs Solid's built packages in a child process |
 | web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
-| web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createRequestEvent' not found |
 | web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
-| web/test/server/ssr-stream.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/ssr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
-| web/test/server/stream-cancel-iterators-3626.spec.tsx | 0 | 1 | Cannot find module '@solidjs/web/serialization' |
+| web/test/server/stream-cancel-iterators-3626.spec.tsx | 0 | 16 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 2 | 8 |  |
-| web/test/server/tier-announce.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
-| web/test/server/tree-rewrite.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/tier-announce.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
+| web/test/server/tree-rewrite.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/tree-rewrite.js' |
 | web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
-| web/test/server/welcome-status-parity.spec.tsx | 0 | 1 | not ours: Solid's server functions / frames (Sluurp has its own RPC and server components) |
+| web/test/server/welcome-status-parity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/write-before-resume.gen.spec.tsx | 1 | 0 |  |
 | web/test/show-in-for.spec.tsx | 1 | 0 |  |
 | web/test/show-optimistic-sync-write-3698.spec.tsx | 2 | 0 |  |
@@ -708,9 +726,9 @@
 | web/test/style-class-tracked.spec.tsx | 8 | 1 |  |
 | web/test/superseded-source-blocks-3462.spec.tsx | 2 | 0 |  |
 | web/test/switch.spec.tsx | 28 | 2 |  |
-| web/test/take-hydration-value.spec.ts | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/take-hydration-value.spec.ts | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
 | web/test/template-document-shell.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/client.js' |
-| web/test/trace-client.spec.tsx | 0 | 1 | not ours: Solid's request/response layer (Sluurp's server handles requests) |
+| web/test/trace-client.spec.tsx | 0 | 1 | SyntaxError: Export named 'getTraceContext' not found |
 | web/test/use-head-css-gating-client.spec.tsx | 1 | 4 |  |
 | web/test/use-head-loading-client.spec.tsx | 2 | 0 |  |
 | web/test/wait-asset.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/render.js' |

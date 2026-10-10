@@ -86,9 +86,13 @@ const webDir = join(here, "node_modules", "@solidjs", "web");
 mkdirSync(webDir, { recursive: true });
 await Bun.write(
   join(webDir, "package.json"),
-  JSON.stringify({ name: "@solidjs/web", type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js" } }),
+  JSON.stringify({ name: "@solidjs/web", type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js", "./serialization": "./serialization.js" } }),
 );
 await Bun.write(join(webDir, "index.js"), `export * from ${JSON.stringify(web)};\n`);
+// Serialization (the wire's codec and the hydration serializer): Twist's, by package name and by Solid's own paths.
+const serialization = `export * from ${JSON.stringify(twist("serialization.ts"))};\n`;
+await Bun.write(join(webDir, "serialization.js"), serialization);
+for (const file of ["serializer.js", "serializer-decode.js"]) await Bun.write(join(out, "web", "serialization", "src", file), serialization);
 // The server builds: Twist's server runtime, and Solid's API as it runs on a server.
 for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-server", "server-solid.ts"]]) {
   const dir = join(here, "node_modules", ...name.split("/"));
