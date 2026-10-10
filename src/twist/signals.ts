@@ -1686,6 +1686,11 @@ function voidLane(l: Transaction) {
   awaitingRound.delete(l);
   for (const n of l.nodes) {
     n.tx = null;
+    // (A guessed node's own landing is the correction: its truth stays, the parent's.)
+    if (l.guessed.has(n) && n.staged !== NONE) {
+      for (const o of n.observers) o.mark(DIRTY);
+      continue;
+    }
     n.staged = NONE as any;
     if (n instanceof Computation && !n.disposed) (n.flight = null), flights.delete(n), n.mark(DIRTY);
   }

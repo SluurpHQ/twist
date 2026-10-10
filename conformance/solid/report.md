@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5665 pass, 1036 fail, 714 files (32 did not load, 121 test Solid's internals)
+5674 pass, 1027 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -211,7 +211,7 @@
 | signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |
 | signals/tests/snapshot-derived-store-rows.test.ts | 4 | 1 |  |
 | signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
-| signals/tests/spec-async-semantics.test.ts | 33 | 19 |  |
+| signals/tests/spec-async-semantics.test.ts | 34 | 18 |  |
 | signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
 | signals/tests/store-unchanged-read-independent-write-3688.test.ts | 4 | 0 |  |
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
@@ -299,7 +299,7 @@
 | signals/tests/verdict-mount-loading-flush-loop.test.ts | 4 | 0 |  |
 | signals/tests/visibility-oracle-posture.test.ts | 1184 | 0 |  |
 | signals/tests/visibility-oracle-store.test.ts | 133 | 20 |  |
-| signals/tests/visibility-oracle.test.ts | 108 | 18 |  |
+| signals/tests/visibility-oracle.test.ts | 117 | 9 |  |
 | signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
 | signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |
 | signals/tests/zombie-recompute-keeps-flag.test.ts | 1 | 0 |  |
@@ -657,7 +657,7 @@
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
 | web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 19 | 2 |  |
 | web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |
