@@ -1481,7 +1481,28 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     // (A region inside a boundary that now waits, an Activity's, has not committed: told when it does. The boundary's
     // own region commits its fallback now.)
     const sb = f.type === SUSPENSE ? null : boundaryOf(f);
-    layoutQueue.push(() => (sb?.pending?.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
+    if (sb && sb.pending) {
+      // An Activity's: its client render drawn off the page first. If it suspends, the boundary above shows its
+      // fallback and the server's markup stays, dehydrated, as React leaves it (the client render did not commit).
+      const before = sb.pending.peek();
+      const frag = docOf(host).createDocumentFragment();
+      lastHold = null;
+      drawFresh(f, frag, null);
+      if (sb.pending.peek() > before) {
+        for (const c of f.children) unmount(c, false);
+        f.children = [];
+        setDehydrated(f, true);
+        // Tried again once what it waits for is there.
+        const waits = lastHold?.waits;
+        const again = () => !f.dead && scheduleHydration(f);
+        waits?.then(again, again);
+        return;
+      }
+      layoutQueue.push(() => (sb.pending!.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
+      host.insertBefore(frag, removeRegion(region));
+      return;
+    }
+    layoutQueue.push(tell);
     drawFresh(f, host, removeRegion(region));
     return;
   }
@@ -1521,7 +1542,8 @@ function drawFresh(f: Fiber, host: Node, end: Node | null) {
   // rendered boundary before its next host sibling, not where the server's markup was).
   if (was)
     layoutQueue.push(() => {
-      if (f.dead) return;
+      // (Not one whose client render was thrown away: the server's markup stays where it is.)
+      if (f.dead || (f as any).dehydrated) return;
       const parent = domParent(hostParentOf(f));
       const before = nextDomAfter(f);
       for (const n of domNodes(f)) if (n.parentNode !== parent || n.nextSibling !== before) parent.insertBefore(n, before);
@@ -2242,9 +2264,12 @@ function update(f: Fiber, c: any) {
     return;
   }
   if (f.kind === FRAG) {
-    if (f.type === ACTIVITY && (f as any).dehydrated && !hydrating && c.props !== f.props)
+    if (f.type === ACTIVITY && (f as any).dehydrated && !hydrating) {
+      // (The same props: left as the server drew it, waiting for its hydration.)
+      if (c.props === f.props) return;
       // (Then updated as any Activity is below: shown or hidden, its children drawn.)
       updateDehydrated(f, c.props, () => {});
+    }
     const host = hostParentOf(f);
     const prev = f.props;
     // The same element again (a parent that bailed out on its children): nothing of it renders again.
@@ -3174,7 +3199,7 @@ const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
 /** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
 /** (`inclusive`: thrown by `f`'s own elements, below it: `f` itself may be the boundary that takes it.) */
 /** A boundary kept waiting by one thenable: let go when it settles, or when what threw it renders without it. */
-type Hold = { s: Fiber; held: boolean };
+type Hold = { s: Fiber; held: boolean; waits: PromiseLike<unknown> };
 let lastHold: Hold | null = null;
 function release(h: Hold) {
   if (!h.held) return;
@@ -3224,7 +3249,7 @@ function caught(f: Fiber, e: any, inclusive = false) {
       if (p.type === SUSPENSE && p.pending && !p.dead) {
         const s = p;
         s.pending!.set(s.pending!.peek() + 1);
-        const hold = (lastHold = { s, held: true });
+        const hold = (lastHold = { s, held: true, waits: e });
         // Drawing now: it draws again at once with its fallback (React shows it in the same render); before its
         // children were ever shown, the siblings after this one are not rendered (React skips them).
         if (drawing.has(s)) (s as any).resuspend = true;
