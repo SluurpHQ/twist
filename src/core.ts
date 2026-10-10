@@ -2199,7 +2199,17 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
  * fragment), able to stop between two components and go on later; committed, and put on the page, once all are
  * drawn. In the browser it runs to the end at once; a test's scheduler steps through it (waitFor).
  */
-type Work = { units: (() => void)[]; at: number; deferring: boolean; finish: () => void; wait: CommitWait };
+type Work = {
+  units: (() => void)[];
+  at: number;
+  deferring: boolean;
+  finish: () => void;
+  wait: CommitWait;
+  /** A root's render that recovers from an error by rendering again synchronously, and what it met. */
+  recover?: boolean;
+  root?: RootState;
+  errored?: { error: unknown };
+};
 let work: Work | null = null;
 /** When the work loop runs: at once by default; a test's scheduler can take it over. */
 let scheduleWork: (run: () => void) => void = (run) => run();
@@ -3328,6 +3338,14 @@ function caught(f: Fiber, e: any, inclusive = false) {
       return;
     }
   }
+  // In a concurrent render: it stops, and the root is rendered again synchronously once (React's recovery).
+  if (work?.recover && work.root === f.root && !work.errored) {
+    work.errored = { error: e };
+    // (In a task of its own: the work loop can yield before it.)
+    work.units.length = 0;
+    work.units.push(() => {});
+    return;
+  }
   uncaught(f.root, e, f);
 }
 
@@ -4426,6 +4444,21 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
     const frag = docOf(container).createDocumentFragment();
     const wait = newCommitWait();
     const finish = () => {
+      // An error with no boundary: what it drew goes, and the root renders again at once; told if that works.
+      if (w.errored) {
+        for (const c of top.children) unmount(c, false);
+        top.children = [];
+        top.dom = container;
+        caughtThisRender.length = 0;
+        first = true;
+        renderNow(children);
+        if (!(state as any).failed) {
+          const error: any = new Error("There was an error during concurrent rendering but React was able to recover by instead synchronously rendering the entire root.");
+          error.cause = w.errored.error;
+          (options?.onRecoverableError ?? report)(error, { componentStack: "" });
+        }
+        return;
+      }
       const go = () => {
         top.dom = container;
         clearContainer(container);
@@ -4446,7 +4479,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
       if (ready) ready(go);
       else go();
     };
-    work = { units: [], at: 0, deferring: true, finish, wait };
+    const w: Work = (work = { units: [], at: 0, deferring: true, finish, wait, recover: true, root: state });
     top.dom = frag;
     depth++;
     rendering = true;
