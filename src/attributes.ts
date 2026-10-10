@@ -71,6 +71,12 @@ export function attribute(tag: string, name: string, value: any, svg: boolean): 
   // Anything named on… is never written (an event handler, or a string posing as one).
   if (name.length > 2 && (name[0] === "o" || name[0] === "O") && (name[1] === "n" || name[1] === "N")) return null;
   if (BOOLEAN.has(name)) {
+    // `inert` once took "" for true: React says it now means false.
+    if (name === "inert" && value === "")
+      warn(
+        "Received an empty string for a boolean attribute `inert`. This will treat the attribute as if it were false. Either pass `false` to silence this warning, or pass `true` if you used an empty string in earlier versions of React to indicate this attribute is true.",
+        "inert-empty",
+      );
     return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
   }
   if (BOOLEANISH.has(name)) {

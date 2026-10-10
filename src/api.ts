@@ -12,5 +12,6 @@ export { captureOwnerStack } from "./core.ts";
 // What some libraries look for on React itself.
 // H: the hooks dispatcher (some code calls H.readContext or H.useState directly), always these hooks.
 import * as hooks from "./hooks.ts";
-const dispatcher = { ...hooks };
-export const __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = { H: dispatcher, A: null, T: null, S: null };
+import { internals } from "./core.ts";
+internals.H = { ...hooks };
+export const __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = internals;

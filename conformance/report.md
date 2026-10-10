@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3893 pass, 165 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3897 pass, 161 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -15,13 +15,13 @@
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactComponent-test.js | 18 | 1 | 2 |  |
 | react-dom/ReactComponentLifeCycle-test.js | 25 | 1 | 0 |  |
-| react-dom/ReactCompositeComponent-test.js | 39 | 1 | 0 |  |
+| react-dom/ReactCompositeComponent-test.js | 40 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentState-test.js | 5 | 3 | 1 |  |
 | react-dom/ReactDOM-test.js | 15 | 1 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 6 | 1 | 1 |  |
-| react-dom/ReactDOMAttribute-test.js | 12 | 1 | 0 |  |
+| react-dom/ReactDOMAttribute-test.js | 13 | 0 | 0 |  |
 | react-dom/ReactDOMBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMComponent-test.js | 163 | 1 | 1 |  |
 | react-dom/ReactDOMComponentTree-test.js | 4 | 0 | 0 |  |
@@ -145,8 +145,8 @@
 | react/ReactCreateElement-test.js | 25 | 2 | 0 |  |
 | react/ReactCreateRef-test.js | 1 | 0 | 0 |  |
 | react/ReactElementClone-test.js | 21 | 0 | 0 |  |
-| react/ReactElementValidator-test.internal.js | 20 | 1 | 0 |  |
-| react/ReactES6Class-test.js | 23 | 1 | 0 |  |
+| react/ReactElementValidator-test.internal.js | 21 | 0 | 0 |  |
+| react/ReactES6Class-test.js | 24 | 0 | 0 |  |
 | react/ReactJSXElementValidator-test.js | 14 | 0 | 0 |  |
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 18 | 1 | 0 |  |

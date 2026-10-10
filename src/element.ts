@@ -214,12 +214,38 @@ export function createPortal(children: any, container: Node, key?: any) {
 
 /** React's error for a type that is no component: undefined (a missing export), an object, null. */
 export function invalidType(type: any): Error {
-  const got = type === null ? "null" : Array.isArray(type) ? "array" : typeof type;
-  const hint =
-    type === undefined || (typeof type === "object" && type !== null && Object.keys(type).length === 0)
+  const literal = type != null && type.$$typeof === ELEMENT;
+  const got = type === null ? "null" : Array.isArray(type) ? "array" : literal ? `<${typeName(type.type) || "Unknown"} />` : typeof type;
+  const hint = literal
+    ? " Did you accidentally export a JSX literal instead of a component?"
+    : type === undefined || (typeof type === "object" && type !== null && Object.keys(type).length === 0)
       ? " You likely forgot to export your component from the file it's defined in, or you might have mixed up default and named imports."
       : "";
   return new Error(`Element type is invalid: expected a string (for built-in components) or a class/function (for composite components) but got: ${got}.${hint}`);
+}
+
+/** A type's name as React gives it in messages (getComponentNameFromType). */
+function typeName(t: any): string | null {
+  if (t == null) return null;
+  if (typeof t === "string") return t;
+  if (typeof t === "function") return t.displayName || t.name || null;
+  if (typeof t === "symbol") return t === FRAGMENT ? "Fragment" : t === SUSPENSE ? "Suspense" : t === PROFILER ? "Profiler" : t === STRICT ? "StrictMode" : null;
+  switch (t.$$typeof) {
+    case CONTEXT:
+      return t.displayName || "Context";
+    case CONSUMER:
+      return (t._context?.displayName || "Context") + ".Consumer";
+    case FORWARD_REF: {
+      if (t.displayName) return t.displayName;
+      const inner = t.render?.displayName || t.render?.name || "";
+      return inner ? `ForwardRef(${inner})` : "ForwardRef";
+    }
+    case MEMO:
+      return t.displayName || typeName(t.type) || "Memo";
+    case LAZY:
+      return null;
+  }
+  return null;
 }
 
 /** React's error for an object rendered as a child. */

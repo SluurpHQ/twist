@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "allowJs": true,
-    "jsx": "react-jsx",
+    "jsx": "react-jsxdev",
     "paths": {
       "react": ["../src/react.ts"],
       "react/jsx-runtime": ["../src/jsx-runtime.ts"],

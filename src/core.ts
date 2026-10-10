@@ -144,6 +144,10 @@ function uncaught(root: RootState, e: unknown, at?: Fiber | null) {
 }
 
 let current: Fiber | null = null;
+/** What libraries find on React's internals: H the hooks (set by api.ts), A the async dispatcher while rendering. */
+export const internals: { H: any; A: any; T: any; S: any } = { H: null, A: null, T: null, S: null };
+const asyncDispatcher: any = { getCacheForType: (make: () => any) => make() };
+if (dev()) asyncDispatcher.getOwner = () => current;
 /** React's warning for a setState or forceUpdate callback that is no function (once per value). */
 function warnOnInvalidCallback(cb: any) {
   if (dev() && cb != null && typeof cb !== "function") warn(`Expected the last optional \`callback\` argument to be a function. Instead received: ${shown(cb)}.`, "invalid-callback:" + shown(cb));
@@ -2342,8 +2346,10 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   let out: any;
   const prevCurrent = current;
   const prevAt = hookAt;
+  const prevA = internals.A;
   current = f;
   hookAt = 0;
+  internals.A = asyncDispatcher;
   try {
     for (let pass = 0; ; pass++) {
       (f as any).again = false;
@@ -2376,6 +2382,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   } finally {
     current = prevCurrent;
     hookAt = prevAt;
+    internals.A = prevA;
   }
   const kept = out === KEEP;
   if (kept) out = f.out;
@@ -2722,6 +2729,17 @@ export class Component<P = any, S = any> {
   declare render: () => any;
 }
 (Component.prototype as any).isReactComponent = {};
+// The old createClass methods: a warning on reading them in development, as React's Component has.
+for (const [name, why] of [
+  ["isMounted", "Instead, make sure to clean up subscriptions and pending requests in componentWillUnmount to prevent memory leaks."],
+  ["replaceState", "Refactor your code to use setState instead (see https://github.com/facebook/react/issues/3236)."],
+])
+  Object.defineProperty(Component.prototype, name, {
+    get() {
+      if (dev()) console.warn(`${name}(...) is deprecated in plain JavaScript React classes. ${why}`);
+      return undefined;
+    },
+  });
 // React's updater, which a class may reach into (this.updater.enqueueReplaceState…).
 (Component.prototype as any).updater = {
   isMounted: (inst: any) => !!inst.__f?.committed && !inst.__f.dead,
