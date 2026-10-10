@@ -555,6 +555,9 @@ export class Signal<T> extends Node<T> {
 export const isFlushing = () => flushing > 0;
 
 /** `n` tracked by what reads now, its value not read (a store key shown through an optimistic overlay). */
+/** Whether an isPending()/latest() probe is reading. */
+export const isVerdictReading = () => verdictReading > 0;
+
 export function trackNode(n: Node<any>) {
   if (!listener) return;
   listener.track(n);

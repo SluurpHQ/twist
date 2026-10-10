@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5631 pass, 1070 fail, 714 files (32 did not load, 121 test Solid's internals)
+5640 pass, 1061 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -76,13 +76,13 @@
 | signals/tests/createLoadingBoundary.test.ts | 19 | 7 |  |
 | signals/tests/createMemo.test.ts | 69 | 11 |  |
 | signals/tests/createOptimistic.test.ts | 59 | 9 |  |
-| signals/tests/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
+| signals/tests/createProjection.draft-lifetime-3585.test.ts | 10 | 7 |  |
 | signals/tests/createReaction.test.ts | 2 | 3 |  |
 | signals/tests/createRevealOrder.test.ts | 38 | 0 |  |
 | signals/tests/createRoot.test.ts | 21 | 1 |  |
 | signals/tests/createSignal.test.ts | 10 | 0 |  |
 | signals/tests/createTrackedEffect.test.ts | 18 | 1 |  |
-| signals/tests/derived-write-then-derivation-3733.test.ts | 34 | 3 |  |
+| signals/tests/derived-write-then-derivation-3733.test.ts | 36 | 1 |  |
 | signals/tests/dev.test.ts | 28 | 0 |  |
 | signals/tests/diagnostics.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
 | signals/tests/direct-commit-readers-posture.test.ts | 1 | 2 |  |
@@ -140,7 +140,7 @@
 | signals/tests/late-pending-equality.test.ts | 6 | 2 |  |
 | signals/tests/latest-async.test.ts | 1 | 0 |  |
 | signals/tests/latest-created-inside-window.test.ts | 2 | 0 |  |
-| signals/tests/latest-held-till-flush.test.ts | 18 | 4 |  |
+| signals/tests/latest-held-till-flush.test.ts | 19 | 3 |  |
 | signals/tests/latest-isPending-consistency.test.ts | 6 | 2 |  |
 | signals/tests/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |
 | signals/tests/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |
@@ -213,7 +213,7 @@
 | signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
 | signals/tests/spec-async-semantics.test.ts | 33 | 19 |  |
 | signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
-| signals/tests/store-unchanged-read-independent-write-3688.test.ts | 3 | 1 |  |
+| signals/tests/store-unchanged-read-independent-write-3688.test.ts | 4 | 0 |  |
 | signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
 | signals/tests/store/async-setter.test.ts | 6 | 2 |  |
 | signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |
@@ -221,7 +221,7 @@
 | signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
 | signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
 | signals/tests/store/createProjection.test.ts | 7 | 13 |  |
-| signals/tests/store/createStore.test.ts | 55 | 10 |  |
+| signals/tests/store/createStore.test.ts | 56 | 9 |  |
 | signals/tests/store/deep-chained-view.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
 | signals/tests/store/deep-held-visibility.test.ts | 0 | 1 |  |
 | signals/tests/store/deep-overlay-rewalk.test.ts | 3 | 0 |  |
@@ -298,7 +298,7 @@
 | signals/tests/verdict-mount-first-pass-3851.test.ts | 0 | 3 |  |
 | signals/tests/verdict-mount-loading-flush-loop.test.ts | 4 | 0 |  |
 | signals/tests/visibility-oracle-posture.test.ts | 1184 | 0 |  |
-| signals/tests/visibility-oracle-store.test.ts | 127 | 26 |  |
+| signals/tests/visibility-oracle-store.test.ts | 131 | 22 |  |
 | signals/tests/visibility-oracle.test.ts | 96 | 30 |  |
 | signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
 | signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |
@@ -657,7 +657,7 @@
 | web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
 | web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
 | web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 19 | 2 |  |
 | web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
 | web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
 | web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |

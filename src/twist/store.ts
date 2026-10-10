@@ -2,7 +2,7 @@
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -148,6 +148,14 @@ export const unwrap = <T>(v: T): T => ((v as any)?.[$TARGET] ?? v);
 
 // ---------------------------------------------------------------- reading
 
+/** Whether `key` shows an optimistic guess. (A probe asking whether it is final: only while it differs from the truth beneath, A24.) */
+function overlaid(target: Raw, key: PropertyKey) {
+  const o = records.get(target)?.overlay?.get(key);
+  if (!o) return false;
+  if (isVerdictReading() && (o.v === DELETE ? !latestHas(target, key) : latestHas(target, key) && Object.is(o.v, latestGet(target, key)))) return "final";
+  return true;
+}
+
 const readHandler: ProxyHandler<Raw> = {
   get(target, key, receiver) {
     if (key === $TARGET) return target;
@@ -157,7 +165,11 @@ const readHandler: ProxyHandler<Raw> = {
     // Getters run against the proxy, so what they read is tracked.
     if (desc?.get) return desc.get.call(receiver);
     // (Through an overlay the guess is the value: no held write under it is read.)
-    if (isTracking()) records.get(target)?.overlay?.has(key) ? trackNode(node(target, key)) : node(target, key).read();
+    if (isTracking()) {
+      const o = overlaid(target, key);
+      if (o === true) trackNode(node(target, key));
+      else if (!o) node(target, key).read();
+    }
     const v = viewGet(target, key);
     if (Array.isArray(target) && key === "length") return v;
     // A method of an array (or anything inherited) is not a property of the state.
@@ -166,7 +178,11 @@ const readHandler: ProxyHandler<Raw> = {
   },
   has(target, key) {
     if (key === $PROXY || key === $TARGET) return true;
-    if (isTracking()) records.get(target)?.overlay?.has(key) ? trackNode(node(target, key)) : node(target, key).read();
+    if (isTracking()) {
+      const o = overlaid(target, key);
+      if (o === true) trackNode(node(target, key));
+      else if (!o) node(target, key).read();
+    }
     return viewHas(target, key);
   },
   ownKeys(target) {
@@ -309,6 +325,8 @@ export function commitRecord(r: Record_) {
       if (told) told(wrap(t), key, v === DELETE ? undefined : v, prev);
       const n = node(t, key);
       n.raw = v;
+      // (An action's write: its transaction's, as a signal's is.)
+      if (r.keys.writtenIn) n.writtenIn = r.keys.writtenIn;
       n.stage(++n.seq);
       if (v === DELETE || !had || key === "length") stagedShape = true;
       continue;
