@@ -54,7 +54,7 @@ function enterLeave(native: Event, roots: Set<object>) {
       synthetic.target = target;
       synthetic.relatedTarget = relatedTo;
       synthetic.__current = f.dom;
-      fn.call(f.dom, synthetic);
+      fn.call(undefined, synthetic);
     }
   };
   run(up, leave, fromNode, toNode);
@@ -243,7 +243,7 @@ function dispatch(native: Event, container: EventTarget, roots: Set<object>, cap
     for (const n of names) {
       const fn = (el as any)[PROPS]?.[n];
       synthetic.__type = POLYFILLED[n.endsWith("Capture") ? n.slice(0, -7) : n];
-      if (typeof fn === "function") fn.call(el, synthetic);
+      if (typeof fn === "function") fn.call(undefined, synthetic);
     }
   }
   synthetic.__current = null;

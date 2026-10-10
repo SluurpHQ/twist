@@ -718,6 +718,7 @@ let nestedUpdate = false;
 let renderIsNested = false;
 export const scheduledInCommit = () => {
   if (committing) nestedUpdate = true;
+  updatedFromRef = refRunning;
   // An update from a passive effect: past React's limit of them in a row, the loop is warned about (in development).
   if (inPassive) {
     updatedInPassive = true;
@@ -731,6 +732,10 @@ export const scheduledInCommit = () => {
     }
   }
 };
+/** The fiber whose ref callback runs now, and the one whose ref callback asked the latest update: an update loop
+ * from a ref is that fiber's error, as React throws it inside the callback. */
+let refRunning: Fiber | null = null;
+let updatedFromRef: Fiber | null = null;
 /** Passive effects running now, whether they updated, how many runs of them in a row did, and whose effect runs. */
 let inPassive = false;
 let updatedInPassive = false;
@@ -2176,7 +2181,17 @@ function guard(fn: () => void) {
 
 function setRef(f: Fiber, ref: any, value: any) {
   if (typeof ref === "function") {
-    const back = ref(value);
+    // What it throws is this fiber's commit error (React's captureCommitPhaseError), its stack from here.
+    let back: any;
+    const was = refRunning;
+    refRunning = f;
+    try {
+      back = ref(value);
+    } catch (e) {
+      return caught(f, e);
+    } finally {
+      refRunning = was;
+    }
     f.refCleanup = typeof back === "function" ? back : null;
   } else if (ref && typeof ref === "object") {
     if (dev() && !Object.hasOwn(ref, "current")) {
@@ -2328,7 +2343,9 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   loops.add(f);
   if ((f as any).draws > LIMIT) {
     // Handled as a render error would be: the nearest boundary, else the root goes down and the error is told.
-    if ((f as any).draws === LIMIT + 1) caught(f, new Error("Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops."));
+    let at = f;
+    for (let p = updatedFromRef; p; p = p.parent) if (p === f) at = updatedFromRef!;
+    if ((f as any).draws === LIMIT + 1) caught(at, new Error("Maximum update depth exceeded. This can happen when a component repeatedly calls setState inside componentWillUpdate or componentDidUpdate. React limits the number of nested updates to prevent infinite loops."));
     return;
   }
   // A unit of a concurrent render is part of that render: its passive effects come after its commit.
@@ -2395,7 +2412,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   try {
     reconcile(f, toList(out), host, before);
   } catch (e) {
-    caught(f, e);
+    caught(f, e, true);
   }
   // A Suspense whose children suspended as it drew them: drawn again now, its fallback in place.
   if ((f as any).resuspend) {
@@ -2412,7 +2429,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     try {
       reconcile(f, toList(out), host, before);
     } catch (e) {
-      caught(f, e);
+      caught(f, e, true);
     }
   }
   // A boundary that caught while mounting: its children dropped, and mounted again in its error state.
@@ -2443,7 +2460,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     try {
       reconcile(f, toList(out), host, before);
     } catch (e) {
-      caught(f, e);
+      caught(f, e, true);
     } finally {
       (f as any).retrying = false;
     }
@@ -2768,7 +2785,8 @@ const toldCaught = (from: Fiber, boundary: Fiber) => (error: unknown) => {
 };
 
 /** Something a render threw: a promise suspends the nearest Suspense; an error goes to the nearest boundary. */
-function caught(f: Fiber, e: any) {
+/** (`inclusive`: thrown by `f`'s own elements, below it: `f` itself may be the boundary that takes it.) */
+function caught(f: Fiber, e: any, inclusive = false) {
   // A pre-warming render's: thrown away with it.
   if (prewarming) return;
   if (e && typeof e.then === "function") {
@@ -2841,7 +2859,7 @@ function caught(f: Fiber, e: any) {
       return;
     }
   }
-  for (let p = f.parent; p; p = p.parent) {
+  for (let p = inclusive ? f : f.parent; p; p = p.parent) {
     const inst = p.inst;
     // (Not one rendering its error state now: what fails there goes further up, as React does.)
     if (!inst || p.dead || (p as any).retrying) continue;
@@ -3860,6 +3878,9 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         } finally {
           transitionCommit = false;
         }
+        // What this render's errors are told, once it is committed (as renderNow does).
+        (state as any).threw = false;
+        for (const tell of caughtThisRender.splice(0)) tell();
         flushSignals();
       };
       // Its stylesheets loaded first, when it has some that are not (React's suspensey commit).

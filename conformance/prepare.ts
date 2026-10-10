@@ -62,8 +62,22 @@ function promiseExpectations(code: string): string {
       else if (c === ")" && --depth === 0) break;
     }
     if (j >= code.length) break;
-    const arg = code.slice(open + 1, j);
-    if (/^\s*\.\s*(rejects|resolves)\b/.test(code.slice(j + 1)) && /^\s*(async\b|function\b|\([^)]*\)\s*=>|\w+\s*=>)/.test(arg)) {
+    // (A trailing comma dropped: the argument is wrapped in parentheses below.)
+    const arg = code.slice(open + 1, j).replace(/,\s*$/, "");
+    // .resolves.not.toThrow(): Jest passes once the promise resolves. Bun's .resolves does not always wait for it, so
+    // the promise is awaited as the value.
+    const settles = /^\s*\.\s*resolves\s*\.\s*not\s*\.\s*toThrow\(\)/.exec(code.slice(j + 1));
+    if (settles) {
+      const promise = /^\s*(async\b|function\b|\([^()]*\)\s*=>|\w+\s*=>)/.test(arg)
+        ? "(" + arg + ")()"
+        : /^\s*[\w$]+\s*$/.test(arg)
+          ? "(typeof " + arg + " === \"function\" ? " + arg + "() : " + arg + ")"
+          : "(" + arg + ")";
+      out += code.slice(at, i) + "expect(await " + promise + ").toSatisfy(() => true)";
+      at = j + 1 + settles[0].length;
+      continue;
+    }
+    if (/^\s*\.\s*(rejects|resolves)\b/.test(code.slice(j + 1)) && /^\s*(async\b|function\b|\([^()]*\)\s*=>|\w+\s*=>)/.test(arg)) {
       out += code.slice(at, open + 1) + "(" + arg + ")()";
       at = j;
       continue;
@@ -96,8 +110,6 @@ function copy(from: string, to: string) {
     else if (/-test(\.internal)?\.js$/.test(f)) {
       let code = promiseExpectations(unflow(gateSource(readFileSync(a, "utf8"))));
       for (const [re, to] of SETUP_ONLY) code = code.replace(re, to);
-      // A promise's .resolves.not.toThrow(): Jest passes once it resolves; Bun checks the value as a function.
-      code = code.replace(/\.resolves\.not\.toThrow\(\)/g, ".resolves.toSatisfy(() => true)");
       // `this` at module level makes Bun take the file for CommonJS, where its injected JSX import does not parse.
       if (/\bthis\b/.test(code) && !/^\s*(import|export)\s/m.test(code)) code += "\nexport {};\n";
       writeFileSync(b, code);

@@ -65,6 +65,14 @@ GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframe
       v ? set.call(this, "checked", "") : remove.call(this, "checked");
     },
   });
+  const type = Object.getOwnPropertyDescriptor(proto, "type")!;
+  Object.defineProperty(proto, "type", {
+    configurable: true,
+    get: type.get,
+    set(this: any, v: string) {
+      set.call(this, "type", String(v));
+    },
+  });
 }
 // A textarea's defaultValue and value are strings of what is given (happy-dom drops 0 and false).
 for (const key of ["defaultValue", "value"]) {

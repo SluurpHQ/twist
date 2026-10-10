@@ -187,7 +187,7 @@ function listen(el: Element, prop: string, handler: any) {
     handler,
     proxy: (e: Event) => {
       // mouseenter/mouseleave fire on the element alone; React's onMouseEnter fires on each it enters, the same.
-      entry.handler.call(el, asReactEvent(e, el));
+      entry.handler.call(undefined, asReactEvent(e, el));
       afterEvent(el, e);
     },
   };

@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3897 pass, 161 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3901 pass, 157 fail, 350 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -53,7 +53,7 @@
 | react-dom/ReactDOMHydrationDiff-test.js | 39 | 0 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMImageLoad-test.internal.js | 8 | 2 | 0 |  |
-| react-dom/ReactDOMInput-test.js | 119 | 1 | 4 |  |
+| react-dom/ReactDOMInput-test.js | 120 | 0 | 4 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |
 | react-dom/ReactDOMLegacyComponentTree-test.internal.js | 0 | 0 | 2 |  |
@@ -99,12 +99,12 @@
 | react-dom/ReactDOMSuspensePlaceholder-test.js | 2 | 0 | 3 |  |
 | react-dom/ReactDOMSVG-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
-| react-dom/ReactDOMTextarea-test.js | 52 | 1 | 0 |  |
+| react-dom/ReactDOMTextarea-test.js | 53 | 0 | 0 |  |
 | react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
 | react-dom/ReactDOMUseId-test.js | 10 | 2 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 14 | 0 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 24 | 0 | 0 |  |
-| react-dom/ReactErrorBoundaries-test.internal.js | 38 | 2 | 10 |  |
+| react-dom/ReactErrorBoundaries-test.internal.js | 39 | 1 | 10 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 1 | 0 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 0 | 1 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |
@@ -129,7 +129,7 @@
 | react-dom/ReactTestUtilsAct-test.js | 19 | 5 | 0 |  |
 | react-dom/ReactTestUtilsActUnmockedScheduler-test.js | 4 | 1 | 0 |  |
 | react-dom/ReactTreeTraversal-test.js | 11 | 0 | 0 |  |
-| react-dom/ReactUpdates-test.js | 41 | 1 | 3 |  |
+| react-dom/ReactUpdates-test.js | 42 | 0 | 3 |  |
 | react-dom/ReactWrongReturnPointer-test.js | 0 | 0 | 1 |  |
 | react-dom/refs-destruction-test.js | 4 | 0 | 0 |  |
 | react-dom/refs-test.js | 12 | 0 | 0 |  |
