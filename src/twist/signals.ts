@@ -978,7 +978,8 @@ export class Computation<T> extends Node<T> implements Owner {
       // (A pass that read the frame and found what it shows already applies nothing: it runs again at the reveal.)
       const shown = this.staleRead && this.heldOnly && this.applied !== NONE && this.equals !== false && this.equals(this.applied as T, next);
       if (!shown && (changed || this.applied === NONE || this.equals === Object.is)) {
-        const joins = this.readHeld && !this.tx ? this.readHeld : null;
+        // (An until() of an action reads the held world and answers now: never held itself.)
+        const joins = this.readHeld && !this.tx && !(this as any).insideTx ? this.readHeld : null;
         if (flushing || this.tx || joins) this.staged = next;
         else this.value = next;
         if (flushing && !this.tx && !joins) staged.push(this);
@@ -1514,7 +1515,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     // (A render effect showed the frame of what it holds: it runs again at the commit instead.)
     if (n instanceof Computation)
       for (const s of n.sources) {
-        if (!s.tx || n.verdict?.has(s)) continue;
+        if (!s.tx || n.verdict?.has(s) || (n as any).insideTx) continue;
         if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld) s.tx.root.stale.add(n);
         else joins = s.tx.root;
       }
@@ -2208,13 +2209,19 @@ export class TimeoutError extends Error {
 
 /** A promise for the first time `fn` settles truthy (with that value). */
 export function until<T>(fn: () => T, options?: { timeout?: number; signal?: AbortSignal }): Promise<NonNullable<T>> {
+  // Awaited in an action: the landing that satisfies it is that action's (held in its transaction, #3164).
+  const tx = acting?.tx ?? null;
   return new Promise((ok, fail) => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stop = createRoot((dispose) => {
       createEffect(
         () => {
+          const me = listener!;
+          (me as any).insideTx = tx;
           try {
-            return { v: fn(), ok: true };
+            const v = fn();
+            if (v && tx && !tx.done) for (const s of me.sources) if (s instanceof Computation && s.staged !== NONE && !s.tx) hold(s, tx);
+            return { v, ok: true };
           } catch (e) {
             if (e instanceof NotReadyError) return { v: undefined, ok: false };
             throw e;
