@@ -1,6 +1,6 @@
 // React's internal-test-utils, for a runtime that renders synchronously on microtasks: `act` and the waits drain
 // everything pending (updates, effects after paint, settled promises), then the log is checked as React's tests do.
-import { flushPassiveEffects, flushScheduled, flushSync, flushTransitions, onUncaught, performWork, setTransitionScheduler, setWorkScheduler, somethingPending } from "../../src/core.ts";
+import { commits, flushPassiveEffects,flushScheduled, flushSync, flushTransitions, onUncaught, performWork, setTransitionScheduler, setWorkScheduler, somethingPending } from "../../src/core.ts";
 
 // Transitions wait for the test to flush them (act and waitForAll do; waitForPaint stops before them), as with
 // React's mock scheduler.
@@ -114,7 +114,10 @@ export async function waitForAll(expected: unknown[]) {
 }
 /** What React draws before it yields to paint: the urgent updates and their effects, not transitions. */
 export async function waitForPaint(expected: unknown[]) {
+  // Nothing urgent to paint: the next task runs, whatever its lane (React's scheduler goes on until a paint).
+  const before = commits();
   await drain(false);
+  for (let i = 0; i < 100 && commits() === before && flushTransitions(); i++) await drain(false);
   assertLog(expected);
 }
 export const waitForDiscrete = waitForAll;

@@ -1282,6 +1282,8 @@ const byPlace = (a: Fiber, b: Fiber) => {
 };
 /** A replay is scheduled: hydration runs wait behind it (it is the higher priority). */
 let replayScheduled = false;
+/** useDeferredValue's updates booked and not yet drawn. */
+let deferredWaiting = 0;
 function scheduleReplay() {
   if (replayScheduled) return;
   replayScheduled = true;
@@ -1292,7 +1294,8 @@ function scheduleReplay() {
 }
 function runHydrations() {
   if (!toHydrate.size) return;
-  if (replayScheduled) return void deferTransition(runHydrations);
+  // (Behind a replay, and behind deferred values waiting to be drawn: both are the higher priority.)
+  if (replayScheduled || deferredWaiting) return void deferTransition(runHydrations);
   const ready = [...toHydrate].sort((a, b) => ((a as any).targeted ?? Infinity) - ((b as any).targeted ?? Infinity) || byPlace(a, b));
   toHydrate.clear();
   // Those an event targeted each in a render of its own (their raised lanes); the rest together, in one render and
@@ -3276,9 +3279,13 @@ let flushHeld = false;
 holdFlushes(() => committing && (flushHeld = true));
 
 // Counted as rendering while it runs: an event it fires (a focus() in a layout effect) does not flush from inside.
+/** Commits so far (a test's scheduler waits for a paint by it). */
+let commitCount = 0;
+export const commits = () => commitCount;
 function commit() {
   // A concurrent render under way: committed when it is done.
   if (work) return;
+  commitCount++;
   depth++;
   const wasCommitting = committing;
   committing = true;
@@ -3446,7 +3453,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), hoverTargets.clear(), (replayScheduled = false), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), hoverTargets.clear(), (replayScheduled = false), (deferredWaiting = 0), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -3778,15 +3785,21 @@ export const client = {
       return box;
     });
     const shown = h.read();
-    if (Object.is(value, shown) || applyingTransition) {
+    // (Mounting while hydrating, even in a transition: the initial value, as the server drew it.)
+    const hydratingMount = hydrating && !h.seen;
+    h.seen = true;
+    if (Object.is(value, shown) || (applyingTransition && !hydratingMount)) {
       if (!Object.is(value, shown)) h.v = value;
       return value;
     }
     h.wanted = value;
     if (!h.booked) {
       h.booked = true;
+      deferredWaiting++;
       deferTransition(() => {
         h.booked = false;
+        // (Waited on until it is committed.)
+        layoutQueue.push(() => void deferredWaiting--);
         h.put(h.wanted);
       });
     }
