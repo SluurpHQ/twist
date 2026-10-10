@@ -3389,6 +3389,7 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
     if (errors.length > 1) throw new AggregateError(errors);
   };
   let r: T | Promise<T>;
+  const depthBefore = actDepth;
   actDepth++;
   try {
     r = fn();
@@ -3398,8 +3399,14 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
     throw e;
   }
   if (r && typeof (r as any).then === "function") {
-    return (r as Promise<T>).then(
+    // Another act begun and not ended inside this one's time (not awaited in turn): React's warning, at its end.
+    const overlapping = () => {
+      if (dev() && depthBefore !== actDepth - 1)
+        console.error("You seem to have overlapping act() calls, this is not supported. Be sure to await previous act() calls before making a new one. ");
+    };
+    const settled = (r as Promise<T>).then(
       async (v) => {
+        overlapping();
         try {
           // What it set off, then what that sets off (promises settling, effects updating), until nothing is left
           // (still inside act while it does).
@@ -3411,11 +3418,22 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
         return v;
       },
       (e) => {
+        overlapping();
         actDepth--;
         off();
         throw e;
       },
     );
+    // Not awaited (nothing asked for its result in a few microtasks): React's warning.
+    let awaited = false;
+    if (dev())
+      queueMicrotask(() =>
+        queueMicrotask(() => {
+          if (!awaited)
+            console.error("You called act(async () => ...) without await. This could lead to unexpected testing behaviour, interleaving multiple act calls and mixing their scopes. You should - await act(async () => ...);");
+        }),
+      );
+    return { then: (ok?: any, no?: any) => ((awaited = true), settled.then(ok, no)) };
   }
   try {
     if (actDepth === 1) settleAll();

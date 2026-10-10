@@ -317,7 +317,17 @@ if (!process.argv.some((a) => a.includes("redux-tests"))) {
   } catch {}
   const realImmediate = globalThis.setImmediate;
   const realClear = globalThis.clearImmediate;
+  // Jest fakes the timers once for the file, so a file that turns them off at its top level keeps real ones.
+  let inTest = false;
+  let fileReal = false;
+  const useReal = t.jest.useRealTimers.bind(t.jest);
+  (t.jest as any).useRealTimers = (...a: any[]) => {
+    if (!inTest) fileReal = true;
+    return useReal(...a);
+  };
   t.beforeEach(() => {
+    inTest = true;
+    if (fileReal) return;
     t.jest.useFakeTimers();
     if (nodeEnv) {
       (globalThis as any).setImmediate = (fn: (...a: any[]) => void, ...args: any[]) => setTimeout(fn, 0, ...args);
@@ -325,7 +335,8 @@ if (!process.argv.some((a) => a.includes("redux-tests"))) {
     }
   });
   t.afterEach(() => {
-    t.jest.useRealTimers();
+    useReal();
+    inTest = false;
     (globalThis as any).setImmediate = realImmediate;
     (globalThis as any).clearImmediate = realClear;
   });
