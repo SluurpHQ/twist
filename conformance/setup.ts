@@ -461,6 +461,7 @@ const ours: Record<string, string> = {
 // (A package that is not installed is not resolved through the plugin: given as a module.)
 (await import("bun:test")).mock.module("web-streams-polyfill/ponyfill/es6", () => ({ ReadableStream, WritableStream, TransformStream }));
 (await import("bun:test")).mock.module("dom-event-testing-library", () => require(join(import.meta.dir, "react-tests", "dom-event-testing-library", "index.js")));
+(await import("bun:test")).mock.module("react-dom-bindings/src/client/ReactDOMSelection", () => require(join(src, "dom-selection.ts")));
 (await import("bun:test")).mock.module("react-dom-bindings/src/client/HTMLNodeType", () => ({ ELEMENT_NODE: 1, TEXT_NODE: 3, COMMENT_NODE: 8, DOCUMENT_NODE: 9, DOCUMENT_TYPE_NODE: 10, DOCUMENT_FRAGMENT_NODE: 11 }));
 
 plugin({

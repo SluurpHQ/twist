@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3958 pass, 124 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3960 pass, 122 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -65,7 +65,7 @@
 | react-dom/ReactDOMRoot-test.js | 27 | 0 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMSelect-test.js | 60 | 0 | 1 |  |
-| react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
+| react-dom/ReactDOMSelection-test.internal.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 547 | 0 | 3 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 55 | 0 | 0 |  |
 | react-dom/ReactDOMServerIntegrationCheckbox-test.js | 30 | 0 | 0 |  |

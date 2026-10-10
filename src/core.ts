@@ -16,6 +16,7 @@ import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from ".
 import { type Preview, tryTransition } from "./dryrun.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
+import { getOffsets, setOffsets } from "./dom-selection.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
 
@@ -2736,7 +2737,10 @@ let restarting = 0;
 /** A render beginning: its start time, and whether an update set in the last commit set it off. */
 function startRender() {
   renderSerial++;
-  if (focusedBefore === undefined && typeof document !== "undefined") focusedBefore = document.activeElement;
+  if (focusedBefore === undefined && typeof document !== "undefined") {
+    focusedBefore = document.activeElement;
+    selectionBefore = focusedBefore && selectable(focusedBefore) ? selectionIn(focusedBefore) : null;
+  }
   renderStart = now();
   renderIsNested = nestedUpdate;
   nestedUpdate = false;
@@ -2746,9 +2750,30 @@ function startRender() {
 let focusedBefore: Element | null | undefined;
 function restoreFocus() {
   const el = focusedBefore;
+  const selection = selectionBefore;
   focusedBefore = undefined;
+  selectionBefore = null;
   if (!el || !el.isConnected || el.ownerDocument.activeElement === el || el === el.ownerDocument.body) return;
+  // Its selection put back first, then the focus (React's restoreSelection).
+  if (selection) setSelectionIn(el, selection);
   (el as HTMLElement).focus?.();
+}
+/** The focused element's selection when the render began. */
+let selectionBefore: { start: number; end: number } | null = null;
+/** An element with a selection of its own (React's hasSelectionCapabilities): a text field, or editable content. */
+const selectable = (el: Element) => {
+  const name = el.nodeName.toLowerCase();
+  return (name === "input" && /^(text|search|tel|url|password)$/.test((el as HTMLInputElement).type)) || name === "textarea" || (el as HTMLElement).contentEditable === "true";
+};
+function selectionIn(el: Element): { start: number; end: number } | null {
+  if ("selectionStart" in el && (el as any).selectionStart != null) return { start: (el as any).selectionStart, end: (el as any).selectionEnd };
+  return getOffsets(el);
+}
+function setSelectionIn(el: Element, sel: { start: number; end: number }) {
+  if ("selectionStart" in el) {
+    (el as any).selectionStart = sel.start;
+    (el as any).selectionEnd = Math.min(sel.end, (el as any).value?.length ?? sel.end);
+  } else setOffsets(el, sel);
 }
 
 /** A root's render in progress (not an update drawn later): errors caught in it are told after any retry. */
