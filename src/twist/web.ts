@@ -26,7 +26,7 @@ import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./h
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, markBuiltin } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, markBuiltin } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -928,7 +928,7 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
     }
     if (v.fn === Loading) return claimLoading(componentProps(v.props), at);
     if (v.fn === Errored) return claimErrored(componentProps(v.props), at);
-    return claimHtml(callComponent(v.fn, componentProps(v.props)), false, at);
+    return renderComponent(v.fn, componentProps(v.props), (out) => claimHtml(out, false, at));
   }
   if (v[EL]) return [claimDescribed(v, v.keyed ?? !inTemplate, at)];
   // A node made here (a Portal's marker: the server drew nothing for it): put where it belongs.

@@ -2018,6 +2018,8 @@ export type Context<T> = ((props: { value: T; children?: any }) => any) & { id: 
 export function createContext<T>(defaultValue?: T, _options?: { name?: string }): Context<T> {
   const id = Symbol("context");
   const Provider = ((props: { value: T; children?: any }) => {
+    // On its own owner (its own scope), and on the component's (what it returns is rendered there, as when hydrating).
+    if (owner?.transparent) owner.context = { ...owner.context, [id]: props.value };
     const o = new Root(owner);
     o.context = { ...o.context, [id]: props.value };
     return runWithOwner(o, () => children(() => props.children));

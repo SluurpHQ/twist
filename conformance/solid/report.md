@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5551 pass, 1150 fail, 714 files (32 did not load, 121 test Solid's internals)
+5556 pass, 1145 fail, 714 files (32 did not load, 121 test Solid's internals)
 
 ## Why files did not load
 
@@ -478,7 +478,7 @@
 | web/test/hydration/preload-failure-document-root.spec.tsx | 0 | 3 |  |
 | web/test/hydration/refresh-hmr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
 | web/test/hydration/show-fallback.spec.tsx | 4 | 0 |  |
-| web/test/hydration/slot-hydration-3567.spec.tsx | 22 | 4 |  |
+| web/test/hydration/slot-hydration-3567.spec.tsx | 23 | 3 |  |
 | web/test/hydration/spread-innerhtml.spec.tsx | 1 | 0 |  |
 | web/test/hydration/stateful-input-adoption.spec.tsx | 5 | 0 |  |
 | web/test/hydration/style-adoption.spec.tsx | 5 | 0 |  |
@@ -615,7 +615,7 @@
 | web/test/server/loading-recreated-async-source-3734.spec.tsx | 5 | 5 |  |
 | web/test/server/lowercase-on-attribute.spec.tsx | 5 | 0 |  |
 | web/test/server/nav-before-resume.gen.spec.tsx | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
-| web/test/server/polymorphic-chain.spec.tsx | 0 | 2 |  |
+| web/test/server/polymorphic-chain.spec.tsx | 2 | 0 |  |
 | web/test/server/projection-body-read.spec.tsx | 1 | 3 |  |
 | web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/request-event-concurrent.spec.tsx | 3 | 4 |  |
@@ -623,7 +623,7 @@
 | web/test/server/retry-robustness.spec.tsx | 5 | 0 |  |
 | web/test/server/select-value.spec.tsx | 5 | 0 |  |
 | web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
-| web/test/server/server-component-context.spec.tsx | 4 | 2 |  |
+| web/test/server/server-component-context.spec.tsx | 5 | 1 |  |
 | web/test/server/server-diagnostics.spec.tsx | 1 | 16 |  |
 | web/test/server/server-error-hook.spec.tsx | 24 | 0 |  |
 | web/test/server/server-frame-records.spec.tsx | 6 | 1 |  |
@@ -689,7 +689,7 @@
 | web/test/server/server-trace.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
 | web/test/server/shared-async-sources.spec.tsx | 0 | 2 |  |
 | web/test/server/shell-suspend-loading-inline.spec.tsx | 8 | 0 |  |
-| web/test/server/slot-hydration-3567.spec.tsx | 27 | 4 |  |
+| web/test/server/slot-hydration-3567.spec.tsx | 28 | 3 |  |
 | web/test/server/spread-function-source.spec.tsx | 10 | 0 |  |
 | web/test/server/spread-hydration.spec.tsx | 3 | 4 |  |
 | web/test/server/spread-omit.spec.tsx | 0 | 1 | SyntaxError: Export named 'viewOf' not found |
