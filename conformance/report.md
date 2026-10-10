@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3876 pass, 174 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
+3878 pass, 172 fail, 329 skipped (gated off for stable React 19), 39 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -61,10 +61,10 @@
 | react-dom/ReactDOMLegacyFloat-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMNativeEventHeuristic-test.js | 6 | 2 | 0 |  |
 | react-dom/ReactDOMNestedEvents-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMOption-test.js | 11 | 1 | 0 |  |
+| react-dom/ReactDOMOption-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMRoot-test.js | 27 | 0 | 0 |  |
 | react-dom/ReactDOMSafariMicrotaskBug-test.js | 1 | 1 | 0 |  |
-| react-dom/ReactDOMSelect-test.js | 59 | 1 | 1 |  |
+| react-dom/ReactDOMSelect-test.js | 60 | 0 | 1 |  |
 | react-dom/ReactDOMSelection-test.internal.js | 0 | 2 | 0 |  |
 | react-dom/ReactDOMServerIntegrationAttributes-test.js | 546 | 1 | 3 |  |
 | react-dom/ReactDOMServerIntegrationBasic-test.js | 55 | 0 | 0 |  |

@@ -1998,11 +1998,19 @@ function update(f: Fiber, c: any) {
     const el = f.dom as Element;
     // Its handlers change at commit: an event during the render still reaches the committed ones.
     insertionQueue.push(() => ((el as any)[PROPS] = props));
+    // What setting them throws is this element's commit error (React's captureCommitPhaseError): the rest goes on.
+    const commitProps = (set: () => void) => {
+      try {
+        set();
+      } catch (e) {
+        caught(f, e);
+      }
+    };
     if (FORM_TAGS.has(f.type) && !f.ns) {
       if (f.type !== "textarea" && f.type !== "input") reconcile(f, toList(props.children), el, null);
-      updateForm(el, f.type, props, prev, false);
+      commitProps(() => updateForm(el, f.type, props, prev, false));
     } else {
-      setProps(el, props, prev, f.ns === SVG_NS);
+      commitProps(() => setProps(el, props, prev, f.ns === SVG_NS));
       if (props.dangerouslySetInnerHTML == null && f.type !== "noscript") reconcile(f, toList(props.children), el, null);
       else if (f.children.length) {
         for (const n of f.children) unmount(n, false);

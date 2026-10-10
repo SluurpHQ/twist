@@ -248,7 +248,11 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean, hyd
   if (tag === "input") initInput(el as HTMLInputElement, props, hydrating);
   else if (tag === "textarea") initTextarea(el as HTMLTextAreaElement, props);
   else if (tag === "select") initSelect(el as HTMLSelectElement, props);
-  if (tag === "option" && props.value == null && props.dangerouslySetInnerHTML != null && (typeof props.children !== "object" || props.children === null))
+  if (tag === "option" && props.value == null && typeof props.children === "object" && props.children !== null) {
+    const kids = Array.isArray(props.children) ? props.children.flat(Infinity) : [props.children];
+    if (kids.some((c: any) => c != null && typeof c !== "boolean" && !/^(string|number|bigint)$/.test(typeof c)))
+      warn("Cannot infer the option value of complex children. Pass a `value` prop or use a plain string as children to <option>.", "option-complex-children");
+  } else if (tag === "option" && props.value == null && props.dangerouslySetInnerHTML != null)
     warn("Pass a `value` prop if you set dangerouslyInnerHTML so React knows which value should be selected.", "option-inner-html");
   if (tag === "option" && props.selected != null && dev()) warn("Use the `defaultValue` or `value` props on <select> instead of setting `selected` on <option>.", "option-selected");
   else if (tag === "option" && props.selected != null) (el as HTMLOptionElement).selected = !!props.selected && typeof props.selected !== "function" && typeof props.selected !== "symbol";
