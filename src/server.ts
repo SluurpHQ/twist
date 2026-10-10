@@ -68,6 +68,7 @@ type Ctx = {
   streaming?: {
     shared: { ids: number; boundaries: Boundary[]; next: number; aborted?: { reason: unknown }; chunk: number; inlined: number; bounds?: SBoundary[]; rootPre?: Preamble };
     onError: (e: unknown, at?: string) => any;
+    prerendering?: boolean;
     /** A child that suspended: a task of its own, the marker of its place returned. */
     spawn?: (node: any, ctx: Ctx, pushed: boolean, thenable: PromiseLike<any>) => string;
     /** Resuming a prerender: a boundary the prelude left pending takes its id there. */
@@ -1183,7 +1184,9 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   }
   // Aborted while it rendered (or before): left to the client, the reason told for it.
   const why = s.shared.aborted;
-  if (why && b.status !== 2 && b.status !== 1) {
+  // (A prerender postpones it instead: a resume renders it.)
+  if (why && s.prerendering && b.status === 0) b.postponed = true;
+  else if (why && b.status !== 2 && b.status !== 1) {
     const at = stackText(ctx.stack);
     b.status = 2;
     b.error = { digest: s.onError(why.reason, at), message: aborted((why.reason as any)?.message ?? String(why.reason)), at };
@@ -1316,7 +1319,7 @@ export async function prerender(node: any, options: any = {}) {
       lifetime?.abort();
     },
     cancel: () => void lifetime?.abort(),
-  });
+  }, { highWaterMark: 0 });
   return { prelude, postponed };
 }
 
@@ -1494,7 +1497,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     stack: b ? b.stack.slice() : [],
     tree: b?.tree ?? ROOT_TREE,
     idPrefix: options.identifierPrefix ?? "",
-    streaming: { shared, onError },
+    streaming: { shared, onError, prerendering: !!options.prerendering },
   });
   let postamble = "";
   // Resuming a prerender (React's postponed state): its shell was sent; the boundaries it left pending are found by
@@ -1908,6 +1911,17 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     ctx.container = null;
     try {
       rootContent = once(node, ctx);
+      // A prerender aborted while its shell rendered: the whole render is left to a resume, the reason told once.
+      if (options.prerendering && shared.aborted) {
+        renderingShell = false;
+        const why = shared.aborted.reason;
+        onError(why);
+        options.onPostponed?.({ root: true, next: 0, boundaries: [] });
+        options.onShellError?.(why);
+        closed = true;
+        finish();
+        return why;
+      }
     } catch (e: any) {
       if (e === ABORTED || shared.aborted) {
         renderingShell = false;
@@ -2049,6 +2063,8 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
       allFailed(why);
       return reject(why);
     }
+    // (Listening before it starts: an abort while the shell renders is heard there.)
+    signal?.addEventListener?.("abort", onAbort, { once: true, signal: lifetime!.signal });
     run = startStream(
       node,
       {
@@ -2079,8 +2095,6 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
       false,
       (a, f) => ((abortNow = a), (flowNow = f)),
     );
-    if (signal?.aborted) onAbort();
-    else signal?.addEventListener?.("abort", onAbort, { once: true, signal: lifetime!.signal });
   });
 }
 
