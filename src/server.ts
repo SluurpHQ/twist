@@ -1217,6 +1217,9 @@ export async function prerenderToNodeStream(node: any, options: any = {}) {
 const RUNTIME_SOURCE =
   "<script>$SC=function(b,s){var t=document.getElementById(b),c=document.getElementById(s);if(!t||!c)return;var p=t.parentNode,n=t.nextSibling,d=0;while(n){if(n.nodeType===8){if(n.data==='/$'){if(d===0)break;d--}else if(n.data[0]==='$')d++}var x=n.nextSibling;p.removeChild(n);n=x}while(c.firstChild)p.insertBefore(c.firstChild,n);var m=t.previousSibling;if(m&&m.nodeType===8)m.data='$';c.remove();t.remove();if(m&&m._reactRetry)m._reactRetry()};$SX=function(b,g,m,k){var t=document.getElementById(b);if(!t)return;if(g!=null)t.dataset.dgst=g;if(m)t.dataset.msg=m;if(k)t.dataset.cstck=k;var m=t.previousSibling;if(m&&m.nodeType===8){m.data='$!';if(m._reactRetry)m._reactRetry()}};$SM=new Map;$SR=function(n,w,p){function u(q){this._p=null;q()}for(var r=new Map,t=document,h,b,e=t.querySelectorAll(\"link[data-precedence],style[data-precedence]\"),v=[],k=0;b=e[k++];)\"not all\"===b.getAttribute(\"media\")?v.push(b):(\"LINK\"===b.tagName&&$SM.set(b.getAttribute(\"href\"),b),r.set(b.dataset.precedence,h=b));e=0;b=[];var l,a;for(k=!0;;){if(k){var f=p[e++];if(!f){k=!1;e=0;continue}var c=!1,m=0;var d=f[m++];if(a=$SM.get(d)){var g=a._p;c=!0}else{a=t.createElement(\"link\");a.href=d;a.rel=\"stylesheet\";for(a.dataset.precedence=l=f[m++];g=f[m++];)a.setAttribute(g,f[m++]);g=a._p=new Promise(function(q,x){a.onload=u.bind(a,q);a.onerror=u.bind(a,x)});$SM.set(d,a)}d=a.getAttribute(\"media\");!g||d&&!matchMedia(d).matches||b.push(g);if(c)continue}else{a=v[e++];if(!a)break;l=a.getAttribute(\"data-precedence\");a.removeAttribute(\"media\")}c=r.get(l)||h;c===h&&(h=a);r.set(l,a);c?c.parentNode.insertBefore(a,c.nextSibling):(c=t.head,c.insertBefore(a,c.firstChild))}if(p=document.getElementById(n))p.previousSibling.data=\"$~\";Promise.all(b).then($SC.bind(null,n,w),$SX.bind(null,n,\"CSS failed to load\"))};</script>";
 
+/** A part sent after its placeholder: put in its place (React's completeSegment). */
+const RS_RUNTIME = "$RS=function(a,b){a=document.getElementById(a);b=document.getElementById(b);for(a.parentNode.removeChild(a);a.firstChild;)b.parentNode.insertBefore(a.firstChild,b);b.parentNode.removeChild(b)};";
+
 /** A value written into an inline script, as React escapes it (no "<", "&", ">" or line separators raw). */
 const jsArg = (v: unknown) => JSON.stringify(v).replace(/[&><\u2028\u2029]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
 
@@ -1236,6 +1239,9 @@ type SBoundary = {
   parent: SBoundary | null;
   /** Its parent was written: what becomes of it now is sent as a script. */
   flushed: boolean;
+  /** Its content sent (hidden, for its swap), and the swap itself. */
+  rootWritten?: boolean;
+  revealed?: boolean;
   deps: { sheets: Set<any>; styles: Set<any> };
   wrap: [string, string];
   stack: string[];
@@ -1243,7 +1249,7 @@ type SBoundary = {
   error?: { digest: unknown; message: string; error?: unknown; at?: string };
 };
 /** A part that suspended: rendered again on its own when what it waits on settles. 0 pending, 1 done, 2 dropped. */
-type STask = { idx: number; node: any; snap: Ctx; container: SBoundary | null; fallbackOf: SBoundary | null; lastText: boolean; at: string; out?: string; state: 0 | 1 | 2 };
+type STask = { idx: number; node: any; snap: Ctx; container: SBoundary | null; fallbackOf: SBoundary | null; lastText: boolean; at: string; out?: string; state: 0 | 1 | 2; id?: number; flushed?: boolean; written?: boolean; root?: boolean };
 type Boundary = { prefix?: string; tree?: TreeContext; id: number; children: any; values: Map<any, any>; svg: boolean; select: any; vt?: VTContext | null; scope?: number; waiting: PromiseLike<any>; stack: string[]; deps?: { sheets: Set<any>; styles: Set<any> }; fallback?: string; wrap?: [string, string]; suspendedAt?: string; done?: string };
 
 /** A string's size in UTF-8 bytes (what React measures a boundary by). */
@@ -1362,16 +1368,31 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     else rootPending++;
     allPending++;
     t.fallbackOf?.fallbackTasks.add(t);
-    const ping = () => retry(t);
+    const ping = () => schedule(t);
     thenable.then(ping, ping);
     return `\u0000T${t.idx}\u0000`;
+  };
+  // Landings are worked through together, then what they finished is written at once (React's pingedTasks and
+  // performWork, which flushes after the batch).
+  const pinged: STask[] = [];
+  const schedule = (t: STask) => {
+    pinged.push(t);
+    if (pinged.length === 1) setImmediateOr(work);
+  };
+  const work = () => {
+    for (let i = 0; i < pinged.length; i++) retry(pinged[i]!);
+    pinged.length = 0;
+    after();
   };
   /** A task's part rendered again where it was (React's retryTask). */
   const retry = (t: STask) => {
     if (t.state !== 0 || closed) return;
     // Its boundary given to the client meanwhile: nothing to render.
     if (t.container?.status === 2) return settled(t, 2);
-    const ctx: Ctx = { ...t.snap, values: new Map(t.snap.values), stack: t.snap.stack.slice(), lastText: t.lastText };
+    // Its boundary already out: what surrounds it was written before it (React flushes a pending boundary's finished
+    // parts early), so it is no longer embedded in that text.
+    const embedded = !t.flushed;
+    const ctx: Ctx = { ...t.snap, values: new Map(t.snap.values), stack: t.snap.stack.slice(), lastText: embedded && t.lastText };
     ctx.res.boundary = t.container ? t.container.deps : null;
     const was = rendering_;
     rendering_ = res;
@@ -1387,7 +1408,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     }
     // A text-embedded segment ending in text: closed with a separator (React's pushSegmentFinale).
     // (A prerender's are written in place, without it, as React writes them.)
-    if (ctx.lastText && !options.prerendering) out += "<!-- -->";
+    if (ctx.lastText && embedded && !options.prerendering) out += "<!-- -->";
     t.out = out;
     settled(t, 1);
     if (flowing && shellWritten && !closed) {
@@ -1406,6 +1427,10 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     if (!c) {
       if (--rootPending === 0 && !shellDone && !closed) shellReady();
     } else if (--c.pending === 0 && c.status === 0) complete(c);
+  };
+  /** After work: what can be written is, then the stream ends if nothing is left. */
+  const after = () => {
+    flushQueues();
     maybeClose();
   };
   const failed = (t: STask, e: unknown) => {
@@ -1437,32 +1462,89 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     if (!b.flushed) mergeDeps(b, b.parent ? b.parent.deps : null);
     // Its fallback is not needed: what it waits on is dropped (React's abortTaskSoft).
     if (!b.flushed) for (const t of [...b.fallbackTasks]) if (t.state === 0) settled(t, 2);
-    if (b.flushed && flowing) revealBoundary(b);
   };
-  /** A boundary's content and the script that swaps it in, once its parent is out. */
-  const revealBoundary = (b: SBoundary) => {
-    const inner = assemble(b.content, b);
-    const late = res.late();
-    const { styleTags, sheets } = res.boundaryStyles(b.deps);
-    const hoist = res.stylesToHoist;
-    res.stylesToHoist = false;
+  /** The task a segment holds when it holds nothing else, still pending. */
+  const loneTask = (html: string) => {
+    const m = /^\u0000T(\d+)\u0000$/.exec(html);
+    const t = m ? tasks[+m[1]!] : undefined;
+    return t && t.state === 0 ? t : undefined;
+  };
+  /** Boundaries whose parent is out, in the order they went out. */
+  const flushedBounds: SBoundary[] = [];
+  let segmentRuntimeSent = false;
+  /** What of a boundary is done and not yet sent: its content (once), then each part that landed (React's segments). */
+  const segmentsOf = (b: SBoundary) => {
+    let out = "";
     const p = b.prefix;
-    const swap =
-      hoist || sheets.length
-        ? `$SR("${p}B:${b.id}","${p}S:${b.id}",${jsArg(sheets.map((x) => (x[1] === "" ? [x[0]] : [x[0], x[1], ...Object.entries(x[2]).flat()])))})`
-        : `$SC("${p}B:${b.id}","${p}S:${b.id}")`;
-    write(`${late}${runtimeSent ? "" : RUNTIME}${b.wrap[0]}${p}S:${b.id}">${inner}${b.wrap[1]}${styleTags}${scriptOpen}${swap}</script>`);
-    runtimeSent = true;
-    for (const o of outlined.splice(0)) revealBoundary(o);
+    if (!b.rootWritten) {
+      b.rootWritten = true;
+      // Nothing but a part still to come: that part takes its id, nothing is sent now (React's queueCompletedSegment).
+      const only = loneTask(b.content);
+      if (only) (only.id = b.id), (only.flushed = true), (only.root = true);
+      else out += `${b.wrap[0]}${p}S:${b.id}">${assemble(b.content, b, true)}${b.wrap[1]}`;
+    }
+    for (const t of tasks) {
+      if (t.container !== b || t.state !== 1 || !t.flushed || t.written) continue;
+      t.written = true;
+      const only = loneTask(t.out!);
+      if (only) {
+        only.id = t.id;
+        only.flushed = true;
+        only.root = t.root;
+        continue;
+      }
+      // (The boundary's own content: swapped in with the boundary, not into a placeholder.)
+      if (t.root) {
+        out += `${b.wrap[0]}${p}S:${t.id}">${assemble(t.out!, b, true)}${b.wrap[1]}`;
+        continue;
+      }
+      const w = segmentWrap(t.snap);
+      out += `${w[0]}${p}S:${t.id}">${assemble(t.out!, b, true)}${w[1]}${segmentRuntimeSent ? scriptOpen : scriptOpen + RS_RUNTIME}$RS("${p}S:${t.id}","${p}P:${t.id}")</script>`;
+      segmentRuntimeSent = true;
+    }
+    return out;
   };
-  /** Boundaries complete but sent after their parent (too large to inline). */
-  const outlined: SBoundary[] = [];
+  /** What can be sent now (React's flushCompletedQueues): completed boundaries with their swap, then the parts of
+   * boundaries still waiting. */
+  const flushQueues = () => {
+    if (!flowing || !shellWritten || closed) return;
+    for (let i = 0; i < flushedBounds.length; i++) {
+      const b = flushedBounds[i]!;
+      if (b.status !== 1 || b.revealed) continue;
+      b.revealed = true;
+      const parts = segmentsOf(b);
+      const late = res.late();
+      const { styleTags, sheets } = res.boundaryStyles(b.deps);
+      const hoist = res.stylesToHoist;
+      res.stylesToHoist = false;
+      const p = b.prefix;
+      const swap =
+        hoist || sheets.length
+          ? `$SR("${p}B:${b.id}","${p}S:${b.id}",${jsArg(sheets.map((x) => (x[1] === "" ? [x[0]] : [x[0], x[1], ...Object.entries(x[2]).flat()])))})`
+          : `$SC("${p}B:${b.id}","${p}S:${b.id}")`;
+      write(`${late}${runtimeSent ? "" : RUNTIME}${parts}${styleTags}${scriptOpen}${swap}</script>`);
+      runtimeSent = true;
+    }
+    for (let i = 0; i < flushedBounds.length; i++) {
+      const b = flushedBounds[i]!;
+      if (b.status !== 0) continue;
+      const parts = segmentsOf(b);
+      if (parts) write(parts);
+    }
+  };
   /** Markup with its markers resolved: tasks' parts in place, boundaries as they now are (React's flushSegment). */
-  const assemble = (html: string, into: SBoundary | null): string =>
+  const assemble = (html: string, into: SBoundary | null, partial = false): string =>
     html.replace(/\u0000([TB])(\d+)\u0000/g, (_m, kind: string, n: string) => {
       if (kind === "T") {
         const t = tasks[+n]!;
-        return t.state === 1 ? assemble(t.out!, into) : "";
+        if (t.state === 1) return (t.written = true), assemble(t.out!, into, partial);
+        // Still to come while what holds it goes out: a placeholder it fills later (React's P: segment).
+        if (t.state === 0 && partial) {
+          t.id = shared.next++;
+          t.flushed = true;
+          return `<template id="${into?.prefix ?? ""}P:${t.id}"></template>`;
+        }
+        return "";
       }
       const b = (shared as any).bounds[+n] as SBoundary;
       if (b.status === 1) {
@@ -1478,7 +1560,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
             b.id = shared.next++;
             b.flushed = true;
             b.fallback = fallback;
-            outlined.push(b);
+            flushedBounds.push(b);
             return `<!--$?--><template id="${b.prefix}B:${b.id}"></template>${fallback}<!--/$-->`;
           }
         }
@@ -1492,6 +1574,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       }
       b.id = shared.next++;
       b.flushed = true;
+      flushedBounds.push(b);
       anyPending = true;
       return `<!--$?--><template id="${b.prefix}B:${b.id}"></template>${fallback}<!--/$-->`;
     });
@@ -1513,12 +1596,12 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     // bootstrap scripts after it, as React writes them.
     const shellWithPreamble = withPreamble(shell, res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res)));
     // React's mark of the first paint, which its reveal timing reads: only while boundaries are still to come.
-    const paint = !anyPending && !outlined.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
+    const paint = !anyPending && !flushedBounds.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
     // The document's closing tags come last, once everything has streamed (React's postamble).
     const endTag = /(<\/body>)?<\/html>$/.exec(shellWithPreamble);
     postamble = endTag ? endTag[0] : "";
     write(shellWithPreamble.slice(0, shellWithPreamble.length - postamble.length) + paint + bootstrap(options, nonce));
-    for (const o of outlined.splice(0)) revealBoundary(o);
+    flushQueues();
   };
   // Aborted while the shell renders: what is left is aborted once it is done.
   let renderingShell = true;
