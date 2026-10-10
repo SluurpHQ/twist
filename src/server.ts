@@ -1623,7 +1623,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         const inner = assemble(b.content, b);
         const size = utf8Bytes(inner);
         // Large (past React's progressiveChunkSize with what was inlined before it): sent after its parent.
-        if (size > 500 && shared.inlined + size > shared.chunk && !/<(html|head|body)[\s>]/.test(inner) && b.renderFallback) {
+        // (Never one that gives the document its preamble: it is written with it.)
+        if (size > 500 && shared.inlined + size > shared.chunk && !b.preamble && b.renderFallback) {
           let fallback: string | null = null;
           try {
             fallback = b.renderFallback();
