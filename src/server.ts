@@ -1242,7 +1242,7 @@ async function complete(node: any) {
  * `react-dom/static`: the whole page once everything it waits on has settled (or the render is aborted: what was
  * not done is left to the client), as one prelude. A shell that fails rejects; aborted before the shell, it is empty.
  */
-function prerenderHtml(node: any, options: any): Promise<string> {
+function prerenderHtml(node: any, options: any, lifetime?: AbortController | null): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: string[] = [];
     let settled = false;
@@ -1286,19 +1286,29 @@ function prerenderHtml(node: any, options: any): Promise<string> {
     const signal = options.signal;
     // Aborted before it began: nothing rendered, the reason told once.
     if (signal?.aborted) return void (options.onError?.(signal.reason), done(""));
-    signal?.addEventListener?.("abort", () => abort(signal.reason), { once: true });
+    signal?.addEventListener?.("abort", () => (abort(signal.reason), lifetime?.abort()), { once: true, signal: lifetime?.signal });
     setImmediateOr(begin);
   });
 }
 
 export async function prerender(node: any, options: any = {}) {
-  const html = await prerenderHtml(node, options);
+  // (Only with a signal to listen to: the listener's lifetime, ended when the prelude has been read.)
+  const lifetime = options.signal ? new AbortController() : null;
+  let html: string;
+  try {
+    html = await prerenderHtml(node, options, lifetime);
+  } catch (e) {
+    lifetime?.abort();
+    throw e;
+  }
   const bytes = new TextEncoder().encode(html);
   const prelude = new ReadableStream<Uint8Array>({
-    start(c) {
+    pull(c) {
       if (bytes.length) c.enqueue(bytes);
       c.close();
+      lifetime?.abort();
     },
+    cancel: () => void lifetime?.abort(),
   });
   return { prelude, postponed: null };
 }
@@ -1931,7 +1941,10 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
     let flowNow: (() => void) | null = null;
     let cancelled = false;
     const signal = options.signal;
-    const onAbort = () => (run ? run.abort(signal.reason) : abortNow?.(signal.reason));
+    // The listener's lifetime (React's): it goes when the render is done with it, whichever way.
+    const lifetime = signal ? new AbortController() : null;
+    const end = () => lifetime?.abort();
+    const onAbort = () => (run ? run.abort(signal.reason) : abortNow?.(signal.reason), end());
     // It flows once read (React's pull), and a reader that cancels aborts what is left.
     const stream: any = new ReadableStream<Uint8Array>(
       {
@@ -1940,7 +1953,7 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
         cancel: (reason) => {
           // (Nothing more is read: what the abort writes is dropped.)
           cancelled = true;
-          signal?.removeEventListener?.("abort", onAbort);
+          end();
           run ? run.abort(reason) : abortNow?.(reason);
         },
       },
@@ -1965,6 +1978,7 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
         },
         onShellError: (e: unknown) => {
           options.onShellError?.(e);
+          end();
           allFailed(e);
           reject(e);
         },
@@ -1975,7 +1989,7 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
       },
       (c) => void (cancelled || controller?.enqueue(enc.encode(c))),
       () => {
-        signal?.removeEventListener?.("abort", onAbort);
+        end();
         if (cancelled) return;
         try {
           controller?.close();
@@ -1985,7 +1999,7 @@ export function renderToReadableStream(node: any, options: any = {}): Promise<an
       (a, f) => ((abortNow = a), (flowNow = f)),
     );
     if (signal?.aborted) onAbort();
-    else signal?.addEventListener?.("abort", onAbort, { once: true });
+    else signal?.addEventListener?.("abort", onAbort, { once: true, signal: lifetime!.signal });
   });
 }
 
