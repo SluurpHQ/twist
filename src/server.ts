@@ -607,6 +607,8 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   } finally {
     ctx.vt = vt;
     ctx.scope = scope;
+    // (A child that suspends leaves by throwing: where it was is put back for the boundary around it.)
+    ctx.svg = svg;
   }
 }
 
@@ -636,8 +638,11 @@ function hostRest(tag: string, props: any, ctx: Ctx, hooks: any, open: string, s
   else if (tag === "select") {
     const was = ctx.select;
     ctx.select = props.value ?? props.defaultValue;
-    inner = render(props.children, ctx, hooks);
-    ctx.select = was;
+    try {
+      inner = render(props.children, ctx, hooks);
+    } finally {
+      ctx.select = was;
+    }
   } else {
     if (tag === "foreignObject") ctx.svg = false;
     const { parent, noscript, picture } = ctx;
@@ -1207,7 +1212,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const ctxFor = (b?: Boundary): Ctx => ({
     ...fresh(res),
     values: b ? new Map(b.values) : new Map(),
-    svg: b?.svg ?? false,
+    // (Streamed into an SVG or MathML container: its namespace is where the render starts.)
+    svg: b?.svg ?? options.namespaceURI === "http://www.w3.org/2000/svg",
+    ...(b ? {} : options.namespaceURI === "http://www.w3.org/1998/Math/MathML" ? { parent: "math" } : {}),
     select: b?.select,
     vt: b?.vt ?? null,
     scope: b?.scope ?? 0,
