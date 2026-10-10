@@ -251,7 +251,7 @@ export function html(v: any, inTemplate: boolean): string {
   if (typeof v === "string") return escape(v);
   if (typeof v === "number") return String(v);
   if (Array.isArray(v)) return list(v, !!(v as any)[OWN], inTemplate);
-  if (typeof v === "function") return hole(() => html(v(), false));
+  if (typeof v === "function") return hole(() => liveHole(v) ?? html(v(), false));
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return html(callComponent(v.fn, componentProps(v.props)), false);
   if (typeof v.t === "string") return v.t;
@@ -302,7 +302,21 @@ function element(el: Element_, keyed: boolean): string {
     if (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k)) continue;
     // A void element has no children: never read.
     if (k === "children" && VOID.has(tag)) continue;
-    const v = read(all[k]);
+    const raw = all[k];
+    // Content that can change, in a live frame: a hole the engine re-sends.
+    if ((k === "innerHTML" || k === "textContent") && isDynamic(raw)) {
+      const live = liveHole(() => ({ t: k === "innerHTML" ? String(read(raw) ?? "") : escape(String(read(raw) ?? "")) }));
+      if (live != null) {
+        content = live;
+        continue;
+      }
+    }
+    // (Children that can change stay a hole: a live frame re-sends it.)
+    if (k === "children" && isDynamic(raw) && (sharedConfig.context as any)?.liveHoles) {
+      kids = raw;
+      continue;
+    }
+    const v = read(raw);
     if (k === "children") kids = v;
     else if (k === "ref" || /^on[A-Z]/.test(k)) continue;
     // Content props: the markup, the text, a textarea's value.
@@ -386,6 +400,12 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
     }
     if (typeof x === "function") {
       const f = x;
+      // A live frame's hole: rendered (between markers) by the live-hole engine, which re-sends it as it changes.
+      const live = liveHole(f);
+      if (live != null) {
+        parts.push({ s: live, text: false, split: false });
+        continue;
+      }
       const rr = render;
       const o = getOwner() as any;
       const at = childIdCount(o);
@@ -412,6 +432,14 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
 }
 
 const read = (v: any) => (isDynamic(v) ? v() : v);
+
+/** A hole through the render's live-hole engine (a frame response arms one), or null when it is not live. */
+function liveHole(f: () => any): string | null {
+  const live = (sharedConfig.context as any)?.liveHoles;
+  if (!live) return null;
+  const r = live.content(f);
+  return r == null ? null : typeof r === "string" ? r : r.t.join("");
+}
 
 /** Props with their spreads applied, in order. */
 function expandSpreads(props: Record<string, any>) {
@@ -1037,6 +1065,18 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const all = new Promise<void>((ok) => (finished = ok));
   let shellSent = false;
   r.wake = () => queueMicrotask(() => shellSent && rendering(r, options, drain));
+  // Aborted: the render is torn down (its sources returned) and nothing more is sent.
+  options.signal?.addEventListener(
+    "abort",
+    () => {
+      if (done) return;
+      done = true;
+      dispose?.();
+      for (const w of sinks) w.end();
+      finished();
+    },
+    { once: true },
+  );
   const failed = shellReady.then(
     (s) => {
       rendering(r, options, () => r.sink.shell(inlineFragments(r, s), {}));

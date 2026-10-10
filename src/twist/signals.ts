@@ -666,6 +666,9 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** Disposed: its subscriptions, its flight and its effect's cleanup let go. */
   end() {
+    const close = this.closeStream;
+    this.closeStream = null;
+    close?.();
     if (this.attached) this.detach();
     this.sources = [];
     this.seen = [];
@@ -839,7 +842,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (next! && typeof (next as any).then === "function") return this.fly(next as any);
     if (next! && typeof (next as any)[Symbol.asyncIterator] === "function") {
       // (On a server, its first value is the answer: a render tried again reads it like a promise's.)
-      if (serverRender) return this.fly((next as any)[Symbol.asyncIterator]().next().then((r: IteratorResult<T>) => r.value));
+      if (serverRender) return this.serverStream(next as any);
       return this.stream(next as any);
     }
     this.flight = null;
@@ -944,6 +947,38 @@ export class Computation<T> extends Node<T> implements Owner {
     }
     statusChanged();
   }
+  /**
+   * On a server, an async iterable answers with its first value. Rendering a response that stays open (a frame's: its
+   * context commits), the values after it are taken too, each a commit the response sends on.
+   */
+  serverStream(iterable: AsyncIterable<T>) {
+    const it = iterable[Symbol.asyncIterator]();
+    const ctx = sharedConfig.context as any;
+    const first = it.next();
+    this.closeStream = () => void Promise.resolve(it.return?.()).catch(noop);
+    if (ctx?.commit) {
+      // The response stays open while the source can still yield.
+      const release: () => void = ctx.hold?.() ?? noop;
+      const prevClose = this.closeStream;
+      this.closeStream = () => (release(), prevClose());
+      const pump = () =>
+        it.next().then(
+          (r) => {
+            if (this.disposed) return;
+            if (r.done) return release();
+            landings.push([this, r.value]);
+            landNow();
+            ctx.commit();
+            pump();
+          },
+          (e) => !this.disposed && (this.fail(e), ctx.commit(), release()),
+        );
+      first.then((r) => (r.done || this.disposed ? release() : pump()), release);
+    }
+    return this.fly(first.then((r: IteratorResult<T>) => r.value));
+  }
+  /** Lets go of the iterator a stream reads (when it is disposed). */
+  closeStream: (() => void) | null = null;
   /** Values to come from an async iterator: each taken when it lands (at once, when it answers synchronously). */
   stream(iterable: AsyncIterable<T>) {
     const flight = {};
@@ -952,6 +987,7 @@ export class Computation<T> extends Node<T> implements Owner {
     let first = noop;
     this.settles = new Promise<void>((r) => (first = r));
     const it = iterable[Symbol.asyncIterator]();
+    this.closeStream = () => void Promise.resolve(it.return?.()).catch(noop);
     let yielded = false;
     let inRun = true;
     const step = () => {

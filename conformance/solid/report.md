@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-5315 pass, 1261 fail, 714 files (32 did not load, 165 test Solid's internals)
+5342 pass, 1240 fail, 714 files (32 did not load, 165 test Solid's internals)
 
 ## Why files did not load
 
@@ -61,7 +61,7 @@
 | signals/tests/attribution-wide-scope.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
 | signals/tests/attribution.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
 | signals/tests/autodispose-contract.test.ts | 2 | 2 |  |
-| signals/tests/autodispose-pending-release.test.ts | 4 | 2 |  |
+| signals/tests/autodispose-pending-release.test.ts | 5 | 1 |  |
 | signals/tests/body-end-supersession-visibility.test.ts | 0 | 1 |  |
 | signals/tests/born-held.test.ts | 4 | 0 |  |
 | signals/tests/boundary-not-born-held-3540.test.ts | 7 | 5 |  |
@@ -101,7 +101,7 @@
 | signals/tests/falsy-error-identity.test.ts | 20 | 0 |  |
 | signals/tests/finalize-reentry.test.ts | 0 | 4 |  |
 | signals/tests/first-observer-stale-reader.test.ts | 1 | 0 |  |
-| signals/tests/flatten-async-iterable.test.ts | 4 | 7 |  |
+| signals/tests/flatten-async-iterable.test.ts | 5 | 6 |  |
 | signals/tests/flatten-needs-unwrap.test.ts | 1 | 2 |  |
 | signals/tests/flush-in-action.test.ts | 3 | 3 |  |
 | signals/tests/flush.test.ts | 6 | 0 |  |
@@ -281,7 +281,7 @@
 | signals/tests/superseded-before-first-commit.test.ts | 0 | 1 |  |
 | signals/tests/superseded-flight-pending-source.test.ts | 0 | 4 |  |
 | signals/tests/superseded-source-blocks-3462.test.ts | 2 | 0 |  |
-| signals/tests/syncThenable.test.ts | 21 | 6 |  |
+| signals/tests/syncThenable.test.ts | 22 | 5 |  |
 | signals/tests/tick-scoped-pass-transaction.test.ts | 1 | 1 |  |
 | signals/tests/transition-corpse-revival.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/constants.js' |
 | signals/tests/transition-orphan-recompute.test.ts | 1 | 1 |  |
@@ -454,7 +454,7 @@
 | web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 |  |
 | web/test/hydration/dynamic-hydration-events.spec.tsx | 0 | 1 |  |
 | web/test/hydration/eager-jsx-falsy-show.spec.tsx | 1 | 1 |  |
-| web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 |  |
+| web/test/hydration/frame-live-document-switched.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frame-live-document.spec.tsx | 0 | 2 |  |
 | web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |
@@ -587,18 +587,18 @@
 | web/test/server/frame-get.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-hn.spec.tsx | 0 | 2 |  |
 | web/test/server/frame-live-document-artifact.spec.tsx | 0 | 3 |  |
-| web/test/server/frame-live-document.spec.tsx | 0 | 6 |  |
-| web/test/server/frame-live-framing.spec.tsx | 2 | 3 |  |
+| web/test/server/frame-live-document.spec.tsx | 1 | 5 |  |
+| web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |
 | web/test/server/frame-live-holes-chat.spec.tsx | 0 | 1 |  |
-| web/test/server/frame-live-holes-projection.spec.tsx | 0 | 0 |  |
-| web/test/server/frame-live-holes.spec.tsx | 0 | 1 |  |
+| web/test/server/frame-live-holes-projection.spec.tsx | 3 | 3 |  |
+| web/test/server/frame-live-holes.spec.tsx | 1 | 0 |  |
 | web/test/server/frame-live-resume.spec.tsx | 4 | 5 |  |
 | web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |
-| web/test/server/frame-plain-bound.spec.tsx | 1 | 11 |  |
+| web/test/server/frame-plain-bound.spec.tsx | 11 | 1 |  |
 | web/test/server/frame-server-component.spec.tsx | 6 | 3 |  |
 | web/test/server/frame-ssr-seam.spec.tsx | 1 | 1 |  |
-| web/test/server/frame-sweep-ops.spec.tsx | 0 | 2 |  |
-| web/test/server/frame-teardown.spec.tsx | 1 | 4 |  |
+| web/test/server/frame-sweep-ops.spec.tsx | 1 | 1 |  |
+| web/test/server/frame-teardown.spec.tsx | 4 | 1 |  |
 | web/test/server/generic-hydration.gen.spec.tsx | 0 | 2 |  |
 | web/test/server/hole-retry-shared-slot-3815.spec.tsx | 3 | 0 |  |
 | web/test/server/http-components.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpHeader' not found |
@@ -709,7 +709,7 @@
 | web/test/server/ssr-stream.spec.tsx | 47 | 69 |  |
 | web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
 | web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
-| web/test/server/stream-cancel-iterators-3626.spec.tsx | 0 | 16 |  |
+| web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
 | web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
 | web/test/server/then-shell-suspend.spec.tsx | 2 | 8 |  |
 | web/test/server/tier-announce.spec.tsx | 4 | 10 |  |
