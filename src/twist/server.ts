@@ -4,7 +4,7 @@
 import { createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, sharedConfig, untrack } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
-import { callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
+import { __twist_mark, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 export * from "./server-solid.ts";
 export * from "./control.ts";
@@ -53,6 +53,22 @@ export function ssrElement(tag: string, props: any, children?: any, needsId?: bo
  * A component whose tag or component comes from `source`. Its element is made at run time, so it takes a key; the
  * memo path renders it under a memo of its own (as the client does), the static path under the caller.
  */
+/** Drawn in the browser only: nothing here, one id taken (the browser's Portal takes the same). */
+export function Portal(_props: { mount?: unknown; children?: any }) {
+  const o = getOwner();
+  if ((o as any)?.id != null) getNextChildId(o!);
+  return undefined;
+}
+
+/** The component (or tag name) `component` names, given the other props. */
+export function Dynamic<P>(props: P & { component: any }) {
+  const Comp = dynamic<P>(() => props.component);
+  return createComponent(Comp, omit(props as any, "component") as any);
+}
+
+// Twist's own: never handed to React.
+for (const f of [Portal, Dynamic]) __twist_mark(f);
+
 export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
   const make = (w: any, props: any) => (typeof w === "string" ? ssrElement(w, props, undefined, true) : typeof w === "function" ? createComponent(w, props) : undefined);
   if (options?.static) {

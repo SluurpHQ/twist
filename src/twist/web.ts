@@ -468,11 +468,16 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
 
 /** A node rendered elsewhere (document.body unless `mount` is given); its events still reach this root. */
 export const Portal = __twist_mark(function Portal(props: { mount?: Node; children?: any }) {
+  // An owner of its own: the id the server's Portal took (it draws nothing there; its children are the browser's).
+  return runWithOwner(createOwner(), () => portal(props));
+});
+
+function portal(props: { mount?: Node; children?: any }) {
   const mount = props.mount ?? document.body;
   const marker = document.createTextNode("");
   const box = document.createDocumentFragment();
   createRoot((dispose) => {
-    insert(box, () => props.children);
+    insert(box, () => clientOnlyRun(() => props.children));
     const nodes = [...box.childNodes];
     for (const n of nodes) ((n as any)._$host = marker), mount.appendChild(n);
     onCleanup(() => {
@@ -483,7 +488,40 @@ export const Portal = __twist_mark(function Portal(props: { mount?: Node; childr
   roots.add(mount);
   for (const t of delegated) listen(mount, t);
   return marker;
-});
+}
+
+/** `fn` run as when not hydrating: what it makes is new, nothing of the server's claimed. */
+function clientOnlyRun<T>(fn: () => T): T {
+  const was = hydrating;
+  const shared = sharedConfig.hydrating;
+  hydrating = null;
+  sharedConfig.hydrating = false;
+  try {
+    return fn();
+  } finally {
+    hydrating = was;
+    sharedConfig.hydrating = shared;
+  }
+}
+
+/** The component (or tag name) `component` names, given the other props. */
+export function Dynamic<P>(props: P & { component: any }) {
+  const Comp = dynamic<P>(() => props.component);
+  return createComponent(Comp, omit(props as any, "component") as any);
+}
+__twist_mark(Dynamic);
+
+// Server rendering, asked for in the browser (shared code imports it): said, and nothing done.
+const serverOnly = (name: string) => console.error(new Error(name + " is not supported in the browser, returning undefined"));
+export function renderToString(_code: () => any, _options?: unknown): string {
+  return serverOnly("renderToString") as never;
+}
+export function renderToStream(_code: () => any, _options?: unknown): any {
+  return serverOnly("renderToStream") as never;
+}
+/** The hydration script is the server's to write: nothing in the browser. */
+export const HydrationScript = (_props?: unknown) => null;
+export const generateHydrationScript = (_options?: unknown) => "";
 
 /** A component whose identity (a component, or a tag name) follows `source`. */
 export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
@@ -575,6 +613,11 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
     return claimHtml(callComponent(v.fn, componentProps(v.props)), false, at);
   }
   if (v[EL]) return [claimElement(v, v.keyed ?? !inTemplate, at)];
+  // A node made here (a Portal's marker: the server drew nothing for it): put where it belongs.
+  if ((v as Node).nodeType) {
+    if (!(v as Node).parentNode) at.parent.insertBefore(v as Node, at.next);
+    return [v as Node];
+  }
   return claimText(v, at);
 }
 
