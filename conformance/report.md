@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3984 pass, 89 fail, 362 skipped (gated off for stable React 19), 53 set aside as not ours (not-ours.ts).
+3985 pass, 88 fail, 362 skipped (gated off for stable React 19), 53 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -122,7 +122,7 @@
 | react-dom/ReactMultiChildReconcile-test.js | 29 | 0 | 0 |  |
 | react-dom/ReactMultiChildText-test.js | 4 | 0 | 0 |  |
 | react-dom/ReactRenderDocument-test.js | 11 | 0 | 0 |  |
-| react-dom/ReactServerRendering-test.js | 44 | 1 | 1 |  |
+| react-dom/ReactServerRendering-test.js | 45 | 0 | 1 |  |
 | react-dom/ReactServerRenderingBrowser-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactServerRenderingHydration-test.js | 23 | 0 | 1 |  |
 | react-dom/ReactStartTransitionMultipleRenderers-test.js | 0 | 0 | 1 |  |

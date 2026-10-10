@@ -501,5 +501,6 @@ plugin({
   try {
     nodeEnv = !!file && /@jest-environment node\b/.test((await Bun.file(isAbsolute(file) ? file : join(import.meta.dir, file)).text()).slice(0, 2000));
   } catch {}
-  if (nodeEnv) delete (globalThis as any).window;
+  // (With the browser's frame and idle callbacks, which Node does not have either.)
+  if (nodeEnv) for (const k of ["window", "requestAnimationFrame", "cancelAnimationFrame", "requestIdleCallback", "cancelIdleCallback"]) delete (globalThis as any)[k];
 }
