@@ -1,3 +1,4 @@
+import { diagnose } from "./diagnostics.ts";
 // Twist's web runtime (`@solidjs/web`): what JSX marked by Twist's pass (compile.ts) and transformed by Bun's JSX
 // calls. Elements are made at once; each marked part is bound to its node by an effect of its own; components run
 // once. Written from Solid 2's design (RFCs 03 and 07) and its tests, not its code.
@@ -132,19 +133,58 @@ function set(el: Element, name: string, value: any) {
           if (name === "class") (el as any).$$cls = classes(v);
           return;
         }
-        assign(el, name, v, prev);
+        assignProp(el, name, v, prev);
       },
-      BINDING,
+      bindingNamed(el, name),
     );
     return;
   }
   // Hydrating: a static value is in the page already.
   if (hydrating) return;
-  assign(el, name, value, undefined);
+  assignProp(el, name, value, undefined);
 }
 
 /** One attribute, class, style or property written. */
-export function assign(el: Element, name: string, value: any, prev: any) {
+/**
+ * Props applied to an element as a whole, once (Solid's `assign`): those gone from `prevProps` cleared, the rest set;
+ * handlers listened to, `ref` called (unless `skipRef`), `children` inserted (unless `skipChildren`). `prevProps` is
+ * updated in place, for the next call.
+ */
+export function assign(node: Element, props: Record<string, any> | null | undefined, skipChildren?: boolean, prevProps: Record<string, any> = {}, skipRef = false) {
+  props ||= {};
+  for (const k in prevProps) if (!(k in props) && k !== "children") prevProps[k] = assignOne(node, k, null, prevProps[k], skipRef);
+  for (const k in props) {
+    if (k === "children") {
+      if (!skipChildren) insert(node, props.children);
+      continue;
+    }
+    prevProps[k] = assignOne(node, k, props[k], prevProps[k], skipRef);
+  }
+}
+
+function assignOne(el: Element, name: string, value: any, prev: any, skipRef: boolean) {
+  if (name === "ref") return !skipRef && value && applyRef(value, el), value;
+  if (/^on[A-Z]/.test(name)) {
+    const type = name.slice(2).toLowerCase();
+    const delegate = BUBBLING.has(type);
+    if (!delegate && prev) el.removeEventListener(type, prev);
+    if (value) {
+      if (delegate) addEvent(el, type, value, true);
+      else {
+        const l = listenerFor(value);
+        el.addEventListener(type, l);
+        return l;
+      }
+    }
+    return value;
+  }
+  if (value === prev && name !== "value" && name !== "checked") return prev;
+  assignProp(el, name, value, prev);
+  return value;
+}
+
+/** One prop on an element: class, style, the content props, DOM properties, else an attribute. */
+export function assignProp(el: Element, name: string, value: any, prev: any) {
   // (`className`, as React code writes it: the class.)
   if (name === "class" || name === "className") return className(el, value, prev);
   if (name === "style") return style(el as HTMLElement, value, prev);
@@ -154,6 +194,8 @@ export function assign(el: Element, name: string, value: any, prev: any) {
 }
 
 export function setAttribute(el: Element, name: string, value: any) {
+  // `onclick={fn}`: an attribute in Solid 2, not a handler (said once per name).
+  if (typeof value === "function" && name.startsWith("on")) lowercaseEventAttribute(name, el);
   if (value == null || value === false) el.removeAttribute(name);
   else el.setAttribute(name, value === true ? "" : String(value));
 }
@@ -248,8 +290,8 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
         prev = next;
         return;
       }
-      for (const k of Object.keys(prev)) if (!(k in next)) isEvent(k) ? unlisten(k) : assign(el, k, undefined, prev[k]);
-      for (const k of Object.keys(next)) if (next[k] !== prev[k]) isEvent(k) ? (unlisten(k), listenOn(k, next[k])) : assign(el, k, next[k], prev[k]);
+      for (const k of Object.keys(prev)) if (!(k in next)) isEvent(k) ? unlisten(k) : assignProp(el, k, undefined, prev[k]);
+      for (const k of Object.keys(next)) if (next[k] !== prev[k]) isEvent(k) ? (unlisten(k), listenOn(k, next[k])) : assignProp(el, k, next[k], prev[k]);
       prev = next;
     },
   );
@@ -346,6 +388,17 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
     return out;
   }
   if ((value as Node).nodeType) return out.push(value), out;
+  // Neither text, a node, a list nor something to call: skipped, and said (as Solid's insert).
+  if (typeof value === "object" || typeof value === "symbol") {
+    diagnose({
+      code: "UNRECOGNIZED_INSERT_VALUE",
+      kind: "render",
+      severity: "warn",
+      message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof value}).`,
+      data: { type: typeof value, value },
+    });
+    return out;
+  }
   const text = String(value);
   const old = reuse.find((n) => n.nodeType === 3 && !out.includes(n));
   if (old) {
@@ -385,7 +438,7 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
   // What the apply step makes (a description drawn late) belongs where the binding was made.
   const home = getOwner();
   let first: Cursor | undefined = claimed;
-  createRenderEffect(
+  createRenderEffect<any>(
     // Every accessor in it read here, tracked (a list of rows that are accessors, say); nodes made in the apply.
     () => {
       const v = resolveDeep(value());
@@ -418,11 +471,32 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
       reconcile(parent, current, next, end);
       current = next;
     },
-    BINDING,
+    bindingNamed(parent, "children"),
   );
 }
 
 const BINDING = { transparent: true } as any;
+
+/** A binding's options: transparent, named `tag.prop` as Solid's compiled bindings are (owner paths say where). */
+const bindingNamed = (el: Node, prop: string) => ({ ...BINDING, name: `${(el as Element).localName ?? "#fragment"}.${prop}` });
+
+const lowercaseReported = new Set<string>();
+function lowercaseEventAttribute(name: string, el: Element) {
+  if (lowercaseReported.has(name)) return;
+  lowercaseReported.add(name);
+  const event = name.slice(name.charAt(2) === ":" ? 3 : 2);
+  const handler = "on" + event.charAt(0).toUpperCase() + event.slice(1);
+  diagnose({
+    code: "LOWERCASE_EVENT_ATTRIBUTE",
+    kind: "render",
+    severity: "warn",
+    message:
+      `[LOWERCASE_EVENT_ATTRIBUTE] \`${name}\` received a function, but \`${name}\` is an attribute ` +
+      `in Solid 2.0, not an event handler: the function was set as the attribute's text. ` +
+      `Use \`${handler}\` for event handlers.`,
+    data: { name, handler, tag: el.localName },
+  });
+}
 const CLAIMED = Symbol("claimed");
 
 /** A value with its accessors called, all the way down (arrays flattened). */
@@ -943,5 +1017,5 @@ export function clientOnly<P extends object>(load: () => Promise<any>, options: 
 }
 
 export { NotReadyError };
-export { assign as setProp };
+export { assignProp as setProp };
 export { merge as mergeProps };
