@@ -2014,8 +2014,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       rootContent = once(node, ctx);
       // (What the shell pushed to render now, rendered now.)
       drain();
-      // A prerender aborted while its shell rendered: the whole render is left to a resume, the reason told once.
-      if (options.prerendering && shared.aborted) {
+      // A prerender aborted from the shell's own part as it rendered: the whole render is left to a resume, the reason
+      // told once. (From inside a boundary: the shell is kept, the boundary left pending.)
+      if (options.prerendering && shared.aborted && rootAborted) {
         renderingShell = false;
         const why = shared.aborted.reason;
         onError(why);
