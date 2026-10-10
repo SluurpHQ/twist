@@ -1239,7 +1239,12 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     for (const c of f.children) unmount(c, false);
     f.children = [];
     for (const n of r.made) n.parentNode?.removeChild(n);
-    layoutQueue.push(() => withFiber(at, () => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" })));
+    const tell = () => withFiber(at, () => ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" }));
+    // (Its client render waiting: told when its content is committed.)
+    // (A region inside a boundary that now waits, an Activity's, has not committed: told when it does. The boundary's
+    // own region commits its fallback now.)
+    const sb = f.type === SUSPENSE ? null : boundaryOf(f);
+    layoutQueue.push(() => (sb?.pending?.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
     drawFresh(f, host, removeRegion(region));
     return;
   }
@@ -2176,7 +2181,14 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       if (last && last.waiting === waiting && last.props === props && waiting) return last.out;
       // Shown once its children are committed without waiting: children that suspend before that are dropped
       // (React keeps nothing of a first mount that suspends), not kept hidden.
-      if (!waiting) ((fb as any).warmed = false), layoutQueue.push(() => !fb.dead && fb.pending!.peek() === 0 && !(fb as any).dehydrated && (shown = true));
+      if (!waiting)
+        ((fb as any).warmed = false),
+          layoutQueue.push(() => {
+            if (fb.dead || fb.pending!.peek() !== 0 || (fb as any).dehydrated) return;
+            shown = true;
+            // What its hydration recovered from, told once its content is in (React reports at that commit).
+            for (const tell of ((fb as any).recoverLater ?? []).splice(0)) tell();
+          });
       // Its fallback committed: its children are pre-warmed once after the commit.
       // (Not in a sync render, nor one that met a recoverable error: React renders those again synchronously.)
       else if (!(fb as any).warmed && !prewarming && !syncing) ((fb as any).warmed = true), layoutQueue.push(() => !recoveredThisRender && prewarms.push(fb));
