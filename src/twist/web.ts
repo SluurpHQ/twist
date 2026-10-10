@@ -6,6 +6,7 @@ import {
   flush,
   createLoadingBoundary,
   createMemo,
+  createEffect,
   createRenderEffect,
   createRoot,
   flatten,
@@ -317,6 +318,7 @@ export function addEvent(el: Element, type: string, handler: any, delegate = tru
   if (!delegated.has(type)) {
     delegated.add(type);
     for (const r of roots) listen(r, type);
+    for (const c of containers.keys()) listen(c, type);
   }
 }
 
@@ -340,16 +342,25 @@ function listen(root: Node, type: string) {
   if (!types) listening.set(root, (types = new Set()));
   if (types.has(type)) return;
   types.add(type);
-  root.addEventListener(type, (e) => dispatch(e, root));
+  // (A portal's mount outside every root listens for the root its portal is in: events go on there.)
+  root.addEventListener(type, (e) => dispatch(e, containers.get(root) ?? root));
 }
+
+/** Portal mounts outside every render root → the root their portal sits in. */
+const containers = new Map<Node, Node>();
+/** The next node an event bubbles to: up the DOM, except from a portal's content: on from where the portal sits. */
+const bubbleFrom = (node: any): Node | null => node._$host ?? node.parentNode;
 
 function dispatch(e: Event, root: Node) {
   const key = "$$" + e.type;
   let node = e.target as any;
   const target = node;
   Object.defineProperty(e, "currentTarget", { configurable: true, get: () => node ?? root });
+  // (Roots inside one another, or a portal's mount and its root, may both see the event: each handler runs once.)
+  const ran: Set<Node> = ((e as any).$$ran ??= new Set());
   while (node && node !== root) {
-    let handler = node[key];
+    let handler = ran.has(node) ? null : node[key];
+    if (handler) ran.add(node);
     if (handler && !node.disabled) {
       if (isDynamic(handler)) handler = handler();
       if (Array.isArray(handler)) handler[0].call(node, handler[1], e);
@@ -357,7 +368,7 @@ function dispatch(e: Event, root: Node) {
       else handler?.handleEvent?.(e);
       if (e.cancelBubble) break;
     }
-    node = node._$host ?? node.parentNode;
+    node = bubbleFrom(node);
   }
   void target;
 }
@@ -412,28 +423,32 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
  * `value` put in `parent` (before `marker`, else at the end), kept current when it can change. Lists move by the
  * longest run still in order; nodes kept stay.
  */
-export function insert(parent: Node, value: any, marker: Node | null = null) {
+export function insert(parent: Node, value: any, marker: Node | null = null, host?: () => Node | null) {
   // Children given as a list: static ones put in place; a part that can change, bound where it sits (before an empty
   // anchor of its own when more follows it).
   if (Array.isArray(value) && value.some((v) => typeof v === "function")) {
     const last = value.length - 1;
     value.forEach((v, i) => {
-      if (typeof v !== "function" || i === last) return insert(parent, v, marker);
+      if (typeof v !== "function" || i === last) return insert(parent, v, marker, host);
       const anchor = document.createTextNode("");
+      if (host) (anchor as any)._$host = host();
       parent.insertBefore(anchor, marker);
-      bind(parent, v, anchor);
+      bind(parent, v, anchor, undefined, host);
     });
     return;
   }
   if (typeof value !== "function") {
-    for (const n of nodesOf(value, [], [])) parent.insertBefore(n, marker);
+    for (const n of nodesOf(value, [], [])) {
+      if (host) (n as any)._$host = host();
+      parent.insertBefore(n, marker);
+    }
     return;
   }
-  bind(parent, value, marker);
+  bind(parent, value, marker, undefined, host);
 }
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
-function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor) {
+function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null) {
   let current: Node[] = [];
   // What the apply step makes (a description drawn late) belongs where the binding was made.
   const home = getOwner();
@@ -468,6 +483,7 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
     (v: any) => {
       if (v === CLAIMED) return;
       const next = runWithOwner(home, () => untrack(() => nodesOf(v, [], current)));
+      if (host) for (const n of next) (n as any)._$host = host();
       reconcile(parent, current, next, end);
       current = next;
     },
@@ -557,21 +573,47 @@ export const Portal = __twist_mark(function Portal(props: { mount?: Node; childr
 });
 
 function portal(props: { mount?: Node; children?: any }) {
-  const mount = props.mount ?? document.body;
-  const marker = document.createTextNode("");
-  const box = document.createDocumentFragment();
-  createRoot((dispose) => {
-    insert(box, () => clientOnlyRun(() => props.children));
-    const nodes = [...box.childNodes];
-    for (const n of nodes) ((n as any)._$host = marker), mount.appendChild(n);
-    onCleanup(() => {
-      dispose();
-      for (const n of nodes) n.parentNode === mount && mount.removeChild(n);
-    });
+  const tree = document.createTextNode("");
+  const start = document.createTextNode("");
+  const end = document.createTextNode("");
+  const mount = () => props.mount || document.body;
+  // Its content, the browser's own (the server drew nothing for it), after a start marker.
+  const content = createMemo(() => [start, clientOnlyRun(() => props.children)]);
+  createRenderEffect(
+    () => [mount(), content(), getOwner()] as const,
+    ([, c, o]) => {
+      const m = untrack(mount);
+      m.appendChild(end);
+      const dispose = runWithOwner(o, () =>
+        createRoot((d) => {
+          insert(m, c, end, () => tree.parentNode);
+          return d;
+        }),
+      );
+      return () => {
+        dispose();
+        for (let n: Node | null = start; n; ) {
+          const next: Node | null = n.nextSibling;
+          if (n.parentNode === m) m.removeChild(n);
+          if (n === end) break;
+          n = next;
+        }
+      };
+    },
+    // (After what it sits in is mounted: where it sits is known.)
+    { schedule: true } as any,
+  );
+  // A mount outside the root the portal sits in listens for that root (one inside it needs nothing: events reach it).
+  createEffect(mount, () => {
+    const m = untrack(mount);
+    let root: Node | null = tree.parentNode;
+    while (root && !roots.has(root)) root = root.parentNode;
+    if (!root || root.contains(m) || containers.has(m) || roots.has(m)) return;
+    containers.set(m, root);
+    for (const t of delegated) listen(m, t);
+    return () => void containers.delete(m);
   });
-  roots.add(mount);
-  for (const t of delegated) listen(mount, t);
-  return marker;
+  return tree;
 }
 
 /** `fn` run as when not hydrating: what it makes is new, nothing of the server's claimed. */
