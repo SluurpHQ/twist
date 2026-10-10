@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-3927 pass, 155 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
+3932 pass, 150 fail, 362 skipped (gated off for stable React 19), 45 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -89,9 +89,9 @@
 | react-dom/ReactDOMServerIntegrationUserInteraction-test.js | 18 | 2 | 7 |  |
 | react-dom/ReactDOMServerLifecycles-test.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMServerPartialHydration-test.internal.js | 48 | 9 | 10 |  |
-| react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 23 | 14 | 3 |  |
-| react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 5 | 12 | 6 |  |
-| react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 5 | 9 | 6 |  |
+| react-dom/ReactDOMServerPartialHydrationActivity-test.internal.js | 24 | 13 | 3 |  |
+| react-dom/ReactDOMServerSelectiveHydration-test.internal.js | 6 | 11 | 6 |  |
+| react-dom/ReactDOMServerSelectiveHydrationActivity-test.internal.js | 6 | 8 | 6 |  |
 | react-dom/ReactDOMServerSuspense-test.internal.js | 9 | 0 | 1 |  |
 | react-dom/ReactDOMShorthandCSSPropertyCollision-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactDOMSingletonComponents-test.js | 11 | 1 | 10 |  |
@@ -101,7 +101,7 @@
 | react-dom/ReactDOMTestSelectors-test.js | 0 | 0 | 37 |  |
 | react-dom/ReactDOMTextarea-test.js | 53 | 0 | 0 |  |
 | react-dom/ReactDOMTextComponent-test.js | 4 | 0 | 5 |  |
-| react-dom/ReactDOMUseId-test.js | 10 | 2 | 5 |  |
+| react-dom/ReactDOMUseId-test.js | 12 | 0 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 14 | 0 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 24 | 0 | 0 |  |
 | react-dom/ReactErrorBoundaries-test.internal.js | 39 | 1 | 10 |  |
