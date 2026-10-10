@@ -2122,6 +2122,7 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
         if (!flushing && !halted) flush();
         else schedule();
       };
+      let first = true;
       const step = (method: "next" | "throw", input?: unknown) => {
         let r: IteratorResult<any, R> | Promise<IteratorResult<any, R>>;
         const was = acting;
@@ -2133,7 +2134,9 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
           return end(() => fail(e));
         }
         acting = was;
-        if (r && !(r as any).done && typeof (r as any).then !== "function") settleStep();
+        // (The first step runs inside its caller: its writes show at the caller's flush.)
+        if (r && !(r as any).done && typeof (r as any).then !== "function") first ? schedule() : settleStep();
+        first = false;
         if (r && typeof (r as any).then === "function" && !("done" in (r as any))) {
           return void (r as Promise<IteratorResult<any, R>>).then(after, (e) => end(() => fail(e)));
         }
