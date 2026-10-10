@@ -322,6 +322,7 @@ export class Signal<T> extends Node<T> {
   }
   read(): T {
     if (listener) listener.track(this);
+    else if (foreignRead) foreignRead(this);
     return this.current();
   }
   write(next: T) {
@@ -349,6 +350,10 @@ export class Signal<T> extends Node<T> {
 
 /** Whether something tracks what is read now. */
 export const isTracking = () => listener !== null;
+
+/** What another reactive system is told of a node read outside every computation here (how it follows Twist's). */
+let foreignRead: ((node: { read(): unknown }) => void) | null = null;
+export const setForeignRead = (fn: typeof foreignRead) => void (foreignRead = fn);
 /** A store setter's write: the same guard as a signal's. */
 export const guardStoreWrite = () => guardWrite(false);
 
@@ -531,7 +536,8 @@ export class Computation<T> extends Node<T> implements Owner {
       const first = this.flight && this.ready && !(this as any).bornHeld && listener.kind === RENDER && !rendered(this);
       listener.track(this);
       if (first) for (const s of this.sources) if (s.tx && !s.tx.done) s.tx.root.flights.add(this);
-    }
+    } else if (foreignRead) foreignRead(this);
+
     if (this.error !== NONE) throw this.error;
     // Never had a value (a first load, or waiting on one): not ready.
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);

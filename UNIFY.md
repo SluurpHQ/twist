@@ -39,6 +39,8 @@ Batteries included, 80/20: what real apps use, no chasing Solid's edge rulings.
 
 ## Built
 
+- Step 2 (2026-10-10): `src/twist/signals-bridge.ts` (`installSignalsBridge()`): a signal of either core read where the
+  other tracks is followed there (a mirror counter per node); hooks `setForeignRead` in both cores.
 - Step 1 (2026-10-10): `src/twist/bridge.ts` (`installBridge(React, createRoot)`), marks from the compile pass and
   Twist's own components, `TwistHost` in the React runtime's renderer; `test/bridge` covers both directions.
 
