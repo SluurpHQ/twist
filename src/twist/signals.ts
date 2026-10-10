@@ -77,6 +77,8 @@ export interface Owner {
   childCount?: number;
   /** Takes no id slot of its own: its parent's id, and requests passed up. */
   transparent?: boolean;
+  /** Disposes what it owns, and itself unless `self` is false. */
+  dispose(self?: boolean): void;
 }
 
 /** The owner that hands out ids for `o`: itself, or the first non-transparent owner above it. */
@@ -621,8 +623,10 @@ export class Computation<T> extends Node<T> implements Owner {
     this.sources.push(source);
     this.seen.push(source.version);
     if (source.height >= this.height) this.height = source.height + 1;
-    if (this.attached) source.subscribe(this);
+    if (this.attached && !this.relinking?.has(source)) source.subscribe(this);
   }
+  /** While it runs again: the sources it was subscribed to (kept when read again, let go after). */
+  relinking: Set<Source> | null = null;
   override subscribe(o: Computation<any>) {
     this.observers.push(o);
     if (!this.attached) this.attach();
@@ -647,6 +651,12 @@ export class Computation<T> extends Node<T> implements Owner {
   detach() {
     this.attached = false;
     for (const s of this.sources) s.unsubscribe(this);
+  }
+  /** Disposes what it owns, and itself unless `self` is false. */
+  dispose(self = true) {
+    if (!self) return disposeOwned(this);
+    dispose(this);
+    if (this.parent?.owned) remove(this.parent.owned, this);
   }
   /** Disposed: its subscriptions, its flight and its effect's cleanup let go. */
   end() {
@@ -742,7 +752,9 @@ export class Computation<T> extends Node<T> implements Owner {
     this.heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
     disposeOwned(this);
     this.childCount = 0;
-    if (this.attached) for (const s of this.sources) s.unsubscribe(this);
+    // Its old sources stay subscribed through the run (a lazy memo read again keeps its reader); the rest let go after.
+    const relinking = this.attached ? new Set(this.sources) : null;
+    this.relinking = relinking;
     this.before = this.sources;
     this.sources = [];
     this.readHeld = null;
@@ -789,6 +801,8 @@ export class Computation<T> extends Node<T> implements Owner {
       listener = prevListener;
       strictRead = prevStrict;
       inPass--;
+      this.relinking = null;
+      if (relinking) for (const s of relinking) if (!this.sources.includes(s)) s.unsubscribe(this);
     }
     this.state = CLEAN;
     this.ranAt = clock;
@@ -827,6 +841,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.take(next!);
     // (After its own staging ticked the clock: it is current.)
     this.ranAt = clock;
+    this.wake();
   }
   /** A value it computed or that landed: staged (or committed outside a flush), its readers told if it changed. */
   take(next: T) {
@@ -985,6 +1000,7 @@ export class Computation<T> extends Node<T> implements Owner {
     landings.push([this, v]);
     statusChanged();
     landNow();
+    this.wake();
   }
   fail(e: unknown) {
     this.flight = null;
@@ -995,6 +1011,16 @@ export class Computation<T> extends Node<T> implements Owner {
     for (const o of this.observers) o.mark(DIRTY);
     statusChanged();
     landNow();
+    this.wake();
+  }
+  /** Who waits for its next answer (a refresh's promise): each told, those still waiting kept. */
+  waiters: (() => boolean)[] | null = null;
+  wake() {
+    const w = this.waiters;
+    if (!w) return;
+    this.waiters = null;
+    const rest = w.filter((f) => !f());
+    if (rest.length) (this.waiters ??= []).push(...rest);
   }
   /** An effect's apply half, untracked and unowned, after its last cleanup. */
   runApply() {
@@ -1794,7 +1820,36 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
   refreshedNow.push(c);
   if (acting) (c as any).joins = acting.tx;
   c.mark(DIRTY);
-  return resolve(() => (typeof target === "function" ? (target as () => T)() : (target as T)));
+  // Settled when its new answer lands, in the world it lands in (an action's, still open): not when that commits.
+  const answer = () => (typeof target === "function" ? (c.staged !== NONE ? c.staged : c.value) : target) as T;
+  const p = new Promise<T>((ok, fail) => {
+    const settled = () => {
+      if (c.disposed) return ok(answer()), true;
+      if (c.flight || c.state !== CLEAN) return false;
+      if (c.error !== NONE) fail(c.error);
+      else ok(answer());
+      return true;
+    };
+    (c.waiters ??= []).push(settled);
+    // In an action: asked again now, so its answer is the action's transaction's to wait for.
+    if (acting) {
+      try {
+        untrack(() => c.read());
+      } catch {}
+      if (settled()) remove(c.waiters!, settled);
+    }
+    // Read once nothing else asks for it (a lazy memo with no reader): the re-ask still happens.
+    queueMicrotask(() => {
+      if (c.state !== CLEAN && !c.flight && c.waiters?.includes(settled)) {
+        try {
+          untrack(() => c.read());
+        } catch {}
+        c.wake();
+      }
+    });
+  });
+  p.catch(noop);
+  return p;
 }
 
 /** A promise for `fn`'s first settled value (not in flight, not held). */
@@ -2370,8 +2425,23 @@ export function createRevealOrder<T>(fn: () => T, options?: { order?: () => Reve
 /** `fn`'s value, or `fallback(error, reset)` once something under it throws. */
 export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
   const failed = new Signal<unknown>(NONE, { ownedWrite: true, equals: false });
-  const reset = () => ((failed.value = NONE), (view = null), (caughtBelow = false), failed.bump());
+  // Reset: the content made again.
+  const reset = () => ((failed.value = NONE), (view = null), (caughtBelow = false), content.mark(DIRTY), failed.bump());
   let caughtBelow = false;
+  // The boundary: what under it throws comes here. Transparent, as its content takes the id it would.
+  const boundary = new Root(owner, { transparent: true });
+  (boundary as any).catch = (e: unknown) => {
+    if (failed.value !== NONE) return false;
+    failed.value = e;
+    caughtBelow = true;
+    failed.bump();
+    reportCaught(e, m);
+    return true;
+  };
+  // Only boundaries made directly under a reveal order are its members: not those inside this one.
+  if (boundary.context?.[REVEAL]) boundary.context = { ...boundary.context, [REVEAL]: undefined };
+  // The content: made once (again only when what its making reads changes, or at a reset), apart from what it shows.
+  const content: Computation<T> = runWithOwner(boundary, () => new Computation<T>(MEMO, () => fn()));
   // What the fallback shows: built once per error under the boundary, kept current with what it reads.
   let view: Computation<F> | null = null;
   let viewFor: unknown = NONE;
@@ -2383,21 +2453,13 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
     }
     return view.read();
   };
-  const m: Computation<T | F> = new Computation<T | F>(MEMO, (): T | F => {
-    (m as any).catch = (e: unknown) => {
-      if (failed.value !== NONE) return false;
-      failed.value = e;
-      caughtBelow = true;
-      failed.bump();
-      reportCaught(e, m);
-      return true;
-    };
+  const m: Computation<T | F> = runWithOwner(boundary, () => new Computation<T | F>(MEMO, (): T | F => {
     failed.read();
     // An error something under it threw (an effect): shown until reset.
     if (failed.value !== NONE && caughtBelow) return showFallback();
     // Otherwise the content is tried, failed or not (tracked through what it reads): once what failed recovers, it shows.
     try {
-      const v = resolveChildren(fn());
+      const v = resolveChildren(content.read());
       if (failed.value !== NONE) (failed.value = NONE), (view = null);
       return v;
     } catch (e) {
@@ -2405,9 +2467,8 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
       if (failed.value !== e) (failed.value = e), reportCaught(e, m);
       return showFallback();
     }
-  });
-  // Only boundaries made directly under a reveal order are its members: not those inside this one.
-  if (m.context?.[REVEAL]) m.context = { ...m.context, [REVEAL]: undefined };
+  }, { transparent: true } as any));
+  content.run();
   m.run();
   const read = () => m.read();
   accessors.set(read, m);
@@ -2689,8 +2750,8 @@ function serverSent(n: { id?: string; kind: number }): unknown {
   const r = (globalThis as any)._$HY?.r;
   return r && n.id in r ? r[n.id] : NONE;
 }
-export const isHydrating = () => sharedConfig.hydrating;
-export function enableHydration() {}
+export const isHydrating = () => sharedConfig.hydrating && (!(sharedConfig as any).isClaiming || (sharedConfig as any).isClaiming());
+export { enableHydration } from "./hydration.ts";
 
 /** Optimistic store work waiting for the next flush, with the transaction of the action that made it. */
 const guessWork: [(tx: Transaction | null) => void, Transaction | null][] = [];

@@ -92,8 +92,10 @@ export function dynamic<P>(source: () => any, options?: { static?: boolean }): (
     if (w && typeof w.then === "function") throw new Error("dynamic(): a static source must resolve synchronously");
     return (props: any) => make(w, props);
   }
+  // As the client's: the source's answer kept once, then a value and its rendering per instance.
+  const cached = createMemo(source);
   return (props: any) => {
-    const which = createMemo(source);
+    const which = createMemo(() => cached());
     return createMemo(() => ({ t: html(make(which(), props), false) }));
   };
 }

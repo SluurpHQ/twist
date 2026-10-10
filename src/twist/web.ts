@@ -20,9 +20,9 @@ import {
   createSignal,
   createOwner,
   ownerUnder,
-  createLoadingBoundary,
   peekNextChildId,
 } from "./signals.ts";
+import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./hydration.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
 export { isStatic };
@@ -459,7 +459,34 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
  * longest run still in order; nodes kept stay.
  */
 export function insert(parent: Node, value: any, marker: Node | null = null, initial?: Node[]) {
+  // In a claim window over server nodes: claimed where they are.
+  if (initial?.length && sharedConfig.hydrating && (!sc.isClaiming || sc.isClaiming())) {
+    const was = hydrating;
+    hydrating ??= { registry: sc.registry ?? new Map() };
+    try {
+      // What the server had there and the value did not claim: gone, as an insert over `initial` replaces it.
+      const claimed = claimHtml(value, false, { parent, next: initial[0]! });
+      for (const n of initial) if (!claimed.includes(n) && n.parentNode === parent) parent.removeChild(n);
+      return;
+    } finally {
+      hydrating = was;
+    }
+  }
   insertHosted(parent, value, marker, initial);
+}
+
+/** A fragment's placeholder range gone (its boundary disposed before it arrived). */
+function cleanupFragment(id: string) {
+  const tpl = document.getElementById("pl-" + id);
+  if (!tpl) return;
+  for (let n = tpl.nextSibling; n; ) {
+    const next = n.nextSibling;
+    const end = n.nodeType === 8 && (n as Comment).nodeValue === "pl-" + id;
+    n.remove();
+    if (end) break;
+    n = next;
+  }
+  tpl.remove();
 }
 
 /** `insert`, with each node told its portal host. */
@@ -493,43 +520,55 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
   // What the apply step makes (a description drawn late) belongs where the binding was made.
   const home = getOwner();
   let first: Cursor | undefined = claimed;
+  const named = bindingNamed(parent, "children");
+  const apply = (v: any) => {
+    if (v === CLAIMED || v === NESTED) return;
+    const next = runWithOwner(home, () => untrack(() => nodesOf(v, [], current)));
+    if (host) for (const n of next) (n as any)._$host = host();
+    reconcile(parent, current, next, end);
+    current = next;
+  };
   createRenderEffect<any>(
-    // Every accessor in it read here, tracked (a list of rows that are accessors, say); nodes made in the apply.
     () => {
-      const v = resolveDeep(value());
-      // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
-      if (first) {
-        const at = first;
-        first = undefined;
-        // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
-        const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
-        if (open) at.next = open.nextSibling;
-        current = untrack(() => claimList(Array.isArray(v) ? v : [v], false, false, true, at));
-        if (open) {
-          let n = at.next;
-          while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
-            // Not what it renders (the server's page differed): gone.
-            const x = n.nextSibling;
-            if (!current.includes(n)) n.parentNode!.removeChild(n);
-            n = x;
-          }
-          end = n;
-          at.next = n ? n.nextSibling : null;
-        } else end = at.next;
-        return CLAIMED;
-      }
-      return v;
+      const raw = value();
+      // Accessors in what it made: read by an effect of their own, so a change there is shown again, not made again.
+      if (!hasAccessor(raw)) return show(resolveDeep(raw));
+      createRenderEffect<any>(() => show(resolveDeep(raw)), apply, named);
+      return NESTED;
     },
-    (v: any) => {
-      if (v === CLAIMED) return;
-      const next = runWithOwner(home, () => untrack(() => nodesOf(v, [], current)));
-      if (host) for (const n of next) (n as any)._$host = host();
-      reconcile(parent, current, next, end);
-      current = next;
-    },
-    bindingNamed(parent, "children"),
+    apply,
+    named,
   );
+  /** A value's nodes in place: claimed from the server's the first time when hydrating. */
+  function show(v: any) {
+    // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
+    if (first) {
+      const at = first;
+      first = undefined;
+      // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
+      const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
+      if (open) at.next = open.nextSibling;
+      current = untrack(() => claimList(Array.isArray(v) ? v : [v], false, false, true, at));
+      if (open) {
+        let n = at.next;
+        while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
+          // Not what it renders (the server's page differed): gone.
+          const x = n.nextSibling;
+          if (!current.includes(n)) n.parentNode!.removeChild(n);
+          n = x;
+        }
+        end = n;
+        at.next = n ? n.nextSibling : null;
+      } else end = at.next;
+      return CLAIMED;
+    }
+    return v;
+  }
 }
+
+const NESTED = Symbol("nested");
+/** Whether a value has an accessor in it (in a list, at any depth). */
+const hasAccessor = (v: any): boolean => typeof v === "function" || (Array.isArray(v) && v.some(hasAccessor));
 
 const BINDING = { transparent: true } as any;
 
@@ -691,19 +730,110 @@ export const HydrationScript = (_props?: unknown) => null;
 export const generateHydrationScript = (_options?: unknown) => "";
 
 /** A component whose identity (a component, or a tag name) follows `source`. */
-export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
+type DynamicOptions = { static?: boolean; deferStream?: boolean };
+const tagArm = (tag: string, props: any) => element(tag, componentRaw(props));
+
+export function dynamic<P>(source: () => any, options?: DynamicOptions): (props: P) => any {
+  return __twist_mark(dynamicOf<P>(source, options, tagArm));
+}
+
+/** `dynamic` for a source that only answers with components, never a tag name. */
+export function dynamicComponent<P>(source: () => any, options?: DynamicOptions): (props: P) => any {
   return __twist_mark(dynamicOf<P>(source, options));
 }
 
-function dynamicOf<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
-  // Static: the source read once (it cannot change).
-  const which = options?.static ? (() => { const v = untrack(source); return () => v; })() : createMemo(source);
-  return (props: P) =>
-    createMemo(() => {
-      const c = which();
-      if (!c) return undefined;
-      return untrack(() => (typeof c === "string" ? element(c, componentRaw(props as any)) : callComponent(c, props)));
+// A server component's answer: one component per function, the call's address beside it.
+const COMPONENT_BINDING = Symbol.for("solid.component-binding");
+const FLIGHT = Symbol("solid.dynamic-flight");
+const bindingOf = (v: any): { component: Function; address: string } | undefined =>
+  (v !== null && (typeof v === "function" || typeof v === "object") && v[COMPONENT_BINDING]) || undefined;
+
+function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof tagArm): (props: P) => any {
+  if (options?.static) return staticDynamic(untrack(source), tag);
+  // Mounted sites of a bound component: a new address for the same component is delivered to them, not remounted.
+  const sites = new Set<(a: string) => void>();
+  let deliveredAddress: string | undefined;
+  const resolveBinding = (next: any, prev: any) => {
+    const binding = bindingOf(next);
+    if (!binding) return next;
+    deliveredAddress = binding.address;
+    const prevBinding = bindingOf(prev);
+    if (prevBinding && prevBinding.component === binding.component) {
+      for (const deliver of sites) deliver(binding.address);
+      return prev;
+    }
+    return next;
+  };
+  const sameInstance = (prev: any, next: any) => {
+    if (prev === next) return true;
+    const held = bindingOf(prev);
+    const incoming = bindingOf(next);
+    if (!held || !incoming || held.component !== incoming.component) return false;
+    if (held.address === incoming.address) return true;
+    if (deliveredAddress === undefined) return false;
+    if (incoming.address !== deliveredAddress) {
+      deliveredAddress = incoming.address;
+      for (const deliver of sites) deliver(incoming.address);
+    }
+    return true;
+  };
+  const cached = createMemo<any>(
+    (prev: any) => {
+      const next = source();
+      if (!next || typeof next.then !== "function") return resolveBinding(next, prev);
+      return { [FLIGHT]: next };
+    },
+    { lazy: true, equals: sameInstance } as any,
+  );
+  return (props: P) => {
+    if (sharedConfig.hydrating) {
+      try {
+        untrack(cached);
+      } catch {}
+    }
+    let latest = 0;
+    const value = createMemo<any>(
+      (prev: any) => {
+        const c = cached();
+        if (!c || !c[FLIGHT]) return resolveBinding(c, prev);
+        const next: PromiseLike<any> = c[FLIGHT];
+        const token = ++latest;
+        return {
+          then: (onFulfilled: any, onRejected: any) =>
+            next.then((resolved: any) => {
+              const landed = token === latest ? resolveBinding(resolved, prev) : resolved;
+              return onFulfilled ? onFulfilled(landed) : landed;
+            }, onRejected),
+        };
+      },
+      { equals: sameInstance } as any,
+    );
+    return createMemo(() => {
+      const c = value();
+      if (typeof c === "function") {
+        const binding = bindingOf(c);
+        if (binding) {
+          const [address, setAddress] = createSignal((deliveredAddress ??= binding.address), { ownedWrite: true });
+          sites.add(setAddress);
+          onCleanup(() => sites.delete(setAddress));
+          return untrack(() => (binding.component as any)(props, address));
+        }
+        return untrack(() => callComponent(c, props));
+      }
+      if (typeof c === "string") return tag ? untrack(() => tag(c, props)) : undefined;
+      return undefined;
     });
+  };
+}
+
+function staticDynamic(c: any, tag?: typeof tagArm): (props: any) => any {
+  if (typeof c === "function") {
+    const binding = bindingOf(c);
+    if (binding) return (props) => untrack(() => (binding.component as any)(props, () => binding.address));
+    return (props) => untrack(() => callComponent(c, props));
+  }
+  if (typeof c === "string" && tag) return (props) => tag(c, props);
+  return () => undefined;
 }
 function componentRaw(props: Record<string, any>) {
   const raw: Record<string, any> = {};
@@ -724,8 +854,21 @@ const OWN = Symbol("twist.hydrate.own");
 let foreignClaim: ((type: any, props: Record<string, any>, el: Element) => void) | null = null;
 export const setForeignClaim = (fn: typeof foreignClaim) => void (foreignClaim = fn);
 
-/** Hydrating: the server's keyed elements by key. */
+/** Hydrating: the server's keyed elements by key (also `sharedConfig.registry`, which a claim window swaps). */
 let hydrating: { registry: Map<string, Element> } | null = null;
+const sc = sharedConfig as any;
+
+/** The keyed elements under `element` into the registry: those under `root`'s prefix, or all outside frame regions. */
+function gatherHydratable(element: Element | Document, root?: string) {
+  const found = element.querySelectorAll(root ? `[_hk^="${root.replace(/["\\]/g, "\\$&")}"]` : "*[_hk]");
+  const frames = root ? null : element.querySelectorAll("[data-fid]");
+  const registry: Map<string, Element> = sc.registry;
+  for (const el of found) {
+    if (frames?.length && [...frames].some((fr) => fr !== el && fr.contains(el))) continue;
+    const key = el.getAttribute("_hk")!;
+    if (!registry.has(key)) registry.set(key, el);
+  }
+}
 
 /** Where claiming goes on in a parent: the next node not yet claimed. */
 type Cursor = { parent: Node; next: Node | null };
@@ -734,8 +877,16 @@ type Cursor = { parent: Node; next: Node | null };
 export function hydrate(code: () => any, element: Element | Document, options: { renderId?: string } = {}) {
   roots.add(element);
   for (const t of delegated) listen(element, t);
-  const registry = new Map<string, Element>();
-  for (const el of (element as Element).querySelectorAll("[_hk]")) registry.set(el.getAttribute("_hk")!, el);
+  enableHydration();
+  const hy = ((globalThis as any)._$HY ??= { r: {}, fe() {} });
+  sc.load = (id: string) => hy.r[id];
+  sc.has = (id: string) => id in hy.r;
+  sc.cleanupFragment = cleanupFragment;
+  const registry = (sc.registry = new Map<string, Element>());
+  sc.gather = (root?: string) => gatherHydratable(element, root);
+  sc.boundaryScopes ??= new Map();
+  sc.captureBoundaryScope = (id: string) => sc.registry && sc.boundaryScopes.set(id, { registry: sc.registry, gather: sc.gather });
+  gatherHydratable(element, options.renderId || undefined);
   const was = hydrating;
   hydrating = { registry };
   sharedConfig.hydrating = true;
@@ -779,7 +930,7 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
     if (v.fn === Errored) return claimErrored(componentProps(v.props), at);
     return claimHtml(callComponent(v.fn, componentProps(v.props)), false, at);
   }
-  if (v[EL]) return [claimElement(v, v.keyed ?? !inTemplate, at)];
+  if (v[EL]) return [claimDescribed(v, v.keyed ?? !inTemplate, at)];
   // A node made here (a Portal's marker: the server drew nothing for it): put where it belongs.
   if ((v as Node).nodeType) {
     if (!(v as Node).parentNode) at.parent.insertBefore(v as Node, at.next);
@@ -838,17 +989,22 @@ function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): No
   const ahead = pl.previousSibling;
   const host = at.parent;
   const record = (globalThis as any)._$HY?.r?.[id + "_fr"];
+  const release = record ? runWithOwner(boundary, () => initBoundaryResume(boundary, id!)) : () => false;
   const reveal = () => {
+    if (!release() || boundary.disposed) return void checkHydrationComplete();
     const was = hydrating;
+    const prevRegistry = sc.registry;
     const registry = new Map<string, Element>();
     for (const el of (host as Element).querySelectorAll?.("[_hk]") ?? []) registry.set(el.getAttribute("_hk")!, el);
     hydrating = { registry };
+    sc.registry = registry;
     sharedConfig.hydrating = true;
     try {
       runWithOwner(boundary, () => claimHtml(props.children, false, { parent: host, next: ahead ? ahead.nextSibling : host.firstChild }));
       flush();
     } finally {
       hydrating = was;
+      sc.registry = prevRegistry;
       sharedConfig.hydrating = !!was;
     }
   };
@@ -897,7 +1053,7 @@ const noopFn = () => {};
 function claimChildren(c: any, at: Cursor) {
   if (Array.isArray(c)) claimList(c, !!(c as any)[OWN], true, false, at);
   else if (typeof c === "function") bindAt(c, at);
-  else if (c && c[EL]) claimElement(c, c.keyed ?? false, at);
+  else if (c && c[EL]) claimDescribed(c, c.keyed ?? false, at);
   else claimHtml(c, false, at);
 }
 
@@ -910,7 +1066,7 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
       if (viaFn) out.push(...claimList([resolveDeep(x)].flat(), own, inTemplate, true, at));
       else out.push(...bindAt(x, at));
     } else if (Array.isArray(x)) out.push(...claimList(x, !!(x as any)[OWN], inTemplate && own, viaFn, at));
-    else if (x[EL]) out.push(...claimedBy(x, [claimElement(x, x.keyed ?? !(inTemplate && own && !viaFn), at)]));
+    else if (x[EL]) out.push(...claimedBy(x, [claimDescribed(x, x.keyed ?? !(inTemplate && own && !viaFn), at)]));
     else if (x[COMP]) out.push(...claimedBy(x, marked(at, () => claimHtml(x, false, at))));
     else if ((x as Node).nodeType) out.push(x as Node);
     else out.push(...claimText(x, at));
@@ -966,10 +1122,12 @@ function claimText(v: any, at: Cursor): Node[] {
   return [t];
 }
 
-function claimElement(d: { tag: string; props: Record<string, any> }, keyed: boolean, at: Cursor): Element {
+function claimDescribed(d: { tag: string; props: Record<string, any> }, keyed: boolean, at: Cursor): Element {
   const owner = getOwner() as any;
   const key = keyed && owner?.id != null ? getNextChildId(owner) : undefined;
-  let el = (key != null && hydrating!.registry.get(key)) || (nextNode(at) as Element | null);
+  const registry: Map<string, Element> | undefined = sc.registry ?? hydrating?.registry;
+  let el = (key != null && registry?.get(key)) || (nextNode(at) as Element | null);
+  if (key != null) registry?.delete(key);
   if (!el || el.nodeType !== 1) {
     // Not what the server rendered: made here.
     el = element(d.tag, {});

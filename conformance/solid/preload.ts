@@ -10,6 +10,16 @@ const platform = ["Request", "Response", "Headers", "fetch", "FormData", "Blob",
 // As jsdom runs Solid's tests: a page URL, and nothing fetched (no CSS, scripts or frames loaded).
 GlobalRegistrator.register({ url: "http://localhost/", settings: { disableCSSFileLoading: true, disableJavaScriptFileLoading: true, disableIframePageLoading: true, handleDisabledFileLoadingAsSuccess: true } as any });
 for (const [k, v] of platform) Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true });
+// And as jsdom: a stylesheet <link> never loads nor fails by itself (the tests dispatch its load).
+import { PropertySymbol } from "happy-dom";
+for (const hook of [PropertySymbol.connectedToDocument, PropertySymbol.onSetAttribute]) {
+  const proto = (globalThis as any).HTMLLinkElement.prototype;
+  const was = proto[hook];
+  proto[hook] = function (this: any, ...args: any[]) {
+    this[PropertySymbol.disableEvaluation] = true;
+    return was.apply(this, args);
+  };
+}
 // Solid's tests run in jsdom, which has no reportError (Bun and happy-dom do): an uncaught error's cause is logged.
 delete (globalThis as any).reportError;
 // Vitest's globals, as Solid's tests use them without importing.

@@ -1,11 +1,10 @@
 # Solid's tests on Twist
 
-5123 pass, 1118 fail, 714 files (37 did not load, 199 test Solid's internals)
+5185 pass, 1073 fail, 714 files (31 did not load, 199 test Solid's internals)
 
 ## Why files did not load
 
 - 9 × SyntaxError: Export named 'httpStatus' not found
-- 5 × SyntaxError: Export named 'dynamicComponent' not found
 - 4 × Cannot find module '../../src/server.js'
 - 4 × SyntaxError: Export named 'createSSRResponse' not found
 - 2 × SyntaxError: Export named 'materializeContainerTrace' not found
@@ -14,7 +13,6 @@
 - 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
 - 1 × SyntaxError: Export named 'hasStaticKeys' not found
 - 1 × Cannot find module '../src/response.js'
-- 1 × SyntaxError: [class SyntaxError extends Error],
 - 1 × SyntaxError: Export named 'waitAsset' not found
 - 1 × Cannot find module '../../src/response.js'
 - 1 × SyntaxError: Export named 'httpHeader' not found
@@ -76,12 +74,12 @@
 | signals/tests/createErrorBoundary.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
 | signals/tests/createLoadingBoundary.on.test.ts | 7 | 0 |  |
 | signals/tests/createLoadingBoundary.test.ts | 19 | 7 |  |
-| signals/tests/createMemo.test.ts | 66 | 14 |  |
+| signals/tests/createMemo.test.ts | 69 | 11 |  |
 | signals/tests/createOptimistic.test.ts | 50 | 18 |  |
 | signals/tests/createProjection.draft-lifetime-3585.test.ts | 9 | 8 |  |
 | signals/tests/createReaction.test.ts | 2 | 3 |  |
 | signals/tests/createRevealOrder.test.ts | 38 | 0 |  |
-| signals/tests/createRoot.test.ts | 20 | 2 |  |
+| signals/tests/createRoot.test.ts | 21 | 1 |  |
 | signals/tests/createSignal.test.ts | 10 | 0 |  |
 | signals/tests/createTrackedEffect.test.ts | 18 | 1 |  |
 | signals/tests/derived-write-then-derivation-3733.test.ts | 34 | 3 |  |
@@ -98,7 +96,7 @@
 | signals/tests/enableExternalSource.test.ts | 0 | 1 | not ours: SyntaxError: Export named '_resetExternalSourceConfig' not found |
 | signals/tests/enforceLoadingBoundary.test.ts | 0 | 1 | SyntaxError: Export named 'enforceLoadingBoundary' not found |
 | signals/tests/equals-comparator-errors.test.ts | 2 | 4 |  |
-| signals/tests/error-silent-recovery.test.ts | 5 | 2 |  |
+| signals/tests/error-silent-recovery.test.ts | 6 | 1 |  |
 | signals/tests/errorHalt.test.ts | 8 | 1 |  |
 | signals/tests/falsy-error-identity.test.ts | 20 | 0 |  |
 | signals/tests/finalize-reentry.test.ts | 0 | 4 |  |
@@ -196,7 +194,7 @@
 | signals/tests/question-scoped-pending.test.ts | 16 | 22 |  |
 | signals/tests/recompute-missed-wake.test.ts | 2 | 0 |  |
 | signals/tests/recompute-preserves-disposed-3621.test.ts | 0 | 1 | not ours: reads Solid's graph fields |
-| signals/tests/refresh-await.test.ts | 6 | 6 |  |
+| signals/tests/refresh-await.test.ts | 7 | 5 |  |
 | signals/tests/repeat.test.ts | 11 | 0 |  |
 | signals/tests/resolve-in-action.test.ts | 3 | 2 |  |
 | signals/tests/resolve.test.ts | 3 | 1 |  |
@@ -402,38 +400,38 @@
 | web/test/dynamic-namespace.spec.tsx | 3 | 7 |  |
 | web/test/dynamic-static.spec.tsx | 3 | 4 |  |
 | web/test/dynamic.spec.tsx | 10 | 3 |  |
-| web/test/element.spec.tsx | 7 | 12 |  |
+| web/test/element.spec.tsx | 8 | 11 |  |
 | web/test/errored-async-nesting.spec.tsx | 2 | 1 |  |
 | web/test/errored.spec.tsx | 9 | 3 |  |
 | web/test/event-handler.spec.tsx | 5 | 0 |  |
 | web/test/for.nonkeyed.spec.tsx | 50 | 0 |  |
 | web/test/for.nonkeyed.store.spec.tsx | 0 | 1 |  |
 | web/test/for.spec.tsx | 50 | 0 |  |
-| web/test/frames-adopted-region-fragments.spec.tsx | 0 | 5 |  |
-| web/test/frames-assets-client.spec.ts | 10 | 7 |  |
-| web/test/frames-binding-slots.spec.tsx | 9 | 12 |  |
-| web/test/frames-client.spec.tsx | 11 | 4 |  |
+| web/test/frames-adopted-region-fragments.spec.tsx | 5 | 0 |  |
+| web/test/frames-assets-client.spec.ts | 17 | 0 |  |
+| web/test/frames-binding-slots.spec.tsx | 15 | 6 |  |
+| web/test/frames-client.spec.tsx | 15 | 0 |  |
 | web/test/frames-container-lazy-codec.spec.tsx | 1 | 1 |  |
 | web/test/frames-container-lazy-document.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
 | web/test/frames-dynamic-contract.spec.tsx | 1 | 0 |  |
-| web/test/frames-errored-reset-refetch.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
+| web/test/frames-errored-reset-refetch.spec.tsx | 6 | 12 |  |
 | web/test/frames-flight-delivery.spec.tsx | 0 | 1 | Cannot find module '../src/response.js' |
 | web/test/frames-get.spec.tsx | 3 | 0 |  |
-| web/test/frames-hn-client.spec.tsx | 1 | 1 |  |
-| web/test/frames-late-boundary-client.spec.tsx | 0 | 5 |  |
+| web/test/frames-hn-client.spec.tsx | 2 | 0 |  |
+| web/test/frames-late-boundary-client.spec.tsx | 5 | 0 |  |
 | web/test/frames-live-resume.spec.tsx | 3 | 2 |  |
 | web/test/frames-live-showing.spec.tsx | 1 | 0 |  |
-| web/test/frames-live.spec.tsx | 1 | 7 |  |
+| web/test/frames-live.spec.tsx | 3 | 5 |  |
 | web/test/frames-marker-corruption.spec.tsx | 1 | 0 |  |
 | web/test/frames-morph-in-transition.spec.tsx | 1 | 2 |  |
 | web/test/frames-occlusion-client.spec.tsx | 1 | 0 |  |
-| web/test/frames-optimistic-hold.spec.tsx | 4 | 2 |  |
+| web/test/frames-optimistic-hold.spec.tsx | 5 | 1 |  |
 | web/test/frames-plain-bound.spec.tsx | 3 | 0 |  |
 | web/test/frames-slot-arg-flights-3852.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
 | web/test/frames-used-region-client.spec.tsx | 1 | 0 |  |
 | web/test/halt-error-logging.spec.tsx | 1 | 0 |  |
 | web/test/held-action-memo-mount-3802.spec.tsx | 1 | 0 |  |
-| web/test/hydration/adopted-claim-args-address.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
+| web/test/hydration/adopted-claim-args-address.spec.tsx | 1 | 0 |  |
 | web/test/hydration/adopted-fallback-residue.spec.tsx | 1 | 1 |  |
 | web/test/hydration/adopted-slot-late-record.spec.tsx | 0 | 1 |  |
 | web/test/hydration/adopted-slot-live.spec.tsx | 1 | 0 |  |
@@ -450,17 +448,17 @@
 | web/test/hydration/document-live-channel.spec.tsx | 1 | 0 |  |
 | web/test/hydration/document-shell.spec.tsx | 2 | 2 |  |
 | web/test/hydration/dynamic-async-loading-3666.spec.tsx | 0 | 3 |  |
-| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
-| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
-| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
-| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 | SyntaxError: Export named 'dynamicComponent' not found |
+| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 0 | 1 |  |
+| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 0 | 1 |  |
+| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 0 | 1 |  |
+| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 |  |
 | web/test/hydration/dynamic-hydration-events.spec.tsx | 0 | 1 |  |
 | web/test/hydration/eager-jsx-falsy-show.spec.tsx | 1 | 1 |  |
 | web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 |  |
 | web/test/hydration/frame-live-document.spec.tsx | 0 | 2 |  |
 | web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 0 | 1 |  |
 | web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |
-| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 1 | 1 |  |
+| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 2 | 0 |  |
 | web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 1 | 0 |  |
 | web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal' |
 | web/test/hydration/hybrid-memo-handoff.spec.tsx | 0 | 8 |  |
@@ -510,13 +508,13 @@
 | web/test/latest-ispending-issue-3041.spec.tsx | 2 | 0 |  |
 | web/test/latest-shadow-owned-write-issue-3378.spec.tsx | 1 | 0 |  |
 | web/test/lifecycle-matrix/call-driven-args.spec.tsx | 5 | 2 |  |
-| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 2 | 17 |  |
+| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 12 | 7 |  |
 | web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 11 | 0 |  |
 | web/test/lifecycle-matrix/container-args.spec.tsx | 0 | 1 | SyntaxError: Export named 'materializeContainerTrace' not found |
 | web/test/lifecycle-matrix/document-adoption.spec.tsx | 5 | 1 |  |
 | web/test/lifecycle-matrix/document-live-holes.spec.tsx | 4 | 0 |  |
 | web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 1 | 0 |  |
-| web/test/lifecycle-matrix/remount.spec.tsx | 1 | 2 |  |
+| web/test/lifecycle-matrix/remount.spec.tsx | 3 | 0 |  |
 | web/test/loading-fallback-in-flush-3540.spec.tsx | 0 | 3 |  |
 | web/test/loading-on-keyed-boundary-3540.spec.tsx | 5 | 5 |  |
 | web/test/loading-on-outside-reader-3412.spec.tsx | 4 | 0 |  |
@@ -576,7 +574,7 @@
 | web/test/server/dynamic-async-component-diagnostic.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/dynamic-async-loading-3666.spec.tsx | 1 | 1 |  |
 | web/test/server/dynamic-component-parity.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
-| web/test/server/dynamic-hydration.spec.tsx | 0 | 3 |  |
+| web/test/server/dynamic-hydration.spec.tsx | 3 | 0 |  |
 | web/test/server/dynamic-shell-gating.spec.tsx | 0 | 1 | not ours: Cannot find module '../../frames/src/frame-sink.js' |
 | web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |
 | web/test/server/dynamic-xmlns.spec.tsx | 2 | 0 |  |
@@ -613,7 +611,7 @@
 | web/test/server/lazy-nested-late-assets.spec.tsx | 0 | 1 |  |
 | web/test/server/lazy-shell-gating.spec.tsx | 5 | 1 |  |
 | web/test/server/live-shell-source-3764.gen.spec.tsx | 1 | 0 |  |
-| web/test/server/loading-dynamic-fragments.spec.tsx | 0 | 1 |  |
+| web/test/server/loading-dynamic-fragments.spec.tsx | 1 | 0 |  |
 | web/test/server/loading-recreated-async-source-3734.spec.tsx | 5 | 5 |  |
 | web/test/server/lowercase-on-attribute.spec.tsx | 5 | 0 |  |
 | web/test/server/nav-before-resume.gen.spec.tsx | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
