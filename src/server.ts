@@ -624,7 +624,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
     case LAZY: {
       if (ctx.streaming?.shared.aborted && ctx.streaming.spawn) throw ABORTED;
       const p = type._payload;
-      if (p.status === 1) return render(createElement(p.value, props), ctx, hooks);
+      if (p.status === 1) return lazyResolved(p.value, props, ctx, hooks);
       if (p.status === -1) {
         p.status = 0;
         // (A thenable that settles at once: what it gives is used now, no promise to throw.)
@@ -641,13 +641,23 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         sync = false;
         p.promise?.catch?.(() => {});
       }
-      if (p.status === 1) return render(createElement(p.value, props), ctx, hooks);
+      if (p.status === 1) return lazyResolved(p.value, props, ctx, hooks);
       if (p.status === 2) throw p.value;
       throw p.promise;
     }
   }
   if (type === FRAGMENT) return render(props.children, ctx, hooks);
   throw invalidType(type);
+}
+
+/** A lazy that has loaded: its component's frame in the stack instead of "Lazy" (React names only one still loading). */
+function lazyResolved(type: any, props: any, ctx: Ctx, hooks: any): string {
+  const lazy = ctx.stack[ctx.stack.length - 1] === "Lazy" ? ctx.stack.pop() : undefined;
+  try {
+    return render(createElement(type, props), ctx, hooks);
+  } finally {
+    if (lazy) ctx.stack.push(lazy);
+  }
 }
 
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
