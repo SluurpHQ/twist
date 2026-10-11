@@ -2351,6 +2351,26 @@ function hidden(c: Computation<any>): boolean {
   return false;
 }
 
+/**
+ * `n` held in `t` after readers may already have computed against its staged value this round: what derives from it is
+ * held with it, and an effect that ran against it runs again (showing the frame).
+ */
+function holdLate(n: Node, t: Transaction) {
+  hold(n, t);
+  for (const o of downstream(n)) {
+    if (o.tx || (o as any).insideTx) continue;
+    if (o.kind === MEMO) {
+      if (o.staged !== NONE) hold(o, t);
+      continue;
+    }
+    if (o.staged === NONE && !o.due) continue;
+    if (o.due) (o.due = false), remove(applies[o.kind as 1 | 2], o);
+    o.staged = NONE as any;
+    o.state = CLEAN;
+    o.mark(DIRTY);
+  }
+}
+
 function newTransaction() {
   const t = new Transaction();
   transactions.add(t);
@@ -3018,7 +3038,13 @@ export function until<T>(fn: () => T, options?: { timeout?: number; signal?: Abo
           authoritative++;
           try {
             const v = fn();
-            if (v && tx && !tx.done) for (const s of me.sources) if (s instanceof Computation && s.staged !== NONE && !s.tx) hold(s, tx);
+            if (v && tx && !tx.done)
+              for (const s of me.sources) {
+                if (s.staged === NONE) continue;
+                if (!s.tx) holdLate(s, tx);
+                // (Confirming another action's wait too: the two settle jointly.)
+                else if (s.tx.root !== tx.root && !s.tx.root.done && !s.tx.root.parentTx) mergeTx(tx, s.tx);
+              }
             return { v, ok: true };
           } catch (e) {
             if (e instanceof NotReadyError) return { v: undefined, ok: false };
