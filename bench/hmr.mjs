@@ -13,11 +13,13 @@ const args = process.argv.slice(2);
 const profile = args.includes("--profile");
 const [pw, edits = "15"] = args.filter((a) => a !== "--profile");
 const { chromium } = require(pw ?? "playwright-core");
-const sluurp = resolve(import.meta.dirname, "..", "..", "..", "..");
+// Sluurp, beside Twist (the dev server is its).
+const sluurp = resolve(import.meta.dirname, "..", "..", "sluurp");
 const example = resolve(sluurp, "..", "sluurp-examples", "todos", "app");
 const runtimes = {
   react: {},
-  twist: { SLUURP_REACT: "twist", SLUURP_DOM_SRC: resolve(sluurp, "host", "packages", "dom", "src"), SLUURP_SOLID: "twist" },};
+  twist: { SLUURP_REACT: "twist", SLUURP_SOLID: "twist" },
+};
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
 /** A dev server stopped with what it started (the server's executable outlives a plain kill on Windows). */
