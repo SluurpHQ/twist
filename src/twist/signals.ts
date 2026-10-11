@@ -144,6 +144,14 @@ class Root implements Owner {
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
+  /** (Solid's owner tree as its tools walk it: first child, next sibling; disposed ones skipped.) */
+  get _firstChild(): Owner | null {
+    return liveFrom(this.owned, 0);
+  }
+  get _nextSibling(): Owner | null {
+    const o = this.parent?.owned;
+    return o ? liveFrom(o, o.indexOf(this as any) + 1) : null;
+  }
   /** Disposes what it owns, and itself unless `self` is false. */
   dispose(self = true) {
     if (!self) return disposeOwned(this);
@@ -246,6 +254,13 @@ export function createRoot<T>(fn: (dispose: () => void) => T, options?: { id?: s
 }
 
 /** `item` out of `list`; the ends first, as lists are let go of in order or in reverse (no scan per item). */
+/** The first owner not disposed in `list` from `i` on. */
+function liveFrom(list: Owner[] | null, i: number): Owner | null {
+  if (!list) return null;
+  for (; i < list.length; i++) if (!list[i]!.disposed) return list[i]!;
+  return null;
+}
+
 function remove<T>(list: T[], item: T) {
   const last = list.length - 1;
   if (list[last] === item) return void list.pop();
@@ -694,6 +709,14 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
+  }
+  /** (Solid's owner tree as its tools walk it: first child, next sibling; disposed ones skipped.) */
+  get _firstChild(): Owner | null {
+    return liveFrom(this.owned, 0);
+  }
+  get _nextSibling(): Owner | null {
+    const o = this.parent?.owned;
+    return o ? liveFrom(o, o.indexOf(this as any) + 1) : null;
   }
   /** Settles when the answer in flight lands or fails (what a server render waits on). */
   settles: Promise<void> | null = null;

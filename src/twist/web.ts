@@ -213,18 +213,28 @@ export function assign(node: Element, props: Record<string, any> | null | undefi
   }
 }
 
+/** An element's own (not delegated) listeners, by handler and event type: what to remove when a handler changes. */
+const listenersOf = new WeakMap<Element, Map<unknown, Map<string, EventListener>>>();
+
 function assignOne(el: Element, name: string, value: any, prev: any, skipRef: boolean) {
   if (name === "ref") return !skipRef && value && applyRef(value, el), value;
   if (/^on[A-Z]/.test(name)) {
+    // The same handler (a tuple too): nothing rebound.
+    if (value === prev) return prev;
     const type = name.slice(2).toLowerCase();
     const delegate = BUBBLING.has(type);
-    if (!delegate && prev) el.removeEventListener(type, prev);
+    // (Each listener is found by its handler: two spreads on one element listen apart.)
+    const own = delegate ? undefined : (listenersOf.get(el) ?? listenersOf.set(el, new Map()).get(el)!);
+    const was = prev && own?.get(prev)?.get(type);
+    if (was) el.removeEventListener(type, was), own!.get(prev)!.delete(type);
+    // (A delegated one gone: nothing left on the element for the root's listener to find.)
+    if (delegate && !value) (el as any)[EVENT_KEY + type] = (el as any)[EVENT_KEY + type + "Data"] = undefined;
     if (value) {
       if (delegate) addEvent(el, type, value, true);
       else {
         const l = listenerFor(value);
+        (own!.get(value) ?? own!.set(value, new Map()).get(value)!).set(type, l);
         el.addEventListener(type, l);
-        return l;
       }
     }
     return value;
@@ -336,62 +346,63 @@ export function applyRef(r: any, el: Element) {
 }
 
 /** Props given as a whole: each applied, kept current. */
-export function spread(el: Element, props: any, skipChildren?: boolean) {
-  // (An accessor is read where each key is read.)
-  spreadOn(el, typeof props === "function" ? spreadSource(props) : props, !!skipChildren, false);
+/**
+ * Props given as a whole (Solid's spread): an object, an accessor, or a list of them (later ones win; only the
+ * winning key read); `skip` names keys left alone. One effect applies them, ref included (called again when it
+ * changes); children inserted on their own, with no effect when they are plain data.
+ */
+export function spread(el: Element, props: any, skipChildren?: boolean, skip?: (key: string) => boolean) {
+  spreadOn(el, props, !!skipChildren, false, skip);
+  return props;
 }
 
+const isEvent = (k: string) => /^on[A-Z]/.test(k);
+/** The sources a spread reads, each as an object (an accessor called, nothing dropped). */
+const sourcesOf = (props: any): any[] => (Array.isArray(props) ? props : [props]).map((p) => (typeof p === "function" ? p() : p)).filter((p) => p != null);
+
 /** A spread applied: `claiming` the server's element, its first value is what the page shows already. */
-function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: boolean) {
+function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: boolean, skip?: (key: string) => boolean) {
   if (!props) return;
   // (Whether the children are claimed is decided now: the attribute effect below clears its own flag.)
   const claimingChildren = claiming;
-  // A spread's handlers: delegated when they bubble (as any handler), else listeners of their own; swapped as the
-  // spread changes.
-  const isEvent = (k: string) => /^on[A-Z]/.test(k);
-  const listeners = new Map<string, EventListener>();
-  const listenOn = (k: string, h: any) => {
-    if (h == null) return;
-    const type = k.slice(2).toLowerCase();
-    if (BUBBLING.has(type)) return addEvent(el, type, h, true);
-    const l = listenerFor(h);
-    listeners.set(k, l);
-    el.addEventListener(type, l);
-  };
-  const unlisten = (k: string) => {
-    const type = k.slice(2).toLowerCase();
-    if (BUBBLING.has(type)) return void ((el as any)[EVENT_KEY + type] = (el as any)[EVENT_KEY + type + "Data"] = undefined);
-    const l = listeners.get(k);
-    if (l) el.removeEventListener(type, l), listeners.delete(k);
-  };
-  let prev: Record<string, any> = {};
+  const prev: Record<string, any> = {};
   createRenderEffect(
     () => {
       const next: Record<string, any> = {};
-      for (const k of Object.keys(props)) if (k !== "children" && k !== "ref") next[k] = k === "style" || k === "class" ? readShallow(props[k]) : props[k];
+      const sources = sourcesOf(props);
+      // From the last source back: the first to have a key wins, and a key shadowed is never read.
+      for (let i = sources.length - 1; i >= 0; i--)
+        for (const k of Object.keys(sources[i])) {
+          if (k === "children" || k in next || skip?.(k)) continue;
+          const v = sources[i][k];
+          next[k] = k === "style" || k === "class" ? readShallow(v) : v;
+        }
       return next;
     },
     (next: Record<string, any>) => {
-      // Claiming the server's element: what it shows already is the first value (nothing written).
+      const r = next.ref;
+      if (r !== prev.ref && (typeof r === "function" || Array.isArray(r))) runWithOwner(null, () => applyRef(r, el));
+      // Claiming the server's element: what it shows already is the first value (handlers attached, nothing written).
       if (claiming) {
         claiming = false;
         if ("class" in next) (el as any).$$cls = classes(next.class);
-        // (Handlers are not in the page: attached.)
-        for (const k of Object.keys(next)) if (isEvent(k)) listenOn(k, next[k]);
-        prev = next;
+        for (const k of Object.keys(next)) prev[k] = isEvent(k) ? assignOne(el, k, next[k], undefined, true) : next[k];
         return;
       }
-      for (const k of Object.keys(prev)) if (!(k in next)) isEvent(k) ? unlisten(k) : assignProp(el, k, undefined, prev[k]);
-      for (const k of Object.keys(next)) if (next[k] !== prev[k]) isEvent(k) ? (unlisten(k), listenOn(k, next[k])) : assignProp(el, k, next[k], prev[k]);
-      prev = next;
+      assign(el, next, true, prev, true);
     },
+    bindingNamed(el, "spread"),
   );
-  // (Read untracked: a change to the spread is its effect's, never the enclosing computation's.)
-  const ref = untrack(() => props.ref);
-  if (ref) applyRef(ref, el);
-  if (skipChildren || !untrack(() => "children" in props)) return;
-  if (claimingChildren) claimChildren(props.children, { parent: el, next: el.firstChild });
-  else insert(el, () => props.children);
+  if (skipChildren || skip?.("children")) return;
+  if (claimingChildren) return void claimChildren(untrack(() => props.children), { parent: el, next: el.firstChild });
+  // Plain data children: put in once, no effect for them.
+  const plain = !Array.isArray(props) && typeof props !== "function" ? untrack(() => Object.getOwnPropertyDescriptor(props, "children")) : undefined;
+  if (plain && !plain.get) return void insert(el, plain.value);
+  if (!plain && !untrack(() => sourcesOf(props).some((p) => "children" in p))) return;
+  insert(el, () => {
+    const sources = sourcesOf(props);
+    for (let i = sources.length - 1; i >= 0; i--) if ("children" in sources[i]) return sources[i].children;
+  });
 }
 
 // ---------------------------------------------------------------- events, delegated per render root
