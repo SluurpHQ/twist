@@ -861,6 +861,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
           if (e2 instanceof NotReadyError && ++passes >= CONVERGE_BUDGET) e2 = new Error(`<Loading> did not converge: still waiting after ${passes} passes`);
           const next = e2 instanceof NotReadyError && settlesOf(e2);
           if (!next) {
+            // Before the shell went out: the request fails with it (nothing was sent to render it again on the client).
+            if (!r.shellSent && (r as any).failShell) return void ((r as any).failShell(e2), r.wake?.());
             // A real error retrying: the boundary's record fails with it (the stream goes on).
             failures.get(boundary)?.(e2);
             if (r.shellSent) r.sink.fragment(id!, " ", { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
@@ -1526,6 +1528,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   let syncFailure: { error: unknown } | null = null;
   let firstPass = true;
   const shellReady = new Promise<string>((ok, fail) => {
+    // (A boundary failing before the shell goes out fails the request with it.)
+    (r as any).failShell = fail;
     const attempt = () => {
       try {
         filled(r, rendering(r, options, () => runWithOwner(root, () => html(code(), false))))
