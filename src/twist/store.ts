@@ -613,14 +613,26 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   // The derive: run as a memo, its draft writes staged like a setter's (owned writes are allowed here).
   // An async derive makes the memo async: the store is not ready until its first derive lands.
   let runs = 0;
+  // The seed window (the seed served until the first answer lands): that run's writes go to a copy, committed whole
+  // at each landing; nothing it writes before shows (#2988).
+  let shadow: Raw | null = null;
+  const commitShadow = () => {
+    if (!shadow) return;
+    const before = new Set(dirtyRecords);
+    into(target, plain(shadow, new Map()), key);
+    promoteWrites(before);
+  };
   const m = createMemo(() => {
-    const d = draftOf(target);
+    shadow = options?.seedLoadingValue && runs === 0 ? (plain(target, new Map()) as Raw) : null;
+    const d = draftOf(shadow ?? target);
     const before = new Set(dirtyRecords);
     let r = fn(d as T);
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // An async derive's answers are reconciled as they land (onTake, below): the memo flies on its promise or generator.
     if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return r;
+    // (A first answer at once: its writes are that answer.)
+    if (shadow) promoteWrites(before), commitShadow(), (shadow = null);
     if (r !== undefined) {
       // Another store: followed live (its changes reconciled in as they come, by a follower this run owns).
       if (unwrap(r) !== r) {
@@ -649,6 +661,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   onTake(m, (v) => {
     // (On a server, what its source wrote before this answer is the state it answers with.)
     if (traced) promoteWrites(new Set()), queueMicrotask(changed);
+    // (Each landing in the seed window: what the run wrote, committed whole.)
+    commitShadow();
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
     if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
