@@ -13,7 +13,7 @@ export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
-import { commitResponseStub, deriveHead, devCheck, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
+import { commitResponseStub, deriveHead, devCheck, getRequestEvent, setRequestErrorHook, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
 import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
@@ -1304,12 +1304,15 @@ function sendAnswer(node: any, answer: unknown) {
   const id = node?.id as string | undefined;
   if (!r?.serializer || id == null || isNoHydration() || !sharedConfig.context || r.written.has(id)) return;
   r.written.add(id);
-  if (answer && typeof (answer as any).then === "function") {
-    r.pendingData++;
-    const done = () => queueMicrotask(() => (r.pendingData--, r.wake?.()));
-    (answer as Promise<unknown>).then(done, done);
-  }
+  awaitData(r, answer);
   r.serializer.write(id, answer);
+}
+/** A value still to come: the stream stays open until it has been written (or failed to be). */
+function awaitData(r: Render, v: unknown) {
+  if (!v || typeof (v as any).then !== "function") return;
+  r.pendingData++;
+  const done = () => queueMicrotask(() => (r.pendingData--, r.wake?.()));
+  (v as Promise<unknown>).then(done, done);
 }
 
 /** The data not yet sent, as a script (the scope's header ahead of the first). */
@@ -1351,9 +1354,10 @@ export function renderToString(code: () => any, options: { renderId?: string; no
   const tracking = createAssetTracking();
   const ctx = (stringCtx = stringContext(options.renderId ?? "")) as any;
   ctx.errorPolicy = options.onError;
+  fileRequestHook(options.onError);
   // What the client hydrates with: values known now (a string render sends nothing that is still to come).
   let data = "";
-  const serializer = options.noHydrate ? null : createHydrationSerializer({ scopeId: options.renderId, onData: (p: string) => void (data += p + ";"), onDone() {}, onError() {} });
+  const serializer = options.noHydrate ? null : createHydrationSerializer({ scopeId: options.renderId, onData: (p: string) => void (data += p + ";"), onDone() {}, onError: serializeFailed(options.onError) });
   const written = new Set<string>();
   ctx.serialize = (id: string, v: unknown) => {
     if (!serializer || written.has(id) || (v && typeof (v as any).then === "function")) return;
@@ -1387,6 +1391,13 @@ export function renderToString(code: () => any, options: { renderId?: string; no
     head = wasHead;
     stringCtx = wasCtx;
   }
+}
+/** A value the serializer could not write: the render's hook hears it (the page goes on without it). */
+const serializeFailed = (hook: any) => (e: unknown) => void reportServerError(e, { kind: "serialize", handling: "serialize" } as any, null, hook);
+/** A render's onError filed as the hook of the request it serves (when it serves one). */
+function fileRequestHook(hook: any) {
+  const event = getRequestEvent();
+  if (event && hook) setRequestErrorHook(event, hook);
 }
 /** The context of the string render under way. */
 let stringCtx: any = null;
@@ -1425,6 +1436,7 @@ function streamContext(r: Render, options: StreamOptions) {
     serialize(id: string, p: unknown, deferStream?: boolean) {
       if (!r.serializer) return;
       if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add(p as Promise<unknown>);
+      awaitData(r, p);
       r.serializer.write(id, p);
     },
     block(p: Promise<unknown>) {
@@ -1492,6 +1504,8 @@ type StreamOptions = {
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: newHead(), data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null };
+  // Its hook is its request's: a server function the request calls later reports to it.
+  fileRequestHook(options.onError);
   // The document: html text, data as script, each fragment as a template and its reveal.
   let documentShell = "";
   const documentSink: Sink = {
@@ -1520,7 +1534,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   r.ctx = streamContext(r, options);
   applyAssetTracking(r.ctx, r.tracking, options.manifest);
   rendering(r, options, () => registerEntryAssets(r.ctx, options.manifest));
-  if (!options.noHydrate) r.serializer = (options.serializer ?? createHydrationSerializer)({ scopeId: options.renderId, plugins: options.plugins, onData: (p: unknown) => (r.sink.data(p), r.wake?.()), onDone() {}, onError() {} });
+  if (!options.noHydrate) r.serializer = (options.serializer ?? createHydrationSerializer)({ scopeId: options.renderId, plugins: options.plugins, onData: (p: unknown) => (r.sink.data(p), r.wake?.()), onDone() {}, onError: serializeFailed(options.onError) });
   let dispose!: () => void;
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.
