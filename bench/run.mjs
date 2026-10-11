@@ -9,7 +9,8 @@ const rows = {};
 for (const [engine, type] of [["webkit", webkit], ["chromium", chromium]]) {
   // WEBKIT_EXE: a WebKit build already on disk, when this playwright-core wants a newer one.
   const browser = await type.launch(engine === "webkit" && process.env.WEBKIT_EXE ? { executablePath: process.env.WEBKIT_EXE } : {});
-  for (const name of ["vanilla", "react", "preact", "sluurp", "signals", "solid", "twist"]) {
+  // BENCH_APPS=solid,twist: some of them.
+  for (const name of process.env.BENCH_APPS?.split(",") ?? ["vanilla", "react", "preact", "sluurp", "signals", "solid", "twist"]) {
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:8820/bench/${name}/index.html`);
     const got = await page.evaluate((n) => window.bench(n), runs);

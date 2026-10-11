@@ -460,13 +460,18 @@ const transactions = new Set<Transaction>();
 let flushes = 0;
 
 /** What signals and computations share: a committed value, a staged one, and who reads them. */
+const NO_OBSERVERS: Set<Computation<any>> = new Set();
+/** What a computation has read, before its first run: nothing (shared, never written to). */
+const NOTHING_YET: readonly unknown[] = [];
+
 abstract class Node<T = any> {
   /** Its name (the `name` option, a store key): what diagnostics call it. */
   name?: string;
   value!: T;
   staged: T | typeof NONE = NONE;
   tx: Transaction | null = null;
-  observers = new Set<Computation<any>>();
+  /** Who reads it (one shared empty set until the first: most nodes never have one). */
+  observers: Set<Computation<any>> = NO_OBSERVERS;
   height = 0;
   get _name(): string {
     return this.name ?? (this instanceof Computation ? (this.kind === MEMO ? "computed" : "effect") : "signal");
@@ -520,6 +525,7 @@ abstract class Node<T = any> {
     (this as any).bornHeld = false;
   }
   subscribe(o: Computation<any>) {
+    if (this.observers === NO_OBSERVERS) this.observers = new Set();
     this.observers.add(o);
   }
   unsubscribe(o: Computation<any>) {
@@ -642,17 +648,18 @@ export class Computation<T> extends Node<T> implements Owner {
   kind: number;
   fn: (prev?: T) => T;
   state = DIRTY;
-  sources: Source[] = [];
+  // (These three are made anew by its first run: until then, one shared empty list.)
+  sources: Source[] = NOTHING_YET as Source[];
   /** The transaction whose held values its last run read: what it computed is held in it. */
   readHeld: Transaction | null = null;
   /** The flush it was made in (made in this one: a first mount, no reveal). */
   born = flushes;
   /** What its last run read (while it runs again). */
-  before: Source[] = [];
+  before: Source[] = NOTHING_YET as Source[];
   /** It asks isPending: it reads the screen, like a render effect. */
   verdictReader = false;
   /** The version of each source when it was read. */
-  seen: number[] = [];
+  seen: number[] = NOTHING_YET as number[];
   /** Sources read only through isPending/latest: what is shown ahead of a hold (they do not hold this). */
   verdict: Set<Source> | null = null;
   attached = false;
@@ -747,6 +754,8 @@ export class Computation<T> extends Node<T> implements Owner {
   track(source: Source) {
     if (verdictReading) (this.verdict ??= new Set()).add(source);
     if (this.sources.includes(source)) return;
+    // (Read outside a run of its own: its lists made now, the shared empty one never written to.)
+    if (this.sources === NOTHING_YET) (this.sources = []), (this.seen = []);
     this.sources.push(source);
     this.seen.push(source.version);
     if (source.height >= this.height) this.height = source.height + 1;
@@ -755,6 +764,7 @@ export class Computation<T> extends Node<T> implements Owner {
   /** While it runs again: the sources it was subscribed to (kept when read again, let go after). */
   relinking: Set<Source> | null = null;
   override subscribe(o: Computation<any>) {
+    if (this.observers === NO_OBSERVERS) this.observers = new Set();
     this.observers.add(o);
     if (!this.attached) this.attach();
   }

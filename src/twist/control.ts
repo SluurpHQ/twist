@@ -132,7 +132,9 @@ export function spreadSource(read: () => any) {
 
 /** A list: `children(item, index)`, by identity (default), position (`keyed={false}`) or a key function. */
 export const For = /* @__PURE__ */ builtin(function For<T>(props: { each: readonly T[] | null | undefined | false; fallback?: any; keyed?: boolean | ((v: T) => unknown); children: (item: any, index: any) => any }) {
-  return mapArray(() => props.each, (item, index) => props.children(item, index), { keyed: props.keyed, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
+  // (The row function's own arity passed on: one that takes no index gets no index cell.)
+  const indexed = untrack(() => props.children).length > 1;
+  return mapArray(() => props.each, indexed ? (item, index) => props.children(item, index) : (item) => props.children(item), { keyed: props.keyed, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
 });
 
 /** `children(index)` for `count` indices (from `from`), no diffing. */

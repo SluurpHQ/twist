@@ -56,6 +56,8 @@ export function mapArray<T, U>(
   const parent = getOwner();
   const keyed = options.keyed ?? true;
   const keyOf = typeof keyed === "function" ? keyed : (v: T) => v;
+  // (A row that takes no index gets no cell for one.)
+  const indexed = fn.length > 1;
   let keys: unknown[] = [];
   let rows: U[] = [];
   let ends: (() => void)[] = [];
@@ -126,12 +128,12 @@ export function mapArray<T, U>(
           kept[i] = 1;
           out[j] = rows[i]!;
           outEnds[j] = ends[i]!;
-          (outIndexes[j] = indexes[i]!).set(j);
+          if (indexed) (outIndexes[j] = indexes[i]!).set(j);
           if (typeof keyed === "function") (outItems[j] = items[i]!).set(next[j]!);
         } else {
-          const index = (outIndexes[j] = cell(j));
+          const index = indexed ? (outIndexes[j] = cell(j)) : null;
           const item = typeof keyed === "function" ? (outItems[j] = cell<T>(next[j]!)) : null;
-          const [v, end] = scope(parent, () => fn(item ? item.read : next[j], index.read));
+          const [v, end] = scope(parent, () => fn(item ? item.read : next[j], index?.read));
           out[j] = v;
           outEnds[j] = end;
         }

@@ -118,13 +118,26 @@ function element(tag: string, props: Record<string, any>): Element {
  */
 export function __twist_t(spec: Spec) {
   let made: Node | null = null;
-  hasHoles(spec);
+  const plan = planOf(spec);
   return (values: unknown[]) => {
     if (hydrating) return expand(spec, values, { i: 0 }, jsx, jsxs);
     const el = (made ??= build(spec)).cloneNode(true) as Element;
-    fill(el, spec, values, { i: 0 });
+    fill(el, plan, values, { i: 0 });
     return el;
   };
+}
+/**
+ * How a copy is filled, worked out once: the element's attributes set at run time, and a step per child up to the
+ * last one with something to do (null: none) — past a fixed node, into a fixed element with values below, or a value
+ * put before its marker.
+ */
+type Plan = { slots: string[]; steps: Step[] | null };
+type Step = { place: Place; value: boolean; inner: Plan | null };
+function planOf(spec: Spec): Plan {
+  const where = places(spec);
+  const steps: Step[] = spec[3].map((k, i) => ({ place: where[i]!, value: k === 0, inner: k !== 0 && typeof k !== "string" && hasHoles(k) ? planOf(k) : null }));
+  while (steps.length && !steps[steps.length - 1]!.value && !steps[steps.length - 1]!.inner) steps.pop();
+  return { slots: spec[2], steps: steps.length ? steps : null };
 }
 function build(spec: Spec): Element {
   const [tag, fixed, , kids] = spec;
@@ -137,25 +150,25 @@ function build(spec: Spec): Element {
   });
   return el;
 }
-/** A copy's values in place: attributes set, then each child value before its marker (the walk first, as values move nodes). */
-function fill(el: Element, spec: Spec, values: unknown[], at: { i: number }) {
-  for (const name of spec[2]) set(el, name, values[at.i++]);
-  const kids = spec[3];
-  const where = places(spec);
-  const puts: [unknown, Node | null][] = [];
+/** A copy's values in place, as its plan says: attributes set, then each child value before its marker (the walk first, as values move nodes). */
+function fill(el: Element, plan: Plan, values: unknown[], at: { i: number }) {
+  const slots = plan.slots;
+  for (let i = 0; i < slots.length; i++) set(el, slots[i]!, values[at.i++]);
+  const steps = plan.steps;
+  if (!steps) return;
+  let puts: unknown[] | null = null;
   let node = el.firstChild;
-  for (let i = 0; i < kids.length; i++) {
-    const k = kids[i]!;
-    if (k === 0) {
-      const p = where[i];
-      puts.push([values[at.i++], p === Place.Comment ? node : p === Place.Before ? node : null]);
-      if (p === Place.Comment) node = node!.nextSibling;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+    if (step.value) {
+      (puts ??= []).push(values[at.i++], step.place === Place.End ? null : node);
+      if (step.place === Place.Comment) node = node!.nextSibling;
       continue;
     }
-    if (typeof k !== "string" && hasHoles(k)) fill(node as Element, k, values, at);
+    if (step.inner) fill(node as Element, step.inner, values, at);
     node = node!.nextSibling;
   }
-  for (const [v, marker] of puts) insertHosted(el, v, marker);
+  if (puts) for (let i = 0; i < puts.length; i += 2) insertHosted(el, puts[i], puts[i + 1] as Node | null);
 }
 
 const hasSpread = (props: Record<string, any>) => Object.keys(props).some((k) => k.startsWith("$spread$"));
@@ -620,6 +633,11 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
       const t = String(v);
       const only = current.length === 1 && current[0]!.nodeType === 3 ? (current[0] as Text) : null;
       if (only) return void (only.data !== t && (only.data = t));
+      // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
+      if (!current.length && end === null && !host && !parent.firstChild && parent.nodeType === 1) {
+        (parent as Element).textContent = t;
+        return void (current = [parent.firstChild!]);
+      }
       if (!current.length) {
         const n = document.createTextNode(t);
         if (host) (n as any)._$host = host();
@@ -728,12 +746,19 @@ function resolveDeep(v: any): any {
 }
 
 function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
-  const keep = new Set(next);
-  for (const n of old) if (!keep.has(n) && n.parentNode === parent) parent.removeChild(n);
+  // The old nodes are all the parent holds and none stays: emptied at once (as Solid clears), the new ones put in.
+  if (end === null && old.length > 1 && parent.firstChild === old[0] && parent.lastChild === old[old.length - 1] && parent.childNodes.length === old.length && !next.some((n) => n.parentNode === parent)) {
+    (parent as Element).textContent = "";
+    for (const n of next) parent.appendChild(n);
+    return;
+  }
+  // Nothing there before: put in, nothing to compare.
   if (!old.length) {
     for (const n of next) parent.insertBefore(n, end);
     return;
   }
+  const keep = new Set(next);
+  for (const n of old) if (!keep.has(n) && n.parentNode === parent) parent.removeChild(n);
   const at = new Map<Node, number>();
   old.forEach((n, i) => at.set(n, i));
   const stay = inOrder(next, (n) => at.get(n));
