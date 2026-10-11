@@ -2076,7 +2076,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     held.add(n);
     for (const s of revealed) t.flights.add(s);
     for (const c of below) {
-      // (An effect that read only overrides shows them: a guess is not held.)
+      // (An effect that read only overrides shows them: a guess is not held. An until() of this action answers it now.)
+      if ((c as any).insideTx?.root === t.root) continue;
       if ((c.staged !== NONE || c.due) && (c.kind === MEMO || !c.sources.every((s) => s.override !== NONE))) hold(c, t);
       if (c.flight) t.flights.add(c);
     }
@@ -2810,6 +2811,10 @@ export class TimeoutError extends Error {
 
 /** A promise for the first time `fn` settles truthy (with that value). */
 export function until<T>(fn: () => T, options?: { timeout?: number; signal?: AbortSignal }): Promise<NonNullable<T>> {
+  // (Awaited by a computation, it would run again with each pass: it belongs in an action or an event.)
+  if (listener && process.env.NODE_ENV !== "production") throw new Error("[UNTIL_IN_REACTIVE_SCOPE] until() cannot be called inside a reactive scope; await it in an action or an event handler.");
+  // (Aborted already: no wait at all.)
+  if (options?.signal?.aborted) return Promise.reject(options.signal.reason);
   // Awaited in an action: the landing that satisfies it is that action's (held in its transaction, #3164).
   const tx = acting?.tx ?? null;
   return new Promise((ok, fail) => {
