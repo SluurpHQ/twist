@@ -1152,6 +1152,18 @@ export class Computation<T> extends Node<T> implements Owner {
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
+    // A render effect a transaction holds, run again by a change outside it: it leaves the hold and shows the committed
+    // frame now (A26), running again at the commit.
+    if (this.kind === RENDER && this.tx && !this.tx.root.done && !heldOnly) {
+      const t = this.tx.root;
+      t.nodes.delete(this);
+      t.effects.delete(this);
+      t.stale.add(this);
+      this.tx = null;
+      if (this.staged !== NONE) this.staged = NONE as any;
+      // (Its held apply was taken off the queue: what it computes now is queued afresh.)
+      if (this.due) this.due = false;
+    }
     // (The answer it waited on is stale now: one its cleanups give changes nothing.)
     if (this.flight && !this.streaming) (this.flight = null), flights.delete(this);
     // (Run again for a held write: the committed frame parked, rendering until the commit; a held pass's own frame,
