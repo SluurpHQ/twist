@@ -233,20 +233,36 @@ function dispose(o: Owner) {
   if (o instanceof Computation) o.end();
 }
 
-/** A memo's last frame kept by a rerun a transaction holds: it renders until the transaction ends. */
-function parkFrame(c: Computation<any>, t: Transaction) {
+/** A memo's last frame, kept by a rerun until the swap: it goes when the node commits (or its owner does). */
+function parkFrame(c: Computation<any>) {
   const frame = { owned: c.owned, cleanups: c.cleanups } as Owner;
   c.owned = null;
   c.cleanups = null;
+  if ((c as any)._signals) (c as any)._signals = undefined;
   ((c as any).parked ??= []).push(frame);
-  dormant(frame);
-  endWith(t, () => drainParked(c as any));
+  // (Not run again before the round decides: past it, a frame left showing reacts again.)
+  dormant(frame, true);
 }
-/** What a parked frame holds: shown as it is, never run again (it goes when the frame is let go). */
-function dormant(o: Owner) {
+/** Memos whose last frame a rerun this round parked. */
+const swaps: Computation<any>[] = [];
+/** The round settled: a held memo's frame waits for its transition (rendering until it lands); the rest go now. */
+function decideSwaps() {
+  for (const c of swaps.splice(0)) {
+    if (c.disposed || !(c as any).parked) continue;
+    const t = c.tx && !c.tx.root.done ? c.tx.root : null;
+    if (t) {
+      if (c.heldPass === t) continue;
+      c.heldPass = t;
+      for (const frame of (c as any).parked) dormant(frame, false);
+      endWith(t, () => drainParked(c as any));
+    } else drainParked(c as any);
+  }
+}
+/** What a parked frame holds, set not to run again (or to run again). */
+function dormant(o: Owner, on: boolean) {
   for (const c of o.owned ?? []) {
-    if (c instanceof Computation) c.dormant = true;
-    dormant(c);
+    if (c instanceof Computation) c.dormant = on;
+    dormant(c, on);
   }
 }
 /** Its parked frames let go: children first, later registrations before earlier, each frame once. */
@@ -256,17 +272,6 @@ function drainParked(c: { parked?: Owner[] | null }) {
   c.parked = null;
   for (let i = p.length - 1; i >= 0; i--) disposeOwned(p[i]!);
 }
-/** The transaction holding a write `c` read on its last run, if any. */
-function heldBy(c: Computation<any>): Transaction | null {
-  for (const s of c.sources) {
-    if (s.tx && !s.tx.root.done) return s.tx.root;
-    // (An action's write, not yet held: its transaction holds it at the round's end.)
-    const by = (s as any).writtenIn as Transaction | null;
-    if (by && !by.done) return by.root;
-  }
-  return null;
-}
-
 export function getOwner(): Owner | null {
   return owner;
 }
@@ -1225,12 +1230,11 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.flight && !this.streaming) (this.flight = null), flights.delete(this);
     // (Run again for a held write: the committed frame parked, rendering until the commit; a held pass's own frame,
     // or any other, let go now.)
-    if (this.kind === MEMO) {
-      const holder = heldBy(this);
-      const prior = this.heldPass;
-      if (holder && !(prior && !prior.done) && (this.owned || this.cleanups)) parkFrame(this, holder);
-      else disposeOwned(this);
-      if (holder !== prior) this.heldPass = holder;
+    if (this.kind === MEMO && flushing) {
+      // (A pass not committed yet — staged, or held — made what it owns: that goes now; the frame shown stays parked.)
+      if ((this as any).parked || this.staged !== NONE) disposeOwned(this);
+      else if (this.owned || this.cleanups) parkFrame(this), swaps.push(this);
+      else if ((this as any)._signals) (this as any)._signals = undefined;
     } else disposeOwned(this);
     if (this.childCount) this.childCount = 0;
     // (Run again: the stream it read is let go.)
@@ -1959,6 +1963,7 @@ function settleRound() {
   try {
     settleRoundIn(now, held, (t) => (tx = t));
   } finally {
+    if (swaps.length) decideSwaps();
     if (trims.length) decideTrims(tx);
     // The transaction this flush parked into (what a guess made in it is optimistic over).
     if (tx) frameTx = (tx as Transaction).root;
@@ -2303,6 +2308,8 @@ const shownFlight = (n: Computation<any>) => n.kind !== MEMO || rendered(n);
 
 /** Under a Loading boundary showing its fallback: not on screen, so it holds nothing. */
 function hidden(c: Computation<any>): boolean {
+  // (In a frame a rerun parked: what it shows is on its way out, not what this round decides.)
+  if (c.dormant) return true;
   for (let o: Owner | null = c; o; o = o.parent) {
     if ((o as any).loading?.onFallback) return true;
     // (A boundary's output is on screen, showing the fallback; only what it made is not.)
@@ -3155,7 +3162,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   // The content: built once under the boundary (what under it waits on a first load tells the boundary), built
   // again only when what it reads changes.
   const NOT_READY = {};
-  const content = new Computation<T | typeof NOT_READY>(MEMO, () => {
+  const content: Computation<T | typeof NOT_READY> = new Computation<T | typeof NOT_READY>(MEMO, () => {
     try {
       return fn();
     } catch (e) {
@@ -3172,7 +3179,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   slot.ready = () =>
     untrack(() => {
       if (content.read() === NOT_READY) return false;
-      for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
+      for (const w of state.waiting) if (w.disposed || w.dormant) state.waiting.delete(w);
       return !state.waiting.size && !state.heldBy.size;
     });
   // The fallback, made once each time it shows (under an owner of its own, kept across the passes that show it).
@@ -3193,7 +3200,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     listener!.track(state.count);
     listener!.track(slot.draw);
     const c = content.read();
-    for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
+    for (const w of state.waiting) if (w.disposed || w.dormant) state.waiting.delete(w);
     // Its readiness may have changed: the order looks again.
     if (slot.owner) slot.owner.evaluate();
     (shown as any).nextFallback = true;
