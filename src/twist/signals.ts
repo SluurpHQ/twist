@@ -2271,9 +2271,9 @@ function shownInitialized(c: Computation<any>): boolean {
   return false;
 }
 
-/** A held node's flight that keeps its transaction: one something on screen reads (all of them, but a memo whose
- * readers are all behind a fallback). */
-const shownFlight = (n: Computation<any>) => n.kind !== MEMO || !readersOf(n) || rendered(n);
+/** A held node's flight that keeps its transaction: one something on screen reads (an effect's, or a memo's that an
+ * effect not behind a fallback reads; a memo nothing reads holds nothing). */
+const shownFlight = (n: Computation<any>) => n.kind !== MEMO || rendered(n);
 
 /** Under a Loading boundary showing its fallback: not on screen, so it holds nothing. */
 function hidden(c: Computation<any>): boolean {
