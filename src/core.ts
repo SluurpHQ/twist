@@ -1473,6 +1473,8 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     for (const n of r.made) n.parentNode?.removeChild(n);
     const error: any = new Error("There was an error while hydrating but React was able to recover by instead client rendering from the nearest Suspense boundary.");
     error.cause = r.errored.error;
+    // A recovery in this render: no pre-warming after it (React renders it again synchronously).
+    recoveredThisRender = true;
     // (Not when its client render failed too and an error boundary took that: nothing was recovered.)
     layoutQueue.push(() => !(f as any).caughtInClient && ((f.root as any).onRecoverable ?? report)(error, { componentStack: "" }));
     setDehydrated(f, false);
