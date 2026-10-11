@@ -1209,6 +1209,7 @@ export class Computation<T> extends Node<T> implements Owner {
     const relinking = this.attached && this.sources.length ? new Set(this.sources) : null;
     if (relinking) this.relinking = relinking;
     this.before = this.sources;
+    const seenBefore = this.seen;
     this.sources = NOTHING_YET as Source[];
     if (this.readHeld) this.readHeld = null;
     this.seen = NOTHING_YET as number[];
@@ -1267,7 +1268,7 @@ export class Computation<T> extends Node<T> implements Owner {
         const dropped = [...relinking].filter((s) => !this.sources.includes(s));
         // (A memo run in a flush that may hold it: whether its committed frame still follows what it read is decided at
         // the round's end — kept until the commit if held, A30.)
-        if (dropped.length && this.kind === MEMO && flushing) trims.push([this, dropped]);
+        if (dropped.length && this.kind !== EFFECT && flushing) trims.push([this, dropped, dropped.map((d) => seenBefore[this.before.indexOf(d)]!)]);
         else for (const s of dropped) s.unsubscribe(this);
       }
     }
@@ -1917,15 +1918,22 @@ let comparing: Computation<any> | null = null;
 let landing = false;
 
 /** Sources a memo stopped reading this round, kept until the round decides whether a transaction holds it. */
-let trims: [Computation<any>, Node[]][] = [];
+let trims: [Computation<any>, Node[], number[]][] = [];
 function decideTrims(parked: Transaction | null) {
   const list = trims;
   trims = [];
-  for (const [c, dropped] of list) {
-    const let_go = () => dropped.forEach((s) => c.sources.includes(s) || s.unsubscribe(c));
-    // (Held itself, or the flush it ran in parked: the committed frame stays as it was until that commits.)
+  for (const [c, dropped, versions] of list) {
+    if (c.disposed) continue;
+    // (Held itself, or the flush it ran in parked: the committed frame stays as it was until that commits — its
+    // inputs among its sources, as seen then.)
     const t = c.tx && !c.tx.root.done ? c.tx.root : parked && !parked.root.done ? parked.root : null;
-    t ? endWith(t, let_go) : let_go();
+    if (!t) {
+      for (const d of dropped) c.sources.includes(d) || d.unsubscribe(c);
+      continue;
+    }
+    const keep = dropped.filter((d) => !c.sources.includes(d));
+    c.sources = [...c.sources, ...keep];
+    c.seen = [...c.seen, ...keep.map((d) => versions[dropped.indexOf(d)]!)];
   }
 }
 
