@@ -50,13 +50,15 @@ test("cmdk selects the first matching item", async () => {
       h(Command.List, null, ...["logs", "users", "users settings", "files"].map((v) => h(Command.Item, { key: v, value: v }, v))),
     );
   }
-  createRoot(container, { onUncaughtError: (e: any) => console.log("ERR", e?.stack ?? e) }).render(h(Palette));
+  const root = createRoot(container, { onUncaughtError: (e: any) => console.log("ERR", e?.stack ?? e) });
+  root.render(h(Palette));
   await settle();
   const selected = () => container.querySelector('[cmdk-item][aria-selected="true"]')?.textContent;
   expect(selected()).toBe("logs");
   flushSync(() => setQuery("users"));
   await settle();
   expect(selected()).toBe("users");
+  root.unmount();
 });
 
 test("the admin's palette, as it is: Ctrl+K, a word, Enter; Ctrl+K again, another word", async () => {
@@ -109,7 +111,8 @@ test("the admin's palette, as it is: Ctrl+K, a word, Enter; Ctrl+K again, anothe
       ),
     );
   }
-  createRoot(container).render(h(Palette));
+  const root = createRoot(container);
+  root.render(h(Palette));
   await settle();
   const selected = () => document.querySelector('[cmdk-dialog][aria-label="Admin"] [cmdk-item][aria-selected="true"]')?.textContent;
   const typeIn = async (text: string) => {
@@ -129,6 +132,14 @@ test("the admin's palette, as it is: Ctrl+K, a word, Enter; Ctrl+K again, anothe
   await settle();
   await typeIn("users");
   expect(selected()).toBe("users");
+  // Closed with Escape (the query kept), opened again, another word put in at once.
+  key("Escape");
+  await settle();
+  key("k", true);
+  await settle();
+  await typeIn("classes settings");
+  expect(selected()).toBe("classes › Settings");
+  root.unmount();
 });
 
 test("cmdk opened a second time: the first match is selected again", async () => {
@@ -151,7 +162,8 @@ test("cmdk opened a second time: the first match is selected again", async () =>
       h(Command.List, null, h(Command.Group, { heading: "Screens" }, ...["screen logs", "collection users", "settings users fields", "screen files"].map((v) => h(Command.Item, { key: v, value: v }, v)))),
     );
   }
-  createRoot(container).render(h(Palette));
+  const root = createRoot(container);
+  root.render(h(Palette));
   await settle();
   const selected = () => document.querySelector('[cmdk-dialog][aria-label="Palette"] [cmdk-item][aria-selected="true"]')?.textContent;
   flushSync(() => open(true));
@@ -166,5 +178,6 @@ test("cmdk opened a second time: the first match is selected again", async () =>
   flushSync(() => type("users"));
   await settle();
   expect(selected()).toBe("collection users");
+  root.unmount();
 });
 

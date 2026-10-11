@@ -2819,6 +2819,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     return;
   }
   // A unit of a concurrent render is part of that render: its passive effects come after its commit.
+  if (depth === 0 && inBatch) batchSegments.push({ f, layout: [layoutQueue.length, -1], passive: [passiveQueue.length, -1] });
   if (depth++ === 0 && !work) {
     runPassive(false);
     startRender();
@@ -2972,6 +2973,10 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     if (profilersMounted) for (const fn of f.passive) (fn as any).owner = f;
     layoutQueue.push(...f.layout);
     passiveQueue.push(...f.passive);
+  }
+  if (depth === 1 && inBatch) {
+    const seg = batchSegments[batchSegments.length - 1];
+    if (seg?.f === f) (seg.layout[1] = layoutQueue.length), (seg.passive[1] = passiveQueue.length);
   }
   if (--depth === 0) commit();
 }
@@ -3490,14 +3495,48 @@ holdFlushes(() => committing && (flushHeld = true));
 /** In a round of the signals' flush, and whether a commit waits for its end. */
 let inBatch = 0;
 let batchCommit = false;
+/** Each component drawn on its own in the round, and where its effects are in the queues. */
+type Segment = { f: Fiber; layout: [number, number]; passive: [number, number] };
+let batchSegments: Segment[] = [];
 onBatch(
   () => void inBatch++,
   () => {
-    if (--inBatch || !batchCommit || depth > 0) return;
+    if (--inBatch) return;
+    const segments = batchSegments;
+    batchSegments = [];
+    if (!batchCommit || depth > 0) return;
     batchCommit = false;
+    // Effects in React's order: a component drawn in the round, inside one drawn before it, has its effects run first
+    // (React runs a commit's effects children first), as if both had been drawn in one render.
+    if (segments.length > 1) {
+      reorder(layoutQueue, segments, (s) => s.layout);
+      reorder(passiveQueue, segments, (s) => s.passive);
+    }
     commit();
   },
 );
+function reorder(queue: (() => void)[], segments: Segment[], range: (s: Segment) => [number, number]) {
+  const done = segments.filter((s) => range(s)[1] >= 0 && range(s)[1] <= queue.length);
+  if (done.length < 2) return;
+  const inside = (a: Fiber, b: Fiber) => {
+    for (let p = a.parent; p; p = p.parent) if (p === b) return true;
+    return false;
+  };
+  const ordered: Segment[] = [];
+  for (const s of done) {
+    const i = ordered.findIndex((o) => inside(s.f, o.f));
+    if (i < 0) ordered.push(s);
+    else ordered.splice(i, 0, s);
+  }
+  if (ordered.every((s, i) => s === done[i])) return;
+  const from = range(done[0]!)[0];
+  const to = range(done[done.length - 1]!)[1];
+  const parts = ordered.map((s) => queue.slice(range(s)[0], range(s)[1]));
+  // (What lies between the segments, pushed outside any draw, stays at the end of the range.)
+  const covered = new Set(done.flatMap((s) => queue.slice(range(s)[0], range(s)[1])));
+  const rest = queue.slice(from, to).filter((fn) => !covered.has(fn));
+  queue.splice(from, to - from, ...parts.flat(), ...rest);
+}
 /** Commits so far (a test's scheduler waits for a paint by it). */
 let commitCount = 0;
 /** The commit is taking away what went (componentWillUnmount, cleanups): what it drew is not mounted yet. */
