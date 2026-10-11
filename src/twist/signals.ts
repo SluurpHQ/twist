@@ -1223,8 +1223,10 @@ export class Computation<T> extends Node<T> implements Owner {
   declare renderCtx: any;
   run() {
     const s = this.scope;
-    if (s && serverScope?.key !== s.key) return s.enter(() => this.runIn());
-    this.runIn();
+    if (s && serverScope?.key !== s.key) s.enter(() => this.runIn());
+    else this.runIn();
+    // (An effect's last frame goes once its new pass ran, before its apply — unless the pass is held: then at the round.)
+    if (this.kind !== MEMO && (this as any).parked && !this.tx && !this.readHeld && !this.staleRead) drainParked(this as any);
   }
   runIn() {
 
@@ -1256,7 +1258,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.flight && !this.streaming) (this.flight = null), flights.delete(this);
     // (Run again for a held write: the committed frame parked, rendering until the commit; a held pass's own frame,
     // or any other, let go now.)
-    if (this.kind === MEMO && flushing) {
+    if (flushing) {
       // (A pass not committed yet — staged, or held — made what it owns: that goes now; the frame shown stays parked.)
       if ((this as any).parked || this.staged !== NONE) disposeOwned(this);
       else if (this.owned || this.cleanups) parkFrame(this), swaps.push(this);
