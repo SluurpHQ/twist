@@ -238,11 +238,16 @@ export function suspendResource(state: CommitWait, root: Document | ShadowRoot, 
   }
 }
 
-/** How the commit goes on: at once (null), or by `wait(commit)` once the stylesheets have loaded (a minute at most). */
-export function commitWhenReady(state: CommitWait): ((commit: () => void) => () => void) | null {
+/** How the commit goes on: at once (null), or by `wait(commit)` once the stylesheets have loaded (a minute at most;
+ * with `noTimeout`, a boundary suspended on them, however long they take, as React retries it). */
+export function commitWhenReady(state: CommitWait, noTimeout = false): ((commit: () => void) => () => void) | null {
   if (state.stylesheets && state.count === 0) insertSuspended(state);
   if (state.count === 0) return null;
   return (commit) => {
+    if (noTimeout) {
+      state.unsuspend = commit;
+      return () => void (state.unsuspend = null);
+    }
     const timer = setTimeout(() => {
       if (state.stylesheets) insertSuspended(state);
       const go = state.unsuspend;

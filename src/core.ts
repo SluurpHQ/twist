@@ -1832,8 +1832,21 @@ function mountHoist(f: Fiber, host: Node) {
   else if (resource?.type === "stylesheet" && !hydrating && !applyingTransition && suspenseAbove(f)) {
     const st = newCommitWait();
     suspendResource(st, root, resource, f.props);
-    const ready = commitWhenReady(st);
-    if (ready) caught(f, new Promise<void>((done) => ready(done)));
+    const ready = commitWhenReady(st, true);
+    // (Its stylesheet put in place once it is ready, not with this commit: React inserts it when its preload loads.)
+    if (ready) {
+      // (Told at once when it has loaded, in its load event, as React commits then: not a microtask later.)
+      const waiting: (() => void)[] = [];
+      let loaded = false;
+      const thenable = { then: (on: () => void) => void (loaded ? on() : waiting.push(on)) };
+      ready(() => {
+        loaded = true;
+        if (!f.dead) f.dom = acquireResource(root, resource, f.props);
+        for (const on of waiting.splice(0)) on();
+      });
+      caught(f, thenable);
+      return;
+    }
   }
   layoutQueue.push(() => {
     if (f.dead) return;
