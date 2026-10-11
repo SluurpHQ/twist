@@ -1473,6 +1473,8 @@ export class Computation<T> extends Node<T> implements Owner {
       return this.failNow(v);
     }
     flights.add(this);
+    // (A first run's flight outside every transition: the mount frame's, decided at the flush.)
+    if (!this.ready && !this.tx && !this.passLane && !acting && !serverRender && !(this as any).writes) mountFlights.push(this);
     // Asked again by an action (a refresh there): the action's transaction waits for this answer.
     const joins = (this as any).joins as Transaction | undefined;
     if (joins && !joins.done) joins.flights.add(this), ((this as any).joins = undefined);
@@ -1548,6 +1550,8 @@ export class Computation<T> extends Node<T> implements Owner {
     const flight = {};
     this.flight = flight;
     this.streaming = true;
+    // (A stream is no first answer a mount frame waits on.)
+    for (const t of transactions) if ((t as any).mount) t.flights.delete(this);
     let first = noop;
     this.settles = new Promise<void>((r) => (first = r));
     const it = iterable[Symbol.asyncIterator]();
@@ -1807,6 +1811,35 @@ function escalate(c: Computation<any>, e: unknown) {
 
 /** Signals written since the last flush, in order. */
 const writes: Signal<any>[] = [];
+/** Flights first runs started since the last flush (the mount frame's). */
+const mountFlights: Computation<any>[] = [];
+/**
+ * The mount frame decided: its flights that something on screen waits on (not a fresh Loading's, which catches its
+ * own) are one transition — each answer held there until all have landed.
+ */
+function mountFrame() {
+  let t: Transaction | null = null;
+  for (const c of mountFlights.splice(0)) {
+    if (!c.flight || c.disposed || c.tx || flightHolder(c) || !mountShown(c)) continue;
+    (t ??= newTransaction()).flights.add(c);
+    (t as any).mount = true;
+  }
+}
+/** Whether a reader outside every fresh Loading waits on `c` (directly or through memos). */
+function mountShown(c: Computation<any>, seen = new Set<Computation<any>>()): boolean {
+  if (seen.has(c)) return false;
+  seen.add(c);
+  for (const o of c.observers) {
+    if (o.kind === MEMO) {
+      // (One showing its loading value meanwhile: nothing past it waits.)
+      if (!o.loadingWindow && mountShown(o, seen)) return true;
+      continue;
+    }
+    const b = boundaryOf(o);
+    if (!b || b.mountRoot || !b.fresh) return true;
+  }
+  return false;
+}
 /** Async values that landed outside a hold: staged at the next flush. */
 const landings: [Computation<any>, any][] = [];
 /** Computations to bring up to date. */
@@ -2466,11 +2499,14 @@ function drain() {
       for (const [c, v] of landings.splice(0)) {
         if (c.disposed) continue;
         landing = true;
+        // (An answer of the mount frame: held with the frame's other answers.)
+        const mount = flightHolder(c);
         try {
           c.take(v);
         } finally {
           landing = false;
         }
+        if (mount && (mount as any).mount && !mount.done && !c.streaming && c.staged !== NONE && !c.tx) (hold(c, mount), ((c as any).bornHeld = true));
       }
     if (guesses.length) installGuesses();
     if (guessWork.length) for (const [install, tx, source] of guessWork.splice(0)) install(tx && !tx.done ? tx : tickTx && !tickTx.done ? tickTx : source ? overFlight(accessors.get(source)) : null);
@@ -2496,6 +2532,7 @@ function drain() {
       for (const end of ambientEnds.splice(0)) end();
     }
   }
+  if (mountFlights.length) mountFrame();
   dropUnread();
   // (An effect's own code that threw in the last round.)
   if (uncaught.length) throw uncaught.splice(0)[0];
