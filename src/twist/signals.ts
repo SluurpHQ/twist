@@ -1277,7 +1277,9 @@ export class Computation<T> extends Node<T> implements Owner {
           if (typeof ref.then === "function") ref.then(undefined, noop);
           throw ref.v;
         }
-        next = ref && typeof ref === "object" && ref.s === 1 ? ref.v : ref;
+        // (A loading window's streamed answer: the server drew the loading value, so the claim does too; the answer
+        // lands after, as a promise.)
+        next = ref && typeof ref === "object" && ref.s === 1 && !(this.loadingWindow && typeof ref.then === "function") ? ref.v : ref;
         // A stream the client goes on with ("hybrid"): once the server's answer has landed, its compute runs here,
         // quietly (its first yield repeats that answer).
         if ((this as any).ssrSource === "hybrid" && this.fn.constructor?.name === "AsyncGeneratorFunction") {
@@ -1611,9 +1613,12 @@ export class Computation<T> extends Node<T> implements Owner {
       sync = false;
       if (early) {
         const [ok, v] = early as [boolean, unknown];
-        ok ? onValue(v as IteratorResult<T>) : onError(v);
+        const land = () => (ok ? onValue(v as IteratorResult<T>) : onError(v));
+        // (A loading window hydrating: the server drew the loading value, so the claim does too; the value lands after.)
+        inRun && claimLater ? queueMicrotask(land) : land();
       }
     };
+    const claimLater = this.loadingWindow && sharedConfig.hydrating;
     step();
     inRun = false;
     if (this.flight === flight) flights.add(this), statusChanged();

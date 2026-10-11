@@ -1479,7 +1479,12 @@ function claimDescribed(d: { tag: string; props: Record<string, any> }, keyed: b
   const owner = getOwner() as any;
   const key = keyed && owner?.id != null ? getNextChildId(owner) : undefined;
   const registry: Map<string, Element> | undefined = sc.registry ?? hydrating?.registry;
-  let el = (key != null && registry?.get(key)) || (nextNode(at) as Element | null);
+  const hit = key != null ? registry?.get(key) : undefined;
+  let el = hit || (nextNode(at) as Element | null);
+  if (process.env.NODE_ENV !== "production") {
+    if (hit) hit.localName !== d.tag && console.warn(`Hydration tag mismatch for key "${key}": expected <${d.tag}> but found`, hit);
+    else if (!keyed && (!el || el.nodeType !== 1 || el.localName !== d.tag)) warnStructure(d.tag, el, at);
+  }
   if (key != null) registry?.delete(key);
   // (Its own key claimed too: taken by position, or by a key that missed.)
   if (el?.nodeType === 1 && (el as Element).hasAttribute("_hk")) registry?.delete((el as Element).getAttribute("_hk")!);
@@ -1493,6 +1498,31 @@ function claimDescribed(d: { tag: string; props: Record<string, any> }, keyed: b
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) claimChildren(props.children, { parent: el, next: el.firstChild });
   return el;
+}
+
+/** A template's element not where the server's page has it: said where, with the parent's elements drawn. */
+function warnStructure(tag: string, found: Node | null, at: Cursor) {
+  const parent = at.parent as Element;
+  let prev = found ? found.previousSibling : parent.lastChild;
+  while (prev && prev.nodeType !== 1) prev = prev.previousSibling;
+  const missing = !found || found.nodeType !== 1;
+  const viz = "\n  " + describeSiblings(parent, found, tag, missing);
+  if (prev) console.warn("Hydration structure mismatch: expected <" + tag + "> after", prev, "in", parent, viz);
+  else console.warn("Hydration structure mismatch: expected <" + tag + "> as first child of", parent, viz);
+}
+function describeSiblings(parent: Element, mismatch: Node | null, tag: string, missing: boolean): string {
+  const children = [...parent.children];
+  const p = parent.localName || "#fragment";
+  if (missing) return `<${p}>${children.map((c) => `<${c.localName}>`).join("")}<${tag} \u2190 missing></${p}>`;
+  const i = children.indexOf(mismatch as Element);
+  let start = 0;
+  let end = children.length;
+  if (children.length > 6) (start = Math.max(0, i - 2)), (end = Math.min(children.length, i + 3));
+  const tags = children
+    .slice(start, end)
+    .map((c) => (c === mismatch ? `<${c.localName} \u2190 expected ${tag}>` : `<${c.localName}>`))
+    .join("");
+  return `<${p}>${start > 0 ? "..." : ""}${tags}${end < children.length ? "..." : ""}</${p}>`;
 }
 
 /** A render effect, as compiled code makes one (its options' name is for development tools). */
