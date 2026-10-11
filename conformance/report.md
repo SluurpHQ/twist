@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4027 pass, 42 fail, 362 skipped (gated off for stable React 19), 57 set aside as not ours (not-ours.ts).
+4027 pass, 39 fail, 362 skipped (gated off for stable React 19), 60 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -159,12 +159,12 @@
 | react/ReactStrictMode-test.internal.js | 5 | 0 | 0 |  |
 | react/ReactStrictMode-test.js | 23 | 0 | 3 |  |
 | react/ReactVersion-test.js | 1 | 0 | 0 |  |
-| redux-tests/components/connect.spec.tsx | 66 | 1 | 0 |  |
-| redux-tests/components/hooks.spec.tsx | 0 | 1 | 0 |  |
+| redux-tests/components/connect.spec.tsx | 66 | 0 | 1 |  |
+| redux-tests/components/hooks.spec.tsx | 0 | 0 | 1 |  |
 | redux-tests/components/Provider.spec.tsx | 8 | 0 | 0 |  |
 | redux-tests/hooks/useDispatch.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/hooks/useReduxContext.spec.tsx | 2 | 0 | 0 |  |
-| redux-tests/hooks/useSelector.spec.tsx | 28 | 1 | 0 |  |
+| redux-tests/hooks/useSelector.spec.tsx | 28 | 0 | 1 |  |
 | redux-tests/integration/dynamic-reducers.spec.tsx | 2 | 0 | 0 |  |
 | redux-tests/integration/server-rendering.spec.tsx | 5 | 0 | 0 |  |
 | redux-tests/integration/ssr.spec.tsx | 6 | 0 | 0 |  |

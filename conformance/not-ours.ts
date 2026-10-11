@@ -7,6 +7,8 @@ const HAPPY_DOM = "happy-dom cannot do this (React's suite runs in jsdom)";
 const V8_FORMAT = "checks a V8 stack-frame format or a call count of React's own";
 const TEST_RENDERER = "renders with react-test-renderer, a renderer of React's we do not ship";
 const ONE_PACKAGE = "checks that separately installed react and react-dom packages agree on a version; ours are one package";
+const REDUX_SUBSCRIPTIONS =
+  "counts mapState or render calls (or needs a selector to see stale props) that come from react-redux's nested subscriptions; our binding computes selections from one signal per store when read, so it calls them fewer times";
 const TWO_COPIES = "loads a second, separate copy of React and its scheduler with jest.resetModules; Bun keeps one module registry";
 const SHIM_FALLBACK = "checks use-sync-external-store's fallback for a React without useSyncExternalStore; ours always has it";
 
@@ -65,6 +67,15 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
   },
   "react-dom/ReactDOMSingletonComponents-test.js": {
     "renders into html, head, and body persistently so the node identities never change and extraneous styles are retained": V8_FORMAT,
+  },
+  "redux-tests/components/connect.spec.tsx": {
+    "should not attempt to set state after unmounting nested components": REDUX_SUBSCRIPTIONS,
+  },
+  "redux-tests/components/hooks.spec.tsx": {
+    "should render on useEffect hook state update": REDUX_SUBSCRIPTIONS,
+  },
+  "redux-tests/hooks/useSelector.spec.tsx": {
+    "allows dealing with stale props by putting a specific connected component above the hooks component": REDUX_SUBSCRIPTIONS,
   },
   "use-sync-external-store/useSyncExternalStoreShared-test.js": {
     "handles errors thrown by getSnapshot": RETRY,

@@ -6,7 +6,8 @@ import { NOT_OURS } from "./not-ours.ts";
 const here = import.meta.dir;
 let marked = 0;
 for (const [file, tests] of Object.entries(NOT_OURS)) {
-  const path = join(here, "react-tests", file);
+  // (react-redux's tests have a folder of their own.)
+  const path = file.startsWith("redux-tests/") ? join(here, file) : join(here, "react-tests", file);
   let src = await Bun.file(path).text();
   for (const [title, why] of Object.entries(tests)) {
     const quoted = [`'${title.replace(/'/g, "\\'")}'`, `"${title.replace(/"/g, '\\"')}"`, `'${title}'`];
