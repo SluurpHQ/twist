@@ -940,6 +940,9 @@ export class Computation<T> extends Node<T> implements Owner {
     if (serverRender && (options as any)?.ssrSource === "client") this.fn = clientOnly;
     // Its compute writes (a store's derive): not run while it takes the server's answer.
     if ((options as any)?.writes) (this as any).writes = true;
+    // (What it does with each answer, and what a client is sent for one: set before its first run.)
+    if ((options as any)?.onTake) this.onTake = (options as any).onTake;
+    if ((options as any)?.answerOf) (this as any).answerOf = (options as any).answerOf;
     if (options?.unobserved) this.unobserved = options.unobserved;
     if (serverScope) this.scope = serverScope;
     if (serverRender) this.renderCtx = sharedConfig.context;
@@ -1381,8 +1384,13 @@ export class Computation<T> extends Node<T> implements Owner {
       return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
     }
     // (On a server, an answer that is an async source streams: split now, the client's reader sent in its place.)
-    // (A derived store's answer is reconciled into it: sent as it is.)
-    if (serverRender && !streamed && (this as any).writes) serverFly?.(this, p);
+    // (A derived store's answer is reconciled into it: sent as the store's state once it lands.)
+    if (serverRender && !streamed && (this as any).writes) {
+      const answerOf = (this as any).answerOf as ((v: unknown) => unknown) | undefined;
+      const answer = answerOf ? Promise.resolve(p).then(answerOf) : p;
+      if (answerOf) (answer as Promise<unknown>).catch(noop);
+      serverFly?.(this, answer);
+    }
     else if (serverRender && !streamed) {
       const answer = sourceAnswer(Promise.resolve(p).then((v: any) => (v && typeof v[Symbol.asyncIterator] === "function" ? teeOf(v)[1] : v)));
       // (Its failure is the flight's, handled there: this copy is only what the client is sent.)
@@ -3673,15 +3681,4 @@ export function queueGuess(install: (tx: Transaction | null) => void, source?: (
 export function endWith(tx: Transaction | null, end: () => void) {
   if (tx && !tx.done) tx.ends.push(end);
   else ambientEnds.push(end), schedule();
-}
-
-/** `fn` told each value the memo behind `read` takes. */
-export function onTake<T>(read: () => T, fn: (v: T) => void) {
-  const c = accessors.get(read);
-  if (c) c.onTake = fn;
-}
-/** What `read`'s computation has taken so far (undefined before its first answer), without reading it. */
-export function takenValue<T>(read: () => T): T | undefined {
-  const c = accessors.get(read);
-  return c?.ready && c.error === NONE ? (c.value as T) : undefined;
 }

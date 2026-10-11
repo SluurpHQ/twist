@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, takenValue, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -667,6 +667,19 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     into(target, plain(shadow, new Map()), key);
     promoteWrites(before);
   };
+  const took = (v: unknown) => {
+    // (On a server, what its source wrote before this answer is the state it answers with.)
+    if (traced) promoteWrites(new Set()), queueMicrotask(changed);
+    // (Each landing in the seed window: what the run wrote, committed whole.)
+    commitShadow();
+    if (v === undefined || typeof v === "number") return;
+    const before = new Set(dirtyRecords);
+    if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
+    into(target, unwrap(v) as Raw, key);
+    promoteWrites(before);
+  };
+  // (On a server, its answer goes to the client as the state it made.)
+  const answerOf = (v: unknown) => (v === undefined || typeof v === "number" ? snapshot(target) : v);
   let run: Run | null = null;
   const m = createMemo(() => {
     shadow = options?.seedLoadingValue && runs === 0 ? (plain(target, new Map()) as Raw) : null;
@@ -677,7 +690,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     let r = fn(d as T);
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
-    // An async derive's answers are reconciled as they land (onTake, below): the memo flies on its promise or generator.
+    // An async derive's answers are reconciled as they land (its onTake): the memo flies on its promise or generator.
     if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return (run.async = true), r;
     // (A first answer at once: its writes are that answer.)
     if (shadow) promoteWrites(before), commitShadow(), (shadow = null);
@@ -704,23 +717,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     promoteWrites(before);
     // The same answer each run: readers are told by the keys that changed, not by the derive having run.
     return 0;
-  }, { writes: true, ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
+  }, { writes: true, onTake: took, ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   derives.set(target, m);
-  const took = (v: unknown) => {
-    // (On a server, what its source wrote before this answer is the state it answers with.)
-    if (traced) promoteWrites(new Set()), queueMicrotask(changed);
-    // (Each landing in the seed window: what the run wrote, committed whole.)
-    commitShadow();
-    if (v === undefined || typeof v === "number") return;
-    const before = new Set(dirtyRecords);
-    if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
-    into(target, unwrap(v) as Raw, key);
-    promoteWrites(before);
-  };
-  onTake(m, took);
-  // (An answer taken as it was made, before it was told where to go: hydrating, the server's.)
-  const early = takenValue(m);
-  if (early !== undefined && typeof early !== "number") took(early);
   const proxy = new Proxy(target, {
     ...readHandler,
     get(t, k, receiver) {
