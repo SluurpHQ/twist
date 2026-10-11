@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -768,7 +768,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
     if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
-    into(target, unwrap(v) as Raw, key);
+    into(target, contentOf(v), key);
     promoteWrites(before);
   };
   // (On a server, its answer goes to the client as the state it made.)
@@ -873,9 +873,9 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
   const apply = (draft: any) => {
     if (draft == null) return;
     const target = unwrap(draft) as Raw;
-    const next = unwrap(value) as any;
+    const next = contentOf(value);
     // The same record, or none: a different key at the top is not a diff of this one.
-    if (key != null && isWrappable(target) && isWrappable(next) && !Array.isArray(target) && !Array.isArray(next) && keyOf(key, target) !== keyOf(key, next))
+    if (key != null && isWrappable(target) && isWrappable(next) && !Array.isArray(target) && !Array.isArray(next) && keyOf(key, own(target)) !== keyOf(key, next))
       throw new Error("reconcile: the value has a different identity from the target (its key differs)");
     const before = new Set(dirtyRecords);
     reconcileInto(target, next, key);
@@ -889,43 +889,73 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
 /** Marks a reconcile function: given to a setter, its diff is visible as the setter returns. */
 const RECONCILE = Symbol("reconcile");
 
-const keyOf = (key: string | ((v: any) => any) | null, v: any) => (key == null || v == null || typeof v !== "object" ? v : typeof key === "function" ? key(own(v)) : own(v)[key]);
+const keyOf = (key: string | ((v: any) => any) | null, v: any) => (key == null || v == null || typeof v !== "object" ? v : typeof key === "function" ? key(v) : v[key]);
+/** What a value given to reconcile holds: a store's current state, else the value itself. */
+const contentOf = (v: any) => {
+  const n = unwrap(v);
+  return n !== v ? own(n) : n;
+};
+/** Whether anything reads a store object or what is under it (else a keyed diff swaps it whole: a captured proxy
+ * of it may go stale). Only the part read through a store is walked. */
+function watched(o: Raw, seen = new Set<Raw>()): boolean {
+  const r = records.get(o);
+  if (!r && !proxies.has(o)) return false;
+  if (seen.has(o)) return false;
+  seen.add(o);
+  if (r) {
+    if (r.pending || r.overlay || r.guessing || readersOf(r.keys)) return true;
+    for (const n of r.nodes.values()) if (readersOf(n)) return true;
+  }
+  const at = own(o);
+  for (const k of Reflect.ownKeys(at)) {
+    const d = Object.getOwnPropertyDescriptor(at, k);
+    const v = d && "value" in d ? (families.get(o)?.map.get(d.value) ?? d.value) : undefined;
+    if (v && typeof v === "object" && watched(v, seen)) return true;
+  }
+  return false;
+}
 
 /** A derive's answer into its store: another entity at the root (its key differs) replaces the children, not merged. */
 function into(target: Raw, next: Raw, key: string | ((v: any) => any) | null) {
-  const other = key != null && !Array.isArray(target) && isWrappable(next) && !Array.isArray(next) && Reflect.ownKeys(own(target)).length > 0 && keyOf(key, target) !== keyOf(key, next);
+  const other = key != null && !Array.isArray(target) && isWrappable(next) && !Array.isArray(next) && Reflect.ownKeys(own(target)).length > 0 && keyOf(key, own(target)) !== keyOf(key, next);
   reconcileInto(target, next, key, other);
 }
 
-/** `next` diffed into `target`; `fresh`: its values put in as they are (nothing merged into what was there). */
-function reconcileInto(target: Raw, given: Raw, key: string | ((v: any) => any) | null, fresh = false) {
+/** `next` (what to hold) diffed into `target`; `fresh`: its values put in as they are (nothing merged into what was there). */
+function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) | null, fresh = false) {
   const d = draftOf(target);
-  // (Another store's object: what it holds.)
-  const next = own(given);
   if (Array.isArray(target) && Array.isArray(next)) {
     const old = untrack(() => [...(d as any[])].map(unwrap));
     const byKey = new Map<any, Raw>();
-    if (key != null) for (const o of old) if (o && typeof o === "object") byKey.set(keyOf(key, o), o);
+    if (key != null) for (const o of old) if (o && typeof o === "object") byKey.set(keyOf(key, own(o)), o);
     for (let i = 0; i < next.length; i++) {
       const n = unwrap(next[i]);
-      const match = key == null ? old[i] : n && typeof n === "object" ? byKey.get(keyOf(key, n)) : undefined;
-      if (match && isWrappable(match) && isWrappable(n) && match !== n && Array.isArray(match) === Array.isArray(n)) {
-        reconcileInto(match, n, key);
-        d[i] = match;
-      } else d[i] = n;
+      const c = contentOf(next[i]);
+      const match = key == null ? old[i] : c && typeof c === "object" ? byKey.get(keyOf(key, c)) : undefined;
+      if (match && isWrappable(match) && isWrappable(c) && Array.isArray(match) === Array.isArray(c)) d[i] = merge(match, n, c, key);
+      else d[i] = n;
     }
     d.length = next.length;
     return;
   }
   for (const k of Reflect.ownKeys(d)) if (!(k in next)) delete d[k];
   for (const k of Reflect.ownKeys(next)) {
-    const n = unwrap(next[k as any]);
+    const v = next[k as any];
+    const n = unwrap(v);
     const o = child(target, unwrap(pendingValue(target, k)));
     // (Another store given as the value: that store itself, live — not a copy of what it holds now.)
-    const store = n !== next[k as any];
-    if (!fresh && !store && isWrappable(o) && isWrappable(n) && o !== n && (Array.isArray(o) === Array.isArray(n)) && (key == null || keyOf(key, o) === keyOf(key, n))) reconcileInto(o, n, key);
-    else d[k] = n;
+    if (!fresh && n === v && isWrappable(o) && isWrappable(n) && Array.isArray(o) === Array.isArray(n) && (key == null || keyOf(key, own(o)) === keyOf(key, n))) {
+      const m = merge(o, n, n, key);
+      if (m !== o) d[k] = m;
+    } else d[k] = n;
   }
+}
+/** A matched pair: `o` kept with `c` diffed in (unless it holds `c` already), or, keyed and read by nobody, `n` in its place. */
+function merge(o: Raw, n: Raw, c: Raw, key: string | ((v: any) => any) | null): Raw {
+  if (own(o) === c) return o;
+  if (key != null && keyOf(key, c) != null && !watched(o)) return n;
+  reconcileInto(o, c, key);
+  return o;
 }
 
 const snapshots = new WeakMap<object, { at: number; value: any }>();

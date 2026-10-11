@@ -683,7 +683,7 @@ function dropReader(n: Node, o: Computation<any>) {
   if (r.length === 1) n.observers = NO_OBSERVERS;
   else r.splice(i, 1);
 }
-const readersOf = (n: Node) => (Array.isArray(n.observers) ? n.observers.length : (n.observers as Set<Computation<any>>).size);
+export const readersOf = (n: Node) => (Array.isArray(n.observers) ? n.observers.length : (n.observers as Set<Computation<any>>).size);
 /** What a computation has read, before its first run: nothing (shared, never written to). */
 const NOTHING_YET: readonly unknown[] = [];
 
