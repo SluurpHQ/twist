@@ -745,13 +745,18 @@ abstract class Node<T = any> {
     // A direct read sees a lane's work (as it sees its guess).
     if (!listener && this.staged !== NONE && this.tx && !this.tx.root.done && this.tx.root.parentTx) return this.staged as T;
     if (!inPass || this.staged === NONE) return this.value;
-    if (!this.tx) return this.staged as T;
+    if (!this.tx) {
+      // (An action's write not yet held, read through latest(): on that action's lane as a held one is.)
+      const w = verdictReading && listener ? ((this as any).writtenIn as Transaction | null | undefined)?.root : null;
+      return (w && !w.done ? heldRead(this, w) : this.staged) as T;
+    }
     return heldRead(this);
   }
   /** A new value staged: committed at the flush's end, or held by a transaction. */
   stage(next: T) {
     this.staged = next;
     clock++;
+    (this as any).stagedAt = clock;
     if (!this.tx) staged.push(this);
     // (A write to a node a transaction holds enters it: the round's plain writes go with it, A34.)
     else if (!(this instanceof Computation) && !this.tx.root.done) enteredTx ??= this.tx.root;
@@ -1228,7 +1233,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.laneOf) this.laneOf = null;
     if (this.staleRead) this.staleRead = false;
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
-    const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
+    const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done) || ((s as any).writtenIn && !(s as any).writtenIn.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
     // (A quiet re-ask overtaken by a new question: the new one is not quiet.)
     if (this.quiet && this.sources.some((s, i) => s.version !== this.seen[i])) this.quiet = false;
@@ -2327,8 +2332,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
  * (memos, effects) derive from the held world and join the hold. A node born held has no committed value: every
  * pass reader joins it.
  */
-function heldRead<T>(n: Node<T>): T {
-  const t = n.tx!.root;
+function heldRead<T>(n: Node<T>, held?: Transaction): T {
+  const t = held ?? n.tx!.root;
   if (t.done) return n.staged as T;
   const l = listener;
   if (!l) return n.staged as T;
@@ -2337,6 +2342,28 @@ function heldRead<T>(n: Node<T>): T {
   if (verdictReading) {
     // An isPending probe sees the frame; latest() sees the newest world without joining it.
     if (!born && !l.attached) return n.value;
+    // latest() of a held write: the write is its own override, read on the transaction's lane — a derivation is
+    // the lane's work; an effect shows what is on screen until the lane reveals.
+    if (!(l as any).viaLatest && !(n instanceof Computation) && !t.parentTx) {
+      // (Its lane revealed this very write: shown.)
+      const m = n as any;
+      const at = m.stagedAt;
+      if (m.latestLane?.done) {
+        if (m.latestAt === at) return n.staged as T;
+        // (A newer write: what the revealed lane showed stays on screen until its own lane reveals.)
+        (m.revealed = m.latestVal), (m.revealedIn = t);
+      }
+      const lane = t.lane && !t.lane.done ? t.lane : (t.lane = newLane(t));
+      (m.latestLane = lane), (m.latestAt = at), (m.latestVal = n.staged);
+      if (l.kind === MEMO) l.passLane = lane;
+      // (A lane with nothing out reveals now: the write is what shows.)
+      else if (!lane.flights.size && !lane.nodes.size) return n.staged as T;
+      else {
+        lane.stale.add(l);
+        l.staleRead = true;
+        return m.revealedIn === t ? m.revealed : n.value;
+      }
+    }
     return n.staged as T;
   }
   // A first pass under a Loading that has not shown its content (a fresh mount): the boundary catches the hold —
