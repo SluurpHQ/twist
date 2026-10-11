@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -366,7 +366,16 @@ function leaf(target: Raw, key: PropertyKey, v: any) {
   if (!isWrappable(v) || shallowTargets.has(target)) return v;
   const d = Reflect.getOwnPropertyDescriptor(target, key);
   if (d && !d.configurable && !d.writable) return v;
+  // (Read under a refreshable store: refreshing it re-asks that store.)
+  if (!parentOf.has(v)) parentOf.set(v, target);
   return wrap(v);
+}
+setStoreAncestors(storeAncestors);
+/** A nested object's store object it was read from. */
+const parentOf = new WeakMap<object, Raw>();
+/** The store objects a nested store's node lies under, nearest first (what refresh() re-asks). */
+export function* storeAncestors(proxy: object): Generator<object> {
+  for (let r = parentOf.get(unwrap(proxy) as object); r; r = parentOf.get(r)) yield r;
 }
 export function wrap<T>(v: T): T {
   if (!isWrappable(v)) return v;
@@ -755,6 +764,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     },
   });
   refreshTarget(proxy, () => m);
+  // (And its object: a node read under it refreshes it.)
+  refreshTarget(target, () => m);
   if (traced)
     registerProjectionTrace(
       proxy,

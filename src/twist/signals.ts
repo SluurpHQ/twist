@@ -1579,7 +1579,7 @@ export class Computation<T> extends Node<T> implements Owner {
         }
         yielded = this.streamed = true;
         if (inRun) this.take(r.value);
-        else landings.push([this, r.value]), landNow();
+        else landings.push([this, r.value]), landNow(), this.wake();
         step();
       };
       const onError = (e: unknown) => {
@@ -2821,7 +2821,19 @@ let latestCalls = 0;
 
 /** Run a derived value again (an async one re-asks quietly: isPending stays false). */
 /** The computation behind an accessor or a refreshable store. */
-const sourceOf = (target: unknown) => (typeof target === "function" ? accessors.get(target as any) : undefined) ?? (typeof target === "object" && target ? accessors.get(refreshables.get(target)?.() as any) : undefined);
+const sourceOf = (target: unknown) => (typeof target === "function" ? accessors.get(target as any) : undefined) ?? (typeof target === "object" && target ? accessors.get(refreshableOf(target)?.() as any) : undefined);
+/** A refreshable store's memo: the store's, or that of the store a nested node lies under. */
+function refreshableOf(target: object) {
+  const own = refreshables.get(target);
+  if (own || !storeAncestorsHook) return own;
+  for (const p of storeAncestorsHook(target)) {
+    const m = refreshables.get(p);
+    if (m) return m;
+  }
+  return undefined;
+}
+let storeAncestorsHook: ((p: object) => Iterable<object>) | null = null;
+export const setStoreAncestors = (f: (p: object) => Iterable<object>) => void (storeAncestorsHook = f);
 
 export function refresh<T>(target: (() => T) | object): Promise<T> {
   const c = sourceOf(target);
@@ -2843,10 +2855,13 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
   c.mark(DIRTY);
   // Settled when its new answer lands, in the world it lands in (an action's, still open): not when that commits.
   const answer = () => (typeof target === "function" ? (c.staged !== NONE ? c.staged : c.value) : target) as T;
+  // (Disposed: nothing to ask again; its last value is the answer.)
+  if (c.disposed) return Promise.resolve(answer());
   const p = new Promise<T>((ok, fail) => {
     const settled = () => {
       if (c.disposed) return ok(answer()), true;
-      if (c.flight || c.state !== CLEAN) return false;
+      // (A stream settles at its fresh iteration's first value; its flight stays up while it streams.)
+      if ((c.flight && !(c.streaming && c.streamed)) || c.state !== CLEAN) return false;
       if (c.error !== NONE) fail(c.error);
       else ok(answer());
       return true;
