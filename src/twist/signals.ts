@@ -1263,7 +1263,13 @@ export class Computation<T> extends Node<T> implements Owner {
       strictRead = prevStrict;
       inPass--;
       if (relinking) this.relinking = null;
-      if (relinking) for (const s of relinking) if (!this.sources.includes(s)) s.unsubscribe(this);
+      if (relinking) {
+        const dropped = [...relinking].filter((s) => !this.sources.includes(s));
+        // (A memo run in a flush that may hold it: whether its committed frame still follows what it read is decided at
+        // the round's end — kept until the commit if held, A30.)
+        if (dropped.length && this.kind === MEMO && flushing) trims.push([this, dropped]);
+        else for (const s of dropped) s.unsubscribe(this);
+      }
     }
     // (A first pass joining a hold makes the pass that created it part of the hold: membership is the tick's.)
     if (this.readHeld && this.ranAt === -1 && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = this.readHeld;
@@ -1362,7 +1368,8 @@ export class Computation<T> extends Node<T> implements Owner {
       }
       return;
     }
-    if (!changed) return;
+    // (Served a held world, even to the same value: it enters that hold, and the write that ran it with it, A29.)
+    if (!changed) return void (this.readHeld && !this.tx && !this.readHeld.root.done && flushing && hold(this, this.readHeld));
     // Lane work: held in its lane (revealed with it).
     if (this.passLane && !this.passLane.done && !this.tx) hold(this, this.passLane);
     // Derived from a held world: held with it (born held when it never committed a value).
@@ -1896,6 +1903,7 @@ function settleRound() {
   try {
     settleRoundIn(now, held, (t) => (tx = t));
   } finally {
+    if (trims.length) decideTrims(tx);
     // The transaction this flush parked into (what a guess made in it is optimistic over).
     if (tx) frameTx = (tx as Transaction).root;
     awaitingRound.clear();
@@ -1907,6 +1915,19 @@ let comparing: Computation<any> | null = null;
 
 /** A landing is being taken (an async answer, not a compute). */
 let landing = false;
+
+/** Sources a memo stopped reading this round, kept until the round decides whether a transaction holds it. */
+let trims: [Computation<any>, Node[]][] = [];
+function decideTrims(parked: Transaction | null) {
+  const list = trims;
+  trims = [];
+  for (const [c, dropped] of list) {
+    const let_go = () => dropped.forEach((s) => c.sources.includes(s) || s.unsubscribe(c));
+    // (Held itself, or the flush it ran in parked: the committed frame stays as it was until that commits.)
+    const t = c.tx && !c.tx.root.done ? c.tx.root : parked && !parked.root.done ? parked.root : null;
+    t ? endWith(t, let_go) : let_go();
+  }
+}
 
 /** The transaction a write this round entered (a write to a node it holds). */
 let enteredTx: Transaction | null = null;
