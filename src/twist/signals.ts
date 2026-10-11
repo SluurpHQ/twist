@@ -1677,6 +1677,11 @@ export class Computation<T> extends Node<T> implements Owner {
   /** An effect's apply half, untracked and unowned, after its last cleanup. */
   runApply() {
     if (!this.due || this.disposed) return;
+    // (Behind a fallback, after its first: it waits for the reveal.)
+    if ((this.applied !== NONE || this.kind === EFFECT) && !this.tracked) {
+      const b = behindFallback(this);
+      if (b) return void b.heldRuns.add(this);
+    }
     if (this.tracked) {
       this.due = false;
       this.state = DIRTY;
@@ -2355,6 +2360,15 @@ function shownInitialized(c: Computation<any>): boolean {
 /** A held node's flight that keeps its transaction: one something on screen reads (an effect's, or a memo's that an
  * effect not behind a fallback reads; a memo nothing reads holds nothing). */
 const shownFlight = (n: Computation<any>) => n.kind !== MEMO || rendered(n);
+
+/** The boundary showing its fallback that `c` is behind, if any (the nearest that is). */
+function behindFallback(c: Computation<any>): LoadingState | null {
+  for (let o: Owner | null = c.parent; o; o = o.parent) {
+    const b = (o as any).loading as LoadingState | undefined;
+    if (b?.onFallback && !b.mountRoot) return b;
+  }
+  return null;
+}
 
 /** Under a Loading boundary showing its fallback: not on screen, so it holds nothing. */
 function hidden(c: Computation<any>): boolean {
@@ -3171,6 +3185,15 @@ class LoadingState {
   count = new (class extends Node<number> {})();
   /** A mount's own boundary (render()'s): a wait reaching it was outside every Loading. */
   mountRoot = false;
+  /** Effect runs queued behind its fallback, applied at the reveal. */
+  heldRuns = new Set<Computation<any>>();
+  /** Its fallback gone: what waited behind it applies now. */
+  reveal() {
+    if (!this.heldRuns.size) return;
+    for (const e of this.heldRuns) if (!e.disposed && e.due) applies[e.kind as 1 | 2].push(e);
+    this.heldRuns.clear();
+    schedule();
+  }
   /** What its `on` reads, tracked (a change re-arms it). */
   watch: Computation<any> | null = null;
   private warned = false;
@@ -3382,9 +3405,11 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   shown.promote = function (this: Computation<any>) {
     promote.call(this);
     state.onFallback = (this as any).nextFallback;
+    if (!state.onFallback) state.reveal();
   };
   shown.run();
   state.onFallback = (shown as any).nextFallback;
+  if (!state.onFallback) state.reveal();
   const read = () => shown.read();
   accessors.set(read, shown);
   return read;
