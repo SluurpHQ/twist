@@ -808,6 +808,66 @@ export function renderToString(_code: () => any, _options?: unknown): string {
 export function renderToStream(_code: () => any, _options?: unknown): any {
   return serverOnly("renderToStream") as never;
 }
+// The server's request and response layer, as Solid's browser build answers it: nothing in scope, nothing written,
+// and what only a server can do said.
+const nothing = (): undefined => undefined;
+export const getRequestEvent = nothing;
+export const getTraceContext = nothing;
+export const getHydrationWriter = nothing;
+export function httpStatus(_code: number, _text?: string) {}
+export function httpHeader(_name: string, _value: string, _options?: { append?: boolean }) {}
+export function configureServerErrors(_config: unknown) {}
+export function reportRequestFailure(_error: unknown, _event?: unknown) {}
+export const createSSRResponse = (..._a: unknown[]) => serverOnly("createSSRResponse");
+export const commitEventResponse = (..._a: unknown[]) => serverOnly("commitEventResponse");
+export const composeMiddleware = (..._a: unknown[]) => serverOnly("composeMiddleware");
+export const createResponseStub = (..._a: unknown[]) => serverOnly("createResponseStub");
+export const createRequestEvent = (..._a: unknown[]) => serverOnly("createRequestEvent");
+export const getExpectedRedirectStatus = (..._a: unknown[]) => serverOnly("getExpectedRedirectStatus");
+export { getServerFunctionMetadata, getServerFunctionRPC, isServerFunction } from "./server-functions/registry.ts";
+
+// Server rendering's helpers, which compiled server code calls: nothing in the browser (as Solid's browser build).
+export function ssr(_template: unknown, ..._nodes: unknown[]) {}
+export function ssrElement(_name: string, _props: unknown, _children?: unknown, _needsId?: boolean, _skip?: unknown, _attrs?: string) {}
+export function ssrElementAttribute(_key: string, _value: unknown) {}
+export function ssrClassName(_value: unknown) {}
+export function ssrStyle(_value: unknown) {}
+export function ssrStyleProperty(_name: string, _value: unknown) {}
+export function ssrStyleProperties(..._entries: unknown[]) {}
+export function ssrAttribute(_key: string, _value: unknown) {}
+export function ssrGroup(_fn: unknown, _n?: number) {}
+export function ssrHydrationKey() {}
+export function resolveSSRNode(_node: unknown, _result?: unknown, _top?: boolean, _nested?: boolean) {}
+export function escape(_s: unknown, _attr?: boolean) {}
+
+/**
+ * A value the server sent for hydration, taken once: resolved, rejected or still pending (a streamed promise),
+ * or nothing when the page has none under that key.
+ */
+export function takeHydrationValue(key: string) {
+  const registry = (globalThis as any)._$HY?.r;
+  if (!registry || !(key in registry)) return;
+  const v = registry[key];
+  delete registry[key];
+  if (v !== null && typeof v === "object" && typeof v.then === "function") {
+    if (v.s === 1) return { status: "resolved", value: v.v };
+    if (v.s === 2) return v.then(undefined, nothing), { status: "rejected", error: v.v };
+    return { status: "pending", promise: v };
+  }
+  return { status: "resolved", value: v };
+}
+
+const assetGates = new WeakMap<PromiseLike<unknown>, () => unknown>();
+/** A wait on an asset (a stylesheet, a font): one memo per promise, read so what reads it waits until it lands. */
+export function waitAsset(promise: PromiseLike<unknown>) {
+  let gate = assetGates.get(promise);
+  if (!gate) {
+    runWithOwner(null, () => void (gate = createMemo(() => promise, { transparent: true } as any)));
+    assetGates.set(promise, gate!);
+  }
+  gate!();
+}
+
 /** The hydration script is the server's to write: nothing in the browser. */
 export const HydrationScript = (_props?: unknown) => null;
 export const generateHydrationScript = (_options?: unknown) => "";

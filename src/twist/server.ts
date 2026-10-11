@@ -13,7 +13,8 @@ export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
-import { reportServerError, ssrSanitizeError } from "./request.ts";
+import { commitResponseStub, deriveHead, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
+import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
 import { getProjectionTrace } from "./container-trace.ts";
@@ -35,7 +36,10 @@ export {
   composeMiddleware,
   configureServerErrors,
   reportRequestFailure,
+  httpStatus,
+  httpHeader,
 } from "./request.ts";
+export { getServerFunctionMetadata, getServerFunctionRPC, isServerFunction } from "./server-functions/registry.ts";
 export { merge, omit, isStatic, merge as mergeProps };
 export const isServer = true;
 // (Server mode is on while a render runs: see rendering().)
@@ -1580,9 +1584,11 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     if (done) return;
     done = true;
     dispose?.();
-    if (end) for (const w of sinks) w.end();
+    if (end) for (const w of sinks) close(w);
     finished();
   };
+  /** A consumer done with: ended, or told the shell never came (one that can answer otherwise, a response's sink). */
+  const close = (w: Writable) => (!shellSent && (w as any)[SHELL_ABANDONED] ? (w as any)[SHELL_ABANDONED]() : w.end());
   /** A write to a consumer; one that throws is gone. */
   const write = (w: Writable, chunk: string) => {
     try {
@@ -1623,10 +1629,12 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       return failed.then(() => all).then(() => shell + r.chunks.join("")).then(ok, fail);
     },
     pipe(w: Writable) {
+      // (A consumer that may stop the render: given the way to.)
+      if ((w as any)[SHELL_ABANDONED]) (w as any)[ABANDON_RENDER] = () => abandon(false);
       if (shellSent) write(w, shell);
       for (let i = 0; i < sent; i++) write(w, r.chunks[i]!);
       sinks.push(w);
-      if (done) w.end();
+      if (done) close(w);
     },
     pipeTo(ws: WritableStream<any>) {
       const writer = ws.getWriter();
@@ -1654,3 +1662,88 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
 }
 
 export { NotReadyError, untrack, isChildren };
+
+/** A consumer's ways in the stream protocol: told the shell was abandoned; given how to abandon the render. */
+const SHELL_ABANDONED = Symbol.for("twist.ssr.shellAbandoned");
+const ABANDON_RENDER = Symbol.for("twist.ssr.abandonRender");
+
+/**
+ * A render as a web Response (Solid's createSSRResponse): a string at once; a stream once its shell is ready, with
+ * the head the render wrote (status, headers, a redirect answered as one), a render that fails before its shell
+ * answered 500, and a redirect set after the shell left done in the page.
+ */
+export function createSSRResponse(result: any, event?: RequestEvent, options: { responseInit?: ResponseInit; transformChunk?: (chunk: string) => string; nonce?: string } = {}): Response | Promise<Response> {
+  const stub = event?.response;
+  const { responseInit, transformChunk } = options;
+  const respond = (body: BodyInit | null, late = false) => {
+    if (stub) commitResponseStub(stub, { event, ...(late ? { allowLateLocation: true } : {}) });
+    const head = deriveHead(stub, responseInit);
+    if (stub?.headers.get("Location")) return { redirect: new Response(null, { status: getExpectedRedirectStatus(stub), headers: head.headers }) };
+    if (!head.headers.has("content-type")) head.headers.set("content-type", "text/html; charset=utf-8");
+    return { response: new Response(body, { status: head.status, statusText: head.statusText, headers: head.headers }) };
+  };
+  if (typeof result === "string") {
+    const r = respond(transformChunk ? transformChunk(result) : result);
+    return r.redirect ?? r.response!;
+  }
+  const encoder = new TextEncoder();
+  return new Promise((resolve) => {
+    let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let closed = false;
+    let flushed = false;
+    const enqueue = (v: string) => {
+      if (closed || !controller) return;
+      try {
+        controller.enqueue(encoder.encode(v));
+      } catch {
+        closed = true;
+      }
+    };
+    const sink: any = {
+      write(chunk: string) {
+        if (!flushed) {
+          flushed = true;
+          const stream = new ReadableStream<Uint8Array>({
+            start: (c) => void (controller = c),
+            cancel: () => {
+              if (closed) return;
+              closed = true;
+              sink[ABANDON_RENDER]?.();
+            },
+          });
+          const r = respond(stream, true);
+          if (r.redirect) {
+            closed = true;
+            resolve(r.redirect);
+            sink[ABANDON_RENDER]?.();
+            return;
+          }
+          resolve(r.response!);
+        }
+        enqueue(transformChunk ? transformChunk(chunk) : chunk);
+      },
+      end() {
+        if (!flushed) sink.write("");
+        if (closed || !controller) return;
+        // A redirect set after the head left: done in the page.
+        const location = stub?.headers.get("Location");
+        if (location && isHttpNavigationTarget(location)) {
+          const nonce = options.nonce ? ` nonce="${escape(options.nonce, true)}"` : "";
+          enqueue(`<script${nonce}>window.location=${JSON.stringify(location).replace(/</g, "\\u003c")}</script>`);
+        }
+        closed = true;
+        try {
+          controller.close();
+        } catch {}
+      },
+      [SHELL_ABANDONED]() {
+        if (flushed) return;
+        flushed = closed = true;
+        if (stub) commitResponseStub(stub, { event });
+        const head = deriveHead(stub, responseInit);
+        resolve(new Response(null, { status: stub?.headers.get("Location") ? getExpectedRedirectStatus(stub) : 500, headers: head.headers }));
+      },
+    };
+    result.pipe(sink);
+  });
+}

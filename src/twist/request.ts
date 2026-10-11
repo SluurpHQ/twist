@@ -3,13 +3,13 @@
 // the request's trace. Web-standard Request/Response only. (Solid's web/src/server request half, and its server
 // error reporting.)
 // @ts-nocheck
-import { getOwner, throwerOf } from "./signals.ts";
+import { getOwner, onCleanup, throwerOf } from "./signals.ts";
 import { OBSERVE, emitDiagnostic, reportDiagnostic } from "./diagnostics.ts";
 import { COMPOSED_BODY_FRAMING, REVALIDATE_HEADER } from "./response.ts";
 import { appendTraceServerTiming, hasServerTiming, mergeServerTiming, traceForEvent } from "./trace.ts";
 
-/** Where the request store (an AsyncLocalStorage) is parked, for every copy of the runtime. */
-export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") as any;
+import { RequestContext } from "./response.ts";
+export { RequestContext };
 
 export interface ResponseStub {
   status?: number;
@@ -362,4 +362,62 @@ export function composeMiddleware(middlewares: ((request: Request, next: (reques
     }
     return dispatch(0, request);
   };
+}
+
+type Ledger<T> = { base: T; live: { value: any; append?: boolean }[] };
+const statusLedgers = new WeakMap<ResponseStub, Ledger<{ status?: number; statusText?: string }>>();
+const headerLedgers = new WeakMap<ResponseStub, Map<string, Ledger<any>>>();
+
+/**
+ * The response's status, declared by what renders: the latest still mounted wins; one disposed before the response
+ * leaves gives way to the one before it (or to what the response had).
+ */
+export function httpStatus(code: number, text?: string) {
+  const response = getRequestEvent()?.response;
+  if (!response || response.committed) return;
+  let ledger = statusLedgers.get(response);
+  if (!ledger) statusLedgers.set(response, (ledger = { base: { status: response.status, statusText: response.statusText }, live: [] }));
+  const mine = { value: { status: code, statusText: text } };
+  ledger.live.push(mine);
+  response.status = code;
+  response.statusText = text;
+  onCleanup(() => {
+    if (response.committed || !drop(ledger!, mine)) return;
+    const now = ledger!.live.length ? ledger!.live[ledger!.live.length - 1]!.value : ledger!.base;
+    response.status = now.status;
+    response.statusText = now.statusText;
+    if (!ledger!.live.length) statusLedgers.delete(response);
+  });
+}
+
+/** A response header, declared as `httpStatus` is (set, or appended; undone when what declared it goes). */
+export function httpHeader(name: string, value: string, options?: { append?: boolean }) {
+  const response = getRequestEvent()?.response;
+  if (!response || response.committed) return;
+  const headers = response.headers;
+  const key = name.toLowerCase();
+  const cookie = key === "set-cookie";
+  let ledgers = headerLedgers.get(response);
+  if (!ledgers) headerLedgers.set(response, (ledgers = new Map()));
+  let ledger = ledgers.get(key);
+  if (!ledger) ledgers.set(key, (ledger = { base: cookie ? headers.getSetCookie() : headers.get(name), live: [] }));
+  const mine = { value, append: !!options?.append };
+  ledger.live.push(mine);
+  mine.append ? headers.append(name, value) : headers.set(name, value);
+  onCleanup(() => {
+    if (response.committed || !drop(ledger!, mine)) return;
+    headers.delete(name);
+    if (cookie) for (const c of ledger!.base) headers.append(name, c);
+    else if (ledger!.base !== null) headers.set(name, ledger!.base);
+    for (const d of ledger!.live) d.append ? headers.append(name, d.value) : headers.set(name, d.value);
+    if (!ledger!.live.length) ledgers!.delete(key);
+  });
+}
+
+/** A declaration out of its ledger: whether it was there. */
+function drop(ledger: Ledger<any>, mine: object): boolean {
+  const i = ledger.live.indexOf(mine as any);
+  if (i < 0) return false;
+  ledger.live.splice(i, 1);
+  return true;
 }

@@ -24,6 +24,8 @@ export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
 }
 
 /** Brand of URL-bearing values: `true`, or the value's logical path. */
+/** Where the request store (an AsyncLocalStorage) is parked, for every copy of the runtime. */
+export const RequestContext: unique symbol = Symbol.for("solid.RequestContext") as any;
 export const HREF: unique symbol = Symbol.for("solid.Href") as any;
 export interface Href {
   [HREF]: true | string;
