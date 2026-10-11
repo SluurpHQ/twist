@@ -4213,6 +4213,9 @@ export function flushTransitions(): boolean {
   }
   if (!transitionWork.length && !transitionEnds.length) return false;
   if (transitionHeld) return false;
+  // An async action under way: the transitions started meanwhile wait for it, and are drawn with its end (React
+  // entangles them with the action).
+  if (actionsRunning) return false;
   // Tried first, off the page: what suspends holds the whole transition, the screen and state as they are.
   const previewed = transitionWork.filter((w) => w.preview && w.fiber && !w.fiber.dead);
   // Only where it can be held (a boundary on the page below, or something that has suspended there): a dry run
@@ -4258,7 +4261,11 @@ function applyTransitions(): boolean {
   applyingTransition = true;
   viewTransitionsBegin();
   try {
-    for (const w of transitionWork.splice(0)) w.apply();
+    const work = transitionWork.splice(0);
+    for (const w of work) w.apply();
+    // Nothing in it can suspend: its ends (pending states, form statuses) drawn in the same render, as React
+    // commits them with it.
+    if (!transitionsSuspended && !actionsRunning && work.length && work.every((w) => w.fiber && !mightSuspend(w.fiber))) for (const w of transitionEnds.splice(0)) w();
     flushSignals();
     if (transitionWaits.length) {
       // Suspended: its end waits for the data, then the transition is drawn again.
@@ -4818,7 +4825,7 @@ Check the render method of ${nameOf(owner.type)}.`));
       if (depth > 0) return renderNow(children);
       // An update in a transition: drawn with the transition (held while it suspends, its end after it).
       if (transitioning > 0 && !first && top.children.length) {
-        deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)));
+        deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)), undefined, top);
         return;
       }
       // An update while the hydration waits for data (none of it committed): the root is drawn on the client.
