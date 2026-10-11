@@ -2011,6 +2011,21 @@ function boundaryStart(n: Node) {
   return d === "$" || d === "$?" || d === "$!" || d === "$~" || d === "&";
 }
 
+/** A host's children when they are one text (a string or a number): its text content, no fiber (React's
+ * shouldSetTextContent). Null for anything else. */
+const textChild = (c: unknown): string | null => (typeof c === "string" ? c : typeof c === "number" || typeof c === "bigint" ? "" + c : null);
+/** Text put in `f`'s element, checked as a text child of it would be (React's validateTextNesting). */
+function textNesting(f: Fiber, text: string) {
+  const around = nestingAt(f);
+  checkTextNesting(text, around?.current?.tag, around?.implicitRoot ?? false);
+}
+/** Its text written: in its one text node when it has just that, else as its whole content. */
+function setTextContent(el: Node, text: string) {
+  const t = el.firstChild;
+  if (text && t && t === el.lastChild && t.nodeType === 3) (t as Text).data !== text && ((t as Text).data = text);
+  else el.textContent = text;
+}
+
 /** Elements whose leftovers React does not check: <form> and <button> (a form action's hidden inputs), and those
  * that set their own text (React's shouldSetTextContent). */
 function noTailCheck(f: Fiber) {
@@ -2228,7 +2243,15 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       // A noscript's children are not drawn on the client (React leaves them to the server).
       // (Hydrating <html>: what it holds besides <head> and <body> the server wrote in <body>, as React does.)
       const into = hydrating && single && type === "html" && (el as Element).ownerDocument?.body ? (el as Element).ownerDocument!.body : el;
-      if (props.dangerouslySetInnerHTML == null && type !== "noscript") reconcile(f, toList(props.children), into, null);
+      if (props.dangerouslySetInnerHTML == null && type !== "noscript") {
+        // (Made here, not taken over: one text is its text content.)
+        const text = server || hydrating ? null : textChild(props.children);
+        if (text === null) reconcile(f, toList(props.children), into, null);
+        else {
+          if (process.env.NODE_ENV !== "production" && dev()) textNesting(f, text);
+          if (text) el.textContent = text;
+        }
+      }
     }
     const differences = had ? serverDifferences(el, had, type, ns, props) : null;
     if (differences) {
@@ -2467,8 +2490,23 @@ function update(f: Fiber, c: any) {
       commitProps(() => updateForm(el, f.type, props, prev, false));
     } else {
       commitProps(() => setProps(el, props, prev, f.ns === SVG_NS));
-      if (props.dangerouslySetInnerHTML == null && f.type !== "noscript") reconcile(f, toList(props.children), el, null);
-      else if (f.children.length) {
+      if (props.dangerouslySetInnerHTML == null && f.type !== "noscript") {
+        // One text: its text content (what it held before let go); after one text, children drawn into it emptied.
+        const text = hydrating ? null : textChild(props.children);
+        const was = !f.children.length && prev?.dangerouslySetInnerHTML == null ? textChild(prev?.children) : null;
+        if (text !== null) {
+          // (What could not hold text before is told now, as React checks a change of children to text.)
+          if (process.env.NODE_ENV !== "production" && dev() && typeof props.children !== typeof prev?.children) textNesting(f, text);
+          if (f.children.length) {
+            for (const n of f.children) unmount(n, true);
+            f.children = [];
+          }
+          setTextContent(el, text);
+        } else {
+          if (was) el.textContent = "";
+          reconcile(f, toList(props.children), el, null);
+        }
+      } else if (f.children.length) {
         for (const n of f.children) unmount(n, false);
         f.children = [];
       }
