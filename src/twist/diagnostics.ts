@@ -152,6 +152,10 @@ function records() {
 /** Attribution: an engine may be installed; without one, the wrappers just run what they are given. */
 let attribution: any = null;
 export const setAttributionHooks = (hooks: any) => void (attribution = hooks);
+/** Where a server render takes the route a router declares (the render running now's), if one listens. */
+let routeDeclarer: (() => ((ref: unknown) => void) | undefined) | null = null;
+export const setRouteDeclarer = (fn: typeof routeDeclarer) => void (routeDeclarer = fn);
+
 const attributionSlot = {
   get installed() {
     return attribution;
@@ -169,7 +173,12 @@ const attributionSlot = {
   },
   withOrigin<T>(ref: unknown, fn: () => T): T {
     const h = attribution;
-    if (!h) return fn();
+    if (!h) {
+      // (On a server: a router's first declaration names the render it runs in.)
+      const r = ref as { kind?: string; initial?: boolean } | null;
+      if (r?.kind === "navigation" && r.initial) routeDeclarer?.()?.(r);
+      return fn();
+    }
     h.originStart(ref);
     try {
       return fn();

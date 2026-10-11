@@ -3,7 +3,7 @@
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
 import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
-import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic } from "./diagnostics.ts";
+import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { createHydrationSerializer } from "./serialization.ts";
@@ -1482,6 +1482,35 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   }
 }
 
+setRouteDeclarer(() => (sharedConfig.context as any)?._declareRoute);
+
+/** A server render's "render" record, when something listens: told once, at settle. */
+function renderRecord(ctx: any, mode: "string" | "stream") {
+  const records = OBSERVE?.records;
+  if (!records?.observed("render")) return null;
+  const at = Date.now();
+  let route: any;
+  let shellAt: number | undefined;
+  let told = false;
+  ctx._declareRoute = (ref: unknown) => void (route = ref);
+  return {
+    shell: () => void (shellAt ??= Date.now()),
+    settle(outcome: "complete" | "abandoned" | "error", boundaries: number) {
+      if (told) return;
+      told = true;
+      const event: Record<string, unknown> = { mode, at, durationMs: Date.now() - at, boundaries, outcome };
+      if (shellAt !== undefined) event.shellMs = shellAt - at;
+      // (The route as it stands now: a match refined during the render is what lands.)
+      if (route) {
+        const named: Record<string, unknown> = {};
+        for (const k of ["name", "to", "params"]) if (route[k] !== undefined) named[k] = route[k];
+        event.route = named;
+      }
+      records.emit("render", event, { trace: ctx.trace, event: ctx.event ?? getRequestEvent() });
+    },
+  };
+}
+
 export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean; manifest?: any; nonce?: string; onError?: (error: unknown, context: any) => unknown } = {}): string {
   const wasHead = head;
   const wasCtx = stringCtx;
@@ -1501,8 +1530,10 @@ export function renderToString(code: () => any, options: { renderId?: string; no
   };
   ctx.registerAsset = (type: string, value: unknown) => registerAssetIn(tracking, () => false, null, type, value);
   applyAssetTracking(ctx, tracking, options.manifest);
+  const record = renderRecord(ctx, "string");
+  let outcome: "complete" | "error" = "error";
   try {
-    return rendering(null, options, () => {
+    const page = rendering(null, options, () => {
       registerEntryAssets(ctx, options.manifest);
       return createRoot(
         (dispose) => {
@@ -1522,9 +1553,12 @@ export function renderToString(code: () => any, options: { renderId?: string; no
         { id: options.renderId ?? "" },
       );
     });
+    outcome = "complete";
+    return page;
   } finally {
     head = wasHead;
     stringCtx = wasCtx;
+    record?.settle(outcome, 0);
   }
 }
 /** A value the serializer could not write: the render's hook hears it (the page goes on without it). */
@@ -1672,6 +1706,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   };
   r.sink = { ...documentSink, ...options.sink } as Sink;
   r.ctx = streamContext(r, options);
+  const record = renderRecord(r.ctx, "stream");
   applyAssetTracking(r.ctx, r.tracking, options.manifest);
   rendering(r, options, () => registerEntryAssets(r.ctx, options.manifest));
   if (!options.noHydrate) r.serializer = (options.serializer ?? createHydrationSerializer)({ scopeId: options.renderId, plugins: options.plugins, onData: (p: unknown) => (r.sink.data(p), r.wake?.()), onDone() {}, onError: serializeFailed(options.onError) });
@@ -1742,6 +1777,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
       options.onCompleteAll?.({ write: (chunk) => sinks.forEach((w) => write(w, chunk)) });
       done = true;
+      record?.settle("complete", r.tracks?.size ?? 0);
       dispose();
       for (const w of sinks) w.end();
       finished();
@@ -1760,9 +1796,10 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       if (shellSent) rendering(r, options, drain);
     });
   /** The response abandoned (aborted, or its consumer gone): the render torn down, its sources returned, nothing more sent. */
-  const abandon = (end: boolean) => {
+  const abandon = (end: boolean, outcome: "abandoned" | "error" = "abandoned") => {
     if (done) return;
     done = true;
+    record?.settle(outcome, r.tracks?.size ?? 0);
     dispose?.();
     if (end) for (const w of sinks) close(w);
     finished();
@@ -1791,6 +1828,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       });
       shell = documentShell;
       shellSent = true;
+      record?.shell();
       r.shellSent = true;
       // (One settled inside a placeholder that was itself streamed: it streams too.)
       for (const [id, content] of r.inlined) r.sink.fragment(id, content, { styles: { inline: [], links: [] } });
@@ -1804,7 +1842,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     (e) => {
       // A failure on a later pass: nothing on the stack to throw to — the request fails, the stream ends.
       if (!reportServerError(e, { kind: "render", handling: "failed" }, null, options.onError).heard) console.error(e);
-      abandon(true);
+      abandon(true, "error");
     },
   );
   return {
