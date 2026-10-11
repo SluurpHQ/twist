@@ -830,7 +830,9 @@ function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) |
   for (const k of Reflect.ownKeys(next)) {
     const n = unwrap(next[k as any]);
     const o = unwrap(pendingValue(target, k));
-    if (!fresh && isWrappable(o) && isWrappable(n) && o !== n && (Array.isArray(o) === Array.isArray(n)) && (key == null || keyOf(key, o) === keyOf(key, n))) reconcileInto(o, n, key);
+    // (Another store given as the value: that store itself, live — not a copy of what it holds now.)
+    const store = n !== next[k as any];
+    if (!fresh && !store && isWrappable(o) && isWrappable(n) && o !== n && (Array.isArray(o) === Array.isArray(n)) && (key == null || keyOf(key, o) === keyOf(key, n))) reconcileInto(o, n, key);
     else d[k] = n;
   }
 }
