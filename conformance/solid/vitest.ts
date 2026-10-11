@@ -6,13 +6,30 @@ export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test 
 (expect as any).soft ??= expect;
 export const vi = {
   fn: (impl?: (...a: any[]) => any) => mock(impl ?? (() => {})),
-  spyOn,
+  // (An accessor, as Vitest's: a mock in place of its getter or setter, the original until mocked.)
+  spyOn(target: any, prop: PropertyKey, access?: "get" | "set") {
+    if (!access) return spyOn(target, prop as any);
+    let owner = target;
+    let d: PropertyDescriptor | undefined;
+    while (owner && !(d = Object.getOwnPropertyDescriptor(owner, prop))) owner = Object.getPrototypeOf(owner);
+    const original = d?.[access];
+    const m = mock(function (this: any, ...a: any[]) {
+      return original?.apply(this, a);
+    });
+    const own = Object.getOwnPropertyDescriptor(target, prop);
+    Object.defineProperty(target, prop, { configurable: true, enumerable: d?.enumerable ?? true, get: d?.get, set: d?.set, [access]: m });
+    accessors.push(() => (own ? Object.defineProperty(target, prop, own) : delete target[prop]));
+    return m;
+  },
   useFakeTimers: () => jest.useFakeTimers(),
   useRealTimers: () => jest.useRealTimers(),
   advanceTimersByTime: (ms: number) => jest.advanceTimersByTime(ms),
   runAllTimers: () => jest.runAllTimers(),
   clearAllMocks: () => jest.clearAllMocks(),
-  restoreAllMocks: () => jest.restoreAllMocks(),
+  restoreAllMocks() {
+    jest.restoreAllMocks();
+    while (accessors.length) accessors.pop()!();
+  },
   // As Vitest's: a millisecond at a time, the promise work each timer releases run before the next.
   async advanceTimersByTimeAsync(ms: number) {
     await settle();
@@ -31,6 +48,7 @@ export const vi = {
     return vi;
   },
 };
+const accessors: (() => void)[] = [];
 const stubbed = new Map<string, PropertyDescriptor | undefined>();
 /** The promise work queued now, and what it queues, run. */
 async function settle() {
