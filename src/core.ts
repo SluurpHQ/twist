@@ -3351,6 +3351,8 @@ function caught(f: Fiber, e: any, inclusive = false) {
     }
     // No boundary: drawn again when it settles (a root drawn off the page waits for it instead).
     if (offPage) return void (offPage.waits ??= e);
+    // (Rendered once more after the commit, off the page: React's pre-warming of a root that suspended.)
+    if (!syncing && f.kind === COMP) prewarmFibers.push(f);
     e.then(() => !f.dead && (restart(f), flushSignals()), () => {});
     return;
   }
@@ -4022,8 +4024,9 @@ export const client = {
         if (current) throw new Error("Cannot update action state while rendering.");
         let done!: () => void;
         const settled = new Promise<void>((r) => (done = r));
-        // Pending at once (an urgent update, even inside a transition), and until the queue is done.
-        if (!box.pending.peek()) box.pending.set(true);
+        // Pending at once (an urgent update, even inside a transition), and until the queue is done. (Only when
+        // dispatched in a transition: outside one React does not track it, hence its warning for an async action.)
+        if (!box.pending.peek() && transitioning > 0) box.pending.set(true);
         box.queue.push({ payload, done, action: box.action, inTransition: transitioning > 0 });
         if (!box.running) run();
         flushSignals();
