@@ -1027,7 +1027,12 @@ export const generateHydrationScript = (_options?: unknown) => "";
 /** A component whose identity (a component, or a tag name) follows `source`. */
 type DynamicOptions = { static?: boolean; deferStream?: boolean };
 // (Hydrating: a description, so the server's element is claimed rather than one made beside it.)
-const tagArm = (tag: string, props: any) => jsx(tag, componentRaw(props));
+const tagArm = (tag: string, props: any) => {
+  const raw = componentRaw(props);
+  // (Its children as described, claimed one by one; not one dynamic value over the lot.)
+  if (hydrating && "children" in props) raw.children = untrack(() => props.children);
+  return jsx(tag, raw);
+};
 
 export function dynamic<P>(source: () => any, options?: DynamicOptions): (props: P) => any {
   return __twist_mark(dynamicOf<P>(source, options, tagArm));
