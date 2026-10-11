@@ -1,6 +1,7 @@
 // React DOM's development checks of an element's props, in React's words: misspelled and unknown props, event
 // handlers, ARIA attributes, values of the wrong type, a null value on a form field, contentEditable with children
 // and style values. Run when an element is made (and its props change), on the browser and on the server alike.
+declare const process: { env: Record<string, string | undefined> };
 import { ARIA_NAMES, standardName } from "./standard-names.ts";
 import { dev, warn } from "./warnings.ts";
 import { isCustomElement } from "./attributes.ts";
@@ -93,7 +94,7 @@ const list = (names: string[]) => names.map((n) => "`" + n + "`").join(", ");
 
 /** React's checks of a DOM element's props, as it runs them when the element is made or updated. */
 export function validateProps(tag: string, props: any, client: boolean) {
-  if (!dev() || !props) return;
+  if (!(process.env.NODE_ENV !== "production" && dev()) || !props) return;
   const aria: string[] = [];
   for (const k in props) if (!validAria(k)) aria.push(k);
   if (aria.length === 1) warn(`Invalid aria prop ${list(aria)} on <${tag}> tag. For details, see https://react.dev/link/invalid-aria-props`);
@@ -119,7 +120,7 @@ export function validateProps(tag: string, props: any, client: boolean) {
 
 /** A style property and its value, checked as React checks them. */
 export function validateStyle(name: string, value: any) {
-  if (!dev()) return;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return;
   if (name.indexOf("-") > -1) {
     if (!name.startsWith("--")) warn(`Unsupported style property ${name}. Did you mean ${name.replace(/^-ms-/, "ms-").replace(/-(.)/g, (_, c) => c.toUpperCase())}?`, "style:" + name);
   } else if (/^(?:webkit|moz|o)[A-Z]/.test(name)) {

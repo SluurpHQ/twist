@@ -1,3 +1,4 @@
+declare const process: { env: Record<string, string | undefined> };
 import { checkKeys, dev, warn } from "./warnings.ts";
 import { keyString } from "./coercion.ts";
 
@@ -51,10 +52,10 @@ export function addTransitionType(_type: string) {}
 
 function element(type: any, key: any, props: any): Element {
   // Production: a plain object, as React's (no checks to keep).
-  if (!dev()) return { $$typeof: ELEMENT, type, key, ref: props.ref ?? null, props } as any;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return { $$typeof: ELEMENT, type, key, ref: props.ref ?? null, props } as any;
   const el: any ={ $$typeof: ELEMENT, type, key, props, _owner: null };
   // Its owner (development): not enumerable, so deep equality does not walk into the fiber tree.
-  if (dev()) Object.defineProperty(el, "_owner", { value: ownerOverride ?? ownerSource(), writable: true, enumerable: false });
+  if ((process.env.NODE_ENV !== "production" && dev())) Object.defineProperty(el, "_owner", { value: ownerOverride ?? ownerSource(), writable: true, enumerable: false });
   // Not enumerable, as React's: elements compare equal whatever was checked on them.
   const store = {};
   Object.defineProperty(store, "validated", { value: 0, writable: true, configurable: false, enumerable: false });
@@ -63,7 +64,7 @@ function element(type: any, key: any, props: any): Element {
   if (props.ref !== undefined && props.ref !== null) Object.defineProperty(el, "ref", { enumerable: false, get: refGetter });
   else Object.defineProperty(el, "ref", { enumerable: false, value: null });
   // Read-only in development, as React's (a component changing its props is a bug).
-  if (dev()) Object.freeze(props), Object.freeze(el);
+  if ((process.env.NODE_ENV !== "production" && dev())) Object.freeze(props), Object.freeze(el);
   return el;
 }
 // (A memo or forwardRef: named by what it wraps, as React's getComponentNameFromType does.)
@@ -81,7 +82,7 @@ function refGetter(this: any) {
 }
 /** props.key reads as nothing, with React's warning: the key is the element's, not a prop. */
 function keyGetter(props: any, type: any) {
-  if (!dev()) return;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return;
   const get = () => void warn(`${nameForKey(type)}: \`key\` is not a prop. Trying to access it will result in \`undefined\` being returned. If you need to access the same value within the child component, you should pass it as a different prop. (https://react.dev/link/special-props)`, "key-prop");
   (get as any).isReactWarning = true;
   Object.defineProperty(props, "key", { get, configurable: true });
@@ -99,7 +100,7 @@ export function jsxs(type: any, config: any, maybeKey?: any): Element {
   const children = config?.children;
   if (Array.isArray(children)) {
     for (const c of children) validate(c, type);
-    if (dev()) Object.freeze(children);
+    if ((process.env.NODE_ENV !== "production" && dev())) Object.freeze(children);
   } else if (children !== undefined) warn("React.jsx: Static children should always be an array. You are likely explicitly calling React.jsxs or React.jsxDEV. Use the Babel transform instead.");
   return make(type, config, maybeKey);
 }
@@ -107,14 +108,14 @@ export function jsxs(type: any, config: any, maybeKey?: any): Element {
 /** A child as written: an array's elements need keys; an element is marked checked (passed on later in an array,
  * as a Provider passes its children, it needs none), as React marks it. */
 function validate(c: any, type: any) {
-  if (!dev()) return;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return;
   if (Array.isArray(c)) checkKeys(c, type);
   else if (c?._store) c._store.validated = 1;
 }
 
 function make(type: any, config: any, maybeKey?: any): Element {
   config ??= {};
-  if (dev() && Object.prototype.hasOwnProperty.call(config, "key")) {
+  if ((process.env.NODE_ENV !== "production" && dev()) && Object.prototype.hasOwnProperty.call(config, "key")) {
     // A key spread in with other props: React wants it written as key={...}.
     const name = nameForKey(type);
     const keys = Object.keys(config).filter((k) => k !== "key");
@@ -141,7 +142,7 @@ let toldOldJsx = false;
 export function createElement(type: any, config?: any, ...children: any[]): Element {
   // __self is only passed by a compiler, and createElement only by the old JSX transform (a static key after a spread
   // is the new transform's one use of it).
-  if (dev() && !toldOldJsx && config !== null && typeof config === "object" && "__self" in config && !("key" in config)) {
+  if ((process.env.NODE_ENV !== "production" && dev()) && !toldOldJsx && config !== null && typeof config === "object" && "__self" in config && !("key" in config)) {
     toldOldJsx = true;
     console.warn("Your app (or one of its dependencies) is using an outdated JSX transform. Update to the modern JSX transform for faster performance: https://react.dev/link/new-jsx-transform");
   }
@@ -153,7 +154,7 @@ export function createElement(type: any, config?: any, ...children: any[]): Elem
     for (const k in config) if (k !== "key" && k !== "__self" && k !== "__source") props[k] = config[k];
   }
   if (children.length === 1) props.children = children[0];
-  else if (children.length > 1) props.children = dev() ? Object.freeze(children) : children;
+  else if (children.length > 1) props.children = (process.env.NODE_ENV !== "production" && dev()) ? Object.freeze(children) : children;
   if (key !== null) keyGetter(props, type);
   return element(type, key, withDefaults(type, props));
 }
@@ -179,7 +180,7 @@ export function cloneElement(el: Element, config?: any, ...children: any[]): Ele
       props[k] = config[k] === undefined && defaults !== undefined ? defaults[k] : config[k];
     }
   }
-  if (dev()) for (const c of children) validate(c, el.type);
+  if ((process.env.NODE_ENV !== "production" && dev())) for (const c of children) validate(c, el.type);
   if (children.length === 1) props.children = children[0];
   else if (children.length > 1) props.children = children;
   return element(el.type, key, props);

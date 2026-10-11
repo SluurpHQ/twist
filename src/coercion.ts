@@ -1,5 +1,6 @@
 // Values React turns into strings (attributes, keys, form values, CSS, HTML): in development, one that cannot be
 // (a Temporal date, an object whose valueOf throws) is named first, then the coercion is left to throw, as in React.
+declare const process: { env: Record<string, string | undefined> };
 import { dev } from "./warnings.ts";
 
 function typeName(value: any): string {
@@ -17,7 +18,7 @@ function willThrow(value: unknown): boolean {
 
 /** `"" + value`, after React's warning when that throws. */
 function check(value: unknown, message: () => string): string {
-  if (dev() && willThrow(value)) console.error(message());
+  if ((process.env.NODE_ENV !== "production" && dev()) && willThrow(value)) console.error(message());
   return "" + (value as any);
 }
 

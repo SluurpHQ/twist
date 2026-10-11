@@ -1,5 +1,6 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
+declare const process: { env: Record<string, string | undefined> };
 import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, VIEW_TRANSITION, createElement, invalidType, objectChild, readThenable, unwrapChild, withOwner } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
@@ -26,8 +27,8 @@ const errored = (e: any) => "Switched to client rendering because the server ren
 const aborted = (reason: string) => "Switched to client rendering because the server rendering aborted due to:\n\n" + reason;
 function errorTemplate(digest: unknown, message: string, error?: unknown, at?: string) {
   const dgst = typeof digest === "string" ? ` data-dgst="${escape(digest)}"` : "";
-  const stack = dev() ? (at ?? (error ? componentStackOf(error) : "")) : "";
-  return `<template${dgst}${dev() ? ` data-msg="${escape(message)}"` : ""}${stack ? ` data-cstck="${escape(stack)}"` : ""}></template>`;
+  const stack = (process.env.NODE_ENV !== "production" && dev()) ? (at ?? (error ? componentStackOf(error) : "")) : "";
+  return `<template${dgst}${(process.env.NODE_ENV !== "production" && dev()) ? ` data-msg="${escape(message)}"` : ""}${stack ? ` data-cstck="${escape(stack)}"` : ""}></template>`;
 }
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#x27" }[c]};`);
@@ -526,7 +527,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       const ct = type.contextType;
       const validCt = ct != null && ct.$$typeof === CONTEXT;
       const name = type.displayName || type.name || "Component";
-      if (dev() && "contextType" in type && ct !== null && !validCt) {
+      if ((process.env.NODE_ENV !== "production" && dev()) && "contextType" in type && ct !== null && !validCt) {
         const why =
           ct === undefined
             ? " However, it is set to undefined. This can be caused by a typo or by mixing up named and default imports. This can also happen due to a circular dependency, so try moving the createContext() call to a separate file."
@@ -558,14 +559,14 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         inst.forceUpdate = (cb?: () => void) => cb?.();
         const before = inst.state;
         if (typeof inst.componentWillMount === "function") {
-          if (dev() && inst.componentWillMount.__suppressDeprecationWarning !== true)
+          if ((process.env.NODE_ENV !== "production" && dev()) && inst.componentWillMount.__suppressDeprecationWarning !== true)
             console.warn(
               `componentWillMount has been renamed, and is not recommended for use. See https://react.dev/link/unsafe-component-lifecycles for details.\n\n* Move code from componentWillMount to componentDidMount (preferred in most cases) or the constructor.\n\nPlease update the following components: ${name}`,
             );
           inst.componentWillMount();
         }
         if (typeof inst.UNSAFE_componentWillMount === "function") inst.UNSAFE_componentWillMount();
-        if (dev() && before !== inst.state)
+        if ((process.env.NODE_ENV !== "production" && dev()) && before !== inst.state)
           warn(`${name}.componentWillMount(): Assigning directly to this.state is deprecated (except inside a component's constructor). Use setState instead.`);
         for (const u of queue) {
           const part = typeof u === "function" ? u(inst.state, inst.props) : u;
@@ -581,13 +582,13 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       return render(out, ctx, hooks);
     }
     // A class with a render method that is not a Component: React warns, and calls it as a function.
-    if (dev() && type.prototype && typeof type.prototype.render === "function")
+    if ((process.env.NODE_ENV !== "production" && dev()) && type.prototype && typeof type.prototype.render === "function")
       warn(
         `The <${type.displayName || type.name || "Component"} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${type.displayName || type.name || "Component"} to extend React.Component instead.`,
       );
     // (Its element's owner and its type: what it makes is owned by it, an owner stack starts from it.)
-    const frame = dev() ? { type, owner: node?._owner ?? null } : null;
-    if (dev() && type.contextTypes)
+    const frame = (process.env.NODE_ENV !== "production" && dev()) ? { type, owner: node?._owner ?? null } : null;
+    if ((process.env.NODE_ENV !== "production" && dev()) && type.contextTypes)
       withOwner(frame!, () =>
         warn(`${type.displayName || type.name || "Unknown"} uses the legacy contextTypes API which was removed in React 19. Use React.createContext() with React.useContext() instead. (https://react.dev/link/legacy-context)`, "server:legacy-fn-context:" + (type.displayName || type.name)),
       );
@@ -680,7 +681,7 @@ function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   let fields = "";
   if (!ctx.svg && (tag === "form" || tag === "button" || tag === "input")) {
     const fn = tag === "form" ? props.action : props.formAction;
-    if (typeof fn === "function" && dev()) functionActionWarnings(tag, props);
+    if (typeof fn === "function" && (process.env.NODE_ENV !== "production" && dev())) functionActionWarnings(tag, props);
     const custom = customFormAction(fn, ctx);
     // A function with no way to submit without JavaScript: React's placeholder URL, its submit replayed once hydrated.
     if (!custom && typeof fn === "function") {
@@ -784,7 +785,7 @@ function customFormAction(action: any, ctx: Ctx): any {
     });
     return custom ?? null;
   } catch (e) {
-    if (dev()) console.error("Failed to serialize an action for progressive enhancement:\n%s", e);
+    if ((process.env.NODE_ENV !== "production" && dev())) console.error("Failed to serialize an action for progressive enhancement:\n%s", e);
     return null;
   }
 }
@@ -1579,7 +1580,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   };
   // The digest and (in development) the message, as script arguments.
   const sxArgs = (digest: unknown, message: string, error?: unknown, at?: string) =>
-    [typeof digest === "string" ? digest : null, dev() ? message : "", dev() ? (at ?? (error ? componentStackOf(error) : "")) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
+    [typeof digest === "string" ? digest : null, (process.env.NODE_ENV !== "production" && dev()) ? message : "", (process.env.NODE_ENV !== "production" && dev()) ? (at ?? (error ? componentStackOf(error) : "")) : ""].map((v) => "," + JSON.stringify(v).replace(/</g, "\\u003c")).join("");
   const ctxFor = (b?: Boundary): Ctx => ({
     ...fresh(res),
     values: b ? new Map(b.values) : new Map(),

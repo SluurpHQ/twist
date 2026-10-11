@@ -28,7 +28,7 @@ export function muteWarnings<T>(fn: () => T): T {
 
 /** A development warning: every time, or once per `once` key where React keeps a flag for it. */
 export function warn(message: string, once?: string) {
-  if (!dev() || muted) return;
+  if (!(process.env.NODE_ENV !== "production" && dev()) || muted) return;
   if (once !== undefined) {
     if (seen.has(once)) return;
     seen.add(once);
@@ -67,7 +67,7 @@ export const ownerName = () => owner();
 
 /** Children given as an array (not as JSX siblings): each element in it should have a key. */
 export function checkKeys(children: any[], parentType: any) {
-  if (!dev()) return;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return;
   const unchecked = children.filter((c) => c?._store && !c._store.validated);
   // Checked once: the same elements passed on again (a component returning its children) warn no more.
   for (const c of unchecked) c._store.validated = 1;
@@ -96,7 +96,7 @@ export function duplicateKey(key: string) {
 
 /** An element whose tag the browser does not know (a component written in lowercase, say). */
 export function checkTag(el: Element, tag: string) {
-  if (!dev() || tag.includes("-") || el.namespaceURI !== "http://www.w3.org/1999/xhtml") return;
+  if (!(process.env.NODE_ENV !== "production" && dev()) || tag.includes("-") || el.namespaceURI !== "http://www.w3.org/1999/xhtml") return;
   if (tag !== tag.toLowerCase()) warnOnce(`<${tag} /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.`);
   if (typeof HTMLUnknownElement !== "undefined" && el instanceof HTMLUnknownElement) {
     warnOnce(`The tag <${tag}> is unrecognized in this browser. If you meant to render a React component, start its name with an uppercase letter.`);
@@ -109,7 +109,7 @@ const READ_ONLY_TYPES = new Set(["button", "checkbox", "image", "hidden", "radio
 
 /** React's checkControlledValueProps: a value or checked that no handler can change. */
 export function checkControlled(tag: string, props: any) {
-  if (!dev()) return;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return;
   const handled = props.onChange || props.readOnly || props.disabled;
   if (tag === "input" || tag === "textarea" || tag === "select") {
     if (props.value != null && !(tag === "input" && READ_ONLY_TYPES.has(props.type)) && !handled && !props.onInput) {
@@ -128,7 +128,7 @@ export function checkControlled(tag: string, props: any) {
 
 /** A field switching between controlled and uncontrolled across an update. */
 export function checkControlledSwitch(tag: string, next: any, prev: any) {
-  if (!dev() || tag !== "input") return;
+  if (!(process.env.NODE_ENV !== "production" && dev()) || tag !== "input") return;
   const isCheck = next.type === "checkbox" || next.type === "radio";
   const was = isCheck ? prev.checked != null : prev.value != null;
   const is = isCheck ? next.checked != null : next.value != null;

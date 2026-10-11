@@ -1,5 +1,6 @@
 // Props on DOM elements, as React sets them: attributes or properties, styles, and events listened to on the
 // element itself (no delegation), each event given what React's handlers expect of it.
+declare const process: { env: Record<string, string | undefined> };
 
 import { effect, runWithOwner, untrack } from "../../signals/index.js";
 import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
@@ -64,16 +65,16 @@ function shorthandCollisions(prev: any, next: any) {
 
 function setStyle(el: HTMLElement, next: any, prev: any) {
   // Read-only in development, as React makes it: a style object changed after render is a bug.
-  if (dev() && next && typeof next === "object" && !Object.isFrozen(next)) Object.freeze(next);
+  if ((process.env.NODE_ENV !== "production" && dev()) && next && typeof next === "object" && !Object.isFrozen(next)) Object.freeze(next);
   const s = el.style;
   if (typeof next === "string") {
     s.cssText = next;
     return;
   }
   if (typeof prev === "string") s.cssText = "";
-  if (dev() && prev && typeof prev === "object" && next) shorthandCollisions(prev, next);
+  if ((process.env.NODE_ENV !== "production" && dev()) && prev && typeof prev === "object" && next) shorthandCollisions(prev, next);
   if (prev && typeof prev === "object") for (const k in prev) if (!next || !(k in next)) s.setProperty(cssName(k), "");
-  if (next) for (const k in next) if (!prev || prev[k] !== next[k]) validateStyle(k, next[k]), s.setProperty(cssName(k), styleValue(k, next[k]));
+  if (next) for (const k in next) if (!prev || prev[k] !== next[k]) process.env.NODE_ENV !== "production" && validateStyle(k, next[k]), s.setProperty(cssName(k), styleValue(k, next[k]));
 }
 
 /** The DOM event a React event prop listens to, and whether in the capture phase. */
@@ -150,7 +151,7 @@ function asReactEvent(e: any, el: Element) {
 
 function listen(el: Element, prop: string, handler: any) {
   // A listener that is no function: React's warning (and nothing listens).
-  if (dev() && handler != null && typeof handler !== "function" && REACT_EVENTS.has(prop.endsWith("Capture") ? prop.slice(0, -7) : prop))
+  if ((process.env.NODE_ENV !== "production" && dev()) && handler != null && typeof handler !== "function" && REACT_EVENTS.has(prop.endsWith("Capture") ? prop.slice(0, -7) : prop))
     warn(
       handler === false
         ? `Expected \`${prop}\` listener to be a function, instead got \`false\`.\n\nIf you used to conditionally omit it with ${prop}={condition && value}, pass ${prop}={condition ? value : undefined} instead.`
@@ -321,7 +322,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     if (name === "onClick" && next != null) (el as HTMLElement).onclick ??= noop;
     return listen(el, name, next);
   }
-  if ((name === "action" || name === "formAction") && next != null && dev()) checkFormAction(el.localName, name, next, (el as any)[PROPS] ?? {});
+  if ((name === "action" || name === "formAction") && next != null && (process.env.NODE_ENV !== "production" && dev())) checkFormAction(el.localName, name, next, (el as any)[PROPS] ?? {});
   if ((name === "action" || name === "formAction") && typeof next === "function") return setAction(el, name, next);
   // A form field's value is its property; on any other element (progress, li, data…) it is an attribute.
   if ((name === "value" && /^(INPUT|TEXTAREA|SELECT)$/.test(el.nodeName)) || name === "checked" || name === "selected") {
@@ -334,7 +335,7 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
   }
   // A popover fires toggle events React bubbles: listened to on it, as React does.
   if (name === "popover" && next != null) listenAt(el, "toggle"), listenAt(el, "beforetoggle");
-  if (name === "popoverTarget" && dev() && typeof next === "object" && next !== null && !toldPopoverTarget) {
+  if (name === "popoverTarget" && (process.env.NODE_ENV !== "production" && dev()) && typeof next === "object" && next !== null && !toldPopoverTarget) {
     toldPopoverTarget = true;
     warn(`The \`popoverTarget\` prop expects the ID of an Element as a string. Received ${shown(next)} instead.`);
   }
@@ -408,7 +409,7 @@ export function setProps(el: Element, next: any, prev: any, svg: boolean) {
     shown = { ...next };
     for (const k in shown) if (isBound(k, shown[k])) shown[k] = untrack(shown[k]);
   }
-  validateProps(el.localName, shown, true);
+  if (process.env.NODE_ENV !== "production") validateProps(el.localName, shown, true);
   if (bound || (el as any)[BINDINGS]) bindProps(el, next, svg);
   if (prev) for (const k in prev) if (!(k in next) && !isBound(k, prev[k])) setProp(el, k, undefined, prev[k], svg);
   // (A signal no longer given: what it had set taken off.)
@@ -450,7 +451,7 @@ export const isEventProp = (k: string) => k.length > 2 && k[0] === "o" && k[1] =
  * patch them while hydrating; a difference is told, not fixed).
  */
 export function hydrateProps(el: Element, props: any, svg: boolean) {
-  validateProps(el.localName, props, true);
+  if (process.env.NODE_ENV !== "production") validateProps(el.localName, props, true);
   for (const k in props) if (isEventProp(k)) setProp(el, k, props[k], undefined, svg);
 }
 

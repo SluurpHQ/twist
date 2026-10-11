@@ -1,6 +1,7 @@
 // The runtime: React's API on Sluurp's signals. Each component renders inside a signals effect, so what it reads
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
+declare const process: { env: Record<string, string | undefined> };
 import { effect, flush as flushSignals, holdFlushes, onBatch, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { inOrder } from "./shared/in-order.ts";
@@ -139,7 +140,7 @@ function uncaught(root: RootState, e: unknown, at?: Fiber | null) {
       else report(e);
       // React's default adds, in development, which component it was and what would have caught it (not under act,
       // which collects the error and throws it instead).
-      if (dev() && !uncaughtListener) {
+      if ((process.env.NODE_ENV !== "production" && dev()) && !uncaughtListener) {
         const name = at && typeof at.type !== "string" && typeof at.type !== "symbol" ? nameOf(at.type) : null;
         console.warn(
           "%s\n\n%s\n",
@@ -160,10 +161,10 @@ let current: Fiber | null = null;
 /** What libraries find on React's internals: H the hooks (set by api.ts), A the async dispatcher while rendering. */
 export const internals: { H: any; A: any; T: any; S: any } = { H: null, A: null, T: null, S: null };
 const asyncDispatcher: any = { getCacheForType: (make: () => any) => make() };
-if (dev()) asyncDispatcher.getOwner = () => current;
+if ((process.env.NODE_ENV !== "production" && dev())) asyncDispatcher.getOwner = () => current;
 /** React's warning for a setState or forceUpdate callback that is no function (once per value). */
 function warnOnInvalidCallback(cb: any) {
-  if (dev() && cb != null && typeof cb !== "function") warn(`Expected the last optional \`callback\` argument to be a function. Instead received: ${shown(cb)}.`, "invalid-callback:" + shown(cb));
+  if ((process.env.NODE_ENV !== "production" && dev()) && cb != null && typeof cb !== "function") warn(`Expected the last optional \`callback\` argument to be a function. Instead received: ${shown(cb)}.`, "invalid-callback:" + shown(cb));
 }
 /** A setState or forceUpdate callback run in the commit: React's error when it is no function. */
 function callCallback(cb: any, inst: any) {
@@ -193,7 +194,7 @@ export function withFiber<T>(f: Fiber | null, fn: () => T): T {
 const BUILT_IN = new Set<any>([SUSPENSE, SUSPENSE_LIST, ACTIVITY]);
 /** React.captureOwnerStack: the fiber told for (or rendering), then the components that rendered it, one frame each. */
 export function captureOwnerStack(): string | null {
-  if (!dev()) return null;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return null;
   let f = toldFor ?? current;
   if (!f) {
     // A server render's component: the components that rendered it.
@@ -248,7 +249,7 @@ function iterated(c: any): any[] | null {
   const at = c[Symbol.iterator] ?? c["@@iterator"];
   if (typeof at !== "function") return null;
   // React's warnings, once: an iterator is used up by reading it; a Map's entries are pairs, not children.
-  if (dev()) {
+  if ((process.env.NODE_ENV !== "production" && dev())) {
     if (at.call(c) === c)
       warn("Using Iterators as children is unsupported and will likely yield unexpected results because enumerating a generator mutates it. You may convert it to an array with `Array.from()` or the `[...spread]` operator before rendering. You can also use an Iterable that can iterate multiple times over the same items.", "iterator-child");
     else if (c.entries === at) warn("Using Maps as children is not supported. Use an array of keyed ReactElements instead.", "map-child");
@@ -606,9 +607,9 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   if (byKey) for (const f of old) byKey.set(f.key, f);
   const next: Fiber[] = [];
   // While hydrating, the children so far: a mismatch's diff prints the siblings before it.
-  if (hydrating && dev()) (parent as any).building = next;
+  if (hydrating && (process.env.NODE_ENV !== "production" && dev())) (parent as any).building = next;
   // Duplicate keys only warn: looked for in development.
-  const seenKeys = dev() ? new Set<string>() : null;
+  const seenKeys = (process.env.NODE_ENV !== "production" && dev()) ? new Set<string>() : null;
   let i = 0;
   // A thenable child the parent suspended at (the children after it not drawn).
   let stoppedAt: unknown = null;
@@ -641,7 +642,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     if (typeof c === "function" && c.isSignal === true && !textValue(untrack(c))) c = c();
     // A function or a symbol: no node, and React's warning (once per parent).
     if ((typeof c === "function" && c.isSignal !== true) || typeof c === "symbol") {
-      if (dev()) invalidChild(parent, c);
+      if ((process.env.NODE_ENV !== "production" && dev())) invalidChild(parent, c);
       i++;
       continue;
     }
@@ -757,7 +758,7 @@ export const scheduledInCommit = () => {
   // An update from a passive effect: past React's limit of them in a row, the loop is warned about (in development).
   if (inPassive) {
     updatedInPassive = true;
-    if (dev() && nestedPassive > 50) {
+    if ((process.env.NODE_ENV !== "production" && dev()) && nestedPassive > 50) {
       nestedPassive = 0;
       withFiber(effectFiber, () =>
         console.error(
@@ -892,7 +893,7 @@ function doubleInvoke(list: Fiber[]) {
 /** In StrictMode (development), `fn` called twice: the first result kept (useMemo, initializers), or the last. */
 function strictTwice<T>(f: Fiber, fn: () => T, last = false): T {
   const a = fn();
-  if (!(f as any).strict || !dev()) return a;
+  if (!(f as any).strict || !(process.env.NODE_ENV !== "production" && dev())) return a;
   const b = replaying(fn);
   return last ? b : a;
 }
@@ -1126,7 +1127,7 @@ type Region = { fiber: Fiber; host: Node; start: Comment; end: Comment; suspende
 let rootDiff: DiffScope | null = null;
 /** Where a difference found now is recorded: the innermost boundary's, or the root's; none in production. */
 function diffScope(): DiffScope | null {
-  if (!dev()) return null;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return null;
   const r = regions[regions.length - 1];
   if (r) return r.suspended ? null : r.diff;
   return rootDiff;
@@ -1500,7 +1501,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
   }
   setDehydrated(f, false);
   if (r.mismatch) {
-    const error = mismatchError(dev() ? r.diff : null, r.text);
+    const error = mismatchError((process.env.NODE_ENV !== "production" && dev()) ? r.diff : null, r.text);
     const at = (r.diff.at as Fiber | null) ?? f;
     for (const c of f.children) unmount(c, false);
     f.children = [];
@@ -1562,13 +1563,13 @@ function serverGaveUp(f: Fiber, region: { start: Comment }) {
   const t = region.start.nextSibling as HTMLElement | null;
   const data: any = t && t.nodeName === "TEMPLATE" ? (t as any).dataset ?? {} : {};
   const error: any = new Error(
-    dev() && data.msg ? data.msg : "The server could not finish this Suspense boundary, likely due to an error during server rendering. Switched to client rendering.",
+    (process.env.NODE_ENV !== "production" && dev()) && data.msg ? data.msg : "The server could not finish this Suspense boundary, likely due to an error during server rendering. Switched to client rendering.",
   );
   error.digest = data.dgst;
   // Given up on purpose (browser()): rendered here, nothing to report.
   if (data.dgst === "") return;
   // (Not when its client render failed too and an error boundary took that: the boundary handles it.)
-  layoutQueue.push(() => !(f as any).caughtInClient && ((f.root as any).onRecoverable ?? report)(error, { componentStack: dev() ? data.cstck ?? "" : "" }));
+  layoutQueue.push(() => !(f as any).caughtInClient && ((f.root as any).onRecoverable ?? report)(error, { componentStack: (process.env.NODE_ENV !== "production" && dev()) ? data.cstck ?? "" : "" }));
 }
 
 /** The boundary drawn on the client, not hydrated, before its closing comment. */
@@ -1916,7 +1917,7 @@ function updateHoist(f: Fiber, props: any) {
   const next = getResource(root, f.type, props);
   // A <link> that changes between an element and a stylesheet resource: React does not support it, and says so.
   if (f.type === "link" && !was !== !next && (was?.type === "stylesheet" || next?.type === "stylesheet")) {
-    const diff = dev() ? `\n\n  - ${describeLink(prev)}\n  + ${describeLink(props)}` : "";
+    const diff = (process.env.NODE_ENV !== "production" && dev()) ? `\n\n  - ${describeLink(prev)}\n  + ${describeLink(props)}` : "";
     throw new Error(
       (was ? "Expected stylesheet with precedence to not be updated to a different kind of <link>." : "Expected <link> not to update to be updated to a stylesheet with precedence.") +
         " Check the `rel`, `href`, and `precedence` props of this component. Alternatively, check whether two different <link> components render in the same slot or share the same key." +
@@ -2062,7 +2063,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   if (type === TEXT_NODE) {
     const f = fiber(TEXT, type, key, c, parent);
     const text = typeof c === "function" ? textOf(untrack(c)) : "" + c;
-    if (dev()) {
+    if ((process.env.NODE_ENV !== "production" && dev())) {
       const around = nestingAt(parent);
       checkTextNesting(text, around?.current?.tag, around?.implicitRoot ?? false);
     }
@@ -2109,7 +2110,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     const props = Array.isArray(c) ? null : c.props;
     const f = fiber(FRAG, type, key, props, parent);
     // A prop a Fragment cannot take: React's warning (the first one).
-    if (dev() && props) {
+    if ((process.env.NODE_ENV !== "production" && dev()) && props) {
       const bad = Object.keys(props).find((k) => k !== "children" && k !== "key" && k !== "ref");
       if (bad) withFiber(parent, () => console.error(`Invalid prop \`${bad}\` supplied to \`React.Fragment\`. React.Fragment can only have \`key\`, \`ref\`, and \`children\` props.`));
     }
@@ -2141,7 +2142,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     f.ns = ns;
     checkTagName(type);
     const hoisted = ns !== MATH_NS && isHoistable(type, props, ns === SVG_NS, inContainer(parent), warn);
-    if (dev()) {
+    if ((process.env.NODE_ENV !== "production" && dev())) {
       const around = nestingAt(parent);
       if (!hoisted) checkNesting(type, around, (tag) => behindComponents(f, tag));
       f.nesting = ancestorsWith(around, type);
@@ -2169,7 +2170,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       ((single as any).displaced ??= []).push(other);
       // Two of them at once (the other one still there at commit, not let go in it): React's warning
       // (acquireSingletonInstance).
-      if (dev())
+      if ((process.env.NODE_ENV !== "production" && dev()))
         insertionQueue.push(() => {
           if (other.dead || f.dead) return;
           withFiber(f, () =>
@@ -2197,7 +2198,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // Hydration stops at a mismatch: the root or boundary is drawn on the client instead.
     if (!server && hydrationStopped()) return f;
     // As the server drew it, to compare once the props are applied (and have warned as they do).
-    const had = server && dev() && !props.suppressHydrationWarning ? attrsOf(server) : null;
+    const had = server && (process.env.NODE_ENV !== "production" && dev()) && !props.suppressHydrationWarning ? attrsOf(server) : null;
     // (Taken over, its props are not set: what React's hydration diff warns of itself.)
     if (server && "inert" in props) inertEmpty(props.inert);
     if (!held) (el as any)[PROPS] = props;
@@ -2221,7 +2222,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       // Taken over from the server: listeners only (a custom element's properties too are left alone, as React does).
       if (server && hydrating) {
         hydrateProps(el, props, ns === SVG_NS);
-        if (dev() && customTag(type)) for (const k in props) if (READ_ONLY.has(k)) console.error(`Assignment to read-only property will result in a no-op: \`${k}\``);
+        if ((process.env.NODE_ENV !== "production" && dev()) && customTag(type)) for (const k in props) if (READ_ONLY.has(k)) console.error(`Assignment to read-only property will result in a no-op: \`${k}\``);
       }
       else if (!held) setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
       // A noscript's children are not drawn on the client (React leaves them to the server).
@@ -2260,7 +2261,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   if (type === FRAGMENT || type === STRICT || type === PROFILER || type === SUSPENSE_LIST || type === ACTIVITY || type === VIEW_TRANSITION) {
     const f = fiber(FRAG, type, key, props, parent);
     if (type === PROFILER) (profilersMounted = true), profilerBegins(f);
-    if (type === PROFILER && dev() && typeof f.props?.id !== "string") console.error(`Profiler must specify an "id" of type \`string\` as a prop. Received the type \`${typeof f.props?.id}\` instead.`);
+    if (type === PROFILER && (process.env.NODE_ENV !== "production" && dev()) && typeof f.props?.id !== "string") console.error(`Profiler must specify an "id" of type \`string\` as a prop. Received the type \`${typeof f.props?.id}\` instead.`);
     if (type === ACTIVITY && props.mode !== "hidden" && hydrating) hydrateBoundary(f, host, before);
     else if (type === ACTIVITY && props.mode === "hidden") {
       // Hidden: its children drawn (their state kept for when it is shown), out of sight, their effects not run.
@@ -2654,7 +2655,7 @@ function setRef(f: Fiber, ref: any, value: any) {
     }
     f.refCleanup = typeof back === "function" ? back : null;
   } else if (ref && typeof ref === "object") {
-    if (dev() && !Object.hasOwn(ref, "current")) {
+    if ((process.env.NODE_ENV !== "production" && dev()) && !Object.hasOwn(ref, "current")) {
       const n = f.kind === HOST ? f.type : nameOf(f.type) || "Component";
       withFiber(f, () => warn(`Unexpected ref object provided for ${n}. Use either a ref-setter function or React.createRef().`, "ref-object:" + n));
     }
@@ -2681,15 +2682,15 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       f.tick = signal(0);
       return renderClass;
     }
-    if (dev() && type.contextTypes)
+    if ((process.env.NODE_ENV !== "production" && dev()) && type.contextTypes)
       warn(`${nameOf(type) || "Unknown"} uses the legacy contextTypes API which was removed in React 19. Use React.createContext() with React.useContext() instead. (https://react.dev/link/legacy-context)`, "legacy-fn-context:" + nameOf(type));
-    if (dev() && type.childContextTypes)
+    if ((process.env.NODE_ENV !== "production" && dev()) && type.childContextTypes)
       warn(`childContextTypes cannot be defined on a function component.\n  ${type.displayName || type.name || "Component"}.childContextTypes = ...`, "function-child-context:" + nameOf(type));
-    if (dev() && typeof type.getDerivedStateFromProps === "function")
+    if ((process.env.NODE_ENV !== "production" && dev()) && typeof type.getDerivedStateFromProps === "function")
       warn(`${nameOf(type) || "Unknown"}: Function components do not support getDerivedStateFromProps.`, "function-gdsfp:" + nameOf(type));
-    if (dev() && typeof type.contextType === "object" && type.contextType !== null)
+    if ((process.env.NODE_ENV !== "production" && dev()) && typeof type.contextType === "object" && type.contextType !== null)
       warn(`${nameOf(type)}: Function components do not support contextType.`, "function-context-type:" + nameOf(type));
-    if (dev() && type.prototype && typeof type.prototype.render === "function") {
+    if ((process.env.NODE_ENV !== "production" && dev()) && type.prototype && typeof type.prototype.render === "function") {
       const n = type.displayName || type.name || "Component";
       warn(`The <${n} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${n} to extend React.Component instead.`, "render-not-extended:" + n);
     }
@@ -2762,7 +2763,7 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
   const error = invalidType(type);
   // Naming the component whose render made the element, as React does (in development).
   const owner: Fiber | undefined = (f as any).owner;
-  if (dev() && owner) error.message += `\n\nCheck the render method of \`${nameOf(owner.type)}\`.`;
+  if ((process.env.NODE_ENV !== "production" && dev()) && owner) error.message += `\n\nCheck the render method of \`${nameOf(owner.type)}\`.`;
   throw error;
 }
 
@@ -2842,7 +2843,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     for (let pass = 0; ; pass++) {
       (f as any).again = false;
       out = f.render!(f, f.props);
-      if (!(f as any).again && (f as any).strict && f.render !== renderClass && typeof f.type === "function" && dev()) {
+      if (!(f as any).again && (f as any).strict && f.render !== renderClass && typeof f.type === "function" && (process.env.NODE_ENV !== "production" && dev())) {
         // StrictMode: rendered once more, its hooks as the first render left them (React's double render).
         hookAt = 0;
         f.insertion = [];
@@ -3063,7 +3064,7 @@ function renderClass(f: Fiber, withRef: any) {
   const ct = C.contextType;
   const validCt = ct != null && ct.$$typeof === CONTEXT;
   // An invalid contextType: React's warning (once per class), and the empty context.
-  if (dev() && !f.inst && "contextType" in C && ct !== null && !validCt) {
+  if ((process.env.NODE_ENV !== "production" && dev()) && !f.inst && "contextType" in C && ct !== null && !validCt) {
     const why =
       ct === undefined
         ? " However, it is set to undefined. This can be caused by a typo or by mixing up named and default imports. This can also happen due to a circular dependency, so try moving the createContext() call to a separate file."
@@ -3084,7 +3085,7 @@ function renderClass(f: Fiber, withRef: any) {
     const before = inst.state;
     for (const fn of [inst[name], inst["UNSAFE_" + name]]) if (typeof fn === "function") untrack(() => fn.apply(inst, args));
     if (inst.state !== before) {
-      if (dev()) warn(`${nameOf(C)}.${name}(): Assigning directly to this.state is deprecated (except inside a component's constructor). Use setState instead.`, "assign-state:" + name + nameOf(C));
+      if ((process.env.NODE_ENV !== "production" && dev())) warn(`${nameOf(C)}.${name}(): Assigning directly to this.state is deprecated (except inside a component's constructor). Use setState instead.`, "assign-state:" + name + nameOf(C));
       inst.__queue.push({ [REPLACE]: inst.state });
       inst.state = before;
     }
@@ -3112,7 +3113,7 @@ function renderClass(f: Fiber, withRef: any) {
   if (!inst || remount) {
     if (remount) inst.__remount = false;
     else {
-      if ((f as any).strict && dev()) new C(props, ctx);
+      if ((f as any).strict && (process.env.NODE_ENV !== "production" && dev())) new C(props, ctx);
       inst = f.inst = new C(props, ctx);
       checkClassInstance(C, inst, props);
       recordUnsafeLifecycles(C, inst, !!(f as any).strict);
@@ -3179,7 +3180,7 @@ function renderClass(f: Fiber, withRef: any) {
 }
 const FORCE = Symbol("force");
 function propsReassigned(C: any, inst: any, props: any) {
-  if (dev() && inst.props !== props)
+  if ((process.env.NODE_ENV !== "production" && dev()) && inst.props !== props)
     warn(`It looks like ${C.displayName || C.name || "Component"} is reassigning its own \`this.props\` while rendering. This is not supported and can lead to confusing bugs.`, "props-reassigned:" + (C.displayName || C.name));
 }
 /** getDerivedStateFromProps' partial state (twice in StrictMode), checked as React checks it. */
@@ -3198,7 +3199,7 @@ function shouldUpdate(f: Fiber, C: any, inst: any, props: any, state: any, ctx: 
 /** An update asked while a component renders: React's warnings (another function component, or any class). */
 /** An update made outside act where the test said it uses act (IS_REACT_ACT_ENVIRONMENT): React's warning. */
 function updateOutsideAct(target: Fiber) {
-  if (actDepth > 0 || current || !dev() || (globalThis as any).IS_REACT_ACT_ENVIRONMENT !== true) return;
+  if (actDepth > 0 || current || !(process.env.NODE_ENV !== "production" && dev()) || (globalThis as any).IS_REACT_ACT_ENVIRONMENT !== true) return;
   warn(
     `An update to ${nameOf(target.type) || "Component"} inside a test was not wrapped in act(...).\n\nWhen testing, code that causes React state updates should be wrapped into act(...):\n\nact(() => {\n  /* fire events that update state */\n});\n/* assert on the output */\n\nThis ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act`,
   );
@@ -3222,14 +3223,14 @@ function updateWhileRendering(target: Fiber) {
   let b: Fiber | null = target.dead ? target.parent : null;
   while (b && !(b as any).dehydrated && b.type !== SUSPENSE) b = b.parent;
   if (b && !(b as any).dehydrated) b = null;
-  if (dev() && !current && target.dead && (!target.committed || b)) {
+  if ((process.env.NODE_ENV !== "production" && dev()) && !current && target.dead && (!target.committed || b)) {
     let at: Fiber | null = target.parent;
     while (at && !(at.kind === COMP && at.committed && !at.dead)) at = at.parent;
     notYetMounted(at ?? target);
   }
   // (Its boundary, still as the server drew it, tries hydrating again for it.)
   if (b && !b.dead) scheduleHydration(b);
-  if (!current || !dev()) return;
+  if (!current || !(process.env.NODE_ENV !== "production" && dev())) return;
   if (target.inst) {
     // Only from a render method (React's isRendering): a will-lifecycle may set state.
     if (inClassRender) warn("Cannot update during an existing state transition (such as within `render`). Render methods should be a pure function of props and state.", "update-in-render");
@@ -3276,7 +3277,7 @@ export class Component<P = any, S = any> {
     warnOnInvalidCallback(done);
     if (!this.__f) return notMounted(this, "setState");
     // Drawn but not committed yet, set from the commit (a sibling's componentWillUnmount): React warns.
-    if (dev() && inDeletions && !current && !this.__f.committed && !this.__f.dead) notYetMounted(this.__f);
+    if ((process.env.NODE_ENV !== "production" && dev()) && inDeletions && !current && !this.__f.committed && !this.__f.dead) notYetMounted(this.__f);
     updateWhileRendering(this.__f);
     const apply = () => {
       this.__queue.push(partial);
@@ -3309,7 +3310,7 @@ for (const [name, why] of [
 ])
   Object.defineProperty(Component.prototype, name, {
     get() {
-      if (dev()) console.warn(`${name}(...) is deprecated in plain JavaScript React classes. ${why}`);
+      if ((process.env.NODE_ENV !== "production" && dev())) console.warn(`${name}(...) is deprecated in plain JavaScript React classes. ${why}`);
       return undefined;
     },
   });
@@ -3455,7 +3456,7 @@ function caught(f: Fiber, e: any, inclusive = false) {
           const queued = inst.__queue.length;
           guard(() => inst.componentDidCatch(e, { componentStack: componentStackOf(f) }));
           // With no getDerivedStateFromError and no update of its own, it swallows the error: React says so.
-          if (dev() && !p.type.getDerivedStateFromError && p.tick?.peek() === tick && inst.__queue.length === queued)
+          if ((process.env.NODE_ENV !== "production" && dev()) && !p.type.getDerivedStateFromError && p.tick?.peek() === tick && inst.__queue.length === queued)
             withFiber(p, () => warn(`${nameOf(p.type)}: Error boundaries should implement getDerivedStateFromError(). In that method, return a state update to display an error message or fallback UI.`));
         });
       if (rendering) (p.root as any).threw = true;
@@ -3552,7 +3553,7 @@ function commit() {
   depth++;
   const wasCommitting = committing;
   committing = true;
-  if (dev()) flushUnsafeLifecycleWarnings();
+  if ((process.env.NODE_ENV !== "production" && dev())) flushUnsafeLifecycleWarnings();
   try {
     untrack(() => {
       // What was taken away first (componentWillUnmount, effect cleanups, refs let go), then what was made.
@@ -3584,7 +3585,7 @@ function commit() {
         made.filter((f) => f.type === VIEW_TRANSITION),
         applyingTransition || transitionCommit,
       );
-      if (dev()) {
+      if ((process.env.NODE_ENV !== "production" && dev())) {
         // Only where the topmost fiber placed is in strict mode (React's PlacementDEV walk): a new non-strict parent's
         // nested StrictMode doubles nothing.
         const madeSet = new Set(made);
@@ -3745,7 +3746,7 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   if (r && typeof (r as any).then === "function") {
     // Another act begun and not ended inside this one's time (not awaited in turn): React's warning, at its end.
     const overlapping = () => {
-      if (dev() && depthBefore !== actDepth - 1)
+      if ((process.env.NODE_ENV !== "production" && dev()) && depthBefore !== actDepth - 1)
         console.error("You seem to have overlapping act() calls, this is not supported. Be sure to await previous act() calls before making a new one. ");
     };
     const settled = (r as Promise<T>).then(
@@ -3770,7 +3771,7 @@ export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
     );
     // Not awaited (nothing asked for its result in a few microtasks): React's warning.
     let awaited = false;
-    if (dev())
+    if ((process.env.NODE_ENV !== "production" && dev()))
       queueMicrotask(() =>
         queueMicrotask(() => {
           if (!awaited)
@@ -4057,7 +4058,7 @@ export const client = {
       throw new Error("Missing getServerSnapshot, which is required for server-rendered content. Will revert to client rendering.");
     }
     const value = isHydrating() ? getServerSnapshot!() : getSnapshot();
-    if (dev() && !h.warned && !isHydrating() && !Object.is(value, getSnapshot())) {
+    if ((process.env.NODE_ENV !== "production" && dev()) && !h.warned && !isHydrating() && !Object.is(value, getSnapshot())) {
       h.warned = true;
       console.error("The result of getSnapshot should be cached to avoid an infinite loop");
     }
@@ -4457,7 +4458,7 @@ function sameFamily(a: any, b: any): boolean {
 type RefreshRoot = { current: { memoizedState: { element: any } | null; alternate: any }; top: Fiber; render?: (element: any) => void };
 let hookId: any;
 let registered = false;
-const devHook = (): any => (typeof window !== "undefined" && dev() ? (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ : undefined);
+const devHook = (): any => (typeof window !== "undefined" && (process.env.NODE_ENV !== "production" && dev()) ? (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ : undefined);
 
 /** A refresh: components whose code changed drawn again with it (their state kept), stale ones mounted afresh. */
 function scheduleRefresh(root: RefreshRoot, update: { updatedFamilies: Set<any>; staleFamilies: Set<any> }) {
@@ -4493,7 +4494,7 @@ function scheduleRefresh(root: RefreshRoot, update: { updatedFamilies: Set<any>;
 function registerWithRefresh(): boolean {
   if (registered) return true;
   const w = typeof window !== "undefined" ? (window as any) : null;
-  if (!w || !dev()) return false;
+  if (!w || !(process.env.NODE_ENV !== "production" && dev())) return false;
   // react-refresh patches the hook when it loads; if we load first, a minimal one it will find and patch.
   w.__REACT_DEVTOOLS_GLOBAL_HOOK__ ??= {
     renderers: new Map(),
@@ -4589,7 +4590,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   // Heard from the start while it hydrates (React listens to every event at once): what hovers or moves over markup
   // not hydrated yet is queued and replayed.
   if (hydrating_) for (const t of CONTINUOUS) want(t);
-  if (dev()) {
+  if ((process.env.NODE_ENV !== "production" && dev())) {
     if ((container as any).__root) {
       console.error("You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before. Instead, call root.render() on the existing root instead if you want to update it.");
     }
@@ -4608,7 +4609,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   top.dom = container;
   top.doc = docOf(container);
   // The whole root in strict mode (React's unstable_strictMode option).
-  if (options?.unstable_strictMode && dev()) top.strict = true;
+  if (options?.unstable_strictMode && (process.env.NODE_ENV !== "production" && dev())) top.strict = true;
   addContainer(container, state);
   state.top = top;
   // The container finds its root fiber (React's container key), as an element finds its own.
@@ -4759,7 +4760,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         }
       }
       depth++;
-      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null), (hydrationError = null), (rootDiff = dev() ? new DiffScope() : null);
+      if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null), (hydrationError = null), (rootDiff = (process.env.NODE_ENV !== "production" && dev()) ? new DiffScope() : null);
       const wasRendering = rendering;
       rendering = true;
       if (depth === 1) startRender();
@@ -4970,8 +4971,8 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
   const api = {
     render(children: any, ...rest: any[]) {
       if (unmounted) throw new Error("Cannot update an unmounted root.");
-      if (dev()) tellCommit(refreshRoot, children);
-      if (dev()) {
+      if ((process.env.NODE_ENV !== "production" && dev())) tellCommit(refreshRoot, children);
+      if ((process.env.NODE_ENV !== "production" && dev())) {
         if (typeof rest[0] === "function") console.error("does not support the second callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
         else if (validContainer(rest[0])) console.error("You passed a container to the second argument of root.render(...). You don't need to pass it again since you already passed it to create the root.");
         else if (rest.length && rest[0] !== undefined) console.error("You passed a second argument to root.render(...) but it only accepts one argument.");
@@ -5014,9 +5015,9 @@ Check the render method of ${nameOf(owner.type)}.`));
       } else hoverTargets.set("explicit:" + targetSeq, { node: target, seq: -++targetSeq });
     },
     unmount(...rest: any[]) {
-      if (dev() && typeof rest[0] === "function") console.error("does not support a callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
+      if ((process.env.NODE_ENV !== "production" && dev()) && typeof rest[0] === "function") console.error("does not support a callback argument. To execute a side effect after rendering, declare it in a component body with useEffect().");
       if (unmounted) return;
-      if (dev() && (depth > 0 || committing || inPassive)) withFiber(effectFiber, () => console.error("Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition."));
+      if ((process.env.NODE_ENV !== "production" && dev()) && (depth > 0 || committing || inPassive)) withFiber(effectFiber, () => console.error("Attempted to synchronously unmount a root while React was already rendering. React cannot finish unmounting the root until the current render has completed, which may lead to a race condition."));
       unmounted = true;
       // Its nodes taken out of the container by someone else: React's removal fails, as the DOM's does.
       const into = domParent(container);
@@ -5025,7 +5026,7 @@ Check the render method of ${nameOf(owner.type)}.`));
       pending = NONE;
       for (const c of top.children) unmount(c, true);
       top.children = [];
-      if (dev()) tellCommit(refreshRoot, null);
+      if ((process.env.NODE_ENV !== "production" && dev())) tellCommit(refreshRoot, null);
       if (moved) throw new Error("The node to be removed is not a child of this node.");
     },
   };
@@ -5036,7 +5037,7 @@ Check the render method of ${nameOf(owner.type)}.`));
 /** Taken over as the server drew it: its nodes claimed in order and kept, what differs drawn anew. */
 export function hydrateRoot(container: Element, children: any, options?: any) {
   if (!validContainer(container)) throw new Error("Target container is not a DOM element.");
-  if (dev() && children === undefined) console.error("Must provide initial children as second argument to hydrateRoot. Example usage: hydrateRoot(domContainer, <App />)");
+  if ((process.env.NODE_ENV !== "production" && dev()) && children === undefined) console.error("Must provide initial children as second argument to hydrateRoot. Example usage: hydrateRoot(domContainer, <App />)");
   const root = createRoot(container, { ...options, [HYDRATE]: true });
   root.render(children);
   return root;
@@ -5112,7 +5113,7 @@ export function requestFormReset(form: any) {
   if (!f || f.kind !== HOST || f.type !== "form") throw new Error("Invalid form element. requestFormReset must be passed a form that was rendered by React.");
   if (transitioning) return endTransition(() => !f.dead && form.reset());
   // Outside one: reset now, as React does with a synchronous update (almost certainly a mistake).
-  if (dev()) console.error("requestFormReset was called outside a transition or action. To fix, move to an action, or wrap with startTransition.");
+  if ((process.env.NODE_ENV !== "production" && dev())) console.error("requestFormReset was called outside a transition or action. To fix, move to an action, or wrap with startTransition.");
   form.reset();
 }
 
@@ -5143,7 +5144,7 @@ function effectsDone() {
 }
 export function flushSync<T>(fn?: () => T): T {
   // Inside a render or a commit (a lifecycle): React cannot flush there, and says so (what fn does still happens).
-  if (dev() && (depth > 0 || committing) && !inPassive)
+  if ((process.env.NODE_ENV !== "production" && dev()) && (depth > 0 || committing) && !inPassive)
     console.error("flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.");
   if (inEffects) {
     syncInEffects = true;

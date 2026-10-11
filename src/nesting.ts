@@ -1,6 +1,7 @@
 // HTML's nesting rules, as React DOM checks them in development: an element the browser's parser would move or
 // close (a <tr> straight in a <table>, a <p> in a <p>, a <div> in a <p>) is warned about, since server markup
 // holding it would not hydrate.
+declare const process: { env: Record<string, string | undefined> };
 import { dev, warn } from "./warnings.ts";
 
 type Info = { tag: string };
@@ -127,7 +128,7 @@ function invalidAncestor(tag: string, a: Ancestors): Info | null {
  * `nested` says the offending ancestor is not its direct parent (a component between): React adds a second line.
  */
 export function checkNesting(tag: string, a: Ancestors | null, nested: (ancestorTag: string) => boolean) {
-  if (!dev()) return;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return;
   const at = a ?? EMPTY;
   const parent = at.current;
   const badParent = validWithParent(tag, parent?.tag, at.implicitRoot) ? null : parent;
@@ -146,7 +147,7 @@ export function checkNesting(tag: string, a: Ancestors | null, nested: (ancestor
 
 /** Text placed in `parentTag`: warned about where HTML allows none (a table, a row). */
 export function checkTextNesting(text: string, parentTag: string | undefined, implicitRoot: boolean) {
-  if (!dev() || !parentTag || implicitRoot || validWithParent("#text", parentTag, false)) return;
+  if (!(process.env.NODE_ENV !== "production" && dev()) || !parentTag || implicitRoot || validWithParent("#text", parentTag, false)) return;
   const key = "nesting:#text|" + parentTag;
   if (/\S/.test(text)) warn(`In HTML, text nodes cannot be a child of <${parentTag}>.\nThis will cause a hydration error.`, key);
   else warn(`In HTML, whitespace text nodes cannot be a child of <${parentTag}>. Make sure you don't have any extra whitespace between tags on each line of your source code.\nThis will cause a hydration error.`, key);

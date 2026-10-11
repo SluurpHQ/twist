@@ -1,6 +1,7 @@
 // Form fields as React DOM handles them (ported from its ReactDOMInput, ReactDOMTextarea and ReactDOMSelect): the
 // value and checked properties, the value attribute kept in step with a controlled value, defaults, radio groups put
 // back by name after a change, select options chosen from value.
+declare const process: { env: Record<string, string | undefined> };
 import { afterFunctionAction, isEventProp, setProp } from "./props.ts";
 import { checkControlled, checkControlledSwitch, dev, ownerName, warn, PROPS } from "./warnings.ts";
 import { validateProps } from "./validate-props.ts";
@@ -44,7 +45,7 @@ function setDefaultValue(node: HTMLInputElement, value: any) {
 
 function initInput(node: HTMLInputElement, p: any, hydrating: boolean) {
   const { value, defaultValue, checked, defaultChecked, type, name } = p;
-  if (dev()) {
+  if ((process.env.NODE_ENV !== "production" && dev())) {
     // Controlled or uncontrolled, not both (React's validateInputProps).
     const who = ownerName() || "A component";
     if (checked !== undefined && defaultChecked !== undefined)
@@ -95,7 +96,7 @@ function updateInput(node: HTMLInputElement, p: any, lastDefaultValue: any) {
 
 function initTextarea(node: HTMLTextAreaElement, p: any) {
   let { value, defaultValue, children } = p;
-  if (dev()) {
+  if ((process.env.NODE_ENV !== "production" && dev())) {
     // React's validateTextareaProps.
     if (value !== undefined && defaultValue !== undefined)
       warn(`${ownerName() || "A component"} contains a textarea with both value and defaultValue props. Textarea elements must be either controlled or uncontrolled (specify either the value prop, or the defaultValue prop, but not both). Decide between using a controlled or uncontrolled textarea and remove one of these props. More info: https://react.dev/link/controlled-components`, "textarea-value-default");
@@ -160,7 +161,7 @@ function updateOptions(node: HTMLSelectElement, multiple: boolean, value: any, s
 }
 
 function initSelect(node: HTMLSelectElement, p: any, hydrating = false) {
-  if (dev()) {
+  if ((process.env.NODE_ENV !== "production" && dev())) {
     for (const name of ["value", "defaultValue"]) {
       if (p[name] == null) continue;
       if (p.multiple && !Array.isArray(p[name])) warn(`The \`${name}\` prop supplied to <select> must be an array if \`multiple\` is true.`);
@@ -243,7 +244,7 @@ export function valueChanged(el: Element): boolean {
 export function initForm(el: Element, tag: string, props: any, svg: boolean, hydrating = false) {
   const own = OWN[tag]!;
   checkControlled(tag, props);
-  validateProps(tag, props, true);
+  if (process.env.NODE_ENV !== "production") validateProps(tag, props, true);
   // Taken over from the server: only its listeners (its attributes are left as the server wrote them).
   for (const k in props) if (!own.has(k) && props[k] != null && (!hydrating || isEventProp(k))) setProp(el, k, props[k], undefined, svg);
   if (!hydrating && !own.has("dangerouslySetInnerHTML")) innerHtml(el, props, null);
@@ -256,7 +257,7 @@ export function initForm(el: Element, tag: string, props: any, svg: boolean, hyd
       warn("Cannot infer the option value of complex children. Pass a `value` prop or use a plain string as children to <option>.", "option-complex-children");
   } else if (tag === "option" && props.value == null && props.dangerouslySetInnerHTML != null)
     warn("Pass a `value` prop if you set dangerouslyInnerHTML so React knows which value should be selected.", "option-inner-html");
-  if (tag === "option" && props.selected != null && dev()) warn("Use the `defaultValue` or `value` props on <select> instead of setting `selected` on <option>.", "option-selected");
+  if (tag === "option" && props.selected != null && (process.env.NODE_ENV !== "production" && dev())) warn("Use the `defaultValue` or `value` props on <select> instead of setting `selected` on <option>.", "option-selected");
   else if (tag === "option" && props.selected != null) (el as HTMLOptionElement).selected = !!props.selected && typeof props.selected !== "function" && typeof props.selected !== "symbol";
   if (tag !== "option") track(el);
 }
@@ -270,7 +271,7 @@ function innerHtml(el: Element, next: any, prev: any) {
 /** A field's props changed from `prev` to `next`. */
 export function updateForm(el: Element, tag: string, next: any, prev: any, svg: boolean) {
   const own = OWN[tag]!;
-  validateProps(tag, next, true);
+  if (process.env.NODE_ENV !== "production") validateProps(tag, next, true);
   checkControlledSwitch(tag, next, prev);
   for (const k in prev) if (!own.has(k) && !(k in next)) setProp(el, k, undefined, prev[k], svg);
   for (const k in next) if (!own.has(k) && next[k] !== prev[k]) setProp(el, k, next[k], prev[k], svg);

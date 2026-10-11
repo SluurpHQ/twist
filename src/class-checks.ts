@@ -1,5 +1,6 @@
 // React's development checks on class components, in React's words: mistakes in how a class is written (found when
 // it mounts), lifecycle return values, and the deprecated will-lifecycles (told once per commit, names gathered).
+declare const process: { env: Record<string, string | undefined> };
 import { dev, warn } from "./warnings.ts";
 
 const nameOf = (C: any) => C?.displayName || C?.name || "Component";
@@ -16,7 +17,7 @@ const firstUnsafe = seenTypes("unsafe");
 
 /** Right after the instance is made (React's constructClassInstance and checkClassInstance). */
 export function checkClassInstance(C: any, inst: any, props: any, side = "") {
-  if (!dev()) return;
+  if (!(process.env.NODE_ENV !== "production" && dev())) return;
   const name = nameOf(C);
   if (typeof C.getDerivedStateFromProps === "function" && (inst.state === null || inst.state === undefined) && firstUninitialized(C))
     warn(
@@ -77,13 +78,13 @@ export function checkClassInstance(C: any, inst: any, props: any, side = "") {
 }
 
 export function checkDerivedState(C: any, partial: any) {
-  if (dev() && partial === undefined && firstUndefinedDerived(C)) warn(`${nameOf(C)}.getDerivedStateFromProps(): A valid state object (or null) must be returned. You have returned undefined.`);
+  if ((process.env.NODE_ENV !== "production" && dev()) && partial === undefined && firstUndefinedDerived(C)) warn(`${nameOf(C)}.getDerivedStateFromProps(): A valid state object (or null) must be returned. You have returned undefined.`);
 }
 export function checkShouldUpdate(C: any, result: any) {
-  if (dev() && result === undefined) warn(`${nameOf(C)}.shouldComponentUpdate(): Returned undefined instead of a boolean value. Make sure to return true or false.`);
+  if ((process.env.NODE_ENV !== "production" && dev()) && result === undefined) warn(`${nameOf(C)}.shouldComponentUpdate(): Returned undefined instead of a boolean value. Make sure to return true or false.`);
 }
 export function checkSnapshot(C: any, snapshot: any) {
-  if (dev() && snapshot === undefined) warn(`${nameOf(C)}.getSnapshotBeforeUpdate(): A snapshot value (or null) must be returned. You have returned undefined.`);
+  if ((process.env.NODE_ENV !== "production" && dev()) && snapshot === undefined) warn(`${nameOf(C)}.getSnapshotBeforeUpdate(): A snapshot value (or null) must be returned. You have returned undefined.`);
 }
 
 // ---------------------------------------------------------------- deprecated will-lifecycles, told per commit
@@ -94,7 +95,7 @@ const add = (k: string, name: string) => (pending[k] ??= new Set()).add(name);
 
 /** A class instance mounting: which of its will-lifecycles to warn about (unprefixed always, UNSAFE_ in StrictMode). */
 export function recordUnsafeLifecycles(C: any, inst: any, strict: boolean) {
-  if (!dev() || !firstUnsafe(C)) return;
+  if (!(process.env.NODE_ENV !== "production" && dev()) || !firstUnsafe(C)) return;
   const name = nameOf(C);
   for (const k of ["componentWillMount", "componentWillReceiveProps", "componentWillUpdate"] as Kind[]) {
     if (typeof inst[k] === "function" && inst[k].__suppressDeprecationWarning !== true) add(k, name);
