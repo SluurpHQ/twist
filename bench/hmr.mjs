@@ -17,9 +17,7 @@ const sluurp = resolve(import.meta.dirname, "..", "..", "..", "..");
 const example = resolve(sluurp, "..", "sluurp-examples", "todos", "app");
 const runtimes = {
   react: {},
-  twist: { SLUURP_REACT: "twist", SLUURP_DOM_SRC: resolve(sluurp, "host", "packages", "dom", "src"), SLUURP_SOLID: "twist" },
-  "twist-react-only": { SLUURP_REACT: "twist", SLUURP_DOM_SRC: resolve(sluurp, "host", "packages", "dom", "src") },
-};
+  twist: { SLUURP_REACT: "twist", SLUURP_DOM_SRC: resolve(sluurp, "host", "packages", "dom", "src"), SLUURP_SOLID: "twist" },};
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
 /** A dev server stopped with what it started (the server's executable outlives a plain kill on Windows). */
@@ -54,7 +52,20 @@ for (const [name, env] of Object.entries(runtimes)) {
   const errors = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   page.on("pageerror", (e) => errors.push(String(e)));
+  // When the dev server's last message arrived (its HMR socket), on the page's clock: the edit's time splits there.
+  await page.addInitScript(() => {
+    const Socket = window.WebSocket;
+    window.WebSocket = class extends Socket {
+      constructor(...a) {
+        super(...a);
+        this.addEventListener("message", () => (window.__lastMessage = performance.now()));
+      }
+    };
+  });
   await page.goto(url);
+  // A reload instead of a hot swap: counted (the state a hot swap keeps is lost then).
+  let reloads = 0;
+  page.on("load", () => reloads++);
   try {
     await page.waitForSelector("h1", { timeout: 60_000 });
   } catch (e) {
@@ -68,17 +79,32 @@ for (const [name, env] of Object.entries(runtimes)) {
   const cdp = profile ? await page.context().newCDPSession(page) : null;
   if (cdp) await cdp.send("Profiler.enable"), await cdp.send("Profiler.setSamplingInterval", { interval: 100 }), await cdp.send("Profiler.start");
   const times = [];
+  const servers = [];
+  const pages = [];
   for (let i = 0; i < +edits; i++) {
     const title = `Todos ${name} ${i}`;
+    const startedAt = await page.evaluate(() => performance.now());
     const t = performance.now();
     writeFileSync(file, source.replace("Todos Collab", title));
-    await page.waitForFunction((want) => document.querySelector("h1")?.textContent === want, title, { timeout: 30_000, polling: "raf" });
+    const shownAt = await (
+      await page.waitForFunction((want) => document.querySelector("h1")?.textContent === want && performance.now(), title, { timeout: 30_000, polling: "raf" })
+    ).jsonValue();
     times.push(performance.now() - t);
+    const messageAt = await page.evaluate(() => window.__lastMessage);
+    servers.push(messageAt - startedAt);
+    pages.push(shownAt - messageAt);
     // (Edits apart, as a person makes them.)
     await new Promise((r) => setTimeout(r, 300));
   }
   if (cdp) console.log(summary((await cdp.send("Profiler.stop")).profile, `hmr ${name}`));
-  rows[name] = { "edit to screen, median (ms)": Math.round(median(times)), "fastest (ms)": Math.round(Math.min(...times)), "slowest (ms)": Math.round(Math.max(...times)) };
+  rows[name] = {
+    "edit to screen, median (ms)": Math.round(median(times)),
+    "server: edit to message (ms)": Math.round(median(servers)),
+    "page: message to screen (ms)": Math.round(median(pages)),
+    "page reloads": reloads,
+    "fastest (ms)": Math.round(Math.min(...times)),
+    "slowest (ms)": Math.round(Math.max(...times)),
+  };
   await browser.close();
   stop(server);
   rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });

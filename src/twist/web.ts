@@ -1373,9 +1373,9 @@ export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc
           document.title = d.text == null ? "" : String(d.text);
           continue;
         }
-        // The warmed link becomes the stylesheet.
+        // The warmed link becomes the stylesheet; a resource link the server wrote already is taken over.
         const warm = d.tag === "link" && d.attrs.rel === "stylesheet" ? sheets.get(String(d.attrs.href))?.link : undefined;
-        const el = warm ?? document.createElement(d.tag);
+        const el = warm ?? (d.tag === "link" ? serverLink(d.attrs) : null) ?? document.createElement(d.tag);
         if (warm) el.removeAttribute("as");
         for (const k of Object.keys(d.attrs)) setAttribute(el, k, d.attrs[k]);
         if (d.text != null) el.textContent = String(d.text);
@@ -1388,6 +1388,26 @@ export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc
     for (const el of owned) el.remove();
     owned = [];
   });
+}
+
+const RESOURCE_RELS = new Set(["preload", "modulepreload", "prefetch", "preconnect", "dns-prefetch", "stylesheet"]);
+const QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
+/** A qualifier as resources compare it (Solid's rule): `as` lower case, any CORS spelling but credentials anonymous. */
+function qualifier(name: string, v: any): string | null {
+  if (v == null || v === false) return null;
+  if (name === "imagesrcset" || name === "imagesizes") return typeof v === "string" && v !== "" ? v : null;
+  const s = v === true ? "" : String(v);
+  if (name === "as") return s.toLowerCase();
+  if (name !== "crossorigin") return s;
+  return s.toLowerCase() === "use-credentials" ? "use-credentials" : "anonymous";
+}
+/** The head's resource link these attributes name (its href, or none for a source set, and the same qualifiers). */
+function serverLink(attrs: Record<string, any>): Element | null {
+  if (!RESOURCE_RELS.has(attrs.rel)) return null;
+  const href = attrs.href == null ? null : String(attrs.href);
+  for (const el of document.head.querySelectorAll(`link[rel="${attrs.rel}"]`))
+    if (el.getAttribute("href") === href && QUALIFIERS.every((q) => qualifier(q, attrs[q]) === qualifier(q, el.getAttribute(q)))) return el;
+  return null;
 }
 
 /** Stylesheets warming up, by href: a preload link, settled when it loads (or fails: shown anyway). */
