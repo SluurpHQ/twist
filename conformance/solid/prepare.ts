@@ -4,7 +4,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { compile } from "../../src/twist/compile.ts";
+import { compile } from "../../test/twist-compile.ts";
 
 const REF = process.env.SOLID_REF ?? "solid-js@2.0.0-rc.14";
 const here = import.meta.dir;

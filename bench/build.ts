@@ -4,7 +4,7 @@
 // for profiles.
 import { transformAsync } from "@babel/core";
 import { join } from "node:path";
-import { compile } from "../src/twist/compile.ts";
+import { compile } from "../test/twist-compile.ts";
 
 const src = join(import.meta.dir, "..", "src");
 type Plugin = { name: string; setup: (b: any) => void };
