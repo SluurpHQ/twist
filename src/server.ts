@@ -160,6 +160,12 @@ function browserError(u: any): Error {
   browserErrors.set(u, error);
   return error;
 }
+/** An abort's reason as a browser() bail-out, if it is one (a browser() value, or the error made for one already). */
+function browserReasonOf(reason: unknown): Error | null {
+  if (!reason || typeof reason !== "object") return null;
+  if ((reason as any).$$typeof === RECOVERABLE) return browserErrors.get(reason) ?? browserError(reason);
+  return isBrowserOnly(reason) ? (reason as Error) : null;
+}
 /** A browser() bail-out with no Suspense to give to the client: the shell fails with it (React's fatal clone). */
 function fatalBrowserError(e: any): Error {
   const fatal: any = new Error(
@@ -1974,7 +1980,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   expose?.(
     (reason?: unknown) => {
       if (renderingShell) {
-        shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
+        // (A browser() value: the bail-out error it stands for, made once.)
+        const browser = browserReasonOf(reason);
+        shared.aborted = { reason: browser ?? reason ?? new Error("The render was aborted by the server without a reason.") };
         // (Not in a resume whose shell was sent already: replaying it is not the shell's task.)
         if (!resumed && renderingIn?.streaming?.shared === shared && !renderingIn.container && !renderingIn.fallbackOf)
           (rootAborted = (shared as any).rootAborted = true), (abortedAt = stackText(renderingIn.stack));
@@ -1990,7 +1998,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   const abortShell = (reason: unknown, inFlight?: string, known?: Error | null, rootFirst = false) => {
     if (closed) return;
     // (A browser() reason is resolved once: its initializer runs once.)
-    const browserReason = known !== undefined ? known : reason && typeof reason === "object" && (reason as any).$typeof === RECOVERABLE ? browserError(reason) : null;
+    const browserReason = known !== undefined ? known : browserReasonOf(reason);
     const plain = reason ?? new Error("The render was aborted by the server without a reason.");
     let why: unknown = null;
     const tell = (inShell: boolean, at?: string) => {
@@ -2075,7 +2083,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     /** Stop waiting: what is still pending is left for the client to render. */
     abort(reason?: unknown) {
       if (closed) return;
-      const browserReason = reason && typeof reason === "object" && (reason as any).$$typeof === RECOVERABLE ? browserError(reason) : null;
+      const browserReason = browserReasonOf(reason);
       if (!shellDone) return abortShell(reason, undefined, browserReason);
       const why = browserReason ?? reason ?? new Error("The render was aborted by the server without a reason.");
       if (abortClaimed) return;
