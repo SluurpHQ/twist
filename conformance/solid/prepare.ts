@@ -75,6 +75,8 @@ await Bun.write(join(out, "web", "src", "client.js"), `export * from ${JSON.stri
 await Bun.write(join(out, "web", "src", "server.js"), `export * from ${JSON.stringify(twist("server.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "response.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "cookies.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);
+// (Specs that load the built server by path, `<cwd>/dist/server.js`: Twist's server.)
+await Bun.write(join(here, "dist", "server.js"), `export * from ${JSON.stringify(twist("server.ts"))};\n`);
 // The signals package's core entry is its public core too.
 mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
 await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);

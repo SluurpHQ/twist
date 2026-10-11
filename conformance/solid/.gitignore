@@ -1,4 +1,2 @@
 solid-tests/
-node_modules/
-report.json
-errors.txt
+dist/
