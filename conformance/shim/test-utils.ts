@@ -128,6 +128,8 @@ export async function waitFor(expected: unknown[]) {
   // (Transitions only when what is urgent has not logged it yet.)
   if (!performWork(() => logLength() >= expected.length)) {
     await drain(false);
+    // (Then a round of transitions at a time, stopping once it is logged, as React's scheduler stops between tasks.)
+    for (let i = 0; i < 1000 && logLength() < expected.length && flushTransitions(); i++) await drain(false);
     if (logLength() < expected.length) await drain();
   }
   const actual = unstable_clearLog();
