@@ -2814,6 +2814,8 @@ export function isPending(fn: () => unknown): boolean {
   const probe = new Computation<unknown>(MEMO, () => undefined);
   inEffectCallback = wasIn;
   probe.attached = false;
+  const viaLatest = new Set<Node>();
+  (probe as any).viaLatest = viaLatest;
   const outer = listener;
   if (outer) outer.track(status), (outer.verdictReader = true);
   // (Asked outside tracking in a strict scope: what it answers will not update there.)
@@ -2840,10 +2842,18 @@ export function isPending(fn: () => unknown): boolean {
   const was = pendingInside;
   pendingInside = ((outer as any)?.insideTx as Transaction | null | undefined)?.root ?? null;
   try {
-    return reads.some((s) => waiting(s));
+    return reads.some((s) => (viaLatest.has(s) ? ownWork(s) : waiting(s)));
   } finally {
     pendingInside = was;
   }
+}
+/** Work latest() would show: an answer still out at a computation or upstream (a held write is shown, not waited on). */
+function ownWork(n: Node, seen = new Set<Node>()): boolean {
+  if (!(n instanceof Computation) || seen.has(n)) return false;
+  seen.add(n);
+  if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming) return true;
+  for (const s of n.sources) if (ownWork(s, seen)) return true;
+  return false;
 }
 /** Whether the memo being read had a flight up before the read brought it up to date. */
 let flewBefore = false;
@@ -2855,11 +2865,15 @@ export function latest<T>(fn: () => T): T {
   latestCalls++;
   verdictReading++;
   inPass++;
+  // (Inside isPending: what it reads here is asked for its own work only.)
+  const via: Set<Node> | undefined = (listener as any)?.viaLatest;
+  const at = via ? listener!.sources.length : 0;
   try {
     return fn();
   } finally {
     inPass--;
     verdictReading--;
+    if (via) for (let i = at; i < listener!.sources.length; i++) via.add(listener!.sources[i]!);
   }
 }
 
