@@ -25,7 +25,7 @@ import { shareAsyncIterable } from "./server-internal.ts";
 import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
-import { applyAssetTracking, collectStreamStyles, createAssetTracking, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, serializeFragmentAssets, type AssetTracking } from "./server-assets.ts";
+import { applyAssetTracking, collectStreamStyles, createAssetTracking, nonceAttr, normalizeNonce, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, resourceIdentity, serializeFragmentAssets, type AssetTracking, type Nonce } from "./server-assets.ts";
 import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition } from "./server-slots.ts";
 export {
   RequestContext,
@@ -664,20 +664,29 @@ type Render = {
   tracking: AssetTracking;
   /** Stylesheets the shell's head carries (a fragment does not link them again). */
   headStyles: Set<string> | null;
+  nonce: Nonce | undefined;
 };
 
-/** The head with the render's asset links before `</head>` (no head, no links: as Solid). */
-function withHeadAssets(html: string, tracking: AssetTracking, nonce?: string): string {
+/**
+ * The head with the render's asset links before `</head>`. A page with no head (one embedded in the caller's
+ * document): what the head would carry goes to `onHead`, else nowhere.
+ */
+function withHeadAssets(html: string, tracking: AssetTracking, h: HeadRegistry | null, nonce?: Nonce, onHead?: (head: string) => void): string {
+  // (A head the page wrote as text, not rendered: no slot was filled, its tags go with the links.)
+  const tags = h && !h.placed ? h.resources.join("") + winners(h.groups.filter((g) => g.boundary === "")).map(headTag).join("") : "";
   const at = html.indexOf("</head>");
-  if (at === -1) return html;
-  const links = renderHeadAssets(tracking, nonce);
+  if (at === -1) {
+    onHead?.(tags + renderHeadAssets(tracking, nonce));
+    return html;
+  }
+  const links = tags + renderHeadAssets(tracking, nonce);
   return links ? html.slice(0, at) + links + html.slice(at) : html;
 }
 
 /** An asset registered during a render: in the head while the shell is to come, to the sink after. */
-function registerAssetIn(tracking: AssetTracking, shellSent: () => boolean, sink: Sink | null, type: string, value: any) {
+function registerAssetIn(tracking: AssetTracking, shellSent: () => boolean, sink: Sink | null, type: string, value: any, nonce?: Nonce) {
   if (type === "preload") {
-    const entry = preloadLink(tracking, value);
+    const entry = preloadLink(tracking, value, nonce);
     if (entry && shellSent()) sink?.asset("preload", entry);
     return;
   }
@@ -1271,7 +1280,7 @@ markBuiltin(Reveal);
 function script(r: Render, code: string) {
   const s = r.revealScript ? code : REVEAL + ";" + code;
   r.revealScript = true;
-  return `<script>${s}</script>`;
+  return `<script${nonceAttr(r.nonce, "script")}>${s}</script>`;
 }
 
 // ---------------------------------------------------------------- head (useHead)
@@ -1279,6 +1288,7 @@ function script(r: Render, code: string) {
 type HeadDesc = { tag: string; props?: Record<string, any>; key?: any };
 type HeadGroup = { boundary: string; tags: HeadDesc[] };
 type HeadRegistry = { groups: HeadGroup[]; resources: string[]; sent: Set<string>; placed: boolean };
+
 
 const HEAD_SLOT = "\u0000head\u0000";
 const HEAD_TAGS = new Set(["title", "meta", "link", "style", "script", "base"]);
@@ -1289,7 +1299,8 @@ let head: HeadRegistry | null = null;
 /** The Loading boundary rendering now ("" for the shell): what useHead registers belongs to it. */
 let headBoundary = "";
 
-const newHead = (): HeadRegistry => ({ groups: [], resources: [], sent: new Set(), placed: false });
+/** A render's head registry; `sent` is the render's resource identities, shared with its preloads. */
+const newHead = (sent: Set<string>): HeadRegistry => ({ groups: [], resources: [], sent, placed: false });
 
 /**
  * Tags for the page's head. Replaceable ones (a title, a meta by name, a canonical link…) resolve last-wins: in the
@@ -1341,8 +1352,9 @@ function isResource(d: HeadDesc) {
 const evalHead = (v: any) => (typeof v === "function" ? v() : v);
 
 function resourceId(d: HeadDesc) {
-  const p = d.props ?? {};
-  return "res:" + d.tag + ":" + (evalHead(p.rel) ?? "") + ":" + String(evalHead(p.href) ?? evalHead(p.src) ?? "");
+  const props: Record<string, unknown> = {};
+  for (const k in d.props) props[k] = evalHead(d.props[k]);
+  return resourceIdentity(d.tag, props);
 }
 
 /** Which tag a later one replaces: one title, one base, a meta by name, a link by rel and href; else its own. */
@@ -1429,7 +1441,7 @@ function headPatch(r: Render, id: string): string {
   if (!ops.length) return markup;
   const code = (r.headScript ? "" : HEAD_SCRIPT + ";") + "$dh(" + JSON.stringify(ops).replace(/</g, "\\u003c") + ")";
   r.headScript = true;
-  return markup + `<script>${code}</script>`;
+  return markup + `<script${nonceAttr(r.nonce, "script")}>${code}</script>`;
 }
 
 // ---------------------------------------------------------------- render entry points
@@ -1477,7 +1489,7 @@ function takeData(r: Render): string {
   const s = (r.headerSent ? "" : headerScript(r.options.renderId)) + r.data;
   r.headerSent = true;
   r.data = "";
-  return `<script>${s}</script>`;
+  return `<script${nonceAttr(r.nonce, "script")}>${s}</script>`;
 }
 
 function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?: boolean }, fn: () => T): T {
@@ -1541,11 +1553,12 @@ function renderRecord(ctx: any, mode: "string" | "stream") {
   };
 }
 
-export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean; manifest?: any; nonce?: string; onError?: (error: unknown, context: any) => unknown } = {}): string {
+export function renderToString(code: () => any, options: { renderId?: string; noHydrate?: boolean; manifest?: any; nonce?: string | { script?: string; style?: string }; onHead?: (head: string) => void; onError?: (error: unknown, context: any) => unknown } = {}): string {
   const wasHead = head;
   const wasCtx = stringCtx;
-  head = newHead();
   const tracking = createAssetTracking();
+  head = newHead(tracking.resources);
+  const nonce = normalizeNonce(options.nonce);
   const ctx = (stringCtx = stringContext(options.renderId ?? "")) as any;
   ctx.errorPolicy = options.onError;
   fileRequestHook(options.onError);
@@ -1558,7 +1571,7 @@ export function renderToString(code: () => any, options: { renderId?: string; no
     written.add(id);
     serializer.write(id, v);
   };
-  ctx.registerAsset = (type: string, value: unknown) => registerAssetIn(tracking, () => false, null, type, value);
+  ctx.registerAsset = (type: string, value: unknown) => registerAssetIn(tracking, () => false, null, type, value, nonce);
   applyAssetTracking(ctx, tracking, options.manifest);
   ctx.trace = traceOfRender(ctx);
   const record = renderRecord(ctx, "string");
@@ -1571,8 +1584,8 @@ export function renderToString(code: () => any, options: { renderId?: string; no
           try {
             // (No head rendered: no page to look through for one.)
             const page = fillHead(html(code(), false), head!, false) as string;
-            const out = head!.placed ? withHeadAssets(page, tracking, options.nonce) : page;
-            return data ? out + `<script>${headerScript(options.renderId)}${data}</script>` : out;
+            const out = withHeadAssets(page, tracking, head, nonce, options.onHead);
+            return data ? out + `<script${nonceAttr(nonce, "script")}>${headerScript(options.renderId)}${data}</script>` : out;
           } catch (e) {
             // A render that fails: the hook hears it (the request fails), then the caller.
             reportServerError(e, { kind: "render", handling: "failed" }, null, options.onError);
@@ -1653,7 +1666,7 @@ function streamContext(r: Render, options: StreamOptions) {
     },
     replace() {},
     registerAsset(type: string, value: unknown) {
-      registerAssetIn(r.tracking, () => r.shellSent, r.sink, type, value);
+      registerAssetIn(r.tracking, () => r.shellSent, r.sink, type, value, r.nonce);
     },
     /** A fragment of the caller's: its record serialized now, its content to the sink when given. */
     registerFragment(key: string, opts?: { revealGroup?: string }) {
@@ -1663,10 +1676,14 @@ function streamContext(r: Render, options: StreamOptions) {
       record.catch(() => {});
       r.serializer?.write(key + "_fr", record);
       let done = false;
+      // (The stream stays open until it is done.)
+      r.holds++;
       return (value?: string, error?: unknown) => {
         if (done) return r.shellSent;
         done = true;
-        r.sink.fragment(key, value !== undefined ? value : " ", { styles: { inline: [], links: [] }, revealGroup: opts?.revealGroup, error });
+        r.holds--;
+        serializeFragmentAssets(key, r.tracking, r.ctx);
+        r.sink.fragment(key, value !== undefined ? value : " ", { styles: collectStreamStyles(key, r.tracking, r.headStyles), revealGroup: opts?.revealGroup, error });
         queueMicrotask(() => (error ? fail(error) : settle(true)));
         r.wake?.();
         return r.shellSent;
@@ -1691,11 +1708,13 @@ function streamContext(r: Render, options: StreamOptions) {
 type StreamOptions = {
   renderId?: string;
   noHydrate?: boolean;
-  nonce?: string;
+  nonce?: string | { script?: string; style?: string };
   onCompleteShell?: (info: { write: (chunk: string) => void }) => void;
   onCompleteAll?: (info: { write: (chunk: string) => void }) => void;
   /** A sink of the caller's in place of the document (what the render makes goes there). */
   sink?: Partial<Sink>;
+  /** Where the head goes when the page has none (a render embedded in the caller's document). */
+  onHead?: (head: string) => void;
   /** The serializer data is written with (the hydration serializer by default). */
   serializer?: (options: any) => any;
   plugins?: any[];
@@ -1708,7 +1727,8 @@ type StreamOptions = {
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: StreamOptions = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: newHead(), data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: null as any, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null, nonce: normalizeNonce(options.nonce) };
+  r.head = newHead(r.tracking.resources);
   // Its hook is its request's: a server function the request calls later reports to it.
   fileRequestHook(options.onError);
   // The document: html text, data as script, each fragment as a template and its reveal.
@@ -1718,7 +1738,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     fragment: (key, value, meta) => {
       const styles = meta.styles ?? { inline: [], links: [] };
       let out = takeData(r) + (meta.patch ?? "");
-      for (const entry of styles.inline) out += renderInlineStyle(entry, options.nonce);
+      for (const entry of styles.inline) out += renderInlineStyle(entry, r.nonce);
       if (styles.links.length) {
         out += script(r, `$dfs("${key}",${styles.links.length},${meta.revealGroup ? 1 : 0})`) + `<template id="${key}">${value}</template>`;
         for (const entry of styles.links)
@@ -1730,10 +1750,10 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     asset(type, value: any) {
       if (type === "module") r.chunks.push(`<link rel="modulepreload" href="${value}">`);
       else if (type === "preload") r.chunks.push(`<link${value.attrHtml}>`);
-      else if (type === "inline-style") r.chunks.push(renderInlineStyle(value, options.nonce));
+      else if (type === "inline-style") r.chunks.push(renderInlineStyle(value, r.nonce));
       else if (type === "head-tag") r.chunks.push(value);
     },
-    shell: (html) => void (documentShell = withHeadAssets(html, r.tracking, options.nonce) + takeData(r)),
+    shell: (html) => void (documentShell = withHeadAssets(html, r.tracking, r.head, r.nonce, options.onHead) + takeData(r)),
   };
   r.sink = { ...documentSink, ...options.sink } as Sink;
   r.ctx = streamContext(r, options);
@@ -1865,7 +1885,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       rendering(r, options, () => {
         serializeFragmentAssets("", r.tracking, r.ctx, options.renderId ?? "");
         r.headStyles = new Set([...r.tracking.emittedAssets].filter((u) => !r.tracking.currentBoundaryId && u.endsWith(".css")));
-        r.sink.shell(inlineFragments(r, s), {});
+        r.sink.shell(inlineFragments(r, s), { preloads: r.tracking.emittedAssets, preloadLinks: r.tracking.preloadLinks });
       });
       shell = documentShell;
       shellSent = true;

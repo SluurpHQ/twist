@@ -7,7 +7,48 @@ export type AssetManifest = Record<string, ManifestEntry> & { _base?: string };
 export type ResolvedAssets = { js: string[]; css: (string | InlineStyle)[]; preloads?: Record<string, unknown>[] };
 type InlineStyle = { id: string; content?: string; attrs?: Record<string, unknown> };
 type InlineEntry = { id: string; content: string; attrs?: Record<string, unknown>; emitted: boolean };
-export type PreloadEntry = { href?: string; attrHtml: string };
+export type PreloadEntry = { href?: string; attrs: Record<string, string>; attrHtml: string };
+
+/** A render's CSP nonce: one for both, or one per destination (scripts, styles), with their attribute text. */
+export type Nonce = { script?: string; style?: string; scriptAttr: string; styleAttr: string };
+export function normalizeNonce(nonce: unknown): Nonce | undefined {
+  if (nonce == null) return undefined;
+  if (typeof nonce === "string") {
+    const attr = nonce ? ` nonce="${attrEscape(nonce)}"` : "";
+    return { script: nonce, style: nonce, scriptAttr: attr, styleAttr: attr };
+  }
+  const { script, style } = nonce as { script?: string; style?: string };
+  if (!script && !style) return undefined;
+  const attr = (v: unknown) => (typeof v === "string" && v ? ` nonce="${attrEscape(v)}"` : "");
+  return { script, style, scriptAttr: attr(script), styleAttr: attr(style) };
+}
+export const nonceAttr = (nonce: Nonce | undefined, destination: "script" | "style" | null) =>
+  !nonce || !destination ? "" : destination === "script" ? nonce.scriptAttr : nonce.styleAttr;
+
+/** ASCII lower case (HTML compares rel and as that way). */
+export const asciiLowerCase = (v: string) => v.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+
+/** Attributes that make another request of the same URL (not integrity, referrer policy or priority). */
+const RESOURCE_QUALIFIERS = ["as", "crossorigin", "type", "media", "imagesrcset", "imagesizes"];
+/** One qualifier as the request sees it: false is absent, crossorigin is anonymous or use-credentials, as folds case. */
+function qualifierValue(name: string, value: unknown): string | null {
+  if (value == null || value === false) return null;
+  if (name === "imagesrcset" || name === "imagesizes") return typeof value === "string" && value !== "" ? value : null;
+  const v = value === true ? "" : String(value);
+  if (name === "as") return asciiLowerCase(v);
+  if (name !== "crossorigin") return v;
+  return v.toLowerCase() === "use-credentials" ? "use-credentials" : "anonymous";
+}
+/** A resource tag's identity: URL and qualifiers, length-prefixed so no value can forge another. */
+export function resourceIdentity(tag: string, props: Record<string, unknown>) {
+  const url = String(props.href || props.src || "");
+  let id = "res:" + tag + ":" + (props.rel || "") + ":" + url.length + ":" + url;
+  for (const q of RESOURCE_QUALIFIERS) {
+    const v = qualifierValue(q, props[q]);
+    if (v !== null) id += ":" + q + "=" + v.length + ":" + v;
+  }
+  return id;
+}
 
 function joinAssetPath(base: unknown, file: string) {
   if (/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(file)) return file;
@@ -15,6 +56,30 @@ function joinAssetPath(base: unknown, file: string) {
   if (b[b.length - 1] !== "/") b += "/";
   return b + (file[0] === "/" ? file.slice(1) : file);
 }
+
+/** Each candidate of a source set: its URL (commas inside it kept) and its descriptors. */
+function eachCandidate(srcset: string, visit: (url: string, descriptors: string) => boolean) {
+  let i = 0;
+  const n = srcset.length;
+  while (i < n) {
+    while (i < n && /[\s,]/.test(srcset[i]!)) i++;
+    const start = i;
+    while (i < n && !/\s/.test(srcset[i]!)) i++;
+    if (i === start) return false;
+    const raw = srcset.slice(start, i);
+    const url = raw.replace(/,+$/, "");
+    let descriptors = "";
+    if (url === raw) {
+      const from = i;
+      while (i < n && srcset[i] !== ",") i++;
+      descriptors = srcset.slice(from, i);
+    }
+    if (url && visit(url, descriptors)) return true;
+  }
+  return false;
+}
+const hasRelativeCandidate = (srcset: string) => eachCandidate(srcset, (url) => !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/)/.test(url));
+const hasWidthDescriptor = (srcset: string) => eachCandidate(srcset, (_, d) => /(?:^|\s)\d+(?:\.\d+)?w(?=\s|$)/.test(d));
 
 /** A module's client assets from a manifest: its file and imports' files, their css, their preloads. */
 export function resolveAssets(moduleUrl: string, manifest: AssetManifest | null | undefined): ResolvedAssets | null {
@@ -35,8 +100,21 @@ export function resolveAssets(moduleUrl: string, manifest: AssetManifest | null 
     if (e.preloads)
       for (const link of e.preloads) {
         const href = typeof link?.href === "string" && link.href;
-        if (!href && !(typeof link?.imagesrcset === "string" && link.imagesrcset)) continue;
-        (preloads ??= []).push(href ? { ...link, href: joinAssetPath(base, href) } : (({ href: _, ...rest }) => rest)(link));
+        const srcset = typeof link?.imagesrcset === "string" && link.imagesrcset;
+        if (!href && !srcset) continue;
+        if (href) (preloads ??= []).push({ ...link, href: joinAssetPath(base, href) });
+        else {
+          // (An unusable href is left out, not the source set with it.)
+          const { href: bad, ...rest } = link;
+          if (bad !== undefined) preloadCheck("Preload href must be a non-empty string; dropping it.", "href", bad);
+          (preloads ??= []).push(rest);
+        }
+        if (srcset && hasRelativeCandidate(srcset))
+          preloadCheck(
+            "imagesrcset candidates are not joined with the manifest base — they resolve against the document URL, so a relative candidate points somewhere else than the joined href; the integration should emit resolved URLs.",
+            "imagesrcset",
+            srcset,
+          );
       }
     if (e.imports) for (const i of e.imports) walk(i);
   };
@@ -68,14 +146,15 @@ export function createAssetTracking() {
   const boundaryStyles = new Map<string, Set<string | InlineEntry>>();
   const emittedAssets = new Set<string>();
   const inlineStyles = new Map<string, InlineEntry>();
-  const preloadLinks: PreloadEntry[] = [];
   let currentBoundaryId: string | null = null;
   return {
     boundaryModules,
     boundaryStyles,
     emittedAssets,
     inlineStyles,
-    preloadLinks,
+    preloadLinks: null as PreloadEntry[] | null,
+    /** Resource identities emitted (preloads and useHead's resources alike). */
+    resources: new Set<string>(),
     registerInlineStyle(desc: InlineStyle) {
       let entry = inlineStyles.get(desc.id);
       if (!entry) inlineStyles.set(desc.id, (entry = { id: desc.id, content: desc.content || "", attrs: desc.attrs, emitted: false }));
@@ -149,58 +228,109 @@ export function isCssUrl(url: string) {
   return (q === -1 ? url : url.slice(0, q)).endsWith(".css");
 }
 
-/** What a preload can be fetched as (browsers ignore the rest). */
-const PRELOAD_DESTINATIONS = new Set(["fetch", "font", "image", "script", "style", "track"]);
-const preloadCheck = (message: string, field: string, value: unknown) =>
-  devCheck({ code: "PRELOAD_DESCRIPTOR_INVALID", kind: "head", severity: "warn", message: "[PRELOAD_DESCRIPTOR_INVALID] " + message, data: { field, value } });
+const preloadCheck = (message: string, field: string, value?: unknown) =>
+  devCheck({ code: "PRELOAD_DESCRIPTOR_INVALID", kind: "head", severity: "warn", message: "[PRELOAD_DESCRIPTOR_INVALID] " + message, data: value === undefined ? { field } : { field, value } });
 const PRELOAD_ATTRIBUTES = ["type", "crossorigin", "integrity", "referrerpolicy", "fetchpriority", "media", "imagesrcset", "imagesizes"];
 const attrEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+/** Given at all: "" and false are not (crossorigin's "" is, so only the responsive pair asks this). */
+const isSet = (v: unknown) => v != null && v !== false && v !== "";
 
-/** A `<link rel="preload">` for a descriptor (once per href), or null when it is not one. */
-export function preloadLink(tracking: AssetTracking, link: any): PreloadEntry | null {
-  if (!link || typeof link !== "object" || typeof link.as !== "string") {
-    devCheck({ code: "PRELOAD_DESCRIPTOR_INVALID", kind: "head", severity: "warn", message: '[PRELOAD_DESCRIPTOR_INVALID] registerAsset("preload") requires a descriptor object with an as destination.' });
+/**
+ * A `<link rel="preload">` for a descriptor, or null when it is not one (or one with its identity is out already).
+ * The destination decides first whether a source set counts; a responsive attribute off an image is dropped, not the
+ * link.
+ */
+export function preloadLink(tracking: AssetTracking, link: any, nonce?: Nonce): PreloadEntry | null {
+  if (!link || typeof link !== "object") {
+    preloadCheck('registerAsset("preload") requires a descriptor object.', "descriptor", link);
     return null;
   }
+  if (typeof link.as !== "string") {
+    preloadCheck('registerAsset("preload") requires an as destination.', "as");
+    return null;
+  }
+  const as = asciiLowerCase(link.as);
+  let destination: "script" | "style" | null = null;
+  if (as === "script" || as === "style") destination = as;
+  else if (as !== "fetch" && as !== "font" && as !== "image" && as !== "track") {
+    preloadCheck(`registerAsset("preload") received an unsupported as destination "${link.as}".`, "as", link.as);
+    return null;
+  }
+  const image = as === "image";
+  if (!image && (isSet(link.imagesrcset) || isSet(link.imagesizes)))
+    preloadCheck('registerAsset("preload") only supports imagesrcset and imagesizes with as="image".', isSet(link.imagesrcset) ? "imagesrcset" : "imagesizes");
+  let srcset: string | null = null;
+  let sizes: string | null = null;
+  if (image)
+    for (const name of ["imagesrcset", "imagesizes"]) {
+      const v = link[name];
+      if (!isSet(v)) continue;
+      if (typeof v !== "string") {
+        preloadCheck(`registerAsset("preload") expects a string ${name}.`, name, v);
+        continue;
+      }
+      if (name === "imagesrcset") srcset = v;
+      else sizes = v;
+    }
   const href = typeof link.href === "string" && link.href ? link.href : null;
-  if (!href && !(typeof link.imagesrcset === "string" && link.imagesrcset)) {
-    preloadCheck("a preload descriptor needs an href (or an imagesrcset): skipped", "href", link.href);
+  if (!href && link.href != null && link.href !== false) preloadCheck("Preload href must be a non-empty string; dropping it.", "href", link.href);
+  if (!href && !srcset) {
+    preloadCheck('registerAsset("preload") requires a non-empty string href or imagesrcset.', "href");
     return null;
   }
-  const as = link.as.toLowerCase();
-  if (!PRELOAD_DESTINATIONS.has(as)) {
-    preloadCheck(`unsupported as destination "${as}": skipped`, "as", as);
-    return null;
-  }
+  if (srcset && !sizes && hasWidthDescriptor(srcset))
+    preloadCheck(
+      "imagesrcset uses a width descriptor, so imagesizes is required; without it the source size defaults to 100vw and the preload may not match the image.",
+      "imagesizes",
+      srcset,
+    );
   const props: Record<string, string> = { rel: "preload" };
   if (href) props.href = href;
   props.as = as;
   for (const name of PRELOAD_ATTRIBUTES) {
+    if (name === "imagesrcset" || name === "imagesizes") {
+      const v = name === "imagesrcset" ? srcset : sizes;
+      if (v !== null) props[name] = v;
+      continue;
+    }
     const v = link[name];
     if (v == null || v === false) continue;
     props[name] = v === true ? "" : String(v);
   }
+  const identity = resourceIdentity("link", props);
+  if (tracking.resources.has(identity)) return null;
+  if (props.crossorigin == null && (as === "font" || as === "fetch"))
+    preloadCheck(`registerAsset("preload") with as="${as}" has no crossorigin and may not match the eventual request.`, "crossorigin");
+  const attrs: Record<string, string> = {};
   let attrHtml = "";
-  for (const name in props) attrHtml += props[name] === "" ? ` ${name}` : ` ${name}="${attrEscape(props[name]!)}"`;
-  if (tracking.preloadLinks.some((p) => p.attrHtml === attrHtml)) return null;
-  const entry = { href: props.href, attrHtml };
-  tracking.preloadLinks.push(entry);
+  for (const name in props) {
+    attrHtml += ` ${name}="${attrEscape(props[name]!)}"`;
+    if (name !== "rel" && name !== "href") attrs[name] = props[name]!;
+  }
+  const n = destination && nonce?.[destination];
+  if (typeof n === "string" && n) attrs.nonce = n;
+  const entry = { href: props.href, attrs, attrHtml: attrHtml + nonceAttr(nonce, destination) };
+  tracking.resources.add(identity);
+  (tracking.preloadLinks ??= []).push(entry);
   return entry;
 }
 
-export function renderInlineStyle(entry: InlineEntry, nonce?: string) {
+export function renderInlineStyle(entry: InlineEntry, nonce?: Nonce) {
   let attrs = "";
-  if (entry.attrs) for (const name in entry.attrs) attrs += ` ${name}="${attrEscape(String(entry.attrs[name]))}"`;
-  const n = nonce ? ` nonce="${attrEscape(nonce)}"` : "";
-  return `<style${n} data-asset="${attrEscape(entry.id)}"${attrs}>${entry.content.replace(/<\/(style)/gi, "<\\/$1")}</style>`;
+  let own = false;
+  if (entry.attrs)
+    for (const name in entry.attrs) {
+      if (asciiLowerCase(name) === "nonce") own = true;
+      attrs += ` ${name}="${attrEscape(String(entry.attrs[name]))}"`;
+    }
+  return `<style${own ? "" : nonceAttr(nonce, "style")} data-asset="${attrEscape(entry.id)}"${attrs}>${entry.content.replace(/<\/(style)/gi, "<\\/$1")}</style>`;
 }
 
 /** The head's links: modules preloaded, stylesheets, preload hints, then inline styles not emitted yet. */
-export function renderHeadAssets(tracking: AssetTracking, nonce?: string) {
+export function renderHeadAssets(tracking: AssetTracking, nonce?: Nonce) {
   let head = "";
-  const n = nonce ? ` nonce="${attrEscape(nonce)}"` : "";
-  for (const url of tracking.emittedAssets) head += isCssUrl(url) ? `<link rel="stylesheet" href="${url}"${n}>` : `<link rel="modulepreload" href="${url}"${n}>`;
-  for (const entry of tracking.preloadLinks) head += `<link${entry.attrHtml}>`;
+  for (const url of tracking.emittedAssets) head += isCssUrl(url) ? `<link rel="stylesheet" href="${url}"${nonceAttr(nonce, "style")}>` : `<link rel="modulepreload" href="${url}"${nonceAttr(nonce, "script")}>`;
+  if (tracking.preloadLinks) for (const entry of tracking.preloadLinks) head += `<link${entry.attrHtml}>`;
   for (const entry of tracking.inlineStyles.values()) {
     if (entry.emitted) continue;
     entry.emitted = true;
