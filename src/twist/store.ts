@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -35,9 +35,69 @@ class Record_ {
 const records = new WeakMap<object, Record_>();
 const recordOf = (target: Raw) => {
   let r = records.get(target);
-  if (!r) records.set(target, (r = new Record_(target)));
+  if (!r) records.set(target, (r = new Record_(target))), useStoreMarks(storeMarks);
   return r;
 };
+
+/**
+ * What affects() marks on a store: a slot's node, or (no key) the record's own and every key's node under it, nested
+ * records included, as they stand now (later records are not covered). Null for anything not a store.
+ */
+/** Keyed affects() marks, by object and key. */
+const keyMarks = new WeakMap<Raw, Map<PropertyKey, { affected: number }>>();
+function markCell(raw: Raw, key: PropertyKey) {
+  let m = keyMarks.get(raw);
+  if (!m) keyMarks.set(raw, (m = new Map()));
+  let c = m.get(key);
+  if (!c) m.set(key, (c = { affected: 0 }));
+  return c;
+}
+/** A derived store's object → the source store's it takes its values from (and back): marks there show through it. */
+const derivedFrom = new WeakMap<Raw, Raw>();
+const derivedTo = new WeakMap<Raw, Set<Raw>>();
+function linkFamily(derived: Raw, source: Raw) {
+  if (derived === source || derivedFrom.get(derived) === source) return;
+  derivedFrom.set(derived, source);
+  let to = derivedTo.get(source);
+  if (!to) derivedTo.set(source, (to = new Set()));
+  to.add(derived);
+}
+/** Keyed marks on `key` of `raw` or of what it derives from. */
+function keyMarked(raw: Raw, key: PropertyKey): number {
+  let n = 0;
+  for (let r: Raw | undefined = raw; r; r = derivedFrom.get(r)) n += keyMarks.get(r)?.get(key)?.affected ?? 0;
+  return n;
+}
+
+function storeMarks(target: unknown, key: PropertyKey | undefined): KeyNode[] | null {
+  const t = (target as any)?.[$TARGET] as Raw | undefined;
+  if (t === undefined) return null;
+  // (Keyed: a mark on the key itself, so a node made later, here or in a derived store, has it too.)
+  if (key !== undefined) return [markCell(t, key) as any];
+  const out: KeyNode[] = [];
+  const seen = new Set<object>();
+  const walk = (raw: Raw) => {
+    if (seen.has(raw)) return;
+    seen.add(raw);
+    out.push(recordOf(raw).keys);
+    // (Keys as the record shows them now: what was written this tick, optimistic writes included.)
+    const keys = new Set<PropertyKey>(Reflect.ownKeys(raw));
+    const r = records.get(raw)!;
+    for (const k of r.pending?.keys() ?? []) keys.add(k);
+    for (const k of r.overlay?.keys() ?? []) keys.add(k);
+    for (const k of r.guessing?.keys() ?? []) keys.add(k);
+    for (const k of keys) {
+      out.push(node(raw, k));
+      // (An optimistic write parked for the flush is what the record will show: walked into too.)
+      const v = unwrap(r.guessing?.has(k) ? r.guessing.get(k) : viewGet(raw, k));
+      if (v && typeof v === "object") walk(v as Raw);
+    }
+    // Stores derived from this one show what it shows: theirs marked too.
+    for (const d of derivedTo.get(raw) ?? []) walk(d);
+  };
+  walk(t);
+  return out;
+}
 
 /** A key's node: read tracked, bumped when a flushed write changes the key. The record's key-set node also carries
  * the record's writes into the flush, and commits them there. */
@@ -47,6 +107,14 @@ class KeyNode extends Signal<number> {
   seq = 0;
   constructor(public record: Record_, public key: PropertyKey) {
     super(0, { equals: false, ownedWrite: true });
+  }
+  /** affects() marks on it: its own (a keyless mark's snapshot), and keyed ones on its key here or upstream. */
+  private ownAffected = 0;
+  get affected() {
+    return this.ownAffected + keyMarked(this.record.target, this.key);
+  }
+  set affected(n: number) {
+    this.ownAffected = n;
   }
   override commit() {
     this.settle();
@@ -524,7 +592,10 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // An async derive's answers are reconciled as they land (onTake, below): the memo flies on its promise or generator.
     if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return r;
-    if (r !== undefined) reconcileInto(target, unwrap(r) as Raw, key);
+    if (r !== undefined) {
+      if (unwrap(r) !== r) linkFamily(target, unwrap(r) as Raw);
+      reconcileInto(target, unwrap(r) as Raw, key);
+    }
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
     // The same answer each run: readers are told by the keys that changed, not by the derive having run.
@@ -536,6 +607,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     if (traced) promoteWrites(new Set()), queueMicrotask(changed);
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
+    if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
     reconcileInto(target, unwrap(v) as Raw, key);
     promoteWrites(before);
   });

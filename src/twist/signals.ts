@@ -1847,7 +1847,8 @@ function drain() {
     tellStatus();
     if (uncaught.length) throw uncaught.splice(0)[0];
     if (pendingErrors.length) for (const f of pendingErrors.splice(0)) f();
-    if (applies[RENDER].length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
+    // (Status readers told this round compute again first: one apply, with the verdict as it ends.)
+    if (applies[RENDER].length && !dirty.length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
     if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
     if (settledQueue.length && !writes.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) for (const f of settledQueue.splice(0)) f();
     // Optimistic values written outside an action: shown for this flush, then the truth again.
@@ -2977,19 +2978,52 @@ export function createTrackedEffect(fn: () => void | (() => void)) {
 }
 
 /** Declares that the work in progress will change `target`: it reads as pending until that work lands. */
-export function affects(target: unknown, _key?: PropertyKey) {
-  const c = sourceOf(target);
+export function affects(target: unknown, key?: PropertyKey) {
+  if (arguments.length > 2)
+    invalidAffects('affects() takes a single optional key — extra keys are not a path. Mark each slot with its own affects(record, key) call, or pass the nested record itself: affects(state.user, "name").');
   const tx = acting?.tx;
-  if (!c) return;
+  // A store: the slot's node, or the record and every node under it (store.ts says which).
+  const marked = storeMarks?.(target, key);
+  const c = sourceOf(target);
+  if (marked) {
+    // A derived store as a whole: its derive, which everything read through it (and through stores derived from it)
+    // depends on; its next refresh, outside an action, a declared reload.
+    if (c && key === undefined) {
+      // (Outside an action, its declared reload's flight holds the slots' marks.)
+      if (!tx) return ((c as any).declared = true), markAffected(marked, null, c);
+      marked.push(c);
+    }
+    return markAffected(marked, tx ?? null);
+  }
+  if (!c) return invalidAffects("affects() expects a Solid source accessor or a store. Pass the store proxy (optionally with a property key) or the original accessor, not a wrapper function or an already-read value.");
+  if (key !== undefined) invalidAffects("affects() keys are only valid on store targets. An accessor is a single slot — pass it alone, or target the store record that owns the property.");
   // Outside an action: the next refresh of it is a declared reload.
-  if (!tx) return void ((c as any).declared = true);
-  (c as any).affected = ((c as any).affected ?? 0) + 1;
+  if (!tx) (c as any).declared = true;
+  markAffected([c], tx ?? null);
+}
+/** Nodes declared affected: their readers pend until the action's transaction ends (outside one, the flush). */
+function markAffected(nodes: Node[], tx: Transaction | null, holder?: Node) {
+  for (const n of nodes) (n as any).affected = ((n as any).affected ?? 0) + 1;
   statusChanged();
-  tx.ends.push(() => {
-    (c as any).affected--;
+  const release = () => {
+    for (const n of nodes) (n as any).affected--;
     statusChanged();
+  };
+  if (tx) return endWith(tx, release);
+  // Outside an action: to the flush's end, or (a marked node's answer in flight: a declared reload) to its landing.
+  endWith(null, () => {
+    const flying = [holder, ...nodes].find((n) => n instanceof Computation && n.flight) as Computation<any> | undefined;
+    flying?.settles ? flying.settles.then(release, release) : release();
   });
 }
+function invalidAffects(detail: string): never {
+  const message = "[INVALID_AFFECTS_TARGET] " + detail;
+  if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "INVALID_AFFECTS_TARGET", kind: "write", severity: "error", message });
+  throw new Error(message);
+}
+/** What a store target marks (given by store.ts when its first record is made: none, and there is no store). */
+let storeMarks: ((target: unknown, key: PropertyKey | undefined) => Node[] | null) | null = null;
+export const useStoreMarks = (f: typeof storeMarks) => void (storeMarks = f);
 
 // ---------------------------------------------------------------- the client error hook, ids, reactions
 
