@@ -27,8 +27,13 @@ class Record_ {
   overlay: Map<PropertyKey, { v: any; tx: Transaction | null }> | null = null;
   /** Optimistic writes waiting for the next flush. */
   guessing: Map<PropertyKey, any> | null = null;
+  /** What it holds: the given object until the first write, then a private copy (the given one never changes). */
+  own: Raw;
+  /** Whether `own` is its private copy yet. */
+  copied = false;
   constructor(public target: Raw) {
     this.keys = new KeyNode(this, $TRACK);
+    this.own = target;
   }
 }
 
@@ -41,6 +46,46 @@ const recordOf = (target: Raw) => {
   if (!r) records.set(target, (r = new Record_(target))), useStoreMarks(storeMarks);
   return r;
 };
+/** What a store object holds now. */
+const own = (target: Raw): Raw => records.get(target)?.own ?? target;
+/** Its private copy, made at the first write (copy on write: the object the store was given stays as it was). */
+function mine(target: Raw): Raw {
+  const r = recordOf(target);
+  if (r.copied) return r.own;
+  const from = r.own;
+  const descs = Object.getOwnPropertyDescriptors(from) as Record<PropertyKey, PropertyDescriptor>;
+  let copy: Raw;
+  if (Array.isArray(from)) {
+    delete descs.length;
+    copy = Object.defineProperties(new Array(from.length), descs);
+  } else copy = Object.create(Object.getPrototypeOf(from), descs);
+  r.copied = true;
+  return (r.own = copy);
+}
+
+/** A derived store's objects: each given object's shell there, by the object. */
+class Family {
+  map = new WeakMap<object, Raw>();
+  /** `v`'s shell in this family (another store's object, held live, as it is). */
+  shell(v: any, root = false): any {
+    if (!isWrappable(v)) return v;
+    const fam = families.get(v);
+    if (fam === this) return v;
+    let t = this.map.get(v);
+    if (t) return t;
+    if (!root && (fam || proxies.has(v))) return v;
+    t = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
+    families.set(t!, this);
+    this.map.set(v, t!);
+    recordOf(t!).own = v;
+    return t;
+  }
+}
+const families = new WeakMap<object, Family>();
+/** A value read from `target`, as its store holds it: in a derived store, its shell there. */
+const child = (target: Raw, v: any) => (v && typeof v === "object" ? (families.get(target)?.shell(v) ?? v) : v);
+/** Whether two values of `target`'s are the same (an object and its shell there are). */
+const same = (target: Raw, a: any, b: any) => Object.is(a, b) || (a && b && typeof a === "object" && typeof b === "object" && families.has(target) && child(target, a) === child(target, b));
 
 /**
  * What affects() marks on a store: a slot's node, or (no key) the record's own and every key's node under it, nested
@@ -84,15 +129,15 @@ function storeMarks(target: unknown, key: PropertyKey | undefined): KeyNode[] | 
     seen.add(raw);
     out.push(recordOf(raw).keys);
     // (Keys as the record shows them now: what was written this tick, optimistic writes included.)
-    const keys = new Set<PropertyKey>(Reflect.ownKeys(raw));
     const r = records.get(raw)!;
+    const keys = new Set<PropertyKey>(Reflect.ownKeys(r.own));
     for (const k of r.pending?.keys() ?? []) keys.add(k);
     for (const k of r.overlay?.keys() ?? []) keys.add(k);
     for (const k of r.guessing?.keys() ?? []) keys.add(k);
     for (const k of keys) {
       out.push(node(raw, k));
       // (An optimistic write parked for the flush is what the record will show: walked into too.)
-      const v = unwrap(r.guessing?.has(k) ? r.guessing.get(k) : viewGet(raw, k));
+      const v = child(raw, unwrap(r.guessing?.has(k) ? r.guessing.get(k) : viewGet(raw, k)));
       if (v && typeof v === "object") walk(v as Raw);
     }
     // Stores derived from this one show what it shows: theirs marked too.
@@ -132,7 +177,7 @@ class KeyNode extends Signal<number> {
   }
   override promote() {
     if (this.raw !== NO_RAW) {
-      const t = this.record.target;
+      const t = mine(this.record.target);
       const desc = Object.getOwnPropertyDescriptor(t, this.key);
       if (this.raw === DELETE) delete t[this.key];
       else if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(t, this.key, { ...desc, value: this.raw });
@@ -147,20 +192,24 @@ const NO_RAW: unique symbol = Symbol("no-raw");
 
 /** `target[key]` in the world being read: a staged write where the reader sees it, else the object's. */
 function rawGet(target: Raw, key: PropertyKey): any {
-  const n = seenStaged(target, key);
-  if (!n) return target[key];
+  const r = records.get(target);
+  if (!r) return target[key];
+  const n = r.nodes.get(key);
+  if (!n || n.raw === NO_RAW || n.current() === n.value) return r.own[key];
   return n.raw === DELETE ? undefined : n.raw;
 }
 function rawHas(target: Raw, key: PropertyKey): boolean {
-  const n = seenStaged(target, key);
-  if (!n) return key in target;
+  const r = records.get(target);
+  if (!r) return key in target;
+  const n = r.nodes.get(key);
+  if (!n || n.raw === NO_RAW || n.current() === n.value) return key in r.own;
   return n.raw !== DELETE;
 }
 /** The keys in the world being read: the object's, with the staged additions and removals the reader sees. */
 function rawKeys(target: Raw): (string | symbol)[] {
   const r = records.get(target);
-  const own = Reflect.ownKeys(target);
-  if (!r) return own;
+  if (!r) return Reflect.ownKeys(target);
+  const own = Reflect.ownKeys(r.own);
   let keys: Set<string | symbol> | null = null;
   for (const [k, n] of r.nodes) {
     if (n.raw === NO_RAW || k === "length" || typeof k === "symbol" && k === $TRACK) continue;
@@ -183,20 +232,21 @@ function seenStaged(target: Raw, key: PropertyKey): KeyNode | null {
 }
 /** The newest `target[key]`, staged or not (what a draft builds on). */
 function latestGet(target: Raw, key: PropertyKey): any {
-  const n = records.get(target)?.nodes.get(key);
-  if (!n || n.raw === NO_RAW) return target[key];
+  const r = records.get(target);
+  const n = r?.nodes.get(key);
+  if (!n || n.raw === NO_RAW) return (r ? r.own : target)[key];
   return n.raw === DELETE ? undefined : n.raw;
 }
 function latestHas(target: Raw, key: PropertyKey): boolean {
-  const n = records.get(target)?.nodes.get(key);
-  if (!n || n.raw === NO_RAW) return key in target;
+  const r = records.get(target);
+  const n = r?.nodes.get(key);
+  if (!n || n.raw === NO_RAW) return key in (r ? r.own : target);
   return n.raw !== DELETE;
 }
 function latestKeys(target: Raw): (string | symbol)[] {
   const r = records.get(target);
-  const own = Reflect.ownKeys(target);
-  if (!r) return own;
-  const keys = new Set(own);
+  if (!r) return Reflect.ownKeys(target);
+  const keys = new Set(Reflect.ownKeys(r.own));
   for (const [k, n] of r.nodes) if (n.raw !== NO_RAW && k !== "length") n.raw === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
   if (Array.isArray(target)) {
     const len = latestGet(target, "length");
@@ -260,7 +310,7 @@ const readHandler: ProxyHandler<Raw> = {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
     if (key === $TRACK) return trackAll(target), receiver;
-    const desc = Object.getOwnPropertyDescriptor(target, key);
+    const desc = Object.getOwnPropertyDescriptor(own(target), key);
     // Getters run against the proxy, so what they read is tracked (a class's, on its prototype, too).
     if (desc?.get) return desc.get.call(receiver);
     const inherited = desc ? undefined : getterOf(Object.getPrototypeOf(target), key);
@@ -296,8 +346,10 @@ const readHandler: ProxyHandler<Raw> = {
     if (o) return o.v === DELETE ? undefined : shownDesc(target, key, leaf(target, key, o.v));
     const n = seenStaged(target, key);
     if (n) return n.raw === DELETE ? undefined : shownDesc(target, key, leaf(target, key, n.raw));
-    const desc = Reflect.getOwnPropertyDescriptor(target, key);
-    if (!desc || desc.get || !desc.configurable) return desc;
+    const desc = Reflect.getOwnPropertyDescriptor(own(target), key);
+    if (!desc) return desc;
+    if (desc.get || desc.set) return own(target) === target ? desc : { ...desc, configurable: Reflect.getOwnPropertyDescriptor(target, key)?.configurable ?? true };
+    if (!desc.configurable) return own(target) === target ? desc : shownDesc(target, key, desc.value);
     return { ...desc, value: leaf(target, key, desc.value) };
   },
   // Read-only from the outside: changes go through the setter. (A frozen property must answer false: the proxy may
@@ -309,8 +361,9 @@ const readHandler: ProxyHandler<Raw> = {
 
 /** A shown value's descriptor, as a proxy may report it: one the target declares non-configurable (an array's length) stays so. */
 function shownDesc(target: Raw, key: PropertyKey, value: unknown): PropertyDescriptor {
-  const d = Reflect.getOwnPropertyDescriptor(target, key);
-  return { value, writable: true, enumerable: d ? d.enumerable : true, configurable: d ? d.configurable : true };
+  const given = Reflect.getOwnPropertyDescriptor(target, key);
+  const d = given && !given.configurable ? given : Reflect.getOwnPropertyDescriptor(own(target), key);
+  return { value, writable: true, enumerable: d ? d.enumerable : true, configurable: given ? given.configurable : true };
 }
 
 /** Whether `key` cannot change on `target` (non-configurable, and non-writable or a different value). */
@@ -364,8 +417,9 @@ export const markShallow = (target: object) => void shallowTargets.add(target);
  * must give a frozen property's value as it is). */
 function leaf(target: Raw, key: PropertyKey, v: any) {
   if (!isWrappable(v) || shallowTargets.has(target)) return v;
-  const d = Reflect.getOwnPropertyDescriptor(target, key);
+  const d = Reflect.getOwnPropertyDescriptor(own(target), key);
   if (d && !d.configurable && !d.writable) return v;
+  v = child(target, v);
   // (Read under a refreshable store: refreshing it re-asks that store.)
   if (!parentOf.has(v)) parentOf.set(v, target);
   return wrap(v);
@@ -429,15 +483,15 @@ export function commitRecord(r: Record_) {
   const t = r.target;
   let shape = false;
   let stagedShape = false;
-  const lenBefore = Array.isArray(t) ? t.length : 0;
+  const lenBefore = Array.isArray(t) ? r.own.length : 0;
   const told = DEV?.hooks.onStoreNodeUpdate;
   for (const [key, v] of p) {
     // A new value of a key it has (not its length), on an object read through a store: staged on its node, as a signal's write (a hold keeps it off).
-    const own = Object.getOwnPropertyDescriptor(t, key);
-    if (isFlushing() && (proxies.has(t) || derives.has(t)) && (!own || ("value" in own && (own.writable || own.configurable)))) {
+    const desc = Object.getOwnPropertyDescriptor(r.own, key);
+    if (isFlushing() && (proxies.has(t) || derives.has(t)) && (!desc || ("value" in desc && (desc.writable || desc.configurable)))) {
       const had = latestHas(t, key);
       const prev = latestGet(t, key);
-      if (v === DELETE ? !had : had && Object.is(prev, v) && key !== "length") continue;
+      if (v === DELETE ? !had : had && same(t, prev, v) && key !== "length") continue;
       if (key === "length" && Object.is(prev, v)) continue;
       if (told) told(wrap(t), key, v === DELETE ? undefined : v, prev);
       const n = node(t, key);
@@ -450,27 +504,29 @@ export function commitRecord(r: Record_) {
     }
     if (told) {
       const prev = latestGet(t, key);
-      if (v === DELETE ? key in t : !Object.is(prev, v)) told(wrap(t), key, v === DELETE ? undefined : v, prev);
+      if (v === DELETE ? key in r.own : !same(t, prev, v)) told(wrap(t), key, v === DELETE ? undefined : v, prev);
     }
     if (v === DELETE) {
-      if (!(key in t)) continue;
-      delete t[key];
+      if (!(key in r.own)) continue;
+      delete mine(t)[key];
       shape = true;
     } else {
-      const had = Object.prototype.hasOwnProperty.call(t, key);
-      if (had && Object.is(t[key], v) && key !== "length") continue;
+      const had = Object.prototype.hasOwnProperty.call(r.own, key);
+      if (had && same(t, r.own[key], v) && key !== "length") continue;
       if (!had) shape = true;
-      const desc = had ? Object.getOwnPropertyDescriptor(t, key) : undefined;
-      if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(t, key, { ...desc, value: v });
-      else t[key] = v;
+      const o = mine(t);
+      const desc = had ? Object.getOwnPropertyDescriptor(o, key) : undefined;
+      if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(o, key, { ...desc, value: v });
+      else o[key] = v;
     }
     r.nodes.get(key)?.bump();
   }
-  if (Array.isArray(t) && t.length !== lenBefore) {
+  const len = Array.isArray(t) ? r.own.length : 0;
+  if (len !== lenBefore) {
     shape = true;
     r.nodes.get("length")?.bump();
     // Indices past a shorter length are gone: their readers told.
-    for (const [k, n] of r.nodes) if (isIndex(k) && +k >= t.length && +k < lenBefore) n.bump();
+    for (const [k, n] of r.nodes) if (isIndex(k) && +k >= len && +k < lenBefore) n.bump();
   }
   // (Staged shape changes: what enumerates the object follows them as a staged write too.)
   if (stagedShape) r.keys.stage(++r.keys.seq);
@@ -481,14 +537,14 @@ const draftHandler: ProxyHandler<Raw> = {
   get(target, key, receiver) {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
-    if ((key === "constructor" || key === "__proto__") && !Object.hasOwn(target, key) && !records.get(target)?.pending?.has(key)) return undefined;
+    if ((key === "constructor" || key === "__proto__") && !Object.hasOwn(own(target), key) && !records.get(target)?.pending?.has(key)) return undefined;
     const v = pendingValue(target, key);
-    if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(target, key)) return v;
+    if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(own(target), key)) return v;
     // (Shallow, or a frozen property: as it is.)
     if (shallowTargets.has(target)) return v;
-    const d = Reflect.getOwnPropertyDescriptor(target, key);
+    const d = Reflect.getOwnPropertyDescriptor(own(target), key);
     if (d && !d.configurable && !d.writable) return v;
-    return draftOf(v);
+    return draftOf(child(target, v));
   },
   has: (target, key) => pendingHas(target, key),
   ownKeys(target) {
@@ -504,8 +560,8 @@ const draftHandler: ProxyHandler<Raw> = {
   },
   getOwnPropertyDescriptor(target, key) {
     if (!pendingHas(target, key)) return undefined;
-    const base = Reflect.getOwnPropertyDescriptor(target, key);
-    if (base?.get || base?.set) return base;
+    const base = Reflect.getOwnPropertyDescriptor(own(target), key);
+    if (base?.get || base?.set) return { ...base, configurable: Reflect.getOwnPropertyDescriptor(target, key)?.configurable ?? true };
     return shownDesc(target, key, pendingValue(target, key));
   },
   set(target, key, value) {
@@ -531,8 +587,8 @@ const draftHandler: ProxyHandler<Raw> = {
     if ("value" in desc) stage(target, key, unwrap(desc.value));
     else {
       // An accessor: defined now, its readers (and the key set's, for a new key) told.
-      const had = Object.prototype.hasOwnProperty.call(target, key);
-      Object.defineProperty(target, key, desc);
+      const had = Object.prototype.hasOwnProperty.call(own(target), key);
+      Object.defineProperty(mine(target), key, desc);
       const r = records.get(target);
       r?.nodes.get(key)?.bump();
       if (!had) r?.keys.bump();
@@ -557,13 +613,15 @@ function replaceInto(target: Raw, next: any, d: any = draftOf(target)) {
   // (The committed object itself: what this batch wrote to it is dropped.)
   if (raw === target) return void records.get(target)?.pending?.clear();
   if (!isWrappable(raw)) return;
+  // (Another store's object: what it holds.)
+  const src = own(raw);
   if (Array.isArray(target)) {
-    for (let i = 0; i < raw.length; i++) d[i] = raw[i];
-    d.length = raw.length;
+    for (let i = 0; i < src.length; i++) d[i] = src[i];
+    d.length = src.length;
     return;
   }
-  for (const k of Reflect.ownKeys(d)) if (!(k in raw)) delete d[k];
-  for (const k of Reflect.ownKeys(raw)) d[k] = raw[k];
+  for (const k of Reflect.ownKeys(d)) if (!(k in src)) delete d[k];
+  for (const k of Reflect.ownKeys(src)) d[k] = src[k];
 }
 
 export type StoreSetter<T> = (fn: ((draft: T) => T | void) | Partial<T>) => void;
@@ -646,7 +704,8 @@ type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boole
 const derives = new WeakMap<object, () => unknown>();
 
 function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: StoreOptions | undefined, writable: boolean): [T, StoreSetter<T>] {
-  const target = unwrap(seed) as Raw;
+  // (Seeded with another store: built on that store's object, live; else a family of its own.)
+  const target = (unwrap(seed) !== seed ? unwrap(seed) : new Family().shell(seed, true)) as Raw;
   if (options?.shallow) markShallow(target);
   const key = options && "key" in options ? (options.key ?? null) : "id";
   // On a server, a projection's trace (what crosses a frame's border): told of each change, and of its source's end.
@@ -811,17 +870,19 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
 /** Marks a reconcile function: given to a setter, its diff is visible as the setter returns. */
 const RECONCILE = Symbol("reconcile");
 
-const keyOf = (key: string | ((v: any) => any) | null, v: any) => (key == null || v == null || typeof v !== "object" ? v : typeof key === "function" ? key(v) : v[key]);
+const keyOf = (key: string | ((v: any) => any) | null, v: any) => (key == null || v == null || typeof v !== "object" ? v : typeof key === "function" ? key(own(v)) : own(v)[key]);
 
 /** A derive's answer into its store: another entity at the root (its key differs) replaces the children, not merged. */
 function into(target: Raw, next: Raw, key: string | ((v: any) => any) | null) {
-  const other = key != null && !Array.isArray(target) && isWrappable(next) && !Array.isArray(next) && Reflect.ownKeys(target).length > 0 && keyOf(key, target) !== keyOf(key, next);
+  const other = key != null && !Array.isArray(target) && isWrappable(next) && !Array.isArray(next) && Reflect.ownKeys(own(target)).length > 0 && keyOf(key, target) !== keyOf(key, next);
   reconcileInto(target, next, key, other);
 }
 
 /** `next` diffed into `target`; `fresh`: its values put in as they are (nothing merged into what was there). */
-function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) | null, fresh = false) {
+function reconcileInto(target: Raw, given: Raw, key: string | ((v: any) => any) | null, fresh = false) {
   const d = draftOf(target);
+  // (Another store's object: what it holds.)
+  const next = own(given);
   if (Array.isArray(target) && Array.isArray(next)) {
     const old = untrack(() => [...(d as any[])].map(unwrap));
     const byKey = new Map<any, Raw>();
@@ -840,7 +901,7 @@ function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) |
   for (const k of Reflect.ownKeys(d)) if (!(k in next)) delete d[k];
   for (const k of Reflect.ownKeys(next)) {
     const n = unwrap(next[k as any]);
-    const o = unwrap(pendingValue(target, k));
+    const o = child(target, unwrap(pendingValue(target, k)));
     // (Another store given as the value: that store itself, live — not a copy of what it holds now.)
     const store = n !== next[k as any];
     if (!fresh && !store && isWrappable(o) && isWrappable(n) && o !== n && (Array.isArray(o) === Array.isArray(n)) && (key == null || keyOf(key, o) === keyOf(key, n))) reconcileInto(o, n, key);
@@ -870,26 +931,29 @@ function rawOf(v: any, seen: Map<any, any>): any {
   seen.set(t, t);
   // (As a pass sees it: what is staged in this flush included.)
   const keys = rawKeys(t);
-  const staged = keys.length !== Reflect.ownKeys(t).length || keys.some((k) => seenStaged(t, k));
+  const o = own(t);
+  const staged = keys.length !== Reflect.ownKeys(o).length || keys.some((k) => seenStaged(t, k));
   const vals: any[] = [];
   let copy: any = null;
   for (const k of keys) {
-    const d = Object.getOwnPropertyDescriptor(t, k);
+    const d = Object.getOwnPropertyDescriptor(o, k);
     if (d && !("value" in d)) {
       vals.push(d);
       continue;
     }
     const val = rawGet(t, k);
-    const x = val && typeof val === "object" ? rawOf(val, seen) : val;
+    const x = val && typeof val === "object" ? rawOf(child(t, val), seen) : val;
     vals.push(x);
     if (x === val && !staged) continue;
     copy ??= Array.isArray(t) ? [] : Object.create(Object.getPrototypeOf(t));
     copy[k] = x;
   }
+  // (Staged removals alone: a copy too.)
+  if (staged) copy ??= Array.isArray(t) ? [] : Object.create(Object.getPrototypeOf(t));
   // (A copy holds every key: the staged world's, or the original's with what changed.)
   if (copy) for (let i = 0; i < keys.length; i++) {
     const k = keys[i]!;
-    const d = Object.getOwnPropertyDescriptor(t, k);
+    const d = Object.getOwnPropertyDescriptor(o, k);
     if (d && !("value" in d)) Object.defineProperty(copy, k, d);
     else copy[k] = vals[i];
   }
@@ -900,7 +964,7 @@ function rawOf(v: any, seen: Map<any, any>): any {
     seen.set(t, prev.out);
     return prev.out;
   }
-  const out = copy ?? (prev ? (Array.isArray(t) ? [...t] : Object.assign(Object.create(Object.getPrototypeOf(t)), t)) : t);
+  const out = copy ?? (prev ? (Array.isArray(o) ? [...o] : Object.assign(Object.create(Object.getPrototypeOf(o)), o)) : o);
   snapped.set(t, { keys, vals, out });
   seen.set(t, out);
   return out;
@@ -914,9 +978,9 @@ function plain(v: any, seen: Map<any, any>, keys = viewKeys, get = viewGet): any
   const out: any = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
   seen.set(v, out);
   for (const k of keys(v)) {
-    const desc = Object.getOwnPropertyDescriptor(v, k);
+    const desc = Object.getOwnPropertyDescriptor(own(v), k);
     if (desc?.get) Object.defineProperty(out, k, desc);
-    else out[k] = plain(unwrap(get(v, k)), seen, keys, get);
+    else out[k] = plain(child(v, unwrap(get(v, k))), seen, keys, get);
   }
   return out;
 }
@@ -1028,8 +1092,8 @@ const guessHandler: ProxyHandler<Raw> = {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
     const v = guessGet(target, key);
-    if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(target, key)) return v;
-    return guessDraftOf(v);
+    if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(own(target), key)) return v;
+    return guessDraftOf(child(target, v));
   },
   has: (target, key) => guessHas(target, key),
   ownKeys: (target) => guessKeys(target),
