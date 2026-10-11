@@ -1,11 +1,7 @@
-// A React component, with React state, drawn inside the Solid-style counter.
-import { useState } from "react";
+// React-style too: its text comes from the Solid app's signal, and it is drawn again when that changes.
+import { useMemo } from "react";
 
 export function Badge({ text }: { text: string }) {
-  const [seen] = useState(() => "seen");
-  return (
-    <p>
-      {text} ({seen})
-    </p>
-  );
+  const shown = useMemo(() => text.toUpperCase(), [text]);
+  return <p>{shown}</p>;
 }

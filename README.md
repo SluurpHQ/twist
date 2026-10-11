@@ -45,8 +45,8 @@ compiled by Twist):
 export default { plugins: [twist({ react: true })] };
 ```
 
-The `examples/` folder has one app of each kind: `vite-solid`, `vite-react` and `vite-mixed` (a React page with a
-Solid-style counter that shows a React component).
+The `examples/` folder has three apps, all on Twist: `vite-react` (a React app), `vite-solid` (a Solid app) and
+`vite-mixed` (a Solid app that uses React-style components, with their own state and hooks).
 
 ## Size and speed
 

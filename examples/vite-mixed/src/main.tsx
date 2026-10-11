@@ -1,21 +1,21 @@
-// The page is React's: its list is React state; the counter inside it is Solid-style (counter.tsx).
-import { useState } from "react";
-import { createRoot } from "react-dom/client";
+// A Solid app: its list is a signal. The counter and the badge in it are React-style components (counter.tsx, badge.tsx).
+import { createSignal, For } from "solid-js";
+import { render } from "@solidjs/web";
 import { Counter } from "./counter.tsx";
+import { Badge } from "./badge.tsx";
 
 function App() {
-  const [items, setItems] = useState(["one", "two"]);
+  const [items, setItems] = createSignal(["one", "two"]);
   return (
     <main>
       <Counter label="Count" />
-      <button onClick={() => setItems([...items, `item ${items.length + 1}`])}>Add item</button>
+      <button onClick={() => setItems([...items(), `item ${items().length + 1}`])}>Add item</button>
       <ul>
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
+        <For each={items()}>{(item) => <li>{item}</li>}</For>
       </ul>
+      <Badge text={`${items().length} items`} />
     </main>
   );
 }
 
-createRoot(document.getElementById("app")!).render(<App />);
+render(() => <App />, document.getElementById("app")!);
