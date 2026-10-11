@@ -878,7 +878,12 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
     if (key != null && isWrappable(target) && isWrappable(next) && !Array.isArray(target) && !Array.isArray(next) && keyOf(key, own(target)) !== keyOf(key, next))
       throw new Error("reconcile: the value has a different identity from the target (its key differs)");
     const before = new Set(dirtyRecords);
-    reconcileInto(target, next, key);
+    pruning = true;
+    try {
+      reconcileInto(target, next, key);
+    } finally {
+      pruning = false;
+    }
     // A reconcile's diff is visible as it returns.
     promoteWrites(before);
     return draft;
@@ -886,6 +891,8 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
   (apply as any)[RECONCILE] = true;
   return apply;
 }
+/** In reconcile() (not a derived store's landing): a keyed subtree nobody reads is swapped whole. */
+let pruning = false;
 /** Marks a reconcile function: given to a setter, its diff is visible as the setter returns. */
 const RECONCILE = Symbol("reconcile");
 
@@ -928,11 +935,26 @@ function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) |
     const old = untrack(() => [...(d as any[])].map(unwrap));
     const byKey = new Map<any, Raw>();
     if (key != null) for (const o of old) if (o && typeof o === "object") byKey.set(keyOf(key, own(o)), o);
+    // (A row shown optimistically: the landed row with its key takes it over, identity kept.)
+    const shown = key != null ? records.get(target)?.overlay : null;
+    // (Each such row's transaction: it shows its optimistic values until that ends.)
+    const recycled = new Map<Raw, Transaction | null>();
+    if (shown)
+      for (const e of shown.values()) {
+        const o = child(target, unwrap(e.v));
+        if (o && typeof o === "object" && !Array.isArray(o)) {
+          const k = keyOf(key, own(o));
+          if (!byKey.has(k)) byKey.set(k, o), recycled.set(o, e.tx);
+        }
+      }
     for (let i = 0; i < next.length; i++) {
       const n = unwrap(next[i]);
       const c = contentOf(next[i]);
       const match = key == null ? old[i] : c && typeof c === "object" ? byKey.get(keyOf(key, c)) : undefined;
-      if (match && isWrappable(match) && isWrappable(c) && Array.isArray(match) === Array.isArray(c)) d[i] = merge(match, n, c, key);
+      if (match && isWrappable(match) && isWrappable(c) && Array.isArray(match) === Array.isArray(c)) {
+        if (recycled.has(match)) mask(match, c, recycled.get(match)!);
+        d[i] = merge(match, n, c, key);
+      }
       else d[i] = n;
     }
     d.length = next.length;
@@ -950,10 +972,11 @@ function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) |
     } else d[k] = n;
   }
 }
-/** A matched pair: `o` kept with `c` diffed in (unless it holds `c` already), or, keyed and read by nobody, `n` in its place. */
+/** A matched pair: `o` kept with `c` diffed in (unless it holds `c` already), or, keyed and unread, `n` in its place. */
 function merge(o: Raw, n: Raw, c: Raw, key: string | ((v: any) => any) | null): Raw {
   if (own(o) === c) return o;
-  if (key != null && keyOf(key, c) != null && !watched(o)) return n;
+  // (reconcile(): read by nobody; a derived store's landing: never read through the store at all.)
+  if (key != null && keyOf(key, c) != null && (pruning ? !watched(o) : !proxies.has(o))) return n;
   reconcileInto(o, c, key);
   return o;
 }
@@ -1112,6 +1135,20 @@ function install(r: Record_, tx: Transaction | null) {
   if (Array.isArray(t) && viewGet(t, "length") !== lenBefore) shape = true;
   if (shape) r.keys.bump();
   endWith(tx, () => revert(r, mine, tx));
+}
+
+/** `target`'s values that `next` changes, shown as they are over the truth until `tx` ends. */
+function mask(target: Raw, next: Raw, tx: Transaction | null) {
+  if (!tx) return;
+  const r = recordOf(target);
+  const keys: PropertyKey[] = [];
+  for (const k of new Set([...Reflect.ownKeys(own(target)), ...Reflect.ownKeys(next)])) {
+    if (r.overlay?.has(k) || (viewHas(target, k) && k in next && Object.is(viewGet(target, k), next[k as any]))) continue;
+    if (!r.overlay?.size) liveOverlays++;
+    (r.overlay ??= new Map()).set(k, { v: viewHas(target, k) ? viewGet(target, k) : DELETE, tx });
+    keys.push(k);
+  }
+  if (keys.length) endWith(tx, () => revert(r, keys, tx));
 }
 
 /** A transaction's guesses taken off again: the truth shown (readers told where the view changes). */
