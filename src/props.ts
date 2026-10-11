@@ -2,7 +2,7 @@
 // element itself (no delegation), each event given what React's handlers expect of it.
 declare const process: { env: Record<string, string | undefined> };
 
-import { effect, runWithOwner, untrack } from "../../signals/index.js";
+import { effect, runWithOwner, untrack } from "./signals.js";
 import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
 import { BEFORE_INPUT_SOURCES, SELECT_SOURCES, configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";

@@ -11,7 +11,7 @@ import {
   crossHeader,
   fromCrossJSON,
   toCrossJSONStream,
-} from "../../../../../client/sluurp-serial.js";
+} from "../serial.js";
 import {
   AbortSignalPlugin,
   CustomEventPlugin,

@@ -2,7 +2,7 @@
 // either peer reads the other's. (Helper functions are sent as their source: keep their text as it is.)
 // Follows seroval-plugins 1.6.7 (MIT, Alexis Munsayac) to the letter, so the output is the same.
 // @ts-nocheck
-import { createPlugin, createStream, isStream } from "../../../../../client/sluurp-serial.js";
+import { createPlugin, createStream, isStream } from "../serial.js";
 
 const PROMISE_TO_ABORT_SIGNAL = (promise) => {
 	const controller = new AbortController();

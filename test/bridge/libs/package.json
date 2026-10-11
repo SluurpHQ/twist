@@ -1,0 +1,11 @@
+{
+  "name": "twist-bridge-libs",
+  "private": true,
+  "description": "React libraries the bridge tests draw with Twist's React, with a React of their own (its path is mocked, apart from the one the React-itself tests use).",
+  "dependencies": {
+    "@base-ui/react": "1.8.0",
+    "cmdk": "1.1.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

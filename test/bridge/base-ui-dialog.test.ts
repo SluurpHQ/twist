@@ -6,7 +6,7 @@ import * as ReactDOM from "../../src/react-dom.ts";
 import * as jsx from "../../src/jsx-runtime.ts";
 import * as OurCore from "../../src/core.ts";
 
-const pkg = join(import.meta.dir, "../../../../../admin/node_modules/@base-ui/react");
+const pkg = dirname(Bun.resolveSync("@base-ui/react/package.json", join(import.meta.dir, "libs")));
 const dialog = join(pkg, "dialog/index.mjs");
 // Base UI and what it uses, given Sluurp's React wherever they resolve React from. (REAL=1: React's own.)
 const dirs = [pkg, ...["@base-ui/utils", "@floating-ui/react", "@floating-ui/react-dom", "use-sync-external-store"].map((p) => {

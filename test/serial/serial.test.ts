@@ -2,7 +2,7 @@
 // read back as the same values.
 import { expect, test } from "bun:test";
 import * as seroval from "seroval";
-import { Feature, Serializer, crossHeader, parse, stringify } from "../../../../../client/sluurp-serial.js";
+import { Feature, Serializer, crossHeader, parse, stringify } from "../../src/serial.js";
 
 type Opts = { scopeId?: string; disabledFeatures?: number };
 async function run(S: any, values: [string, any][], opts: Opts = {}) {

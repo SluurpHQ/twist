@@ -2,7 +2,7 @@
 // computed over it with the selector's equality, so a component re-renders only when what it selects changes, and
 // a dispatch recomputes only selections whose inputs changed. Redux itself (the store, reducers, middleware) is
 // whatever the app uses; only the binding to components is ours.
-import { computed, signal } from "../../signals/index.js";
+import { computed, signal } from "./signals.js";
 import { createElement, forwardRef as forwardRefOf, memo } from "./element.ts";
 import { createContext } from "./element.ts";
 import { rendersOnServer, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "./hooks.ts";

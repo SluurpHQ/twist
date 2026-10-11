@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import * as ReactAll from "react";
 (window as any).__dom = { createRoot, React: ReactAll };
 import { renderToString } from "react-dom/server";
-import { signal } from "../../signals/index.js";
+import { signal } from "../src/signals.js";
 
 // A hidden tab (the checks run in a background pane) gives no animation frames: timers stand in for them, so what
 // libraries do on a frame (Base UI opening a select) still happens.

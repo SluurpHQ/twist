@@ -1,4 +1,4 @@
-// cmdk (the admin's palette) on Sluurp's React: the first item that matches is selected as soon as it is drawn.
+// cmdk (a command palette, as Sluurp's admin uses it) on Sluurp's React: the first item that matches is selected as soon as it is drawn.
 import { expect, mock, test } from "bun:test";
 import { dirname, join } from "node:path";
 import * as Ours from "../../src/react.ts";
@@ -7,7 +7,7 @@ import * as jsx from "../../src/jsx-runtime.ts";
 import * as OurCore from "../../src/core.ts";
 
 // cmdk and the packages it uses, given Sluurp's React wherever they resolve React from.
-const cmdk = join(import.meta.dir, "../../../../../admin/node_modules/cmdk/dist/index.mjs");
+const cmdk = join(dirname(Bun.resolveSync("cmdk/package.json", join(import.meta.dir, "libs"))), "dist", "index.mjs");
 const from = [dirname(cmdk), ...["@radix-ui/react-dialog", "@radix-ui/react-primitive", "@radix-ui/react-id", "@radix-ui/react-compose-refs"].map((p) => {
   try {
     return dirname(Bun.resolveSync(p, dirname(cmdk)));

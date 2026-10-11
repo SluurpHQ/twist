@@ -7,7 +7,7 @@ import { installBridge } from "../../src/twist/bridge.ts";
 import { installSignalsBridge } from "../../src/twist/signals-bridge.ts";
 import { jsx as h, render, __twist_d } from "../../src/twist/web.ts";
 import { createSignal, flush } from "../../src/twist/signals.ts";
-import { signal } from "../../../signals/index.js";
+import { signal } from "../../src/signals.js";
 
 const { createElement } = React;
 installBridge(React as any, createReactRoot as any);

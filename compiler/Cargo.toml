@@ -1,0 +1,10 @@
+[package]
+name = "twist-compiler"
+version = "0.1.0"
+description = "Twist's compile pass: Solid-style JSX marked for Twist's runtime, fixed markup made templates."
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+oxc = { version = "0.151.0", features = ["semantic", "ast_visit"] }
+serde_json = "1"
