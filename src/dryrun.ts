@@ -5,9 +5,10 @@
 import { CONSUMER, CONTEXT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, readLazy, readThenable } from "./element.ts";
 import { type Fiber, depsChanged, keyOf, readContext, typeOf } from "./core.ts";
 import { setDryHooks, withHooks } from "./hooks.ts";
+import { stylesheetPending } from "./float-client.ts";
 
 /** A transition's state, seen by the dry run only: hook boxes and class instances, with their new values. */
-export type Preview = { states: Map<any, any>; classes: Map<any, any[]> };
+export type Preview = { states: Map<any, any>; classes: Map<any, any[]>; roots?: Map<Fiber, any> };
 
 type Dry = { fiber: Fiber | null; anchor: Fiber; at: number; scratch: any[]; contexts: [any, any][] };
 let dry: Dry | null = null;
@@ -103,7 +104,14 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
   const props = node.props ?? {};
   const fiber = matching(parent, node, i);
   const at = fiber ?? anchor;
-  if (typeof type === "string") return walk(props.children, fiber, at, contexts);
+  if (typeof type === "string") {
+    // A stylesheet not loaded yet: the transition waits for it (React's suspended commit), the old UI kept meanwhile.
+    if (type === "link" && typeof document !== "undefined") {
+      const pending = stylesheetPending(document, props);
+      if (pending) throw pending;
+    }
+    return walk(props.children, fiber, at, contexts);
+  }
   if (type?.$$typeof === LAZY) type = readLazy(type._payload);
   if (type === SUSPENSE) {
     // Still as the server drew it, its content not streamed in yet (its fallback showing): not rendered into.
@@ -187,6 +195,8 @@ export function tryTransition(changed: Fiber[], p: Preview): PromiseLike<any> | 
     return !f.dead;
   });
   try {
+    // A root given new children: those, matched against what it has.
+    for (const [f, children] of p.roots ?? []) if (!f.dead) walk(children, f, f, []);
     for (const f of tops) {
       // The fiber itself, from its own hooks; what it renders matched against its children.
       let type = f.type;

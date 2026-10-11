@@ -317,7 +317,39 @@ function insertSuspended(state: CommitWait) {
 }
 
 /** The shared resource an element stands for, or null for a hoistable (<title>, <meta>, other <link>s). */
+/** Whether any stylesheet resource has been rendered: until then a transition needs no dry run for them. */
+export let stylesheetsInUse = false;
+
+/**
+ * A stylesheet a transition would render that has not loaded yet: what to wait for before applying it (its preload
+ * loading, started now), so the screen keeps the old UI instead of showing new content unstyled. Null when there
+ * is nothing to wait for (loaded, in the document already, or not a stylesheet resource).
+ */
+export function stylesheetPending(root: Document | ShadowRoot, props: any): PromiseLike<void> | null {
+  if (props?.rel !== "stylesheet" || typeof props.href !== "string" || typeof props.precedence !== "string") return null;
+  if (typeof props.media === "string" && typeof matchMedia === "function" && matchMedia(props.media).matches === false) return null;
+  const r = getResource(root, "link", props);
+  // (In the document already: taken as loaded, as React assumes when it cannot tell.)
+  // (Its preload loaded already: the transition goes on, React does not hold it then.)
+  if (!r?.state || r.state.loading & (INSERTED | SETTLED)) return null;
+  const settled = (el: Element) =>
+    new Promise<void>((done) => {
+      el.addEventListener("load", () => done(), { once: true });
+      el.addEventListener("error", () => done(), { once: true });
+    });
+  // Its preload first (if still loading), then the stylesheet itself put in place and loaded (React's suspended
+  // commit inserts it once the preload has loaded, and commits when it has loaded).
+  const preload = r.state.preload as HTMLElement | null;
+  const before = preload && !(r.state.loading & SETTLED) ? settled(preload) : Promise.resolve();
+  return before.then(() => {
+    if (r.state!.loading & INSERTED) return;
+    const el = acquireResource(root, r, props);
+    if (el) return settled(el);
+  });
+}
+
 export function getResource(root: Document | ShadowRoot, type: string, props: any): Resource | null {
+  if (type === "link" && props?.rel === "stylesheet" && typeof props.precedence === "string") stylesheetsInUse = true;
   switch (type) {
     case "meta":
     case "title":

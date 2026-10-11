@@ -18,7 +18,7 @@ import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, 
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
 import { getOffsets, setOffsets } from "./dom-selection.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
-import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, suspendResource } from "./float-client.ts";
+import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, stylesheetsInUse, suspendResource } from "./float-client.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -4253,6 +4253,8 @@ function endTransition(fn: () => void) {
 /** Whether rendering `f` again could suspend where a transition is held: a Suspense on the page below it, or a
  * component below it that has suspended before. */
 function mightSuspend(f: Fiber): boolean {
+  // (Stylesheet resources in use: a transition may render one not loaded yet, which holds it.)
+  if (stylesheetsInUse) return true;
   if ((f as any).suspended) return true;
   if (f.type === SUSPENSE) return true;
   return f.children.some(mightSuspend);
@@ -4902,7 +4904,7 @@ Check the render method of ${nameOf(owner.type)}.`));
       if (depth > 0) return renderNow(children);
       // An update in a transition: drawn with the transition (held while it suspends, its end after it).
       if (transitioning > 0 && !first && top.children.length) {
-        deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)), undefined, top);
+        deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)), (p) => (p.roots ??= new Map()).set(top, children), top);
         return;
       }
       // An update while the hydration waits for data (none of it committed): the root is drawn on the client.
