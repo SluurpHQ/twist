@@ -1207,6 +1207,8 @@ export class Computation<T> extends Node<T> implements Owner {
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
+    // (A quiet re-ask overtaken by a new question: the new one is not quiet.)
+    if (this.quiet && this.sources.some((s, i) => s.version !== this.seen[i])) this.quiet = false;
     // A render effect a transaction holds, run again by a change outside it: it leaves the hold and shows the committed
     // frame now (A26), running again at the commit.
     if (this.kind === RENDER && this.tx && !this.tx.root.done && !heldOnly) {
@@ -1877,6 +1879,10 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   seen.add(n);
   // (Never committed a value, a first load or born in a hold: nothing stale is shown.)
   if (n instanceof Computation && (!n.ready || (n as any).bornHeld) && n.override === NONE) return false;
+  // A derived store's compute: store-wide pending is only its own async work; held for what is downstream, each leaf
+  // it wrote answers for itself (A22).
+  // (Held by an action still running: what it shows is not final either.)
+  if ((n as any).writes) return n instanceof Computation && (asyncWork(n, n) || (!!n.tx && !n.tx.root.done && n.tx.root.open > 0 && n.staged !== NONE));
   // Held by a transaction still waiting on a flight (one with none left commits this round).
   // (A held truth equal to what shows is no change in flight, A24.)
   if (n.tx && n.staged !== NONE && !committableTx(n.tx) && !(n instanceof Signal && Object.is(n.staged, n.value))) return true;
@@ -1886,6 +1892,19 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
     if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming) return true;
     for (const s of n.sources) if (waiting(s, seen)) return true;
   }
+  return false;
+}
+
+/** Async work at `n` or upstream of it that changes what it shows (a quiet re-ask only once a new question holds it). */
+function asyncWork(n: Computation<any>, at: Computation<any>, seen = new Set<Node>()): boolean {
+  if (seen.has(n)) return false;
+  seen.add(n);
+  if (n.flight && n.ready && !n.loadingWindow && !n.streaming) {
+    if (!n.quiet) return true;
+    if (n.tx && n.staged !== NONE && !committableTx(n.tx)) return true;
+  }
+  if ((n as any).affected) return true;
+  for (const s of n.sources) if (s instanceof Computation && asyncWork(s, at, seen)) return true;
   return false;
 }
 
@@ -2718,7 +2737,8 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
   }
   if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
   // (A reload declared with affects() is not quiet: its readers pend.)
-  c.quiet = !(c as any).declared;
+  // (A re-ask over a question still unanswered stays as loud as that question.)
+  c.quiet = !(c as any).declared && !(c.flight && !c.quiet);
   (c as any).declared = false;
   (c as any).refreshed = true;
   refreshedNow.push(c);
