@@ -1648,12 +1648,15 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     let holds = false;
     let joins: Transaction | null = null;
     const revealed: Computation<any>[] = [];
+    if (process.env.TWDBG) console.log("SETTLE n", n.constructor.name, [...below].map((c) => [c.kind, c.order, c.applied !== NONE, c.kind === MEMO && rendered(c), c.born === flushes, c.sources.map((x) => (x instanceof Computation ? (x.flight ? "F" : "c") + x.order + (c.before.includes(x) ? "b" : "") : "s")).join(",")]));
     for (const c of below) {
       if (c.tx) joins = c.tx.root;
       if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO ? !hidden(c) : rendered(c))) holds = true;
       // A reveal: what the write brings on screen reads a flight already up — the write waits for its answer.
       // (Nothing shown yet, a first mount, is no reveal.)
-      if (c.kind !== MEMO ? c.applied !== NONE && !hidden(c) : rendered(c)) for (const s of c.sources) if (s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !c.before.includes(s) && !heldFlight(s) && c.born !== flushes) (holds = true), revealed.push(s);
+      if (c.kind !== MEMO ? c.applied !== NONE && !hidden(c) : rendered(c)) {
+        for (const s of c.sources) if (s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !c.before.includes(s) && !heldFlight(s) && c.born !== flushes) (holds = true), revealed.push(s);
+      }
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
     // (A render effect showed the frame of what it holds: it runs again at the commit instead.)
@@ -1665,6 +1668,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       }
     const by = (n as any).writtenIn as Transaction | null;
     if (by && !by.done) joins = by.root;
+    if (process.env.TWDBG) console.log("HOLDS", holds, !!joins, revealed.map((x) => [x.order, heldFlight(x), x.loadingWindow, x.streaming]));
     if (!holds && !joins) continue;
     const t: Transaction = joins ?? (tx ??= newTransaction());
     setTx(t);
@@ -2591,7 +2595,9 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     for (const w of state.waiting) if (w.disposed) state.waiting.delete(w);
     // Its readiness may have changed: the order looks again.
     if (slot.owner) slot.owner.evaluate();
-    state.onFallback = true;
+    (shown as any).nextFallback = true;
+    // (A boundary that has not shown its content, or was reset, catches what waits now: its fallback shows at once.)
+    if (state.fresh) state.onFallback = true;
     if (slot.owner && slot.gated) return slot.collapsed ? (dropFallback(), undefined as any) : showFallback();
     if (c === NOT_READY || state.waiting.size || state.heldBy.size) return showFallback();
     try {
@@ -2601,10 +2607,11 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       // here, owned by this pass), so all of it is looked at.
       if (armed) {
         listener!.track(status);
-        if (pendingUnder(content) || pendingUnder(shown)) return showFallback();
+        // (Re-armed: its fallback shows now, with the change that re-armed it.)
+        if (pendingUnder(content) || pendingUnder(shown)) return (state.onFallback = true), showFallback();
         armed = false;
       }
-      state.onFallback = false;
+      (shown as any).nextFallback = false;
       state.fresh = false;
       dropFallback();
       // Content shown: the slot leaves the order (shown is shown); the order looks again.
@@ -2625,7 +2632,14 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   }
   // What it makes (lazy children) is behind its fallback too, when that shows.
   (shown as any).shows = state;
+  // (Showing its fallback once what it shows is committed: a held pass that would show it changes nothing on screen.)
+  const promote = shown.promote;
+  shown.promote = function (this: Computation<any>) {
+    promote.call(this);
+    state.onFallback = (this as any).nextFallback;
+  };
   shown.run();
+  state.onFallback = (shown as any).nextFallback;
   const read = () => shown.read();
   accessors.set(read, shown);
   return read;
