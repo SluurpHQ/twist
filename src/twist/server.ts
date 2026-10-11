@@ -1649,12 +1649,22 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
         }),
       );
     },
-    /** The response as a web stream (`new Response(stream.readable)`). */
+    /** The response as a web stream (`new Response(stream.readable)`); cancelled, the render is abandoned. */
     get readable() {
       if (!readable) {
-        const t = new TransformStream<Uint8Array, Uint8Array>();
-        this.pipeTo(t.writable);
-        readable = t.readable;
+        const enc = new TextEncoder();
+        let open = true;
+        readable = new ReadableStream<Uint8Array>({
+          start: (c) =>
+            this.pipe({
+              write: (chunk) => void (open && c.enqueue(enc.encode(chunk))),
+              end: () => void (open && ((open = false), c.close())),
+            }),
+          cancel: () => {
+            open = false;
+            abandon(false);
+          },
+        });
       }
       return readable;
     },
