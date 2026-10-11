@@ -1808,10 +1808,18 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       if (shellSent) rendering(r, options, drain);
     });
   /** The response abandoned (aborted, or its consumer gone): the render torn down, its sources returned, nothing more sent. */
-  const abandon = (end: boolean, outcome: "abandoned" | "error" = "abandoned") => {
+  const abandon = (end: boolean, outcome: "abandoned" | "error" = "abandoned", reason?: "sink" | "signal" | "consumer") => {
     if (done) return;
     done = true;
     record?.settle(outcome, r.tracks?.size ?? 0);
+    if (reason && process.env.NODE_ENV !== "production")
+      emitDiagnostic({
+        code: "SSR_STREAM_ABANDONED",
+        kind: "ssr",
+        severity: "warn",
+        message: `[SSR_STREAM_ABANDONED] The response was abandoned (${reason}) before it finished: ${r.waiting.size} fragment(s) still to come were dropped and the render torn down.`,
+        data: { reason, pendingFragments: r.waiting.size, shellFlushed: shellSent },
+      });
     dispose?.();
     if (end) for (const w of sinks) close(w);
     finished();
@@ -1823,10 +1831,11 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     try {
       w.write(chunk);
     } catch {
-      abandon(false);
+      abandon(false, "abandoned", "sink");
     }
   };
-  options.signal?.addEventListener("abort", () => abandon(true), { once: true });
+  // (A request aborted after the shell: a disconnect, the sink not touched again; before it, the response ends.)
+  options.signal?.addEventListener("abort", () => abandon(!shellSent, "abandoned", "signal"), { once: true });
   // (Aborted before it began: no event will come.)
   if (options.signal?.aborted) abandon(true);
   let readable: ReadableStream<Uint8Array> | null = null;
@@ -1864,7 +1873,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     },
     pipe(w: Writable) {
       // (A consumer that may stop the render: given the way to.)
-      if ((w as any)[SHELL_ABANDONED]) (w as any)[ABANDON_RENDER] = () => abandon(false);
+      if ((w as any)[SHELL_ABANDONED]) (w as any)[ABANDON_RENDER] = (reason?: "consumer") => abandon(false, "abandoned", reason);
       if (shellSent) write(w, shell);
       for (let i = 0; i < sent; i++) write(w, r.chunks[i]!);
       sinks.push(w);
@@ -1874,7 +1883,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       const writer = ws.getWriter();
       const enc = new TextEncoder();
       // A writable that errors (a reader cancelled, the transport gone): the response is abandoned.
-      const gone = () => abandon(false);
+      const gone = () => abandon(false, "abandoned", "consumer");
       writer.closed.catch(gone);
       return new Promise<void>((ok) =>
         this.pipe({
@@ -1896,7 +1905,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
             }),
           cancel: () => {
             open = false;
-            abandon(false);
+            abandon(false, "abandoned", "consumer");
           },
         });
       }
@@ -1952,7 +1961,8 @@ export function createSSRResponse(result: any, event?: RequestEvent, options: { 
             cancel: () => {
               if (closed) return;
               closed = true;
-              sink[ABANDON_RENDER]?.();
+              // (The reader left: a disconnect.)
+              sink[ABANDON_RENDER]?.("consumer");
             },
           });
           const r = respond(stream, true);
