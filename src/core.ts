@@ -3249,7 +3249,8 @@ function caught(f: Fiber, e: any, inclusive = false) {
     (f as any).suspended = true;
     // Its boundary is being hydrated: that boundary stays as the server drew it, and is hydrated again later.
     if (hydrating) {
-      for (let p = f.parent; p; p = p.parent) {
+      // (From the fiber itself: a thenable child directly in a boundary suspends that boundary.)
+      for (let p: Fiber | null = f; p; p = p.parent) {
         if (p.type !== SUSPENSE && !(p.type === ACTIVITY && regions.some((x) => x.fiber === p))) continue;
         const r = regions.find((x) => x.fiber === p);
         // A boundary that already does not match is drawn on the client: there it shows its fallback.
