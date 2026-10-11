@@ -1029,6 +1029,8 @@ export class Computation<T> extends Node<T> implements Owner {
   declare recovered: boolean;
   /** Serving its loading value until its first answer lands. */
   declare loadingWindow: boolean;
+  /** Its value is a loading window's first answer, to the question its inputs ask now (until it runs again). */
+  declare windowAnswer: boolean;
   /** Told each value it takes (a derived store reconciles an async answer into itself). */
   declare onTake?: (v: T) => void;
   /**
@@ -1148,7 +1150,7 @@ export class Computation<T> extends Node<T> implements Owner {
 
     if (this.error !== NONE) throw this.error;
     // An authoritative reader asks the truth: a refetch with nothing landed for its question has none yet (A17).
-    if (authoritative && this.flight && this.ready && !this.streaming && this.staged === NONE && this.override === NONE) throw new NotReadyError(this);
+    if (authoritative && !this.loadingWindow && this.flight && this.ready && !this.streaming && this.staged === NONE && this.override === NONE) throw new NotReadyError(this);
     // Never had a value (a first load, or waiting on one): not ready.
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);
     // A fresh derivation reading a flight a transaction waits on suspends on it (A15).
@@ -1250,6 +1252,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.before = this.sources;
     const seenBefore = this.seen;
     this.sources = NOTHING_YET as Source[];
+    if (this.windowAnswer) this.windowAnswer = false;
     if (this.readHeld) this.readHeld = null;
     this.seen = NOTHING_YET as number[];
     if (this.verdict) this.verdict = null;
@@ -1369,6 +1372,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.loadingWindow) {
       this.loadingWindow = false;
       (this as any).revealNow = true;
+      this.windowAnswer = true;
       if (this.tx) this.tx.nodes.delete(this), (this.tx = null);
     }
     if (this.onTake)
@@ -1725,7 +1729,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, windowAnswer: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
@@ -1937,7 +1941,7 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (n instanceof Computation) {
     // (A stream between its values is settled on the last one: not pending.)
     if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming && !(pendingInside && flightHolder(n)?.root === pendingInside)) return true;
-    for (const s of n.sources) if (waiting(s, seen)) return true;
+    if (!n.windowAnswer) for (const s of n.sources) if (waiting(s, seen)) return true;
   }
   return false;
 }
