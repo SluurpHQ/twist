@@ -343,6 +343,10 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string): T {
 
 /** The strict-read scope we are in (a component body's label), or none. */
 let strictRead: string | false = false;
+/** A read outside tracking in a strict scope: reported (a store's property read too). */
+export function checkStrictRead(n: { name?: string }) {
+  if (strictRead && !listener) strictReadUntracked(n as Node<any>);
+}
 function strictReadUntracked(n: Node<any>) {
   // Named when the name says something (the defaults would only restate "reactive value").
   const named = n.name !== undefined && n.name !== "signal" && n.name !== "computed";
@@ -1639,10 +1643,12 @@ export class Computation<T> extends Node<T> implements Owner {
     const prevOwner = owner;
     const prevListener = listener;
     inEffectCallback = true;
+    const prevStrict = strictRead;
     try {
       c?.();
-      // (Unowned and untracked.)
+      // (Unowned and untracked: what it reads there will not make it run again.)
       owner = listener = null;
+      strictRead = "an effect callback";
       done = this.apply!(this.value as T, prev);
     } catch (e) {
       // The effect's own code threw: not its error handler's (that is for its compute) — the nearest boundary, else
@@ -1652,6 +1658,7 @@ export class Computation<T> extends Node<T> implements Owner {
       owner = prevOwner;
       listener = prevListener;
       inEffectCallback = wasIn;
+      strictRead = prevStrict;
     }
     if (done !== undefined && typeof done !== "function") throw new Error("effect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
     if (done || this.cleanup) this.cleanup = done as (() => void) | undefined;
@@ -2552,6 +2559,8 @@ export function isPending(fn: () => unknown): boolean {
   probe.attached = false;
   const outer = listener;
   if (outer) outer.track(status), (outer.verdictReader = true);
+  // (Asked outside tracking in a strict scope: what it answers will not update there.)
+  else if (strictRead) strictReadUntracked({ name: "isPending" } as Node<any>);
   verdictReading++;
   listener = probe;
   try {
@@ -2698,14 +2707,18 @@ export function useContext<T>(context: Context<T>): T {
   return context.defaultValue;
 }
 
-export function getContext<T>(context: Context<T>, o: Owner | null = owner): T | undefined {
-  const ctx = o?.context;
-  return ctx && context.id in ctx ? (ctx[context.id] as T) : context.defaultValue;
+export function getContext<T>(context: Context<T>, o: Owner | null = owner): T {
+  if (!o) throw new NoOwnerError();
+  const ctx = o.context;
+  if (ctx && context.id in ctx) return ctx[context.id] as T;
+  if (context.defaultValue === undefined) throw new ContextNotFoundError();
+  return context.defaultValue;
 }
 
-export function setContext<T>(context: Context<T>, value: T, o: Owner | null = owner) {
+export function setContext<T>(context: Context<T>, value?: T, o: Owner | null = owner) {
   if (!o) throw new NoOwnerError();
-  o.context = { ...o.context, [context.id]: value };
+  // (No value: its default.)
+  o.context = { ...o.context, [context.id]: value === undefined ? context.defaultValue : value };
 }
 
 export class NoOwnerError extends Error {
@@ -3611,14 +3624,16 @@ export function createReaction(onChange: () => void) {
   let stop: (() => void) | null = null;
   return (fn: () => void) => {
     stop?.();
-    let first = true;
+    // (Its first run arms it; any later run is a change: told once, then disarmed.)
+    let runs = 0;
     stop = createRoot((dispose) => {
       createEffect(
-        () => fn(),
-        () => {
-          if (first) return void (first = false);
+        () => (fn(), ++runs),
+        (n) => {
+          if (n === 1) return;
           dispose();
-          onChange();
+          const done = (onChange as () => unknown)();
+          if (done !== undefined && typeof done !== "function") throw new Error("Reaction callback returned an invalid cleanup value. Return a cleanup function or undefined.");
         },
       );
       return dispose;
