@@ -16,8 +16,10 @@ await page.evaluate(([n]) => { for (let i = 0; i < 20; i++) window.benchOne(n); 
 // ALLOC=1: what allocates instead (sampled bytes by function and line).
 if (process.env.ALLOC) {
   await cdp.send("HeapProfiler.enable");
+  if (process.env.STEP) await page.evaluate(([n]) => window.benchWarm(n), [name]);
   await cdp.send("HeapProfiler.startSampling", { samplingInterval: 256, includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
-  await page.evaluate(([n, r]) => { for (let i = 0; i < r; i++) window.benchOne(n); }, [name, +rounds]);
+  // (With STEP=1, the step alone, warmed before sampling.)
+  await page.evaluate(([n, r, step]) => { for (let i = 0; i < r; i++) step ? window.benchRun(n) : window.benchOne(n); }, [name, +rounds, !!process.env.STEP]);
   const { profile } = await cdp.send("HeapProfiler.stopSampling");
   await browser.close();
   const bytes = new Map();

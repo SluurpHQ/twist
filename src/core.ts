@@ -216,6 +216,8 @@ let depth = 0;
 // Phases, as React's commit has them: insertion effects first (before any ref or layout effect: a ref may call
 // what one set up), then refs and layout effects, then passive effects after paint.
 const insertionQueue: (() => void)[] = [];
+/** Elements and the props their handlers take at the commit, in pairs (no closure each). */
+const propsQueue: unknown[] = [];
 const layoutQueue: (() => void)[] = [];
 const passiveQueue: (() => void)[] = [];
 /** Passive cleanups of what was taken away: run before any passive effect, as React runs them. */
@@ -597,6 +599,13 @@ function invalidChild(parent: Fiber, c: any) {
 /** How a root is named in the key warning (React's "top-level render call using <Root>"). */
 const ROOT_NAME = { displayName: "Root" };
 
+/** Old children by key: those passed over in line, and those from `from` on. */
+function keyMap(old: Fiber[], from: number, skipped: Fiber[] | null) {
+  const m = new Map<string, Fiber>();
+  if (skipped) for (const f of skipped) m.set(f.key, f);
+  for (let j = from; j < old.length; j++) m.set(old[j]!.key, old[j]!);
+  return m;
+}
 function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) {
   const old = parent.children;
   // The thenables it stopped at last time: asked again now (still pending, they hold the boundary again).
@@ -607,13 +616,6 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   let byKey: Map<string, Fiber> | null = null;
   // (Old ones passed over in line, gone from the list unless asked for later.)
   let skipped: Fiber[] | null = null;
-  const lookUp = () => {
-    byKey = new Map();
-    if (skipped) for (const f of skipped) byKey.set(f.key, f);
-    for (let j = lineAt; j < old.length; j++) byKey.set(old[j]!.key, old[j]!);
-    lineAt = old.length;
-    return byKey;
-  };
   // (Whether a kept one came out of line, or after a new one: then something moves.)
   let keptOutOfLine = false;
   let madeNew = false;
@@ -672,7 +674,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     // One gone from the line (the old one after it has this key): passed over, the line kept.
     if (!byKey && lineAt + 1 < old.length && old[lineAt]!.key !== key && old[lineAt + 1]!.key === key) (skipped ??= []).push(old[lineAt++]!);
     const lined = !byKey && lineAt < old.length && old[lineAt]!.key === key ? old[lineAt]! : null;
-    const had = lined ?? (old.length ? (byKey ?? lookUp()).get(key) : undefined);
+    const had = lined ?? (old.length ? (byKey ?? ((byKey = keyMap(old, lineAt, skipped)), (lineAt = old.length), byKey)).get(key) : undefined);
     if (had && (had.type === type || sameFamily(had.type, type)) && !had.dead) {
       if (lined) lineAt++;
       else (byKey as Map<string, Fiber> | null)!.delete(key), (keptOutOfLine = true);
@@ -681,7 +683,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       next.push(had);
     } else {
       // (One in line but not kept: the rest looked up by key, it among them, let go at the end.)
-      if (lined) lookUp();
+      if (lined) (byKey = keyMap(old, lineAt, skipped)), (lineAt = old.length);
       madeNew = true;
       if (hydrating && !(list as any)[LONE]) nextTree = pushTree(childBase(parent), list.length, i - 1);
       nextOwner = c?._owner ?? null;
@@ -691,7 +693,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     }
   }
   // What it had and did not reach: kept as it was, in its place, when it stopped at a suspending child; else let go.
-  const left: Map<string, Fiber> | null = byKey ?? (lineAt < old.length || skipped ? lookUp() : null);
+  const left: Map<string, Fiber> | null = byKey ?? (lineAt < old.length || skipped ? keyMap(old, lineAt, skipped) : null);
   if (stoppedAt && left) for (const f of old) if (left.get(f.key) === f) next.push(f), left.delete(f.key);
   if (left) for (const f of left.values()) unmount(f, true);
   parent.children = next;
@@ -2497,20 +2499,21 @@ function update(f: Fiber, c: any) {
     f.props = props;
     const el = f.dom as Element;
     // Its handlers change at commit: an event during the render still reaches the committed ones.
-    insertionQueue.push(() => ((el as any)[PROPS] = props));
-    // What setting them throws is this element's commit error (React's captureCommitPhaseError): the rest goes on.
-    const commitProps = (set: () => void) => {
+    propsQueue.push(el, props);
+    // (What setting them throws is this element's commit error, React's captureCommitPhaseError: the rest goes on.)
+    if (FORM_TAGS.has(f.type) && !f.ns) {
+      if (f.type !== "textarea" && f.type !== "input") reconcile(f, toList(props.children), el, null);
       try {
-        set();
+        updateForm(el, f.type, props, prev, false);
       } catch (e) {
         caught(f, e);
       }
-    };
-    if (FORM_TAGS.has(f.type) && !f.ns) {
-      if (f.type !== "textarea" && f.type !== "input") reconcile(f, toList(props.children), el, null);
-      commitProps(() => updateForm(el, f.type, props, prev, false));
     } else {
-      commitProps(() => setProps(el, props, prev, f.ns === SVG_NS));
+      try {
+        setProps(el, props, prev, f.ns === SVG_NS);
+      } catch (e) {
+        caught(f, e);
+      }
       if (props.dangerouslySetInnerHTML == null && f.type !== "noscript") {
         // One text: its text content (what it held before let go); after one text, children drawn into it emptied.
         const text = hydrating ? null : textChild(props.children);
@@ -3625,6 +3628,8 @@ function commit() {
         inDeletions = false;
       }
       deletions.length = 0;
+      for (let i = 0; i < propsQueue.length; i += 2) (propsQueue[i] as any)[PROPS] = propsQueue[i + 1];
+      propsQueue.length = 0;
       for (let i = 0; i < insertionQueue.length; i++) guard(insertionQueue[i]!);
       insertionQueue.length = 0;
       // In the page from now on: events reach their handlers (before, React finds no mounted fiber).
@@ -3699,7 +3704,7 @@ function prewarm() {
   // Inside a render of its own: nothing it makes is committed, none of its effects run.
   depth++;
   const freshBefore = fresh.length;
-  const queued = [layoutQueue.length, passiveQueue.length, insertionQueue.length];
+  const queued = [layoutQueue.length, passiveQueue.length, insertionQueue.length, propsQueue.length];
   try {
     for (const f of lone) if (!f.dead) renderAgain(f);
     for (const s of list) {
@@ -3728,6 +3733,7 @@ function prewarm() {
     layoutQueue.length = queued[0]!;
     passiveQueue.length = queued[1]!;
     insertionQueue.length = queued[2]!;
+    propsQueue.length = queued[3]!;
     depth--;
     prewarming = false;
   }
