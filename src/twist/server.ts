@@ -844,6 +844,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
       const track = trackBoundary(r, id ?? "", boundary, group);
       // (The modules it began to load, for the client to load before it renders it.)
       if (id != null) boundaryModules(id);
+      // (The client goes on from its fallback: it renders the content itself.)
+      if (id != null) (sharedConfig.context as any)?.serialize?.(id, "$$f");
       settleBoundary(r, track, client ? "client" : "fallback");
       return { t: fallback };
     }

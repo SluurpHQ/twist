@@ -1257,6 +1257,32 @@ function claimLiveBoundary(props: { fallback?: any; children?: any; on?: unknown
   return nodes;
 }
 
+/** A boundary the server rendered as its fallback for good ("$$f"): the fallback claimed, then the content made here. */
+function claimFallbackThenRender(props: { fallback?: any; children?: any; on?: unknown }, at: Cursor, parent: Owner, id: string): Node[] {
+  const claimed = runWithOwner(ownerUnder(parent, { id }), () => claimHtml(props.fallback, false, at));
+  let shown = false;
+  const read = createLoadingBoundary(
+    () => {
+      // (Made, not claimed: nothing of it is in the page.)
+      const was = hydrating;
+      const wasShared = sharedConfig.hydrating;
+      hydrating = null;
+      sharedConfig.hydrating = false;
+      try {
+        return untrack(() => props.children);
+      } finally {
+        hydrating = was;
+        sharedConfig.hydrating = wasShared;
+      }
+    },
+    () => (shown ? props.fallback : ((shown = true), claimed)),
+    "on" in props ? { on: () => props.on } : undefined,
+  );
+  const nodes = untrack(() => nodesOf(read(), [], []));
+  bind(at.parent, read, at.next);
+  return nodes;
+}
+
 /**
  * A Loading boundary the server rendered: its owner takes the id the server's did. Content rendered in place is claimed
  * under it; content the server streamed later shows its fallback (claimed) until the fragment record settles, the
@@ -1271,6 +1297,8 @@ function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): No
   } catch {
     id = undefined;
   }
+  // Its fallback final on the server: claimed, the content rendered fresh after it.
+  if (id != null && (globalThis as any)._$HY?.r?.[id] === "$$f") return claimFallbackThenRender(props, at, parent!, id);
   const pl = at.next as Element | null;
   if (id == null || !pl || pl.nodeName !== "TEMPLATE" || pl.id !== "pl-" + id) return claimLiveBoundary(props, at);
   const boundary = ownerUnder(parent) as any;

@@ -3654,7 +3654,8 @@ function traceOnly(fn: (prev: any) => any, prev: any) {
 function serverSent(n: { id?: string; kind: number }): unknown {
   if (n.id == null || n.kind !== MEMO) return NONE;
   const r = (globalThis as any)._$HY?.r;
-  return r && n.id in r ? r[n.id] : NONE;
+  // ("$$f": a boundary's mark that its content is the client's, not an answer.)
+  return r && n.id in r && r[n.id] !== "$$f" ? r[n.id] : NONE;
 }
 export const isHydrating = () => sharedConfig.hydrating && (!(sharedConfig as any).isClaiming || (sharedConfig as any).isClaiming());
 export { enableHydration } from "./hydration.ts";
