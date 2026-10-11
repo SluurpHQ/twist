@@ -2092,7 +2092,9 @@ function heldRead<T>(n: Node<T>): T {
       throw new NotReadyError(n);
     }
   }
-  if (!born && (l.kind === RENDER || l.verdictReader) && (l.tx?.root !== t || (l.revealing === t && !(n instanceof Computation))) && !(l.ranAt === -1 && l.tx)) {
+  // (A lane's reveal shows its derivations over the parent's committed writes.)
+  const outside = l.revealing === t ? !(n instanceof Computation) : l.tx?.root !== t;
+  if (!born && (l.kind === RENDER || l.verdictReader) && outside && !(l.ranAt === -1 && l.tx)) {
     t.stale.add(l);
     l.staleRead = true;
     return n.value;
