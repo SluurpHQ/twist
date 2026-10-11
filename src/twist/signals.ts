@@ -1514,6 +1514,8 @@ export class Computation<T> extends Node<T> implements Owner {
       return;
     }
     this.due = false;
+    // (Render effects its pass made, their first apply deferred to the flush: before it, as made.)
+    if (this.kind === RENDER && this.owned) applyMadeFirst(this);
     this.promote();
     const prev = this.applied === NONE ? undefined : this.applied;
     this.applied = this.value as T;
@@ -1543,11 +1545,18 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
   if (process.env.NODE_ENV !== "production") diagnose({ code: "NO_OWNER_EFFECT", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed", data: { effectType } });
+}
+
+function applyMadeFirst(o: Owner) {
+  for (const k of o.owned!) {
+    if (!(k instanceof Computation)) k.owned && applyMadeFirst(k);
+    else if ((k as any).applyFirst) ((k as any).applyFirst = false), k.runApply();
+  }
 }
 
 function primitiveInEffectCallback(): never {
@@ -1732,8 +1741,12 @@ function downstream(n: Node, out = new Set<Computation<any>>()): Set<Computation
 
 /** A flight a transaction already waits on (a reveal over it shows the committed value and catches up). */
 function heldFlight(c: Computation<any>) {
-  for (const t of transactions) if (t.flights.has(c)) return true;
-  return false;
+  return !!flightHolder(c);
+}
+/** The transaction waiting on `c`'s flight, if any. */
+function flightHolder(c: Computation<any>): Transaction | null {
+  for (const t of transactions) if (t.flights.has(c)) return t;
+  return null;
 }
 
 /** This round's staged nodes committed, or held where they lead to a flight that something renders. */
@@ -1843,13 +1856,37 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     let holds = false;
     let joins: Transaction | null = null;
     const revealed: Computation<any>[] = [];
+    const made: Computation<any>[] = [];
     for (const c of below) {
       if (c.tx) joins = c.tx.root;
       if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO ? !hidden(c) : rendered(c))) holds = true;
       // A reveal: what the write brings on screen reads a flight already up — the write waits for its answer.
       // (Nothing shown yet, a first mount, is no reveal.)
       if (c.kind !== MEMO ? c.applied !== NONE && !hidden(c) : rendered(c)) {
-        for (const s of c.sources) if (s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !c.before.includes(s) && !heldFlight(s) && c.born !== flushes) (holds = true), revealed.push(s);
+        const reveal = (r: Computation<any>, fresh: boolean) => {
+          for (const s of r.sources) {
+            if (!(s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !r.before.includes(s) && (fresh || r.born !== flushes))) continue;
+            // (A flight another reveal already waits on: this one joins it, all complete at the landing; one a shown
+            // reader waits on is carved out.)
+            const by = flightHolder(s);
+            if (by) {
+              if ((by.root as any).byReveal) joins = by.root;
+              continue;
+            }
+            (holds = true), revealed.push(s);
+          }
+          // (What its pass made just now is part of the reveal: a child born this flush reading a flight.)
+          const walk = (o: Owner) => {
+            if (o.owned)
+              for (const k of o.owned)
+                // (A fresh boundary catches what is under it: its fallback shows instead.)
+                if (k.disposed || (k as any).loading?.fresh || (k as any).shows?.fresh) continue;
+                else if (!(k instanceof Computation)) walk(k);
+                else if (k.born === flushes) made.push(k), reveal(k, true);
+          };
+          walk(r);
+        };
+        reveal(c, false);
       }
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
@@ -1864,7 +1901,10 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     const by = (n as any).writtenIn as Transaction | null;
     if (by && !by.done) joins = by.root;
     if (!holds && !joins) continue;
+    // (Held with the reveal: what its pass made just now.)
+    for (const k of made) below.add(k);
     const t: Transaction = joins ?? (tx ??= newTransaction());
+    if (revealed.length && !joins) (t as any).byReveal = true;
     setTx(t);
     parked ??= t.root;
     hold(n, t);
@@ -2284,10 +2324,10 @@ export function startEffect<T>(e: Computation<T>, options?: SignalOptions<T>) {
     e.applied = e.current() as T;
     e.promote();
   }
-  // (Unless scheduled.)
+  // (Unless scheduled, or made by a flush's pass while something could hold it: it applies with that flush.)
   if (kind === RENDER && !options?.schedule && e.due && !e.tx && e.error === NONE) {
-    remove(applies[RENDER], e);
-    e.runApply();
+    if (flushing && (flights.size || transactions.size)) (e as any).applyFirst = true;
+    else remove(applies[RENDER], e), e.runApply();
   }
   schedule();
 }
@@ -2309,7 +2349,11 @@ let verdictReading = 0;
 /** Whether a change to what `fn` reads is on its way (in flight, or held), its value shown meanwhile. */
 export function isPending(fn: () => unknown): boolean {
   const reads: Node[] = [];
+  // (A probe, not a primitive: fine in an effect callback.)
+  const wasIn = inEffectCallback;
+  inEffectCallback = false;
   const probe = new Computation<unknown>(MEMO, () => undefined);
+  inEffectCallback = wasIn;
   probe.attached = false;
   const outer = listener;
   if (outer) outer.track(status), (outer.verdictReader = true);
