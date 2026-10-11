@@ -495,10 +495,11 @@ function hideActivity(f: Fiber, hide: boolean) {
   for (const n of activityNodes(f)) hideNode(n, hide);
 }
 /** Hidden: the subtree's effects cleaned up, class components told they unmount, refs let go — at commit, outer first. */
-function disappear(f: Fiber) {
+/** (layoutOnly: hidden by a Suspense, which keeps the passive effects; an Activity lets go of both.) */
+function disappear(f: Fiber, layoutOnly = false) {
   const each = (x: Fiber) => {
     if (x.kind === COMP) {
-      for (const h of x.hooks ?? []) if (h && (h.phase === "layout" || h.phase === "passive") && typeof h.cleanup === "function") lifecycle(x, h.cleanup), (h.cleanup = null);
+      for (const h of x.hooks ?? []) if (h && (h.phase === "layout" || (h.phase === "passive" && !layoutOnly)) && typeof h.cleanup === "function") lifecycle(x, h.cleanup), (h.cleanup = null);
       const inst = x.inst;
       if (inst && (x as any).classRef != null) clearRef(x, (x as any).classRef);
       if (inst?.componentWillUnmount) lifecycle(x, () => inst.componentWillUnmount());
@@ -516,7 +517,7 @@ function disappear(f: Fiber) {
   });
 }
 /** Shown again: refs, layout effects and componentDidMount at commit (inner first), then the effects after paint. */
-function reappear(f: Fiber) {
+function reappear(f: Fiber, layoutOnly = false) {
   const passive: (() => void)[] = [];
   const each = (x: Fiber) => {
     // (Not the children a waiting boundary keeps hidden: they come back when it shows them.)
@@ -541,7 +542,7 @@ function reappear(f: Fiber) {
           }
         };
         if (h.phase === "layout") run();
-        else if (h.phase === "passive") passive.push(run);
+        else if (h.phase === "passive" && !layoutOnly) passive.push(run);
       }
       const inst = x.inst;
       if (inst && (x as any).classRef != null) setRef(x, (x as any).classRef, inst);
@@ -2273,30 +2274,32 @@ export function performWork(shouldYield: () => boolean = () => false): boolean {
 
 /** A boundary still as the server drew it, given new props: hydrated first (with the props it had), then updated;
  * if it cannot hydrate yet, what the server drew goes and it is drawn on the client, as React does. */
-function updateDehydrated(f: Fiber, props: any, redraw: () => void) {
+/** True when it hydrated (and was drawn again with the new props); false when it was kept or drawn afresh. */
+function updateDehydrated(f: Fiber, props: any, redraw: () => void): boolean {
   retryBoundary(f);
   // Hydrated with the props it had: the render that brought new ones starts again from the top, as React's does.
   if (!(f as any).dehydrated && drawing.size && props !== f.props) throw RESTART;
   // Still waiting, in a transition: it keeps what the server drew, and takes the new props once it has hydrated.
   if ((f as any).dehydrated && applyingTransition) {
     (f as any).propsAfterHydration = props;
-    return;
+    return false;
   }
   f.props = props;
-  if (!(f as any).dehydrated) return redraw();
+  if (!(f as any).dehydrated) return redraw(), true;
   const region = (f as any).region;
   const host = region.start.parentNode;
   // An Activity under a Suspense: drawn off the page first, its server markup kept if that suspends.
   const sb = f.type === ACTIVITY ? boundaryOf(f) : null;
   if (sb?.pending) {
     if (drawnOrKept(f, sb, host, region)) tellDeleted(f);
-    return;
+    return false;
   }
   tellDeleted(f);
   const after = removeRegion(region);
   (f as any).region = undefined;
   setDehydrated(f, false);
   drawFresh(f, host, after);
+  return false;
 }
 
 function update(f: Fiber, c: any) {
@@ -2315,8 +2318,9 @@ function update(f: Fiber, c: any) {
     if (f.type === ACTIVITY && (f as any).dehydrated && !hydrating) {
       // (The same props: left as the server drew it, waiting for its hydration.)
       if (c.props === f.props) return;
-      // (Then updated as any Activity is below: shown or hidden, its children drawn.)
-      updateDehydrated(f, c.props, () => {});
+      // Hydrated: then updated as any Activity is below, shown or hidden, its children drawn. (Kept as the server
+      // drew it, or drawn afresh: nothing more to do.)
+      if (!updateDehydrated(f, c.props, () => {})) return;
     }
     const host = hostParentOf(f);
     const prev = f.props;
@@ -2648,6 +2652,11 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
         if (!kept || !!(fb as any).keptHidden === waiting) return;
         (fb as any).keptHidden = waiting;
         hideNodes(kept, waiting);
+        // Hidden: its layout effects and refs let go, given back when it shows again (React's Offscreen).
+        // (Only what was showing, and given back only what it took down.)
+        if (waiting) {
+          if (!(hiddenActivities && insideHidden(kept))) ((kept as any).offscreen = true), disappear(kept, true);
+        } else if ((kept as any).offscreen) ((kept as any).offscreen = false), reappear(kept, true);
       });
       const out: any = [
         shown || !waiting ? createElement(FRAGMENT, { key: "c" }, props.children) : null,
