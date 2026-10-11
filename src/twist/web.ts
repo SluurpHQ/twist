@@ -1026,7 +1026,8 @@ export const generateHydrationScript = (_options?: unknown) => "";
 
 /** A component whose identity (a component, or a tag name) follows `source`. */
 type DynamicOptions = { static?: boolean; deferStream?: boolean };
-const tagArm = (tag: string, props: any) => element(tag, componentRaw(props));
+// (Hydrating: a description, so the server's element is claimed rather than one made beside it.)
+const tagArm = (tag: string, props: any) => jsx(tag, componentRaw(props));
 
 export function dynamic<P>(source: () => any, options?: DynamicOptions): (props: P) => any {
   return __twist_mark(dynamicOf<P>(source, options, tagArm));
