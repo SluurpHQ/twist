@@ -19,6 +19,7 @@ import {
   untrack,
   NotReadyError,
   getNextChildId,
+  scopeIdOf,
   sharedConfig,
   createSignal,
   createOwner,
@@ -653,8 +654,13 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
 }
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
-function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null) {
-  const b = new Binding(RENDER_EFFECT, bindingCompute, name === undefined ? bindingNamed(parent, "children") : bindingOptions(name));
+function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null, scoped = false) {
+  const options = name === undefined ? bindingNamed(parent, "children") : bindingOptions(name);
+  // A template's dynamic hole: an id scope of its own, as Solid's insert effect (and the server's hole) is.
+  const o = scoped && isDynamic(value) ? getOwner() : null;
+  const id = o ? scopeIdOf(o) : undefined;
+  const b = new Binding(RENDER_EFFECT, bindingCompute, id === undefined ? options : { ...options, id });
+  if (id !== undefined) b.transparent = false;
   b.place = parent;
   b.source = value;
   if (end) b.endAt = end;
@@ -1223,7 +1229,7 @@ export function hydrate(code: () => any, element: Element | Document, options: {
 function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
   if (v == null || typeof v === "boolean") return [];
   if (Array.isArray(v)) return claimList(v, !!(v as any)[OWN], inTemplate, false, at);
-  if (typeof v === "function") return bindAt(v, at);
+  if (typeof v === "function") return bindAt(v, at, inTemplate);
   if (v[COMP]) {
     // A React component the server drew in <sluurp-react>: hydrated there as a React root (the bridge's).
     if (foreignClaim && !isTwist(v.fn)) {
@@ -1313,6 +1319,8 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
   const pl = at.next as Element | null;
   if (id == null || !pl || pl.nodeName !== "TEMPLATE" || pl.id !== "pl-" + id) return claimLiveBoundary(props, at);
   const boundary = ownerUnder(parent) as any;
+  // (Its content's ids as the server's: under <id>00, <id>01 after `on`.)
+  boundary.id = id + ("on" in props ? "01" : "00");
   // The fallback, between the placeholder template and its end comment.
   const end = (() => {
     for (let n = pl.nextSibling; n; n = n.nextSibling) if (n.nodeType === 8 && (n as Comment).data === "pl-" + id) return n;
@@ -1389,7 +1397,7 @@ const noopFn = () => {};
 /** An element's children: mirrors the server's children(). */
 function claimChildren(c: any, at: Cursor) {
   if (Array.isArray(c)) claimList(c, !!(c as any)[OWN], true, false, at);
-  else if (typeof c === "function") bindAt(c, at);
+  else if (typeof c === "function") bindAt(c, at, true);
   else if (c && c[EL]) claimDescribed(c, c.keyed ?? false, at);
   else claimHtml(c, false, at);
 }
@@ -1401,7 +1409,7 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
     if (x == null || typeof x === "boolean") continue;
     if (typeof x === "function") {
       if (viaFn) out.push(...claimList([resolveDeep(x)].flat(), own, inTemplate, true, at));
-      else out.push(...bindAt(x, at));
+      else out.push(...bindAt(x, at, inTemplate));
     } else if (Array.isArray(x)) out.push(...claimList(x, !!(x as any)[OWN], inTemplate && own, viaFn, at));
     else if (x[EL]) out.push(...claimedBy(x, [claimDescribed(x, x.keyed ?? !(inTemplate && own && !viaFn), at)]));
     else if (x[COMP]) out.push(...claimedBy(x, marked(at, () => claimHtml(x, false, at))));
@@ -1412,9 +1420,9 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
 }
 
 /** A part that can change, bound to the nodes the server rendered for it. */
-function bindAt(fn: () => any, at: Cursor): Node[] {
+function bindAt(fn: () => any, at: Cursor, inTemplate = false): Node[] {
   const before = at.next;
-  bind(at.parent, fn, null, at);
+  bind(at.parent, fn, null, at, undefined, undefined, undefined, inTemplate);
   const out: Node[] = [];
   for (let n = before; n && n !== at.next; n = n.nextSibling) if (!isSeparator(n)) out.push(n);
   return out;

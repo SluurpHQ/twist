@@ -111,6 +111,34 @@ export function getNextChildId(o: Owner): string {
   return id;
 }
 
+/** The next child id of `o` taken, for a scope of its own (undefined where ids are not given). */
+export function scopeIdOf(o: Owner): string | undefined {
+  const at = idOwner(o);
+  return at.id == null ? undefined : getNextChildId(at);
+}
+
+/**
+ * A dynamic hole's id scope, as Solid's: one id of the current owner taken now (in source order), and `fn` run with
+ * what it makes taking ids under it, from the first each time (a retry takes the same ones).
+ */
+export function idScope<T>(fn: () => T): () => T {
+  const at = owner && idOwner(owner);
+  if (!at || at.id == null) return fn;
+  const id = getNextChildId(at);
+  return () => {
+    const was = at.id;
+    const count = at.childCount;
+    at.id = id;
+    at.childCount = 0;
+    try {
+      return fn();
+    } finally {
+      at.id = was;
+      at.childCount = count;
+    }
+  };
+}
+
 /** An owner made under `parent` given its id (unless transparent, which shares its parent's). */
 function giveId(o: Owner, parent: Owner | null) {
   if (!parent || idOwner(parent).id == null) return;

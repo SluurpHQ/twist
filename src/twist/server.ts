@@ -2,7 +2,7 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
+import { childIdCount, setChildIdCount, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
@@ -346,7 +346,8 @@ export function html(v: any, inTemplate: boolean): string {
   if (typeof v === "string") return escape(v);
   if (typeof v === "number") return String(v);
   if (Array.isArray(v)) return list(v, !!(v as any)[OWN], inTemplate);
-  if (typeof v === "function") return hole(() => liveHole(v) ?? html(v(), false));
+  // (A template's dynamic hole: its own id scope, as the client's binding is.)
+  if (typeof v === "function") return inTemplate && isDynamic(v) ? hole(idScope(() => liveHole(v) ?? html(v(), false)), true) : hole(() => liveHole(v) ?? html(v(), false));
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return renderComponent(v.fn, componentProps(v.props), (out) => html(out, false));
   if (typeof v.t === "string") return v.t;
@@ -493,7 +494,7 @@ const DYNAMIC_KIDS = Symbol("twist.ssr.dynamic-children");
 function children(c: any): string {
   if (c && c[DYNAMIC_KIDS]) {
     const raw = c[DYNAMIC_KIDS];
-    return hole(() => liveHole(() => read(raw)) ?? children(read(raw)));
+    return hole(idScope(() => liveHole(() => read(raw)) ?? children(read(raw))), true);
   }
   return Array.isArray(c) ? list(c, !!(c as any)[OWN], true) : typeof c === "function" ? hole(() => list([c], true, true)) : c && c[EL] ? element(c, c.keyed ?? false) : html(c, false);
 }
@@ -507,6 +508,14 @@ type Part = { s: string; text: boolean; split: boolean };
 function list(items: any[], own: boolean, inTemplate: boolean): string {
   const parts: Part[] = [];
   collect(items, own, inTemplate, false, parts);
+  return joined(parts);
+}
+
+/** Dynamic holes being rendered in their scope, with the scoped run (a retry runs it again). */
+const scoping = new Map<Function, () => Part[]>();
+
+/** Parts as HTML: text beside text split where the client would see two nodes. */
+function joined(parts: Part[]): string {
   let out = "";
   for (let i = 0; i < parts.length; i++) {
     const a = parts[i - 1];
@@ -525,11 +534,29 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
       parts.push({ s: "<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, inTemplate)) + "<!--/-->", text: false, split: false });
       continue;
     }
+    // A dynamic hole of a template (an insert, in Solid's terms; not a component's children): rendered in an id scope
+    // of its own, as the client's binding is, and retried in the same one.
+    if (inTemplate && typeof x === "function" && isDynamic(x) && !scoping.has(x)) {
+      const f = x;
+      const run = idScope(() => {
+        const ps: Part[] = [];
+        scoping.set(f, run);
+        try {
+          collect([f], own, inTemplate, viaFn, ps);
+        } finally {
+          scoping.delete(f);
+        }
+        return ps;
+      });
+      parts.push(...run());
+      continue;
+    }
     if (typeof x === "function") {
       const f = x;
       const rr = render;
       const o = getOwner() as any;
-      const at = childIdCount(o);
+      const scoped = scoping.get(f);
+      const at = scoped ? -1 : childIdCount(o);
       try {
         // A live frame's hole: rendered (between markers) by the live-hole engine, which re-sends it as it changes.
         const live = liveHole(f);
@@ -542,7 +569,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
         // A part of the shell not ready yet waits on its own, like any hole.
         const waits = e instanceof NotReadyError && rr?.async && settlesOf(e);
         if (!waits || (boundaries > 0 && !rr!.shellSent && holdsShell(e))) throw e;
-        parts.push({ s: later(rr!, () => list([f], own, inTemplate), waits, o, at), text: false, split: false });
+        parts.push({ s: later(rr!, scoped ? () => joined(scoped()) : () => list([f], own, inTemplate), waits, o, at), text: false, split: false });
         continue;
       }
     }
@@ -757,11 +784,12 @@ let holeCount = 0;
  * A hole of the shell, outside every Loading: one that is not ready yet waits on its own (a placeholder in the shell,
  * filled when it renders), the rest of the shell rendered once.
  */
-function hole(fn: () => string): string {
+function hole(fn: () => string, scoped = false): string {
   const r = render;
   if (!r || !r.async) return fn();
   const o = getOwner() as any;
-  const at = childIdCount(o);
+  // (Scoped: it takes its ids under its own, the same each time; else again from where it began.)
+  const at = scoped ? -1 : childIdCount(o);
   try {
     return fn();
   } catch (e) {
@@ -791,7 +819,7 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
             // Thrown away with a pass of its boundary that was rendered again: nothing to fill.
             if (!owned()) return ok("");
             // From the same ids: the hole takes again what it took the first time.
-            setChildIdCount(o, at);
+            if (at >= 0) setChildIdCount(o, at);
             try {
               ok(rendering(r, r.options, () => runWithOwner(o, fn)));
             } catch (e2) {
