@@ -957,41 +957,46 @@ const fresh: Fiber[] = [];
  * fields at a fixed place; a field added later makes a new shape, and code reading many shapes slows down). Rarer
  * fields (hydration, boundaries, fragments) are still added as needed.
  */
+/** No children yet: one list for every fiber (a fiber's list is replaced, never changed in place). */
+const NO_FIBERS: Fiber[] = [];
 class FiberNode {
-  kind: number;
-  type: any;
-  key: string;
-  props: any;
-  parent: Fiber | null;
-  children: Fiber[] = [];
-  dom: any = null;
-  ns: string | null;
-  root: RootState;
-  dead = false;
-  committed = false;
-  placed = false;
-  strict = false;
-  again = false;
-  draws = 0;
-  tree: TreeContext | undefined = undefined;
-  render: ((f: Fiber, props: any) => any) | undefined = undefined;
-  hooks: any[] | undefined = undefined;
-  stop: (() => void) | undefined = undefined;
-  out: any = undefined;
-  inst: any = undefined;
-  tick: Sig<number> | undefined = undefined;
-  compare: ((a: any, b: any) => boolean) | null | undefined = undefined;
-  insertion: (() => void)[] | undefined = undefined;
-  layout: (() => void)[] | undefined = undefined;
-  passive: (() => void)[] | undefined = undefined;
-  unbind: (() => void) | undefined = undefined;
-  doc: Document | undefined;
+  declare kind: number;
+  declare type: any;
+  declare key: string;
+  declare props: any;
+  declare parent: Fiber | null;
+  declare children: Fiber[];
+  declare dom: any;
+  declare ns: string | null;
+  declare root: RootState;
+  declare doc: Document | undefined;
+  // (What most fibers never set: defaults on the prototype, below.)
+  declare dead: boolean;
+  declare committed: boolean;
+  declare placed: boolean;
+  declare strict: boolean;
+  declare again: boolean;
+  declare draws: number;
+  declare tree: TreeContext | undefined;
+  declare render: ((f: Fiber, props: any) => any) | undefined;
+  declare hooks: any[] | undefined;
+  declare stop: (() => void) | undefined;
+  declare out: any;
+  declare inst: any;
+  declare tick: Sig<number> | undefined;
+  declare compare: ((a: any, b: any) => boolean) | null | undefined;
+  declare insertion: (() => void)[] | undefined;
+  declare layout: (() => void)[] | undefined;
+  declare passive: (() => void)[] | undefined;
+  declare unbind: (() => void) | undefined;
   constructor(kind: number, type: any, key: string, props: any, parent: Fiber | null, ns: string | null, root: RootState) {
     this.kind = kind;
     this.type = type;
     this.key = key;
     this.props = props;
     this.parent = parent;
+    this.children = NO_FIBERS;
+    this.dom = null;
     this.ns = ns;
     this.root = root;
     this.doc = parent?.doc;
@@ -1001,6 +1006,7 @@ class FiberNode {
     return this.inst ?? this.dom ?? null;
   }
 }
+Object.assign(FiberNode.prototype, { dead: false, committed: false, placed: false, strict: false, again: false, draws: 0 });
 
 function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
   const f = new FiberNode(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber;
