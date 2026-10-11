@@ -466,7 +466,7 @@ const NOTHING_YET: readonly unknown[] = [];
 
 abstract class Node<T = any> {
   /** Its name (the `name` option, a store key): what diagnostics call it. */
-  name?: string;
+  declare name?: string;
   value!: T;
   staged: T | typeof NONE = NONE;
   tx: Transaction | null = null;
@@ -478,9 +478,9 @@ abstract class Node<T = any> {
   }
   /** Counts its changes: a reader compares it with the count it saw. */
   version = 0;
-  unobserved?: () => void;
+  declare unobserved?: () => void;
   /** An optimistic value shown over the truth until its transaction commits (or its flush ends). */
-  override: T | typeof NONE = NONE;
+  declare override: T | typeof NONE;
   /** The value in the world being read: an optimistic override, else staged while a pass runs, else committed. */
   current(): T {
     if (this.override !== NONE && !authoritative) {
@@ -519,10 +519,10 @@ abstract class Node<T = any> {
   /** The staged value made the committed one. */
   promote() {
     if (this.staged !== NONE) this.value = this.staged as T;
-    this.staged = NONE;
-    this.tx = null;
-    (this as any).writtenIn = null;
-    (this as any).bornHeld = false;
+    if (this.staged !== NONE) this.staged = NONE;
+    if (this.tx) this.tx = null;
+    if ((this as any).writtenIn) (this as any).writtenIn = null;
+    if ((this as any).bornHeld) (this as any).bornHeld = false;
   }
   subscribe(o: Computation<any>) {
     if (this.observers === NO_OBSERVERS) this.observers = new Set();
@@ -549,7 +549,7 @@ export class Signal<T> extends Node<T> {
     super();
     this.value = value;
     this.equals = options?.equals ?? Object.is;
-    this.unobserved = options?.unobserved;
+    if (options?.unobserved) this.unobserved = options.unobserved;
     this.ownedWrite = !!options?.ownedWrite;
     if (options?.name) this.name = options.name;
   }
@@ -642,26 +642,26 @@ export class Computation<T> extends Node<T> implements Owner {
   disposed = false;
   /** Its place in the order computations run in (creation order). */
   order = ids++;
-  id?: string;
+  declare id?: string;
   childCount = 0;
-  transparent?: boolean;
+  declare transparent?: boolean;
   kind: number;
   fn: (prev?: T) => T;
   state = DIRTY;
   // (These three are made anew by its first run: until then, one shared empty list.)
   sources: Source[] = NOTHING_YET as Source[];
   /** The transaction whose held values its last run read: what it computed is held in it. */
-  readHeld: Transaction | null = null;
+  declare readHeld: Transaction | null;
   /** The flush it was made in (made in this one: a first mount, no reveal). */
   born = flushes;
   /** What its last run read (while it runs again). */
   before: Source[] = NOTHING_YET as Source[];
   /** It asks isPending: it reads the screen, like a render effect. */
-  verdictReader = false;
+  declare verdictReader: boolean;
   /** The version of each source when it was read. */
   seen: number[] = NOTHING_YET as number[];
   /** Sources read only through isPending/latest: what is shown ahead of a hold (they do not hold this). */
-  verdict: Set<Source> | null = null;
+  declare verdict: Set<Source> | null;
   attached = false;
   ranAt = -1;
   equals: Equals<T>;
@@ -670,26 +670,26 @@ export class Computation<T> extends Node<T> implements Owner {
   ready = false;
   /** The flight in progress (its promise), and whether it is a quiet re-ask (refresh). */
   flight: object | null = null;
-  quiet = false;
+  declare quiet: boolean;
   /** Why its last run failed (an error read rethrows it). */
-  error: unknown = NONE;
+  declare error: unknown;
   /** The lane this pass is work of (it read a guess in an unrevealed lane), else null. */
-  passLane: Transaction | null = null;
+  declare passLane: Transaction | null;
   /** The parent whose lane's reveal runs it next (and, while that run lasts, `revealing`). */
-  revealOf: Transaction | null = null;
-  revealing: Transaction | null = null;
+  declare revealOf: Transaction | null;
+  declare revealing: Transaction | null;
   /** This pass read the frame under a hold or an unrevealed lane (it runs again when that lands). */
-  staleRead = false;
-  heldOnly = false;
+  declare staleRead: boolean;
+  declare heldOnly: boolean;
   /** An effect's apply half, what it last applied, and the cleanup it gave back. */
-  apply?: (value: T, prev?: T) => void | (() => void);
-  applied: T | typeof NONE = NONE;
-  cleanup?: () => void;
-  onError?: (err: unknown, cleanup: () => void) => void;
+  declare apply?: (value: T, prev?: T) => void | (() => void);
+  declare applied: T | typeof NONE;
+  declare cleanup?: () => void;
+  declare onError?: (err: unknown, cleanup: () => void) => void;
   /** An effect whose compute gave a new value: its apply is due. */
-  due = false;
+  declare due: boolean;
   /** A tracked effect (createTrackedEffect): its single function runs in the effect phase. */
-  tracked = false;
+  declare tracked: boolean;
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
     ownerCreations++;
     super();
@@ -700,7 +700,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.parent = owner;
     this.context = owner?.context ?? null;
     if (owner) (owner.owned ??= []).push(this);
-    this.transparent = (options as any)?.transparent;
+    if ((options as any)?.transparent) this.transparent = true;
     if (options?.name) this.name = options.name;
     giveId(this, owner);
     this.equals = options?.equals ?? Object.is;
@@ -709,7 +709,9 @@ export class Computation<T> extends Node<T> implements Owner {
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
     // Its compute writes (a store's derive): not run while it takes the server's answer.
     if ((options as any)?.writes) (this as any).writes = true;
-    this.unobserved = options?.unobserved;
+    if (options?.unobserved) this.unobserved = options.unobserved;
+    if (serverScope) this.scope = serverScope;
+    if (serverRender) this.renderCtx = sharedConfig.context;
     // A declared first paint: born committed with it; its first flight is quiet (never pending, never held).
     if (options && "loadingValue" in options) {
       this.value = options.loadingValue as T;
@@ -733,17 +735,17 @@ export class Computation<T> extends Node<T> implements Owner {
     return o ? liveFrom(o, o.indexOf(this as any) + 1) : null;
   }
   /** Settles when the answer in flight lands or fails (what a server render waits on). */
-  settles: Promise<void> | null = null;
+  declare settles: Promise<void> | null;
   /** Its answers come from an async iterator: shown as they land, never revealed as one. */
-  streaming = false;
+  declare streaming: boolean;
   /** Its stream has answered in this flight (what shows is that answer, not a question still open). */
-  streamed = false;
+  declare streamed: boolean;
   /** It had an error and now has a value again (a change, whatever the value). */
-  recovered = false;
+  declare recovered: boolean;
   /** Serving its loading value until its first answer lands. */
-  loadingWindow = false;
+  declare loadingWindow: boolean;
   /** Told each value it takes (a derived store reconciles an async answer into itself). */
-  onTake?: (v: T) => void;
+  declare onTake?: (v: T) => void;
   /**
    * Autodisposed: a memo nothing owns, or a lazy one that lost its last reader. Read with nothing subscribed, it is
    * worked out again from scratch once anything has changed since it ran.
@@ -762,7 +764,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.attached && !this.relinking?.has(source)) source.subscribe(this);
   }
   /** While it runs again: the sources it was subscribed to (kept when read again, let go after). */
-  relinking: Set<Source> | null = null;
+  declare relinking: Set<Source> | null;
   override subscribe(o: Computation<any>) {
     if (this.observers === NO_OBSERVERS) this.observers = new Set();
     this.observers.add(o);
@@ -777,9 +779,9 @@ export class Computation<T> extends Node<T> implements Owner {
     else if (releasing && this.kind === MEMO && !this.parent) release(this);
   }
   /** Released: subscribed to nothing, built again from scratch when next read. */
-  released = false;
+  declare released: boolean;
   /** Holds state across runs (a mapped list): never released. */
-  kept = false;
+  declare kept: boolean;
   attach() {
     this.attached = true;
     if (this.ranAt !== clock && this.state === CLEAN) this.state = CHECK;
@@ -820,7 +822,7 @@ export class Computation<T> extends Node<T> implements Owner {
     for (const o of this.observers) o.mark(CHECK);
   }
   /** The commit epoch of the frame render it last computed in (a later epoch computes it again: Solid's per-commit cache). */
-  epoch: number | undefined = undefined;
+  declare epoch: number | undefined;
   read(): T {
     if (strictRead && !listener) strictReadUntracked(this);
     if (this.epoch !== undefined && this.state === CLEAN && !this.flight) {
@@ -895,9 +897,9 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.state === DIRTY) this.run();
   }
   /** The server render it was made in (it runs in it again when a landing re-runs it outside). */
-  scope: ServerScope | null = serverScope;
+  declare scope: ServerScope | null;
   /** The render context it was made in (a frame render's: an answer landing there is a commit the response sends on). */
-  renderCtx: any = serverRender ? sharedConfig.context : null;
+  declare renderCtx: any;
   run() {
     const s = this.scope;
     if (s && serverScope?.key !== s.key) return s.enter(() => this.runIn());
@@ -906,23 +908,24 @@ export class Computation<T> extends Node<T> implements Owner {
   runIn() {
 
     if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
-    this.passLane = null;
-    this.revealing = this.revealOf;
-    this.revealOf = null;
-    this.staleRead = false;
+    if (this.passLane) this.passLane = null;
+    if (this.revealing !== this.revealOf) this.revealing = this.revealOf;
+    if (this.revealOf) this.revealOf = null;
+    if (this.staleRead) this.staleRead = false;
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
-    this.heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
+    const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
+    if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
     disposeOwned(this);
-    this.childCount = 0;
+    if (this.childCount) this.childCount = 0;
     // Its old sources stay subscribed through the run (a lazy memo read again keeps its reader); the rest let go after.
-    const relinking = this.attached ? new Set(this.sources) : null;
-    this.relinking = relinking;
+    const relinking = this.attached && this.sources.length ? new Set(this.sources) : null;
+    if (relinking) this.relinking = relinking;
     this.before = this.sources;
     this.sources = [];
-    this.readHeld = null;
+    if (this.readHeld) this.readHeld = null;
     this.seen = [];
-    this.verdict = null;
-    this.attached = true;
+    if (this.verdict) this.verdict = null;
+    if (!this.attached) this.attached = true;
     const prevOwner = owner;
     const prevListener = listener;
     const prevStrict = strictRead;
@@ -964,7 +967,7 @@ export class Computation<T> extends Node<T> implements Owner {
       listener = prevListener;
       strictRead = prevStrict;
       inPass--;
-      this.relinking = null;
+      if (relinking) this.relinking = null;
       if (relinking) for (const s of relinking) if (!this.sources.includes(s)) s.unsubscribe(this);
     }
     this.state = CLEAN;
@@ -1005,8 +1008,7 @@ export class Computation<T> extends Node<T> implements Owner {
       if (serverRender) return this.serverStream(next as any);
       return this.stream(next as any);
     }
-    this.flight = null;
-    flights.delete(this);
+    if (this.flight) (this.flight = null), flights.delete(this);
     this.take(next!);
     // (After its own staging ticked the clock: it is current.)
     this.ranAt = clock;
@@ -1239,7 +1241,7 @@ export class Computation<T> extends Node<T> implements Owner {
    * Computations that read it untracked while it had no answer (waiting, not subscribed): run again in the flush its
    * answer lands in, once.
    */
-  untrackedReaders: Map<Computation<any>, number> | null = null;
+  declare untrackedReaders: Map<Computation<any>, number> | null;
   rerunReaders() {
     const readers = this.untrackedReaders;
     if (!readers) return;
@@ -1286,9 +1288,12 @@ export class Computation<T> extends Node<T> implements Owner {
       inEffectCallback = wasIn;
     }
     if (done !== undefined && typeof done !== "function") throw new Error("effect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
-    this.cleanup = done as (() => void) | undefined;
+    if (done || this.cleanup) this.cleanup = done as (() => void) | undefined;
   }
 }
+// (What most computations never set: one default for all, an own field only once set.)
+Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null });
+(Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
   if (process.env.NODE_ENV !== "production") diagnose({ code: "NO_OWNER_EFFECT", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed", data: { effectType } });
