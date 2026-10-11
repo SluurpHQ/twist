@@ -1225,7 +1225,7 @@ export class Computation<T> extends Node<T> implements Owner {
       const sent = this.ranAt === -1 && sharedConfig.hydrating ? serverSent(this) : NONE;
       if (sent !== NONE) {
         const ref = sent as any;
-        if ((this as any).ssrSource !== "hybrid" && !(this as any).writes) traceOnly(this.fn, this.current());
+        if ((this as any).ssrSource !== "hybrid") traceOnly(this.fn, this.current());
         if (ref && typeof ref === "object" && ref.s === 2) {
           if (typeof ref.then === "function") ref.then(undefined, noop);
           throw ref.v;
@@ -3636,10 +3636,16 @@ for (const k of ["all", "allSettled", "any", "race", "reject", "resolve", "try"]
  * A compute run for what it reads, its answer set aside (the server's is used): no request goes out and nothing after
  * its first await runs, as `fetch` and `Promise` never settle meanwhile (as Solid does).
  */
+/** A compute run only for what it reads (its answer the server's): what it writes is dropped. */
+let tracing = false;
+export const isTracing = () => tracing;
+
 function traceOnly(fn: (prev: any) => any, prev: any) {
   const g = globalThis as any;
   const fetchWas = g.fetch;
   const PromiseWas = g.Promise;
+  const wasTracing = tracing;
+  tracing = true;
   try {
     g.fetch = () => new Stalled();
     g.Promise = Stalled;
@@ -3655,6 +3661,7 @@ function traceOnly(fn: (prev: any) => any, prev: any) {
   } finally {
     g.fetch = fetchWas;
     g.Promise = PromiseWas;
+    tracing = wasTracing;
   }
 }
 

@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -684,6 +684,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   const m = createMemo(() => {
     shadow = options?.seedLoadingValue && runs === 0 ? (plain(target, new Map()) as Raw) : null;
     if (run) run.live = false;
+    // (Traced only, its answer the server's: what it writes is dropped.)
+    if (isTracing()) return fn(runDraft(target, { live: false, async: false, drafts: new WeakMap() }) as T);
     run = { live: true, async: false, drafts: new WeakMap() };
     const d = shadow ? draftOf(shadow) : runDraft(target, run);
     const before = new Set(dirtyRecords);
