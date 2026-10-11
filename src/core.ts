@@ -1737,6 +1737,20 @@ function clearContainer(container: Node) {
   else (container as Element).replaceChildren?.();
 }
 
+/** What a document holds before a client render takes it over: its singletons' children (React clears those). */
+function serverNodes(d: Document): Node[] {
+  const out: Node[] = [];
+  for (const el of [d.head, d.body]) if (el) out.push(...el.childNodes);
+  for (const n of d.documentElement?.childNodes ?? []) if (n !== d.head && n !== d.body) out.push(n);
+  return out;
+}
+/** What React's clearContainer leaves (scripts, styles, stylesheets), and what the render has taken over since (a
+ * server <title> a client one claimed: React places those after it clears). */
+function keptOnClear(n: Node): boolean {
+  if ((n as any)[FIBER] && !(n as any)[FIBER].dead) return true;
+  return n.nodeName === "SCRIPT" || n.nodeName === "STYLE" || (n.nodeName === "LINK" && (n as HTMLLinkElement).rel?.toLowerCase() === "stylesheet");
+}
+
 function clearSparingly(container: Node, root?: object, keepText = false) {
   let n = container.firstChild;
   if (n && n.nodeType === 10) n = n.nextSibling;
@@ -1779,6 +1793,26 @@ function inContainer(parent: Fiber): boolean {
 
 /** The stylesheets a document's first render draws (its commit waits for them in React). */
 let renderSheets: Fiber[] | null = null;
+/**
+ * `fn` once the stylesheets of the render about to run have loaded (at its commit if they have): what React does
+ * when its commit lands, which outside a sync render waits for them.
+ */
+function afterSheets(fn: () => void) {
+  const sheets: Fiber[] = (renderSheets = []);
+  // (Queued again at its turn: so it runs after the render's stylesheets were put in place.)
+  layoutQueue.push(() => void layoutQueue.push(() => {
+    renderSheets = null;
+    // (The bits of a stylesheet's loading state: 1 loaded, 2 errored.)
+    const waiting = sheets.map((f) => (f as any).resource).filter((r) => r && !(r.state.loading & 3) && r.instance);
+    if (!waiting.length) return fn();
+    let left = waiting.length;
+    const one = () => --left === 0 && fn();
+    for (const r of waiting) {
+      r.instance.addEventListener("load", one, { once: true });
+      r.instance.addEventListener("error", one, { once: true });
+    }
+  }));
+}
 /** A hoistable or resource fiber: its element found or made, and put in place, when the render commits. */
 function mountHoist(f: Fiber, host: Node) {
   // Its container's (a portal's, or the root's): the host may not be on the page yet.
@@ -2108,7 +2142,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     if (single) (f as any).singleton = true;
     // Taken over while hydrating: what follows it in its parent comes next.
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
-    if (single && !hydrating && type !== "html") clearSparingly(single, f.root);
+    // (Not while a document's clear waits for the commit, its stylesheets loading: that one clears it then.)
+    if (single && !hydrating && type !== "html" && !renderSheets) clearSparingly(single, f.root);
     // Taken over on a fresh render: its attributes go too (React's acquireSingletonInstance), the props set after.
     // (Pre-warmed while another fiber holds it, a fallback: left to that one, as React never commits the pre-warm.)
     const held = !!single && prewarming && !!(single as any)[FIBER] && !(single as any)[FIBER].dead;
@@ -4616,21 +4651,7 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
           // for the render's stylesheets outside a sync render: what the render put there meanwhile (a stylesheet's
           // preload) goes then.
           if (container.nodeType === 9 && !syncing) {
-            const sheets: Fiber[] = (renderSheets = []);
-            // (Queued again at its turn: so it runs after the render's stylesheets were put in place.)
-            layoutQueue.push(() => void layoutQueue.push(() => {
-              renderSheets = null;
-              const clear = () => clearSparingly(container, top.root, true);
-              // (The bits of a stylesheet's loading state: 1 loaded, 2 errored.)
-              const waiting = sheets.map((f) => (f as any).resource).filter((r) => r && !(r.state.loading & 3) && r.instance);
-              if (!waiting.length) return clear();
-              let left = waiting.length;
-              const one = () => --left === 0 && clear();
-              for (const r of waiting) {
-                r.instance.addEventListener("load", one, { once: true });
-                r.instance.addEventListener("error", one, { once: true });
-              }
-            }));
+            afterSheets(() => clearSparingly(container, top.root, true));
           }
         }
       }
@@ -4685,7 +4706,14 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
             lastCaughtByBoundary = null;
             // A document (or its <html>, <head>, <body>) is drawn in place: its singletons are the document's.
             if (container.nodeType === 9 || /^(HTML|HEAD|BODY)$/.test(container.nodeName)) {
-              clearContainer(container);
+              // The server's nodes go when the commit lands (after the render's stylesheets have loaded), as React
+              // clears the container then: what the render put meanwhile (a stylesheet's preload) stays till then.
+              if (container.nodeType === 9 && !syncing) {
+                const server = serverNodes(container as Document);
+                afterSheets(() => {
+                  for (const n of server) if (n.isConnected && !keptOnClear(n)) n.parentNode!.removeChild(n);
+                });
+              } else clearContainer(container);
               draw();
               return told();
             }
@@ -4768,7 +4796,13 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
             const clientRender = () => {
               // A document (or its <html>, <head>, <body>) is drawn in place: its singletons are the document's.
               if (container.nodeType === 9 || /^(HTML|HEAD|BODY)$/.test(container.nodeName)) {
-                clearContainer(container);
+                // (A document's server nodes go when the commit lands, after the render's stylesheets have loaded.)
+                if (container.nodeType === 9 && !syncing) {
+                  const server = serverNodes(container as Document);
+                  afterSheets(() => {
+                    for (const n of server) if (n.isConnected && !keptOnClear(n)) n.parentNode!.removeChild(n);
+                  });
+                } else clearContainer(container);
                 draw();
                 (state as any).threw = false;
                 for (const tell of caughtThisRender.splice(0)) tell();
