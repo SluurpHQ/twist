@@ -1,7 +1,9 @@
+// Twist's web runtime (`@solidjs/web`): what JSX marked by Twist's pass (the core's twist_compile.rs) and transformed
+// by Bun's JSX calls. Elements are made at once, fixed markup copied from templates; each marked part is bound to its
+// node by an effect of its own; components run once. Written from Solid 2's design (RFCs 03 and 07) and its tests,
+// not its code.
+declare const process: { env: Record<string, string | undefined> };
 import { diagnose } from "./diagnostics.ts";
-// Twist's web runtime (`@solidjs/web`): what JSX marked by Twist's pass (compile.ts) and transformed by Bun's JSX
-// calls. Elements are made at once; each marked part is bound to its node by an effect of its own; components run
-// once. Written from Solid 2's design (RFCs 03 and 07) and its tests, not its code.
 import {
   flush,
   createLoadingBoundary,
@@ -270,7 +272,7 @@ export function assignProp(el: Element, name: string, value: any, prev: any) {
 
 export function setAttribute(el: Element, name: string, value: any) {
   // `onclick={fn}`: an attribute in Solid 2, not a handler (said once per name).
-  if (typeof value === "function" && name.startsWith("on")) lowercaseEventAttribute(name, el);
+  if (process.env.NODE_ENV !== "production" && typeof value === "function" && name.startsWith("on")) lowercaseEventAttribute(name, el);
   if (value == null || value === false) el.removeAttribute(name);
   else el.setAttribute(name, value === true ? "" : String(value));
   if (claimHandlers !== null && (name === "href" || name === "action")) claimElement(el);
@@ -526,7 +528,7 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
   if ((value as Node).nodeType) return out.push(value), out;
   // Neither text, a node, a list nor something to call: skipped, and said (as Solid's insert).
   if (typeof value === "object" || typeof value === "symbol") {
-    diagnose({
+    if (process.env.NODE_ENV !== "production") diagnose({
       code: "UNRECOGNIZED_INSERT_VALUE",
       kind: "render",
       severity: "warn",
@@ -700,7 +702,7 @@ function lowercaseEventAttribute(name: string, el: Element) {
   lowercaseReported.add(name);
   const event = name.slice(name.charAt(2) === ":" ? 3 : 2);
   const handler = "on" + event.charAt(0).toUpperCase() + event.slice(1);
-  diagnose({
+  if (process.env.NODE_ENV !== "production") diagnose({
     code: "LOWERCASE_EVENT_ATTRIBUTE",
     kind: "render",
     severity: "warn",

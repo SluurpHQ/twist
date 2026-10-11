@@ -4,7 +4,7 @@
 // error reporting.)
 // @ts-nocheck
 import { getOwner, onCleanup, throwerOf } from "./signals.ts";
-import { OBSERVE, emitDiagnostic, reportDiagnostic } from "./diagnostics.ts";
+import { emitDiagnostic, ownerPath, reportDiagnostic } from "./diagnostics.ts";
 import { COMPOSED_BODY_FRAMING, REVALIDATE_HEADER } from "./response.ts";
 import { appendTraceServerTiming, hasServerTiming, mergeServerTiming, traceForEvent } from "./trace.ts";
 
@@ -128,7 +128,7 @@ export function configureServerErrors(config: { onError?: ServerErrorHook }) {
 /** Root-first component labels up an owner chain. */
 function ownerLabels(subject: any): string[] | undefined {
   if (!subject || !("parent" in subject)) return undefined;
-  const path = OBSERVE.ownerPath(subject);
+  const path = ownerPath(subject);
   return path && path.length ? path : undefined;
 }
 

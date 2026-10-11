@@ -1,6 +1,7 @@
 // Twist's stores: objects and arrays read property by property (each a node of its own), changed through a draft.
 // Writes batch as signals' do: a read sees the committed value until the flush. Written from Solid 2's design (RFC
 // 04) and its tests, not its code.
+declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
 import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
@@ -313,7 +314,7 @@ export function commitRecord(r: Record_) {
   let shape = false;
   let stagedShape = false;
   const lenBefore = Array.isArray(t) ? t.length : 0;
-  const told = DEV.hooks.onStoreNodeUpdate;
+  const told = DEV?.hooks.onStoreNodeUpdate;
   for (const [key, v] of p) {
     // A new value of a key it has (not its length), on an object read through a store: staged on its node, as a signal's write (a hold keeps it off).
     const own = Object.getOwnPropertyDescriptor(t, key);
@@ -451,7 +452,7 @@ const ASYNC_STORE_SETTER_MESSAGE =
   "the draft closes when the callback returns, so writes after an `await` are lost. " +
   "Move the await into an action() and call the setter from there.";
 function asyncStoreSetter(): never {
-  emitDiagnostic({ code: "ASYNC_STORE_SETTER", kind: "write", severity: "error", message: ASYNC_STORE_SETTER_MESSAGE, data: { operation: "setStore" } });
+  if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "ASYNC_STORE_SETTER", kind: "write", severity: "error", message: ASYNC_STORE_SETTER_MESSAGE, data: { operation: "setStore" } });
   throw new Error(ASYNC_STORE_SETTER_MESSAGE);
 }
 

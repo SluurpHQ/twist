@@ -6,6 +6,7 @@
 // leads to is still loading (an async memo in flight), the write and everything downstream of it are held in a
 // transaction instead: what is on screen keeps the committed values, and the transaction commits as one when its last
 // flight lands. Writes on graphs no flight touches commit at once.
+declare const process: { env: Record<string, string | undefined> };
 
 import { diagnose, emitDiagnostic, reportDiagnostic } from "./diagnostics.ts";
 
@@ -45,8 +46,8 @@ export interface DevHooks {
 /** An owner's flag: it takes no id slot of its own (Solid's bit for it). */
 export const CONFIG_TRANSPARENT = 1 << 2;
 const GUIDE_URL = "https://github.com/solidjs/solid/blob/main/packages/solid/skills/reactivity-diagnostics/SKILL.md";
-/** Solid's devtools API: hooks, and the owner and dependency graph. */
-export const DEV = {
+/** Solid's devtools API: hooks, and the owner and dependency graph (none in production, as Solid's). */
+export const DEV = process.env.NODE_ENV === "production" ? undefined : {
   hooks: {} as DevHooks,
   getChildren: (o: Owner): Owner[] => [...(o.owned ?? [])],
   getSignals: (o: Owner): any[] => [...((o as any)._signals ?? [])],
@@ -60,7 +61,7 @@ export const DEV = {
 export function registerGraph(value: any, o: Owner | null) {
   value._owner = o;
   if (o) ((o as any)._signals ??= []).push(value);
-  DEV.hooks.onGraph?.(value, o);
+  DEV?.hooks.onGraph?.(value, o);
 }
 
 // ---------------------------------------------------------------- owners
@@ -139,7 +140,7 @@ class Root implements Owner {
     if (options?.id != null) this.id = options.id;
     else giveId(this, parent);
     ownerCreations++;
-    DEV.hooks.onOwner?.(this);
+    DEV?.hooks.onOwner?.(this);
   }
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
@@ -239,7 +240,7 @@ export function onCleanup<T extends () => void>(fn: T): T {
   if (inSettled) throw new Error("Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead");
   if (owner) (owner.cleanups ??= []).push(fn);
   else
-    reportDiagnostic(
+    if (process.env.NODE_ENV !== "production") reportDiagnostic(
       emitDiagnostic({ code: "NO_OWNER_CLEANUP", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_CLEANUP] onCleanup called outside a reactive context will never be run" }),
     );
   return fn;
@@ -295,7 +296,7 @@ let strictRead: string | false = false;
 function strictReadUntracked(n: Node<any>) {
   // Named when the name says something (the defaults would only restate "reactive value").
   const named = n.name !== undefined && n.name !== "signal" && n.name !== "computed";
-  diagnose({
+  if (process.env.NODE_ENV !== "production") diagnose({
     code: "STRICT_READ_UNTRACKED",
     kind: "strict-read",
     severity: "warn",
@@ -344,7 +345,7 @@ function openPumpHold(ctx: any, node: Owner, alive: () => boolean): () => void {
     cap = setTimeout(() => {
       cap = undefined;
       if (released || !alive()) return;
-      emitDiagnostic(
+      if (process.env.NODE_ENV !== "production") emitDiagnostic(
         {
           code: "SSR_UNDECLARED_LIVE_SOURCE",
           kind: "ssr",
@@ -611,7 +612,7 @@ export const refreshTarget = (target: object, memo: () => () => unknown) => void
 /** Writes in a reactive scope (a component body, a memo, a root being built) throw: they would re-run what read. */
 function guardWrite(allowed: boolean) {
   if (allowed || !owner || (owner as any).allowWrites) return;
-  emitDiagnostic(
+  if (process.env.NODE_ENV !== "production") emitDiagnostic(
     { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", kind: "write", severity: "error", message: OWNED_WRITE_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name, data: { operation: "setSignal" } },
     owner,
   );
@@ -708,7 +709,7 @@ export class Computation<T> extends Node<T> implements Owner {
       this.ready = true;
       this.loadingWindow = true;
     }
-    DEV.hooks.onOwner?.(this);
+    DEV?.hooks.onOwner?.(this);
   }
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
@@ -1280,11 +1281,11 @@ export class Computation<T> extends Node<T> implements Owner {
 }
 
 function noOwnerEffect(effectType: string) {
-  diagnose({ code: "NO_OWNER_EFFECT", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed", data: { effectType } });
+  if (process.env.NODE_ENV !== "production") diagnose({ code: "NO_OWNER_EFFECT", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed", data: { effectType } });
 }
 
 function primitiveInEffectCallback(): never {
-  emitDiagnostic({ code: "PRIMITIVE_IN_EFFECT_CALLBACK", kind: "lifecycle", severity: "error", message: PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE });
+  if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "PRIMITIVE_IN_EFFECT_CALLBACK", kind: "lifecycle", severity: "error", message: PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE });
   throw new Error(PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE);
 }
 
@@ -1859,7 +1860,7 @@ export function flush<T>(fn?: () => T): T {
   let result!: T;
   // From an effect callback: the flush running it carries on with what it writes; this one does nothing.
   if (flushing && inEffectCallback) {
-    diagnose({
+    if (process.env.NODE_ENV !== "production") diagnose({
       code: "FLUSH_IN_EFFECT_CALLBACK",
       kind: "lifecycle",
       severity: "warn",
@@ -1885,7 +1886,7 @@ export function flush<T>(fn?: () => T): T {
       // Said once, and the cause handed to the platform where it takes one.
       const msg =
         "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
-      emitDiagnostic({ code: "REACTIVITY_HALTED", kind: "error", severity: "error", message: msg });
+      if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "REACTIVITY_HALTED", kind: "error", severity: "error", message: msg });
       // The cause beside it, or to the platform where it takes one.
       const report = (globalThis as any).reportError;
       if (typeof report === "function") console.error(msg), report(e);
@@ -1900,7 +1901,7 @@ export function flush<T>(fn?: () => T): T {
   } finally {
     flushing--;
     if (!flushing) frameTx = tickTx = null;
-    if (!flushing) DEV.hooks.onUpdate?.();
+    if (!flushing) DEV?.hooks.onUpdate?.();
     // A refresh counts for the flush it was asked in.
     if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
   }
@@ -2073,7 +2074,7 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
     const message =
       "[INVALID_REFRESH_TARGET] refresh() expects a Solid source accessor or refreshable store. " +
       "Pass the original source target, not a wrapper function or derived property read.";
-    emitDiagnostic({ code: "INVALID_REFRESH_TARGET", kind: "write", severity: "error", message });
+    if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "INVALID_REFRESH_TARGET", kind: "write", severity: "error", message });
     throw new Error(message);
   }
   if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
@@ -2224,7 +2225,7 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
   return (...args: A) => {
     // Invoking an action opens a transaction: like a write, not inside an owned scope.
     if (owner && !inSettled && !(owner as any).tracked) {
-      emitDiagnostic({ code: "ACTION_CALLED_IN_OWNED_SCOPE", kind: "write", severity: "error", message: ACTION_IN_OWNED_SCOPE_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name });
+      if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "ACTION_CALLED_IN_OWNED_SCOPE", kind: "write", severity: "error", message: ACTION_IN_OWNED_SCOPE_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name });
       throw new Error(ACTION_IN_OWNED_SCOPE_MESSAGE);
     }
     return new Promise<R>((ok, fail) => {
@@ -2360,7 +2361,7 @@ class LoadingState {
     this.count.bump();
     if (this.mountRoot && !this.warned) {
       this.warned = true;
-      diagnose(
+      if (process.env.NODE_ENV !== "production") diagnose(
         {
           code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
           kind: "async",
@@ -2929,7 +2930,7 @@ export function onSettled(fn: () => void | (() => void)) {
     if (!o || o.disposed) {
       const message =
         "[SETTLED_CLEANUP_UNOWNED] onSettled returned a cleanup in an unowned scope; a cleanup can only be honored under an owner. Call your setup helper from an owned scope (e.g. the component body) instead of from inside an event handler, tracked effect, or another onSettled.";
-      emitDiagnostic({ code: "SETTLED_CLEANUP_UNOWNED", kind: "lifecycle", severity: "error", message });
+      if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "SETTLED_CLEANUP_UNOWNED", kind: "lifecycle", severity: "error", message });
       throw new Error(message);
     }
     clean?.();

@@ -274,7 +274,7 @@ export function shapeOf(v: unknown): string {
 /** Dev finding (`BINDING_SLOT_POSITION`): the client side of a binding slot @internal */
 export function slotShapeFinding(data: Record<string, string>, message: string) {
   DEV!.report(
-    OBSERVE!.diagnostics.emit(
+    OBSERVE?.diagnostics.emit(
       { code: "BINDING_SLOT_POSITION", kind: "render", severity: "warn", message, data },
       null
     )
@@ -1523,8 +1523,8 @@ function devSlotOrphan(frame, occurrence, consumers, why) {
   const positions = new Set();
   for (const c of consumers) for (const p of c.positions) positions.add(p.pos);
   const where = `${consumers.length} element${consumers.length === 1 ? "" : "s"} (positions: ${[...positions].join(", ")})`;
-  DEV.report(
-    OBSERVE.diagnostics.emit(
+  DEV?.report(
+    OBSERVE?.diagnostics.emit(
       {
         code: "BINDING_SLOT_POSITION",
         kind: "render",
@@ -1557,8 +1557,8 @@ function devCheckRange(start, id) {
     n = n.nextSibling;
   }
   // A finding on the one channel (`FRAME_MARKER_CORRUPTED`) and its console
-  DEV.report(
-    OBSERVE.diagnostics.emit(
+  DEV?.report(
+    OBSERVE?.diagnostics.emit(
       {
         code: "FRAME_MARKER_CORRUPTED",
         kind: "ssr",

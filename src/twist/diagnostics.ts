@@ -1,6 +1,7 @@
 // Twist's diagnostics channel, Solid 2's OBSERVE: structured findings (a code, a severity, a message, where it
 // happened) to listeners and captures, and a console report per finding. The same shape and behaviour as Solid's, so
 // tools and tests built on OBSERVE work on Twist.
+declare const process: { env: Record<string, string | undefined> };
 
 export type Diagnostic = {
   code: string;
@@ -107,7 +108,7 @@ const diagnostics = {
 };
 
 /** Typed records (one channel per page, shared through a global as Solid's). */
-const RECORDS = Symbol.for("@solidjs/signals/observe/records");
+const RECORDS = /* @__PURE__ */ Symbol.for("@solidjs/signals/observe/records");
 function records() {
   const g = globalThis as any;
   if (g[RECORDS]) return g[RECORDS];
@@ -181,7 +182,8 @@ const attributionSlot = {
   },
 };
 
-export const OBSERVE = {
+/** Solid's observe surface (none in production, as Solid's). */
+export const OBSERVE = process.env.NODE_ENV === "production" ? undefined : {
   diagnostics,
   records: records(),
   attribution: attributionSlot,
