@@ -467,7 +467,26 @@ const transactions = new Set<Transaction>();
 let flushes = 0;
 
 /** What signals and computations share: a committed value, a staged one, and who reads them. */
-const NO_OBSERVERS: Set<Computation<any>> = new Set();
+/** A node's readers: a short list (most nodes have one or two), a set past a few. */
+type Readers = Computation<any>[] | Set<Computation<any>>;
+const NO_OBSERVERS: Readers = Object.freeze([]) as unknown as Computation<any>[];
+function addReader(n: Node, o: Computation<any>) {
+  const r = n.observers;
+  if (r === NO_OBSERVERS) return void (n.observers = [o]);
+  if (!Array.isArray(r)) return void r.add(o);
+  if (r.includes(o)) return;
+  if (r.length < 8) r.push(o);
+  else (n.observers = new Set(r)).add(o);
+}
+function dropReader(n: Node, o: Computation<any>) {
+  const r = n.observers;
+  if (!Array.isArray(r)) return void r.delete(o);
+  const i = r.indexOf(o);
+  if (i < 0) return;
+  if (r.length === 1) n.observers = NO_OBSERVERS;
+  else r.splice(i, 1);
+}
+const readersOf = (n: Node) => (Array.isArray(n.observers) ? n.observers.length : (n.observers as Set<Computation<any>>).size);
 /** What a computation has read, before its first run: nothing (shared, never written to). */
 const NOTHING_YET: readonly unknown[] = [];
 
@@ -478,7 +497,7 @@ abstract class Node<T = any> {
   staged: T | typeof NONE = NONE;
   tx: Transaction | null = null;
   /** Who reads it (one shared empty set until the first: most nodes never have one). */
-  observers: Set<Computation<any>> = NO_OBSERVERS;
+  observers: Readers = NO_OBSERVERS;
   height = 0;
   get _name(): string {
     return this.name ?? (this instanceof Computation ? (this.kind === MEMO ? "computed" : "effect") : "signal");
@@ -532,12 +551,11 @@ abstract class Node<T = any> {
     if ((this as any).bornHeld) (this as any).bornHeld = false;
   }
   subscribe(o: Computation<any>) {
-    if (this.observers === NO_OBSERVERS) this.observers = new Set();
-    this.observers.add(o);
+    addReader(this, o);
   }
   unsubscribe(o: Computation<any>) {
-    this.observers.delete(o);
-    if (!this.observers.size) this.unobserved?.();
+    dropReader(this, o);
+    if (!readersOf(this)) this.unobserved?.();
   }
   /** Changed in place (a store key): its readers told. */
   bump() {
@@ -764,7 +782,7 @@ export class Computation<T> extends Node<T> implements Owner {
    * worked out again from scratch once anything has changed since it ran.
    */
   get autodispose() {
-    return this.kind === MEMO && (this.lazy || !this.parent) && !this.observers.size;
+    return this.kind === MEMO && (this.lazy || !this.parent) && !readersOf(this);
   }
   track(source: Source) {
     if (verdictReading) (this.verdict ??= new Set()).add(source);
@@ -779,13 +797,12 @@ export class Computation<T> extends Node<T> implements Owner {
   /** While it runs again: the sources it was subscribed to (kept when read again, let go after). */
   declare relinking: Set<Source> | null;
   override subscribe(o: Computation<any>) {
-    if (this.observers === NO_OBSERVERS) this.observers = new Set();
-    this.observers.add(o);
+    addReader(this, o);
     if (!this.attached) this.attach();
   }
   override unsubscribe(o: Computation<any>) {
-    this.observers.delete(o);
-    if (this.observers.size) return;
+    dropReader(this, o);
+    if (readersOf(this)) return;
     this.unobserved?.();
     // A lazy memo with no reader left is torn down; an unowned one whose last reader was released goes with it.
     if (this.lazy) this.detach(), (this.state = DIRTY);
@@ -827,8 +844,10 @@ export class Computation<T> extends Node<T> implements Owner {
     const was = this.state;
     this.state = state;
     if (was !== CLEAN) return;
-    if (!(this.lazy && !this.observers.size)) queue(this);
-    for (const o of this.observers) o.mark(CHECK);
+    if (!(this.lazy && !readersOf(this))) queue(this);
+    // (A derived store's derive answers the same each run: its readers hear of its writes through the keys, of a
+    // failure when it fails.)
+    if (!(this as any).writes) for (const o of this.observers) o.mark(CHECK);
   }
   /** The commit epoch of the frame render it last computed in (a later epoch computes it again: Solid's per-commit cache). */
   declare epoch: number | undefined;
@@ -848,7 +867,7 @@ export class Computation<T> extends Node<T> implements Owner {
       }
       this.update();
       // An unowned memo read outside any computation, with nothing subscribed: released at the next flush.
-      if (!listener && this.kind === MEMO && !this.parent && !this.observers.size) untrackedReads.add(this);
+      if (!listener && this.kind === MEMO && !this.parent && !readersOf(this)) untrackedReads.add(this);
     }
     if (listener) {
       // A render effect first to observe a flight whose question a transaction holds: the transaction waits on it.
@@ -1003,6 +1022,7 @@ export class Computation<T> extends Node<T> implements Owner {
       }
       this.error = threw;
       this.version++;
+      if ((this as any).writes) for (const o of this.observers) o.mark(DIRTY);
       // Failed: no longer waiting (the Loading above lets the error through to whatever catches it).
       boundaryOf(this)?.ready(this);
       if (this.kind !== MEMO) handleError(this, threw);
@@ -1326,7 +1346,7 @@ let releasing = false;
 
 /** An unowned memo nothing reads let go of its sources (they may go too): dormant until read again. */
 function release(m: Computation<any>) {
-  if (m.released || m.kept || m.disposed || m.observers.size) return;
+  if (m.released || m.kept || m.disposed || readersOf(m)) return;
   m.released = true;
   const was = releasing;
   releasing = true;
@@ -1643,7 +1663,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       // (A write back to the committed value, or one no reader changed with, proposes nothing.)
       if (n.staged === NONE || (n.equals !== false && n.equals(n.value, n.staged as any))) continue;
       const below = downstream(n);
-      if (n.observers.size && ![...below].some((c) => !c.tx && (c.staged !== NONE || c.due))) continue;
+      if (readersOf(n) && ![...below].some((c) => !c.tx && (c.staged !== NONE || c.due))) continue;
       hold(n, parked);
       held.add(n);
       for (const c of below) {
@@ -1711,7 +1731,7 @@ function rendered(c: Computation<any>, seen = new Set<Computation<any>>()): bool
 
 /** A held node's flight that keeps its transaction: one something on screen reads (all of them, but a memo whose
  * readers are all behind a fallback). */
-const shownFlight = (n: Computation<any>) => n.kind !== MEMO || !n.observers.size || rendered(n);
+const shownFlight = (n: Computation<any>) => n.kind !== MEMO || !readersOf(n) || rendered(n);
 
 /** Under a Loading boundary showing its fallback: not on screen, so it holds nothing. */
 function hidden(c: Computation<any>): boolean {
@@ -1857,7 +1877,7 @@ function commitTransactions() {
 
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; settledQueue.length || statusMoved || writes.length || landings.length || guesses.length || frameGuesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || status.observers.size && statusDirty(); rounds++) {
+  for (let rounds = 0; settledQueue.length || statusMoved || writes.length || landings.length || guesses.length || frameGuesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || readersOf(status) && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (TRACE && rounds && rounds % 10000 === 0) trace(`round ${rounds} writes ${writes.length} dirty ${dirty.length} tx ${transactions.size}`);
     if (writes.length) for (const s of writes.splice(0)) s.commit();

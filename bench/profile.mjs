@@ -33,8 +33,11 @@ if (process.env.ALLOC) {
   for (const [k, v] of [...bytes].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`${((100 * v) / all).toFixed(1).padStart(5)}%  ${k}`);
   process.exit(0);
 }
+// STEP=1: the step alone, warmed once (a step that undoes itself, as select row is made to).
+const step = !!process.env.STEP;
+if (step) await page.evaluate(([n]) => window.benchWarm(n), [name]);
 await cdp.send("Profiler.start");
-await page.evaluate(([n, r]) => { for (let i = 0; i < r; i++) window.benchOne(n); }, [name, +rounds]);
+await page.evaluate(([n, r, step]) => { for (let i = 0; i < r; i++) step ? window.benchRun(n) : window.benchOne(n); }, [name, +rounds, step]);
 const { profile } = await cdp.send("Profiler.stop");
 await browser.close();
 console.log(summary(profile, `${app} ${name}`));

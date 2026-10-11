@@ -27,6 +27,11 @@ export function register(host: HTMLElement, act: Record<Action, () => void>) {
     return performance.now() - t;
   };
   (window as any).benchOne = (name: string) => (cases[name]!.warm(), cases[name]!.run());
+  // (For a profile of the step alone: warmed once, then repeated; "select row" picks the next row each time.)
+  let at = 0;
+  const again: Record<string, () => void> = { "select row": () => flushSync(() => cell(at++ % 1000, 1).click()) };
+  (window as any).benchWarm = (name: string) => cases[name]!.warm();
+  (window as any).benchRun = (name: string) => (again[name] ?? cases[name]!.run)();
   (window as any).bench = async (runs = 15) => {
     const out: Record<string, number> = {};
     for (const [name, c] of Object.entries(cases)) {
