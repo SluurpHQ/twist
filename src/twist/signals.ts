@@ -2090,13 +2090,18 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     }
     const below = downstream(n);
     let holds = false;
+    let nav = false;
     let joins: Transaction | null = null;
     const revealed: Computation<any>[] = [];
     const made: Computation<any>[] = [];
     for (const c of below) {
       // (Lane work leads to the lane's parent: a plain write is never part of a guess's frame.)
       if (c.tx) joins = outOfLane(c.tx.root);
-      if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO ? !hidden(c) : rendered(c))) holds = true;
+      if (c.flight && !c.loadingWindow && (c.kind !== MEMO ? !hidden(c) : rendered(c))) {
+        if (c.ready) holds = true;
+        // (A navigation to a flight with no answer yet: its readers ran against it already, and run again.)
+        else if (shownInitialized(c)) holds = nav = true;
+      }
       // A reveal: what the write brings on screen reads a flight already up — the write waits for its answer.
       // (Nothing shown yet, a first mount, is no reveal.)
       if (c.kind !== MEMO ? c.applied !== NONE && !hidden(c) : rendered(c)) {
@@ -2123,7 +2128,9 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
           };
           walk(r);
         };
-        reveal(c, false);
+        // (Under a boundary this write re-arms: it catches the flight, its fallback shows; the write is not held.)
+        const b = ((c as any).loading as LoadingState | undefined) ?? boundaryOf(c);
+        if (!(b?.watch && below.has(b.watch))) reveal(c, false);
       }
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
@@ -2160,6 +2167,14 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     for (const c of below) {
       // (An effect that read only overrides shows them: a guess is not held. An until() of this action answers it now.)
       if ((c as any).insideTx?.root === t.root) continue;
+      if (nav && (c.staged !== NONE || c.due) && c.kind === RENDER && !t.open && !t.parentTx && c.ranAt !== -1) {
+        // (A render effect that ran against the write before it was held: run again, showing the frame it holds.)
+        if (c.due) (c.due = false), remove(applies[c.kind as 1 | 2], c);
+        c.staged = NONE as any;
+        c.state = CLEAN;
+        c.mark(DIRTY);
+        continue;
+      }
       if ((c.staged !== NONE || c.due) && (c.kind === MEMO || !c.sources.every((s) => s.override !== NONE))) hold(c, t);
       if (c.flight) t.flights.add(c);
     }
@@ -2238,6 +2253,21 @@ function rendered(c: Computation<any>, seen = new Set<Computation<any>>()): bool
   if (seen.has(c)) return false;
   seen.add(c);
   for (const o of c.observers) if (o.kind !== MEMO ? !hidden(o) : !hidden(o) && rendered(o, seen)) return true;
+  return false;
+}
+
+/**
+ * A flight with no answer yet that a boundary already showing its content reads (a navigation to it): the old view
+ * holds until it lands (A19), where a boundary that has shown nothing would catch it.
+ */
+function shownInitialized(c: Computation<any>): boolean {
+  if (c.kind !== MEMO) return false;
+  for (const o of c.observers) {
+    // (A reader that has shown something: a memo with a value, an effect that applied one.)
+    if (!(o instanceof Computation) || (o.kind === MEMO ? !o.ready : o.applied === NONE)) continue;
+    const b = ((o as any).loading as LoadingState | undefined) ?? boundaryOf(o);
+    if (b && !b.fresh && !b.mountRoot) return true;
+  }
   return false;
 }
 
@@ -2972,6 +3002,8 @@ class LoadingState {
   count = new (class extends Node<number> {})();
   /** A mount's own boundary (render()'s): a wait reaching it was outside every Loading. */
   mountRoot = false;
+  /** What its `on` reads, tracked (a change re-arms it). */
+  watch: Computation<any> | null = null;
   private warned = false;
   wait(c: Computation<any>) {
     if (this.waiting.has(c)) return;
@@ -3090,6 +3122,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
         });
       }
     }, { transparent: true, id: idUnder() } as any);
+    state.watch = watch;
     watch.run();
   }
   // The content: built once under the boundary (what under it waits on a first load tells the boundary), built
