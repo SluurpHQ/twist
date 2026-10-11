@@ -1,7 +1,7 @@
 // The runtime: React's API on Sluurp's signals. Each component renders inside a signals effect, so what it reads
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
-import { effect, flush as flushSignals, holdFlushes, runWithOwner, signal, untrack } from "../../signals/index.js";
+import { effect, flush as flushSignals, holdFlushes, onBatch, runWithOwner, signal, untrack } from "../../signals/index.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
@@ -3487,6 +3487,17 @@ let flushHeld = false;
 holdFlushes(() => committing && (flushHeld = true));
 
 // Counted as rendering while it runs: an event it fires (a focus() in a layout effect) does not flush from inside.
+/** In a round of the signals' flush, and whether a commit waits for its end. */
+let inBatch = 0;
+let batchCommit = false;
+onBatch(
+  () => void inBatch++,
+  () => {
+    if (--inBatch || !batchCommit || depth > 0) return;
+    batchCommit = false;
+    commit();
+  },
+);
 /** Commits so far (a test's scheduler waits for a paint by it). */
 let commitCount = 0;
 /** The commit is taking away what went (componentWillUnmount, cleanups): what it drew is not mounted yet. */
@@ -3495,6 +3506,9 @@ export const commits = () => commitCount;
 function commit() {
   // A concurrent render under way: committed when it is done.
   if (work) return;
+  // A round of updates drawn together (one batch of the signals' flush): committed once, when the last is drawn, as
+  // React commits a render's work at once (a parent's layout effect sees its children's new DOM).
+  if (inBatch && !syncing) return void (batchCommit = true);
   commitCount++;
   depth++;
   const wasCommitting = committing;
@@ -3811,6 +3825,8 @@ export function flushPassiveEffects() {
 
 function runPassive(drawAfter: boolean) {
   passiveBooked = false;
+  // (Their commit still waiting for its round to end: they run after it, as React runs them after the layout ones.)
+  if (batchCommit) return;
   if (!passiveQueue.length && !passiveUnmounts.length) return;
   const run = [...passiveUnmounts.splice(0), ...passiveQueue.splice(0)];
   untrack(() => {

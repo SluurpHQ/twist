@@ -66,7 +66,15 @@ function element(type: any, key: any, props: any): Element {
   if (dev()) Object.freeze(props), Object.freeze(el);
   return el;
 }
-const nameForKey = (type: any) => (typeof type === "function" ? type.displayName || type.name || "Unknown" : typeof type === "string" ? type : "Unknown");
+// (A memo or forwardRef: named by what it wraps, as React's getComponentNameFromType does.)
+const nameForKey = (type: any): string =>
+  typeof type === "function"
+    ? type.displayName || type.name || "Unknown"
+    : typeof type === "string"
+      ? type
+      : type && typeof type === "object"
+        ? type.displayName || (type.render ? `ForwardRef(${nameForKey(type.render)})` : type.type ? nameForKey(type.type) : "Unknown")
+        : "Unknown";
 function refGetter(this: any) {
   warn("Accessing element.ref was removed in React 19. ref is now a regular prop. It will be removed from the JSX Element type in a future release.", "element-ref:" + nameForKey(this.type));
   return this.props.ref !== undefined ? this.props.ref : null;

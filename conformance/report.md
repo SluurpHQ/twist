@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4035 pass, 31 fail, 362 skipped (gated off for stable React 19), 60 set aside as not ours (not-ours.ts).
+4036 pass, 30 fail, 362 skipped (gated off for stable React 19), 60 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -169,5 +169,5 @@
 | redux-tests/integration/server-rendering.spec.tsx | 5 | 0 | 0 |  |
 | redux-tests/integration/ssr.spec.tsx | 6 | 0 | 0 |  |
 | use-sync-external-store/useSyncExternalStoreNative-test.js | 0 | 0 | 2 |  |
-| use-sync-external-store/useSyncExternalStoreShared-test.js | 16 | 1 | 2 |  |
+| use-sync-external-store/useSyncExternalStoreShared-test.js | 17 | 0 | 2 |  |
 | use-sync-external-store/useSyncExternalStoreShimServer-test.js | 0 | 0 | 1 |  |
