@@ -33,6 +33,9 @@ class Record_ {
 }
 
 const records = new WeakMap<object, Record_>();
+/** An array index, as the language counts one ("1", not "01" or "1.0"). */
+const isIndex = (k: PropertyKey): k is string => typeof k === "string" && String(+k >>> 0) === k && +k !== 4294967295;
+
 const recordOf = (target: Raw) => {
   let r = records.get(target);
   if (!r) records.set(target, (r = new Record_(target))), useStoreMarks(storeMarks);
@@ -160,7 +163,7 @@ function rawKeys(target: Raw): (string | symbol)[] {
   if (!keys) return own;
   if (Array.isArray(target)) {
     const len = rawGet(target, "length");
-    for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+    for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
   }
   return [...keys];
 }
@@ -189,7 +192,7 @@ function latestKeys(target: Raw): (string | symbol)[] {
   for (const [k, n] of r.nodes) if (n.raw !== NO_RAW && k !== "length") n.raw === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
   if (Array.isArray(target)) {
     const len = latestGet(target, "length");
-    for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+    for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
   }
   return [...keys];
 }
@@ -225,14 +228,35 @@ function overlaid(target: Raw, key: PropertyKey) {
   return true;
 }
 
+/** A getter `key` has on `proto` or further up (none on Object's or Array's own), found once per prototype. */
+function getterOf(proto: object | null, key: PropertyKey): (() => unknown) | undefined {
+  if (!proto || proto === Object.prototype || proto === Array.prototype) return undefined;
+  let byKey = getters.get(proto);
+  if (!byKey) getters.set(proto, (byKey = new Map()));
+  if (byKey.has(key)) return byKey.get(key);
+  let get: (() => unknown) | undefined;
+  for (let p: object | null = proto; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+    const d = Object.getOwnPropertyDescriptor(p, key);
+    if (d) {
+      get = d.get;
+      break;
+    }
+  }
+  byKey.set(key, get);
+  return get;
+}
+const getters = new WeakMap<object, Map<PropertyKey, (() => unknown) | undefined>>();
+
 const readHandler: ProxyHandler<Raw> = {
   get(target, key, receiver) {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
     if (key === $TRACK) return trackAll(target), receiver;
     const desc = Object.getOwnPropertyDescriptor(target, key);
-    // Getters run against the proxy, so what they read is tracked.
+    // Getters run against the proxy, so what they read is tracked (a class's, on its prototype, too).
     if (desc?.get) return desc.get.call(receiver);
+    const inherited = desc ? undefined : getterOf(Object.getPrototypeOf(target), key);
+    if (inherited) return inherited.call(receiver);
     // (Through an overlay the guess is the value: no held write under it is read.)
     if (isTracking()) {
       const o = overlaid(target, key);
@@ -249,8 +273,9 @@ const readHandler: ProxyHandler<Raw> = {
     if (key === $PROXY || key === $TARGET) return true;
     if (isTracking()) {
       const o = overlaid(target, key);
-      if (o === true) trackNode(node(target, key));
-      else if (!o) node(target, key).read();
+      // (Whether it has the key: its key set, which changes only when a key comes or goes, not with a value.)
+      if (o === true) trackNode(recordOf(target).keys);
+      else if (!o) recordOf(target).keys.read();
     }
     return viewHas(target, key);
   },
@@ -299,7 +324,7 @@ function viewKeys(target: Raw): (string | symbol)[] {
   for (const [k, o] of overlay) o.v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
   if (Array.isArray(target)) {
     const len = viewGet(target, "length");
-    for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+    for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
   }
   return [...keys];
 }
@@ -422,7 +447,7 @@ export function commitRecord(r: Record_) {
     shape = true;
     r.nodes.get("length")?.bump();
     // Indices past a shorter length are gone: their readers told.
-    for (const [k, n] of r.nodes) if (typeof k === "string" && /^\d+$/.test(k) && +k >= t.length && +k < lenBefore) n.bump();
+    for (const [k, n] of r.nodes) if (isIndex(k) && +k >= t.length && +k < lenBefore) n.bump();
   }
   // (Staged shape changes: what enumerates the object follows them as a staged write too.)
   if (stagedShape) r.keys.stage(++r.keys.seq);
@@ -433,6 +458,7 @@ const draftHandler: ProxyHandler<Raw> = {
   get(target, key, receiver) {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
+    if ((key === "constructor" || key === "__proto__") && !Object.hasOwn(target, key) && !records.get(target)?.pending?.has(key)) return undefined;
     const v = pendingValue(target, key);
     if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(target, key)) return v;
     // (Shallow, or a frozen property: as it is.)
@@ -449,7 +475,7 @@ const draftHandler: ProxyHandler<Raw> = {
     if (Array.isArray(target)) {
       // Indices at or past the pending length are gone.
       const len = pendingValue(target, "length");
-      for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+      for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
     }
     return [...keys];
   },
@@ -460,7 +486,8 @@ const draftHandler: ProxyHandler<Raw> = {
     return { value: pendingValue(target, key), writable: true, enumerable: base?.enumerable ?? true, configurable: true };
   },
   set(target, key, value) {
-    if (key === "__proto__" || key === "constructor" || key === "prototype") return true;
+    // (No reaching the prototype through a draft: __proto__ is not written; constructor and prototype are plain keys.)
+    if (key === "__proto__") return true;
     const raw = unwrap(value);
     if (Array.isArray(target) && key === "length") {
       const before = pendingValue(target, "length");
@@ -470,7 +497,7 @@ const draftHandler: ProxyHandler<Raw> = {
     }
     stage(target, key, raw);
     // An index past the end extends the array.
-    if (Array.isArray(target) && typeof key === "string" && /^\d+$/.test(key) && +key >= pendingValue(target, "length")) stage(target, "length", +key + 1);
+    if (Array.isArray(target) && isIndex(key) && +key >= pendingValue(target, "length")) stage(target, "length", +key + 1);
     return true;
   },
   deleteProperty(target, key) {
@@ -493,6 +520,8 @@ const draftHandler: ProxyHandler<Raw> = {
 
 const drafts = new WeakMap<object, any>();
 function draftOf<T>(v: T): T {
+  // (A store held inside another: written through its own object.)
+  v = unwrap(v);
   if (!isWrappable(v)) return v;
   let d = drafts.get(v as object);
   if (!d) drafts.set(v as object, (d = new Proxy(v as Raw, draftHandler)));
@@ -711,8 +740,27 @@ const snapshots = new WeakMap<object, { at: number; value: any }>();
 /** A plain copy of a store's committed state, untracked (the same copy while nothing in it changed). */
 export function snapshot<T>(v: T): T {
   // Nothing optimistic shown: the committed objects themselves (unchanged data keeps its identity).
-  if (!liveOverlays) return unwrap(v);
+  if (!liveOverlays) return rawOf(v, new Map());
   return untrack(() => plain(unwrap(v), new Map())) as T;
+}
+
+/** The objects under a value's store proxies, at any depth: one holding a proxy copied with it unwrapped, the rest as they are. */
+function rawOf(v: any, seen: Map<any, any>): any {
+  const t = unwrap(v);
+  if (!t || typeof t !== "object") return t;
+  if (seen.has(t)) return seen.get(t);
+  seen.set(t, t);
+  let copy: any = null;
+  for (const k of Reflect.ownKeys(t)) {
+    const d = Object.getOwnPropertyDescriptor(t, k);
+    if (!d || !("value" in d) || !d.value || typeof d.value !== "object") continue;
+    const x = rawOf(d.value, seen);
+    if (x === d.value) continue;
+    copy ??= Array.isArray(t) ? [...t] : Object.assign(Object.create(Object.getPrototypeOf(t)), t);
+    copy[k] = x;
+  }
+  if (copy) seen.set(t, copy);
+  return copy ?? t;
 }
 
 function plain(v: any, seen: Map<any, any>): any {
@@ -834,7 +882,7 @@ const guessHandler: ProxyHandler<Raw> = {
     if (g) for (const [k, v] of g) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
     if (Array.isArray(target)) {
       const len = guessGet(target, "length");
-      for (const k of keys) if (typeof k === "string" && /^\d+$/.test(k) && +k >= len) keys.delete(k);
+      for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
     }
     return [...keys];
   },
@@ -851,7 +899,7 @@ const guessHandler: ProxyHandler<Raw> = {
       return true;
     }
     guessStage(target, key, raw);
-    if (Array.isArray(target) && typeof key === "string" && /^\d+$/.test(key) && +key >= guessGet(target, "length")) guessStage(target, "length", +key + 1);
+    if (Array.isArray(target) && isIndex(key) && +key >= guessGet(target, "length")) guessStage(target, "length", +key + 1);
     return true;
   },
   deleteProperty(target, key) {
