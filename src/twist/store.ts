@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -592,7 +592,7 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
 }
 
 /** A derive run: whether it is still the newest, and whether it has gone async; its drafts. */
-type Run = { live: boolean; async: boolean; drafts: WeakMap<object, any> };
+type Run = { live: boolean; async: boolean; stream?: boolean; drafts: WeakMap<object, any>; read?: () => unknown };
 
 /** `v`'s draft for a derive run: its writes dropped once a newer run has started, committed as made once it is async. */
 function runDraft<T>(v: T, run: Run): T {
@@ -606,7 +606,10 @@ function runDraft<T>(v: T, run: Run): T {
     if (!run.async) return f();
     const before = new Set(dirtyRecords);
     const ok = f();
-    promoteWrites(before);
+    // (A transition waits on this run: its writes are that frame's, through the flush; else they show as made.)
+    const t = run.read && !run.stream ? flightTransaction(run.read()) : null;
+    if (t) for (const r of dirtyRecords) !before.has(r) && (r.keys.writtenIn = t);
+    else promoteWrites(before);
     return ok;
   };
   d = new Proxy(v as Raw, {
@@ -684,19 +687,21 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   // (On a server, its answer goes to the client as the state it made.)
   const answerOf = (v: unknown) => (v === undefined || typeof v === "number" ? snapshot(target) : v);
   let run: Run | null = null;
+  // (Its accessor, once made: a run's writes look up the transition waiting on its flight.)
+  let memo: unknown = null;
   const m = createMemo(() => {
     shadow = options?.seedLoadingValue && runs === 0 ? (plain(target, new Map()) as Raw) : null;
     if (run) run.live = false;
     // (Traced only, its answer the server's: what it writes is dropped.)
     if (isTracing()) return fn(runDraft(target, { live: false, async: false, drafts: new WeakMap() }) as T);
-    run = { live: true, async: false, drafts: new WeakMap() };
+    run = { live: true, async: false, drafts: new WeakMap(), read: () => memo };
     const d = shadow ? draftOf(shadow) : runDraft(target, run);
     const before = new Set(dirtyRecords);
     let r = fn(d as T);
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // An async derive's answers are reconciled as they land (its onTake): the memo flies on its promise or generator.
-    if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return (run.async = true), r;
+    if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return (run.async = true), (run.stream = typeof (r as any).then !== "function"), r;
     // (A first answer at once: its writes are that answer.)
     if (shadow) promoteWrites(before), commitShadow(), (shadow = null);
     if (r !== undefined) {
@@ -723,6 +728,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     // The same answer each run: readers are told by the keys that changed, not by the derive having run.
     return 0;
   }, { writes: true, onTake: took, ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
+  memo = m;
   derives.set(target, m);
   const proxy = new Proxy(target, {
     ...readHandler,

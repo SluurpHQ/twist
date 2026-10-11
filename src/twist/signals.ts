@@ -1942,6 +1942,13 @@ function flightHolder(c: Computation<any>): Transaction | null {
   for (const t of transactions) if (t.flights.has(c)) return t;
   return null;
 }
+/** The transition waiting on the flight of the computation behind `read`, if any. */
+export function flightTransaction(read: unknown): Transaction | null {
+  const c = accessors.get(read as any);
+  const t = c?.flight ? flightHolder(c)?.root : null;
+  // (A plain transition: one an action runs in, or with a guess's lane, keeps its own rules.)
+  return t && !t.done && !t.open && !t.lane && !t.parentTx ? t : null;
+}
 
 /** This round's staged nodes committed, or held where they lead to a flight that something renders. */
 function settleRound() {
