@@ -475,6 +475,25 @@ export function teeSource<T>(source: AsyncIterable<T>): Tee<T> {
 export const setServerFly = (fn: typeof serverFly) => void (serverFly = fn);
 
 /** What a not-ready read waits on: the flight of the node it read, upstream of it, or nothing known. */
+/** A client-only compute on a server: it waits on what never comes there. */
+const CLIENT_ONLY = { clientOnly: true };
+function clientOnly(): never {
+  throw new NotReadyError(CLIENT_ONLY);
+}
+/** Whether what is not ready is client-only content (the client renders it; nothing on the server will settle it). */
+export function isClientOnly(e: NotReadyError): boolean {
+  const seen = new Set<unknown>();
+  const find = (n: any): boolean => {
+    if (!n || seen.has(n)) return false;
+    seen.add(n);
+    if (n === CLIENT_ONLY || n.ssrSource === "client") return true;
+    if (n.waitsFor && find(n.waitsFor.source)) return true;
+    for (const s of n.sources ?? []) if (find(s)) return true;
+    return false;
+  };
+  return find(e.source);
+}
+
 export function settlesOf(e: NotReadyError): Promise<void> | null {
   const seen = new Set<unknown>();
   const find = (n: any): Promise<void> | null => {
@@ -835,6 +854,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (options?.lazy) this.lazy = true;
     if ((options as any)?.deferStream) (this as any).deferStream = true;
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
+    // Client-only, on a server: never ready there (its boundary hands it to the client).
+    if (serverRender && (options as any)?.ssrSource === "client") this.fn = clientOnly;
     // Its compute writes (a store's derive): not run while it takes the server's answer.
     if ((options as any)?.writes) (this as any).writes = true;
     if (options?.unobserved) this.unobserved = options.unobserved;

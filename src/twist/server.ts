@@ -2,7 +2,8 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack, SOURCE_ANSWER } from "./signals.ts";
+import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
+import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { createHydrationSerializer } from "./serialization.ts";
@@ -604,6 +605,8 @@ export function ssrStyle(value: any): string {
 
 /** A render in progress: whether it can wait (a stream), and the boundaries still waiting. */
 type Render = {
+  /** Its Loading boundaries that waited, by id (their records). */
+  tracks?: Map<string, BoundaryTrack>;
   async: boolean;
   waiting: Set<Promise<void>>;
   /** Chunks after the shell: revealed boundaries, in the order they settled. */
@@ -753,7 +756,8 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
             try {
               ok(rendering(r, r.options, () => runWithOwner(o, fn)));
             } catch (e2) {
-              const next = e2 instanceof NotReadyError && settlesOf(e2);
+              // (Client-only content: passed up as it is, its boundary hands it to the client.)
+              const next = e2 instanceof NotReadyError && !isClientOnly(e2) && settlesOf(e2);
               if (next) holdShell(r, e2, next);
               next ? again(next) : fail(e2);
             }
@@ -766,11 +770,12 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
 }
 
 /** The shell with its waiting holes filled (holes rendered late may hold holes of their own). */
-async function filled(r: Render, s: string): Promise<string> {
+async function filled(r: Render, s: string, pass?: () => void): Promise<string> {
   for (;;) {
     const m = /\u0000hole\d+\u0000/.exec(s);
     if (!m) return s;
-    const v = await r.holes.get(m[0])!;
+    // (Each hole awaited is a pass, the one that failed too.)
+    const v = await r.holes.get(m[0])!.finally(() => pass?.());
     s = s.replace(m[0], () => v);
   }
 }
@@ -803,16 +808,24 @@ export function Loading(props: { fallback?: any; children?: any }) {
     }
     const r = render;
     // Holes in it still waiting (made once, filled as they land): the fallback now, the content when they are filled.
-    if (!r || !r.async || id == null || !HOLE_TOKEN.test(content)) return { t: content };
+    if (!r || !r.async || id == null || !HOLE_TOKEN.test(content)) {
+      const waited = r && id != null ? r.tracks?.get(id) : undefined;
+      if (waited && waited.outcome === undefined) waited.passes++, settleBoundary(r!, waited, "settled");
+      return { t: content };
+    }
     const reg = group?.register(id) ?? null;
     const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
-    return { t: streamBoundary(r, boundary, id, fallback, filled(r, content), group, !!reg?.collapseFallback) };
+    const track = trackBoundary(r, id, boundary, group);
+    return { t: streamBoundary(r, boundary, id, fallback, filled(r, content, () => track.passes++), group, !!reg?.collapseFallback, track) };
   } catch (e) {
     if (!(e instanceof NotReadyError)) throw e;
     const r = render;
-    const waits = settlesOf(e);
+    // (Client-only content: nothing on the server settles it.)
+    const client = isClientOnly(e);
+    const waits = client ? null : settlesOf(e);
     // What holds the shell (a module loading, data marked deferStream): the boundary waits in the shell, unseen.
     if (r && r.async && !r.shellSent && waits && holdsShell(e)) {
+      if (id != null) trackBoundary(r, id, boundary, group);
       resetOwner(boundary);
       const at = childIdCount(parent);
       (parent as any).owned?.splice((parent as any).owned.indexOf(boundary), 1);
@@ -824,8 +837,14 @@ export function Loading(props: { fallback?: any; children?: any }) {
     if (reg?.collapseFallback && (!r || !r.async)) return { t: "" };
     // The fallback under an owner of its own with the boundary's id: it takes no id from what follows (as Solid).
     const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
-    if (!r || !r.async || !waits || id == null) return { t: fallback };
+    if (!r || !r.async || !waits || id == null) {
+      // What it showed, final: the fallback of a string render, or client-only content the client renders.
+      const track = trackBoundary(r, id ?? "", boundary, group);
+      settleBoundary(r, track, client ? "client" : "fallback");
+      return { t: fallback };
+    }
     const collapse = !!reg?.collapseFallback;
+    const track = trackBoundary(r, id, boundary, group);
     let passes = 0;
     const retry = (p: Promise<void>) => {
       r.waiting.add(p);
@@ -835,6 +854,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
         // (Its record settles: nothing will be sent for it.)
         if ((boundary as any).disposed) return fragments.get(boundary)?.(false), r.wake?.();
         resetOwner(boundary);
+        track.passes++;
         try {
           boundaries++;
           let content: string;
@@ -856,8 +876,16 @@ export function Loading(props: { fallback?: any; children?: any }) {
           serializeFragmentAssets(id!, r.tracking, r.ctx);
           if (!r.shellSent) r.inlined.set(id!, content);
           else r.sink.fragment(id!, content, { styles: collectStreamStyles(id!, r.tracking, r.headStyles), patch, revealGroup: group?.id });
+          settleBoundary(r, track, "settled");
           group?.onResolved(id!);
         } catch (e2) {
+          // Client-only content surfaced: handed to the client, which renders it.
+          if (e2 instanceof NotReadyError && isClientOnly(e2)) {
+            fragments.get(boundary)?.(false);
+            settleBoundary(r, track, "client");
+            group?.onResolved(id!);
+            return void r.wake?.();
+          }
           // (A pass that never stops waiting on something new: given up after a budget of passes, as an error.)
           const stuck = e2 instanceof NotReadyError && ++passes >= CONVERGE_BUDGET;
           if (stuck) e2 = new Error(`<Loading> did not converge: still waiting after ${passes} passes`);
@@ -870,6 +898,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
             // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
             if (r.shellSent) r.sink.fragment(id!, " ", { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
             else r.inlined.set(id!, "");
+            settleBoundary(r, track, "error", e2);
             group?.onResolved(id!);
             return void r.wake?.();
           }
@@ -882,6 +911,70 @@ export function Loading(props: { fallback?: any; children?: any }) {
     boundaryRecord(r, boundary, id);
     retry(waits);
     return { t: placeholder(id, fallback, collapse) };
+  }
+}
+
+/** A Loading boundary that waited, as Solid records it ("boundary" on OBSERVE.records): when it was found waiting, its passes, how it ended. */
+type BoundaryTrack = { id: string; at: number; passes: number; boundary: object; group?: string; settledAt?: number; outcome?: string; streamed?: boolean; error?: unknown; told?: boolean };
+function trackBoundary(r: Render | null, id: string, boundary: object, group: RevealGroup | null): BoundaryTrack {
+  let t = r?.tracks?.get(id);
+  if (!t) {
+    t = { id, at: performance.now(), passes: 0, boundary, group: group?.id };
+    if (r) (r.tracks ??= new Map()).set(id, t);
+  }
+  t.passes++;
+  return t;
+}
+/** How it ended: told now, or (in a group) when the group reveals it. */
+function settleBoundary(r: Render | null, t: BoundaryTrack, outcome: string, error?: unknown) {
+  if (t.outcome !== undefined) return;
+  t.settledAt = performance.now();
+  t.outcome = outcome;
+  t.streamed = !!r?.shellSent;
+  if (error !== undefined) t.error = error;
+  if (process.env.NODE_ENV !== "production") boundaryChecks(t);
+  if (!t.group || !r?.async) tellBoundary(t, t.settledAt);
+}
+function tellBoundary(t: BoundaryTrack, revealAt: number) {
+  t.told = true;
+  const records = OBSERVE?.records;
+  if (!records?.observed("boundary")) return;
+  const event: Record<string, unknown> = { id: t.id, at: t.at, durationMs: t.settledAt! - t.at, passes: t.passes, outcome: t.outcome, streamed: t.streamed, heldMs: revealAt - t.settledAt! };
+  if (t.group) event.revealGroup = t.group;
+  const path = ownerPath(t.boundary);
+  if (path) event.ownerPath = path;
+  records.emit("boundary", event, t.error !== undefined ? { error: t.error } : {});
+}
+/** What the record shows a developer: sequential waits (a waterfall), client-only content found only after a wait. */
+function boundaryChecks(t: BoundaryTrack) {
+  if (t.outcome === "settled" && t.passes >= 3) {
+    const waits = t.passes - 1;
+    const entry = emitDiagnostic(
+      {
+        code: "SSR_BOUNDARY_WATERFALL",
+        kind: "ssr",
+        severity: waits >= 3 ? "warn" : "info",
+        message: `[SSR_BOUNDARY_WATERFALL] A <Loading> boundary took ${t.passes} render passes — ${waits} sequential async waits, each found only once the one before it answered. Start the reads together (or higher up) so they wait in parallel.`,
+        data: { boundary: t.id, passes: t.passes, sequentialMs: t.settledAt! - t.at },
+      },
+      t.boundary,
+    );
+    if (waits >= 3) reportDiagnostic(entry);
+  }
+  if (t.outcome === "client" && t.passes >= 2) {
+    const waits = t.passes - 1;
+    reportDiagnostic(
+      emitDiagnostic(
+        {
+          code: "SSR_CLIENT_CONTENT_MASKED",
+          kind: "ssr",
+          severity: "warn",
+          message: `[SSR_CLIENT_CONTENT_MASKED] Client-only content under a <Loading> boundary was found after ${waits} server wait${waits === 1 ? "" : "s"}: the fallback streamed, then the client rendered it. Read it outside the server wait, or mark the boundary for the client.`,
+          data: { boundary: t.id, passes: t.passes },
+        },
+        t.boundary,
+      ),
+    );
   }
 }
 
@@ -917,7 +1010,7 @@ function holdShell(r: Render, e: unknown, waits: Promise<void>) {
 const placeholder = (id: string, fallback: string, collapse: boolean) =>
   collapse ? `<template id="pl-${id}">${fallback}</template><!--pl-${id}-->` : `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->`;
 
-function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>, group: RevealGroup | null = null, collapse = false): string {
+function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>, group: RevealGroup | null = null, collapse = false, track?: BoundaryTrack): string {
   boundaryRecord(r, boundary, id);
   const done: Promise<void> = content.then(
     (html) => {
@@ -928,9 +1021,16 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
         serializeFragmentAssets(id, r.tracking, r.ctx);
         if (!r.shellSent) r.inlined.set(id, html);
         else r.sink.fragment(id, html, { styles: collectStreamStyles(id, r.tracking, r.headStyles), patch, revealGroup: group?.id });
+        if (track) settleBoundary(r, track, "settled");
       });
     },
     (e) => {
+      // Client-only content surfaced: handed to the client, which renders it.
+      if (e instanceof NotReadyError && isClientOnly(e)) {
+        if (track) settleBoundary(r, track, "client");
+        return void fragments.get(boundary)?.(false);
+      }
+      if (track) settleBoundary(r, track, "error", e);
       failures.get(boundary)?.(e);
       // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
       if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
@@ -1495,7 +1595,13 @@ function streamContext(r: Render, options: StreamOptions) {
       };
     },
     revealFragments(keys: string | string[]) {
-      r.sink.reveal(Array.isArray(keys) ? keys : [keys], { fallback: false });
+      const list = Array.isArray(keys) ? keys : [keys];
+      r.sink.reveal(list, { fallback: false });
+      // (A grouped boundary's record goes when the group reveals it: its hold measured.)
+      for (const k of list) {
+        const t = r.tracks?.get(k);
+        if (t && t.outcome !== undefined && !t.told) tellBoundary(t, performance.now());
+      }
     },
     revealFallbacks(keys: string | string[]) {
       r.sink.reveal(Array.isArray(keys) ? keys : [keys], { fallback: true });
