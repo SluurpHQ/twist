@@ -31,7 +31,20 @@ function errorTemplate(digest: unknown, message: string, error?: unknown, at?: s
   return `<template${dgst}${(process.env.NODE_ENV !== "production" && dev()) ? ` data-msg="${escape(message)}"` : ""}${stack ? ` data-cstck="${escape(stack)}"` : ""}></template>`;
 }
 
-const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&${{ "&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "#x27" }[c]};`);
+const ESCAPED = /[&<>"']/;
+/** Text or an attribute value made safe in HTML (most has nothing to escape: given back as it is). */
+function escape(s: string): string {
+  const first = s.search(ESCAPED);
+  if (first < 0) return s;
+  let out = s.slice(0, first);
+  let from = first;
+  for (let i = first; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    const e = c === 38 ? "&amp;" : c === 60 ? "&lt;" : c === 62 ? "&gt;" : c === 34 ? "&quot;" : c === 39 ? "&#x27;" : null;
+    if (e) (out += s.slice(from, i) + e), (from = i + 1);
+  }
+  return out + s.slice(from);
+}
 
 function style(s: any) {
   if (s && typeof s === "object") for (const k in s) validateStyle(k, s[k]);
@@ -86,11 +99,14 @@ type Ctx = {
   fallbackOf?: SBoundary | null;
 };
 
+/** ` name="value"` (an empty value bare-quoted, as React writes it), or nothing for null. */
+const pair = (name: string, value: string | null) =>
+  value == null ? "" : value === "" && !name.includes("-") && !name.includes(":") ? ` ${name}=""` : ` ${name}="${escape(value)}"`;
+
 function attrs(props: any, ctx: Ctx, tag: string) {
   let out = "";
-  const put = (name: string, value: string | null) => {
-    if (value != null) out += value === "" && !name.includes("-") && !name.includes(":") ? ` ${name}=""` : ` ${name}="${escape(value)}"`;
-  };
+  const put = (name: string, value: string | null) => void (out += pair(name, value));
+  const custom = isCustomElement(tag, props);
   for (const k in props) {
     let v = props[k];
     if (SKIP.has(k)) continue;
@@ -128,9 +144,9 @@ function attrs(props: any, ctx: Ctx, tag: string) {
       continue;
     }
     // A custom element's object and array props are properties the client sets, not attributes (React's Fizz).
-    if (isCustomElement(tag, props) && v !== null && typeof v === "object") continue;
-    const a = isCustomElement(tag, props) ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg, "server");
-    if (a) put(a[0], a[1]);
+    if (custom && v !== null && typeof v === "object") continue;
+    const a = custom ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg, "server");
+    if (a) out += pair(a[0], a[1]);
   }
   return out;
 }
@@ -382,7 +398,9 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
   if (Array.isArray(node)) {
     const tree = ctx.tree;
     try {
-      return node.map((n, i) => ((ctx.tree = pushTree(tree, node.length, i)), renderSibling(n, ctx, hooks))).join("");
+      let out = "";
+      for (let i = 0; i < node.length; i++) (ctx.tree = pushTree(tree, node.length, i)), (out += renderSibling(node[i], ctx, hooks));
+      return out;
     } finally {
       ctx.tree = tree;
     }
@@ -669,10 +687,10 @@ function lazyResolved(type: any, props: any, ctx: Ctx, hooks: any): string {
 
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
   checkTagName(tag);
-  if (!ctx.svg && !tag.includes("-") && tag.toLowerCase() !== tag)
+  if (process.env.NODE_ENV !== "production" && !ctx.svg && !tag.includes("-") && tag.toLowerCase() !== tag)
     warn(`<${tag} /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.`);
   assertValidProps(tag, props);
-  validateProps(tag, props, false);
+  if (process.env.NODE_ENV !== "production") validateProps(tag, props, false);
   const hoisted = hoist(tag, props, ctx);
   if (hoisted !== undefined) return hoisted;
   if (ctx.streaming?.spawn && !ctx.static && !ctx.svg && (tag === "html" ? ctx.parent === null : (tag === "head" || tag === "body") && (ctx.parent === null || ctx.parent === "html")))
@@ -849,8 +867,8 @@ function hostRest(tag: string, props: any, ctx: Ctx, hooks: any, open: string, s
   ctx.lastText = false;
   // The document's <head> holds Float's resources (written in at the end); an <html> without one gets one.
   const top = !svg && (ctx.parent === null || ctx.parent === "html");
-  if (tag === "head" && top) inner = HEAD_MARK + inner;
-  if (tag === "html" && ctx.parent === null && !inner.includes(HEAD_MARK)) inner = `<head>${HEAD_MARK}</head>` + inner;
+  if (tag === "head" && top) (inner = HEAD_MARK + inner), (ctx.res.headMarked = true);
+  if (tag === "html" && ctx.parent === null && !inner.includes(HEAD_MARK)) (inner = `<head>${HEAD_MARK}</head>` + inner), (ctx.res.headMarked = true);
   return `${open}${inner}</${tag}>`;
 }
 
@@ -878,8 +896,8 @@ function titleChildren(props: any) {
 /** Where Float's resources go in a rendered document. */
 const HEAD_MARK = "\u0000head\u0000";
 /** The shell with Float's resources in its <head>, or before it if it has none. */
-function withPreamble(shell: string, resources: string) {
-  const at = shell.indexOf(HEAD_MARK);
+function withPreamble(shell: string, resources: string, marked: boolean) {
+  const at = marked ? shell.indexOf(HEAD_MARK) : -1;
   return at < 0 ? resources + shell : shell.slice(0, at) + resources + shell.slice(at + HEAD_MARK.length);
 }
 
@@ -1229,7 +1247,7 @@ export function renderToString(node: any, options?: any, streamApi?: string) {
   if (streamApi) ctx.streamApi = streamApi;
   ctx.idPrefix = options?.identifierPrefix ?? "";
   const html = onceSync(node, ctx);
-  return withPreamble(html, ctx.res.preamble("", ""));
+  return withPreamble(html, ctx.res.preamble("", ""), ctx.res.headMarked);
 }
 /**
  * A streamed Suspense boundary (React's renderSuspenseBoundary): its content rendered now, each part that suspends a
@@ -1329,7 +1347,7 @@ export function renderToStaticMarkup(node: any, options?: any, streamApi?: strin
   ctx.static = true;
   ctx.idPrefix = options?.identifierPrefix ?? "";
   const html = onceSync(node, ctx);
-  return withPreamble(html, ctx.res.preamble("", ""));
+  return withPreamble(html, ctx.res.preamble("", ""), ctx.res.headMarked);
 }
 
 /** Rendered again until nothing it waits on is pending (each wait settles one more Suspense). */
@@ -1337,7 +1355,7 @@ async function complete(node: any) {
   for (let round = 0; ; round++) {
     const ctx = fresh();
     const html = once(node, ctx);
-    if (!ctx.waiting.length || round > 50) return withPreamble(html, ctx.res.preamble("", ""));
+    if (!ctx.waiting.length || round > 50) return withPreamble(html, ctx.res.preamble("", ""), ctx.res.headMarked);
     await Promise.allSettled(ctx.waiting);
   }
 }
@@ -1949,7 +1967,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     const paint = !anyPending && !flushedBounds.length ? "" : `${scriptOpen}requestAnimationFrame(function(){$RT=performance.now()});</script>`;
     // The document's closing tags come last, once everything has streamed (React's postamble).
     postamble = (found.body ? "</body>" : "") + (found.html ? "</html>" : "");
-    write(start + withPreamble(shell, "") + paint + bootstrap(options, nonce, !!(res as any).formReplay, !!(found.html || found.head)));
+    write(start + withPreamble(shell, "", res.headMarked) + paint + bootstrap(options, nonce, !!(res as any).formReplay, !!(found.html || found.head)));
     flushQueues();
   };
   // Aborted while the shell renders: what is left is aborted once it is done.

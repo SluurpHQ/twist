@@ -17,6 +17,8 @@ type StyleQueue = { precedence: string; rules: string[]; hrefs: string[]; sheets
 export type TagWriter = (tag: string, props: any, inner?: string) => string;
 
 export class Resources {
+  /** Whether the page has the head's mark in it (where the preamble goes). */
+  headMarked = false;
   dns = new Set<string>();
   connect = { default: new Set<string>(), anonymous: new Set<string>(), credentials: new Set<string>() };
   image = new Map<string, KeyState>();
