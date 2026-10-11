@@ -18,6 +18,7 @@ import { reportServerError, ssrSanitizeError } from "./request.ts";
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
 import { getProjectionTrace } from "./container-trace.ts";
 import { shareAsyncIterable } from "./server-internal.ts";
+import { expand, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, serializeFragmentAssets, type AssetTracking } from "./server-assets.ts";
@@ -52,6 +53,9 @@ type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: b
 type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string, any> };
 
 export const Fragment = (props: { children?: unknown }) => props.children;
+
+/** A compiled template: on the server, the JSX it stands for. */
+export const __twist_t = (spec: Spec) => (values: unknown[]) => expand(spec, values, { i: 0 }, jsx, jsxs);
 
 export function jsx(type: any, props: Record<string, any>): any {
   if (type === Fragment) return props.children;

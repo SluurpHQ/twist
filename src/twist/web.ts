@@ -31,6 +31,7 @@ import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, cal
 export * from "./control.ts";
 export * from "./response.ts";
 import { inOrder } from "../shared/in-order.ts";
+import { MATH_NS, MATH_TAGS, SVG_NS, SVG_TAGS, expand, type Spec } from "./tags.ts";
 
 export { createRoot, untrack, getOwner, flatten, merge, omit };
 export const isServer = false;
@@ -68,12 +69,6 @@ const childrenOf = (props: Record<string, any>) => {
 
 // ---------------------------------------------------------------- elements
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const MATH_NS = "http://www.w3.org/1998/Math/MathML";
-const SVG_TAGS = new Set(
-  "svg,g,path,circle,ellipse,line,polygon,polyline,rect,text,tspan,textPath,defs,use,symbol,marker,mask,pattern,clipPath,linearGradient,radialGradient,stop,filter,feBlend,feColorMatrix,feComponentTransfer,feComposite,feConvolveMatrix,feDiffuseLighting,feDisplacementMap,feFlood,feGaussianBlur,feImage,feMerge,feMergeNode,feMorphology,feOffset,feSpecularLighting,feTile,feTurbulence,foreignObject,image,switch,desc,metadata,title,animate,animateMotion,animateTransform,set,view".split(","),
-);
-const MATH_TAGS = new Set("math,mi,mn,mo,ms,mtext,mrow,msup,msub,mfrac,msqrt,mroot,mtable,mtr,mtd,mspace,munder,mover,munderover,semantics,annotation".split(","));
 /** Form state kept as properties (RFC 07): the rest are attributes. */
 const PROPS: Record<string, Set<string>> = {
   value: new Set(["INPUT", "SELECT", "OPTION", "TEXTAREA"]),
@@ -93,6 +88,49 @@ function element(tag: string, props: Record<string, any>): Element {
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) insert(el, props.children);
   return el;
+}
+
+/**
+ * A template (compiled from JSX whose markup is fixed): made once, copied for each use, its values set where they go.
+ * Hydrating, the JSX it stands for.
+ */
+export function __twist_t(spec: Spec) {
+  let made: Node | null = null;
+  holes(spec);
+  return (values: unknown[]) => {
+    if (hydrating) return expand(spec, values, { i: 0 }, jsx, jsxs);
+    const el = (made ??= build(spec)).cloneNode(true) as Element;
+    fill(el, spec, values, { i: 0 });
+    return el;
+  };
+}
+/** Whether a template has values below it (kept as its fifth entry, so a fixed part is not walked). */
+function holes(spec: Spec): boolean {
+  let any = spec[2].length > 0;
+  for (const k of spec[3]) if (k === 0 || (typeof k !== "string" && holes(k))) any = true;
+  return ((spec as any)[4] = any);
+}
+function build([tag, fixed, , kids]: Spec): Element {
+  const el = document.createElement(tag);
+  for (let i = 0; i < fixed.length; i += 2) el.setAttribute(fixed[i]!, fixed[i + 1]!);
+  for (const k of kids) if (k !== 0) el.appendChild(typeof k === "string" ? document.createTextNode(k) : build(k));
+  return el;
+}
+/** A copy's values in place: attributes set, then children (a run of values put before the fixed node after it). */
+function fill(el: Element, spec: Spec, values: unknown[], at: { i: number }) {
+  for (const name of spec[2]) set(el, name, values[at.i++]);
+  let node = el.firstChild;
+  let run: unknown[] | null = null;
+  for (const k of spec[3]) {
+    if (k === 0) {
+      (run ??= []).push(values[at.i++]);
+      continue;
+    }
+    if (run) insertHosted(el, run.length === 1 ? run[0] : run, node), (run = null);
+    if (typeof k !== "string" && (k as any)[4]) fill(node as Element, k, values, at);
+    node = node!.nextSibling;
+  }
+  if (run) insertHosted(el, run.length === 1 ? run[0] : run, null);
 }
 
 const hasSpread = (props: Record<string, any>) => Object.keys(props).some((k) => k.startsWith("$spread$"));
@@ -525,6 +563,18 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
   const named = bindingNamed(parent, "children");
   const apply = (v: any) => {
     if (v === CLAIMED || v === NESTED) return;
+    // Text as text: its one node written in place, or made.
+    if ((typeof v === "string" && v !== "") || typeof v === "number") {
+      const t = String(v);
+      const only = current.length === 1 && current[0]!.nodeType === 3 ? (current[0] as Text) : null;
+      if (only) return void (only.data !== t && (only.data = t));
+      if (!current.length) {
+        const n = document.createTextNode(t);
+        if (host) (n as any)._$host = host();
+        parent.insertBefore(n, end);
+        return void (current = [n]);
+      }
+    }
     const next = runWithOwner(home, () => untrack(() => nodesOf(v, [], current)));
     if (host) for (const n of next) (n as any)._$host = host();
     reconcile(parent, current, next, end);
@@ -575,7 +625,16 @@ const hasAccessor = (v: any): boolean => typeof v === "function" || (Array.isArr
 const BINDING = { transparent: true } as any;
 
 /** A binding's options: transparent, named `tag.prop` as Solid's compiled bindings are (owner paths say where). */
-const bindingNamed = (el: Node, prop: string) => ({ ...BINDING, name: `${(el as Element).localName ?? "#fragment"}.${prop}` });
+const bindingNamed = (el: Node, prop: string) => {
+  const tag = (el as Element).localName ?? "#fragment";
+  let byProp = bindingNames.get(tag);
+  if (!byProp) bindingNames.set(tag, (byProp = new Map()));
+  let o = byProp.get(prop);
+  if (!o) byProp.set(prop, (o = { ...BINDING, name: `${tag}.${prop}` }));
+  return o;
+};
+/** Binding options by tag and prop (read only, so shared). */
+const bindingNames = new Map<string, Map<string, any>>();
 
 const lowercaseReported = new Set<string>();
 function lowercaseEventAttribute(name: string, el: Element) {
