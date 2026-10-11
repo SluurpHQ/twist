@@ -1941,7 +1941,8 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (n instanceof Computation) {
     // (A stream between its values is settled on the last one: not pending.)
     if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming && !(pendingInside && flightHolder(n)?.root === pendingInside)) return true;
-    if (!n.windowAnswer) for (const s of n.sources) if (waiting(s, seen)) return true;
+    // (A source showing an optimistic override: what was read from it is what shows, its own pending aside.)
+    if (!n.windowAnswer) for (const s of n.sources) if (s.override === NONE && waiting(s, seen)) return true;
   }
   return false;
 }
