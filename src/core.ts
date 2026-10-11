@@ -1737,19 +1737,23 @@ function clearContainer(container: Node) {
   else (container as Element).replaceChildren?.();
 }
 
-function clearSparingly(container: Node, root?: object) {
+function clearSparingly(container: Node, root?: object, keepText = false) {
   let n = container.firstChild;
   if (n && n.nodeType === 10) n = n.nextSibling;
   while (n) {
     const node = n;
     n = n.nextSibling;
-    // Drawn by this root already (its nodes placed before the singleton was taken over): kept.
-    if (root && (node as any)[FIBER]?.root === root && !(node as any)[FIBER].dead) continue;
+    // (At commit, after the render's own clear: its text is the render's.)
+    if (keepText && node.nodeType === 3) continue;
+    // Drawn by this root already (its nodes placed before the singleton was taken over): kept. (A singleton it holds
+    // is looked into.)
+    if (root && (node as any)[FIBER]?.root === root && !(node as any)[FIBER].dead && !/^(HTML|HEAD|BODY)$/.test(node.nodeName)) continue;
     switch (node.nodeName) {
       case "HTML":
       case "HEAD":
       case "BODY":
-        clearSparingly(node, root);
+        // (Not one whose content this root sets as HTML: that is its own.)
+        if (!(root && (node as any)[FIBER]?.root === root && (node as any)[FIBER].props?.dangerouslySetInnerHTML != null)) clearSparingly(node, root, keepText);
         continue;
       case "SCRIPT":
       case "STYLE":
@@ -1773,6 +1777,8 @@ function inContainer(parent: Fiber): boolean {
   return false;
 }
 
+/** The stylesheets a document's first render draws (its commit waits for them in React). */
+let renderSheets: Fiber[] | null = null;
 /** A hoistable or resource fiber: its element found or made, and put in place, when the render commits. */
 function mountHoist(f: Fiber, host: Node) {
   // Its container's (a portal's, or the root's): the host may not be on the page yet.
@@ -1785,6 +1791,7 @@ function mountHoist(f: Fiber, host: Node) {
   const resource = getResource(root, f.type, f.props);
   (f as any).resource = resource;
   (f as any).hoistRoot = root;
+  if (resource?.type === "stylesheet") renderSheets?.push(f);
   // A stylesheet not in the document yet: a render that can wait commits once it has loaded.
   if (resource && work) suspendResource(work.wait, root, resource, f.props);
   // Inside a Suspense, outside a transition: the boundary shows its fallback until the stylesheet has loaded.
@@ -4605,6 +4612,26 @@ export function createRoot(container: Element | DocumentFragment, options?: any)
         first = false;
         if (!hydrate) {
           clearContainer(container);
+          // A document: cleared again as its first commit lands (React's clearContainer then), which in React waits
+          // for the render's stylesheets outside a sync render: what the render put there meanwhile (a stylesheet's
+          // preload) goes then.
+          if (container.nodeType === 9 && !syncing) {
+            const sheets: Fiber[] = (renderSheets = []);
+            // (Queued again at its turn: so it runs after the render's stylesheets were put in place.)
+            layoutQueue.push(() => void layoutQueue.push(() => {
+              renderSheets = null;
+              const clear = () => clearSparingly(container, top.root, true);
+              // (The bits of a stylesheet's loading state: 1 loaded, 2 errored.)
+              const waiting = sheets.map((f) => (f as any).resource).filter((r) => r && !(r.state.loading & 3) && r.instance);
+              if (!waiting.length) return clear();
+              let left = waiting.length;
+              const one = () => --left === 0 && clear();
+              for (const r of waiting) {
+                r.instance.addEventListener("load", one, { once: true });
+                r.instance.addEventListener("error", one, { once: true });
+              }
+            }));
+          }
         }
       }
       depth++;
