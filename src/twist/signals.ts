@@ -2911,10 +2911,12 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
       tx.open++;
       const me = { tx };
       const it = gen(...args);
+      // (As Solid's: its end schedules a flush and answers, then the step's own flush commits it.)
       const end = (f: () => void) => {
         tx.root.open--;
-        settleStep();
+        schedule();
         f();
+        settleStep();
       };
       // Each step of the body ends with a flush (what it wrote shows, or reverts, as it returns).
       const settleStep = () => {
