@@ -1504,24 +1504,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     // own region commits its fallback now.)
     const sb = f.type === SUSPENSE ? null : boundaryOf(f);
     if (sb && sb.pending) {
-      // An Activity's: its client render drawn off the page first. If it suspends, the boundary above shows its
-      // fallback and the server's markup stays, dehydrated, as React leaves it (the client render did not commit).
-      const before = sb.pending.peek();
-      const frag = docOf(host).createDocumentFragment();
-      lastHold = null;
-      drawFresh(f, frag, null);
-      if (sb.pending.peek() > before) {
-        for (const c of f.children) unmount(c, false);
-        f.children = [];
-        setDehydrated(f, true);
-        // Tried again once what it waits for is there.
-        const waits = lastHold?.waits;
-        const again = () => !f.dead && scheduleHydration(f);
-        waits?.then(again, again);
-        return;
-      }
-      layoutQueue.push(() => (sb.pending!.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
-      host.insertBefore(frag, removeRegion(region));
+      if (drawnOrKept(f, sb, host, region)) layoutQueue.push(() => (sb.pending!.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
       return;
     }
     layoutQueue.push(tell);
@@ -1531,6 +1514,31 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
   // Hydrated: the root's onHydrated told, with the boundary's start comment (React's hydration callbacks).
   const onHydrated = (f.root as any).onHydrated;
   if (typeof onHydrated === "function") layoutQueue.push(() => onHydrated(region.start));
+}
+
+/**
+ * An Activity drawn on the client in place of its server markup, off the page first: if it suspends, the Suspense
+ * above shows its fallback and the server's markup stays, dehydrated, tried again when the data is there (React's
+ * client render did not commit). True when it was drawn.
+ */
+function drawnOrKept(f: Fiber, sb: Fiber, host: Node, region: { start: Comment; end: Comment }): boolean {
+  const before = sb.pending!.peek();
+  const frag = docOf(host).createDocumentFragment();
+  lastHold = null;
+  setDehydrated(f, false);
+  drawFresh(f, frag, null);
+  if (sb.pending!.peek() > before) {
+    for (const c of f.children) unmount(c, false);
+    f.children = [];
+    setDehydrated(f, true);
+    const waits = lastHold?.waits;
+    const again = () => !f.dead && scheduleHydration(f);
+    waits?.then(again, again);
+    return false;
+  }
+  host.insertBefore(frag, removeRegion(region));
+  (f as any).region = undefined;
+  return true;
 }
 
 /** A boundary the server gave to the client: reported with the server's reason (in development) and digest. */
@@ -2278,6 +2286,12 @@ function updateDehydrated(f: Fiber, props: any, redraw: () => void) {
   if (!(f as any).dehydrated) return redraw();
   const region = (f as any).region;
   const host = region.start.parentNode;
+  // An Activity under a Suspense: drawn off the page first, its server markup kept if that suspends.
+  const sb = f.type === ACTIVITY ? boundaryOf(f) : null;
+  if (sb?.pending) {
+    if (drawnOrKept(f, sb, host, region)) tellDeleted(f);
+    return;
+  }
   tellDeleted(f);
   const after = removeRegion(region);
   (f as any).region = undefined;
