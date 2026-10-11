@@ -290,7 +290,41 @@ impl<'a> Visit<'a> for Pass<'_> {
     fn visit_jsx_element(&mut self, el: &JSXElement<'a>) {
         let open = &el.opening_element;
         let component = is_component(&open.name);
+        // Several refs on one element: one, an array of them in order (as Solid's compilers merge them).
+        let mut merged_refs = false;
+        if !component {
+            let refs: Vec<&JSXAttribute> = open
+                .attributes
+                .iter()
+                .filter_map(|a| match a {
+                    JSXAttributeItem::Attribute(a) if matches!(&a.name, JSXAttributeName::Identifier(i) if i.name == "ref") => Some(&**a),
+                    _ => None,
+                })
+                .collect();
+            let exprs: Vec<&Expression> = refs
+                .iter()
+                .filter_map(|a| match &a.value {
+                    Some(JSXAttributeValue::ExpressionContainer(x)) => x.expression.as_expression(),
+                    _ => None,
+                })
+                .collect();
+            if refs.len() > 1 && exprs.len() == refs.len() {
+                let joined = exprs.iter().map(|e| self.text(e.span()).to_string()).collect::<Vec<_>>().join(", ");
+                let first = exprs[0].span();
+                self.edits.push(Edit { start: first.start, end: first.end, text: format!("[{joined}]") });
+                for a in &refs[1..] {
+                    self.edits.push(Edit { start: a.span.start, end: a.span.end, text: String::new() });
+                }
+                merged_refs = true;
+            }
+        }
         for a in &open.attributes {
+            if merged_refs
+                && let JSXAttributeItem::Attribute(x) = a
+                && matches!(&x.name, JSXAttributeName::Identifier(i) if i.name == "ref")
+            {
+                continue;
+            }
             let a = match a {
                 JSXAttributeItem::SpreadAttribute(s) => {
                     self.used = true;

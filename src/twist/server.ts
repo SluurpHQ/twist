@@ -26,7 +26,7 @@ import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, nonceAttr, normalizeNonce, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, resourceIdentity, serializeFragmentAssets, type AssetTracking, type Nonce } from "./server-assets.ts";
-import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition } from "./server-slots.ts";
+import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition, spreadPropPosition } from "./server-slots.ts";
 export {
   RequestContext,
   getRequestEvent,
@@ -444,9 +444,10 @@ function element(el: Element_, keyed: boolean): string {
   const ctx = sharedConfig.context as any;
   const slots = ctx != null && ctx.claims !== undefined;
   let behaviors: Map<string, string> | null = null;
+  const tail: Set<string> | undefined = (all as any)[TAIL];
   // (Own keys through the proxy's ownKeys alone: no descriptor asked for.)
   for (const k of Reflect.ownKeys(all)) {
-    if (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k)) continue;
+    if (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k) || (tail && tail.has(k))) continue;
     // A void element has no children: never read.
     if (k === "children" && VOID.has(tag)) continue;
     const raw = all[k];
@@ -469,6 +470,11 @@ function element(el: Element_, keyed: boolean): string {
       if (slots) behaviors = spreadBehaviorPosition(behaviors, k, v, ctx.claims, 0, false);
       continue;
     }
+    // (A property has no markup; a stand-in there is named in development.)
+    else if (k.startsWith("prop:")) {
+      if (slots && v !== null && typeof v === "object") spreadPropPosition(k, v);
+      continue;
+    }
     // Content props: the markup, the text, a textarea's value.
     else if (k === "innerHTML") content = v == null ? "" : String(v);
     else if (k === "textContent" || (tag === "textarea" && (k === "value" || (k === "defaultValue" && content === undefined)))) content = escape(String(v ?? ""));
@@ -481,6 +487,7 @@ function element(el: Element_, keyed: boolean): string {
     }
   }
   if (behaviors) out += spreadBehaviorMarkers(behaviors, undefined, ctx.claims);
+  if (tail) for (const k of tail) out += ssrAttribute(k, read(all[k]));
   // Attribute markup the caller already holds: after the props' own, as is.
   if (el.attrs) out += el.attrs;
   if (tag === "option" && selecting !== NONE_CHOSEN && !hasSelected) {
@@ -633,20 +640,43 @@ function expandSpreads(props: Record<string, any>) {
   if (!Object.keys(props).some((k) => k.startsWith("$spread$"))) return props;
   // (Each key from the last source that has it, read only there: one a later attribute overrides is never read.)
   const winner = new Map<string, Record<string, any>>();
-  for (const k of Object.keys(props)) {
+  // (Refs from every source, joined in order: a named one does not replace a spread's.)
+  const refs: unknown[] = [];
+  // (A handler or ref keeps the place it first had; an attribute moves to its latest.)
+  const place = (k: string, source: Record<string, any>) => {
+    if (k !== "ref" && !/^on[A-Z]/.test(k)) winner.delete(k);
+    winner.set(k, source);
+  };
+  const keys = Object.keys(props);
+  let last = -1;
+  keys.forEach((k, i) => k.startsWith("$spread$") && (last = i));
+  for (const k of keys) {
     // (Set again later: it moves there, as the later attribute.)
-    if (!k.startsWith("$spread$")) winner.delete(k), winner.set(k, props);
-    else {
+    if (!k.startsWith("$spread$")) {
+      if (k === "ref") refs.push(props[k]);
+      place(k, props);
+    } else {
       const source = props[k]();
-      if (source) for (const key of Object.keys(source)) winner.delete(key), winner.set(key, source);
+      if (source)
+        for (const key of Object.keys(source)) {
+          if (key === "ref") refs.push(source[key]);
+          place(key, source);
+        }
     }
   }
   const out: Record<string, any> = {};
   for (const [k, source] of winner)
-    if (source === props) out[k] = props[k];
+    if (k === "ref" && refs.length > 1) out[k] = refs.flat();
+    else if (source === props) out[k] = props[k];
     else Object.defineProperty(out, k, { get: () => source[k], enumerable: true, configurable: true });
+  // (The statics after the last spread: the tail, written after the claim markers.)
+  const tail = keys.slice(last + 1).filter((k) => k !== "ref" && !CONTENT_PROPS.has(k) && !/^on[A-Z]/.test(k) && !isDynamic(props[k]));
+  if (tail.length) Object.defineProperty(out, TAIL, { value: new Set(tail) });
   return out;
 }
+const TAIL = Symbol("twist.ssr.spread-tail");
+/** Props that are content, not attributes (a select's and an option's value too). */
+const CONTENT_PROPS = new Set(["children", "innerHTML", "textContent", "value", "defaultValue", "selected"]);
 
 /** One attribute: ` name="value"`, a bare name when true, nothing when absent. */
 export function ssrAttribute(name: string, value: any): string {
