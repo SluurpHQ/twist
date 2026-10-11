@@ -69,6 +69,8 @@ for (const [pkg, file] of Object.entries(SRC)) {
 const serverDev = `export const DEV = undefined;\n`;
 for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "index.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
+// (Its client entry, which the runtime tests import directly: the same module.)
+await Bun.write(join(out, "web", "src", "client.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
 // The signals package's core entry is its public core too.
 mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
 await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
