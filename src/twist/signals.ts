@@ -621,6 +621,8 @@ export class Transaction {
   }
 }
 const transactions = new Set<Transaction>();
+/** The flush that is running, or the one to come (what happens between flushes is the next one's). */
+const cycle = () => (flushing ? flushes : flushes + 1);
 /** Flushes run so far. */
 let flushes = 0;
 
@@ -993,6 +995,8 @@ export class Computation<T> extends Node<T> implements Owner {
   declare dormant: boolean;
   /** The transaction holding the write this memo last ran for, if any (its frame is then a held pass). */
   declare heldPass: Transaction | null;
+  /** The flush it failed in (a reader new to it in a later one tries it again). */
+  declare erredAt: number;
   /** Its Loading boundary, once looked up (null: none). */
   declare boundary?: LoadingState | null;
   override subscribe(o: Computation<any>) {
@@ -1057,6 +1061,11 @@ export class Computation<T> extends Node<T> implements Owner {
       if (at !== undefined && at !== this.epoch) this.state = DIRTY;
     }
     if (!this.disposed) {
+      // Failed in an earlier flush, read by a reader new to it: tried again (not for untracked reads or probes).
+      if (this.error !== NONE && listener && !verdictReading && this.kind === MEMO && this.erredAt !== cycle() && !listener.before.includes(this)) {
+        this.error = NONE;
+        this.state = DIRTY;
+      }
       // Released at a flush (read with nothing subscribed): built again from scratch.
       // (Nothing changed since it ran: subscribed again as it was.)
       if (this.released) {
@@ -1239,6 +1248,7 @@ export class Computation<T> extends Node<T> implements Owner {
         return;
       }
       this.error = threw;
+      this.erredAt = cycle();
       this.version++;
       if ((this as any).writes) for (const o of this.observers) o.mark(DIRTY);
       // Failed: no longer waiting (the Loading above lets the error through to whatever catches it).
@@ -1272,7 +1282,19 @@ export class Computation<T> extends Node<T> implements Owner {
       (this as any).revealNow = true;
       if (this.tx) this.tx.nodes.delete(this), (this.tx = null);
     }
-    if (this.onTake) this.onTake(next);
+    if (this.onTake)
+      try {
+        this.onTake(next);
+      } catch (e) {
+        // (What it does with the value threw: its error, as the compute's would be.)
+        stampThrower(e, this);
+        this.error = e;
+        this.erredAt = cycle();
+        this.version++;
+        clock++;
+        for (const o of this.observers) o.mark(DIRTY);
+        return void statusChanged();
+      }
     const first = !this.ready;
     this.ready = true;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
@@ -1494,6 +1516,7 @@ export class Computation<T> extends Node<T> implements Owner {
   /** Failed while running: the error is its value's reason (readers rethrow it). */
   failNow(e: unknown) {
     this.error = e;
+    this.erredAt = cycle();
     this.version++;
     if (this.kind !== MEMO) handleError(this, e);
   }
@@ -1515,6 +1538,7 @@ export class Computation<T> extends Node<T> implements Owner {
     this.flight = null;
     flights.delete(this);
     this.error = e;
+    this.erredAt = cycle();
     this.version++;
     clock++;
     for (const o of this.observers) o.mark(DIRTY);
@@ -1586,7 +1610,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
