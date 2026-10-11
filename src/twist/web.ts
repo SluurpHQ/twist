@@ -159,19 +159,18 @@ function fill(el: Element, plan: Plan, values: unknown[], at: { i: number }) {
   for (let i = 0; i < slots.length; i++) set(el, slots[i]!, values[at.i++]);
   const steps = plan.steps;
   if (!steps) return;
-  let puts: unknown[] | null = null;
   let node = el.firstChild;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]!;
+    // (Put before the node the walk is at, or at the end: never in the way of what is left to walk.)
     if (step.value) {
-      (puts ??= []).push(values[at.i++], step.place === Place.End ? null : node);
+      insertHosted(el, values[at.i++], step.place === Place.End ? null : node);
       if (step.place === Place.Comment) node = node!.nextSibling;
       continue;
     }
     if (step.inner) fill(node as Element, step.inner, values, at);
     node = node!.nextSibling;
   }
-  if (puts) for (let i = 0; i < puts.length; i += 2) insertHosted(el, puts[i], puts[i + 1] as Node | null);
 }
 
 const hasSpread = (props: Record<string, any>) => Object.keys(props).some((k) => k.startsWith("$spread$"));
@@ -659,6 +658,8 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
 }
 /** A node's children bound to a value: its state on the effect (one object a binding, no closures). */
 const NO_NODES: Node[] = [];
+/** Its text is the one node its element has (set as textContent: not looked up until it changes). */
+const IN_PLACE = {} as Text;
 class Binding extends Computation<any> {
   declare place: Node;
   declare source: () => any;
@@ -705,7 +706,8 @@ function bindingApply(this: Binding, v: any) {
   if (v === CLAIMED || v === NESTED) return;
   const parent = this.place;
   const end = this.endAt;
-  const text = this.text;
+  let text = this.text;
+  if (text === IN_PLACE) text = this.text = parent.firstChild as Text;
   // Text as text: its one node written in place, or made.
   if ((typeof v === "string" && v !== "") || typeof v === "number") {
     const t = String(v);
@@ -715,7 +717,7 @@ function bindingApply(this: Binding, v: any) {
     // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
     if (!current.length && end === null && !this.host && !parent.firstChild && parent.nodeType === 1) {
       (parent as Element).textContent = t;
-      return void (this.text = (parent as Element).firstChild as Text);
+      return void (this.text = IN_PLACE);
     }
     if (!current.length) {
       const n = (this.text = document.createTextNode(t));

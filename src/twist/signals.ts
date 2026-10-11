@@ -59,6 +59,8 @@ export const DEV = process.env.NODE_ENV === "production" ? undefined : {
 };
 /** A value (a signal, a store) recorded on the owner it was made under. */
 export function registerGraph(value: any, o: Owner | null) {
+  // (For dev tools: nothing in production.)
+  if (process.env.NODE_ENV === "production") return;
   value._owner = o;
   if (o) ((o as any)._signals ??= []).push(value);
   DEV?.hooks.onGraph?.(value, o);
@@ -174,7 +176,7 @@ export function resetOwner(o: Owner) {
 
 /** What `o` owns disposed: its children first (last made first), then its cleanups (last registered first). */
 function disposeOwned(o: Owner) {
-  (o as any)._signals = undefined;
+  if ((o as any)._signals) (o as any)._signals = undefined;
   const owned = o.owned;
   if (owned) {
     o.owned = null;
@@ -647,14 +649,14 @@ let comparedSame = false;
 
 export class Computation<T> extends Node<T> implements Owner {
   parent: Owner | null;
-  owned: Owner[] | null = null;
-  cleanups: (() => void)[] | null = null;
+  declare owned: Owner[] | null;
+  declare cleanups: (() => void)[] | null;
   context: Record<symbol, unknown> | null;
-  disposed = false;
+  declare disposed: boolean;
   /** Its place in the order computations run in (creation order). */
   order = ids++;
   declare id?: string;
-  childCount = 0;
+  declare childCount: number;
   declare transparent?: boolean;
   kind: number;
   fn: (prev?: T) => T;
@@ -675,12 +677,12 @@ export class Computation<T> extends Node<T> implements Owner {
   declare verdict: Set<Source> | null;
   attached = false;
   ranAt = -1;
-  equals: Equals<T>;
-  lazy: boolean;
+  declare equals: Equals<T>;
+  declare lazy: boolean;
   /** Has had a value (an async compute's first load has not). */
   ready = false;
   /** The flight in progress (its promise), and whether it is a quiet re-ask (refresh). */
-  flight: object | null = null;
+  declare flight: object | null;
   declare quiet: boolean;
   /** Why its last run failed (an error read rethrows it). */
   declare error: unknown;
@@ -714,8 +716,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if ((options as any)?.transparent) this.transparent = true;
     if (options?.name) this.name = options.name;
     giveId(this, owner);
-    this.equals = options?.equals ?? Object.is;
-    this.lazy = !!options?.lazy;
+    if (options?.equals !== undefined) this.equals = options.equals;
+    if (options?.lazy) this.lazy = true;
     if ((options as any)?.deferStream) (this as any).deferStream = true;
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
     // Its compute writes (a store's derive): not run while it takes the server's answer.
@@ -1048,9 +1050,10 @@ export class Computation<T> extends Node<T> implements Owner {
       if (!shown && (changed || this.applied === NONE || this.equals === Object.is)) {
         // (An until() of an action reads the held world and answers now: never held itself.)
         const joins = this.readHeld && !this.tx && !(this as any).insideTx ? this.readHeld : null;
-        if (flushing || this.tx || joins) this.staged = next;
+        // (Nothing reads an effect: staged only for a transaction to hold.)
+        if (this.tx || joins || (flushing && transactions.size)) this.staged = next;
         else this.value = next;
-        if (flushing && !this.tx && !joins) staged.push(this);
+        if (flushing && !this.tx && !joins && transactions.size) staged.push(this);
         if (!this.due) (this.due = true), applies[this.kind as 1 | 2].push(this);
         if (joins) hold(this, joins);
       }
@@ -1160,7 +1163,7 @@ export class Computation<T> extends Node<T> implements Owner {
     return this.fly(first.then((r: IteratorResult<T>) => r.value));
   }
   /** Lets go of the iterator a stream reads (when it is disposed). */
-  closeStream: (() => void) | null = null;
+  declare closeStream: (() => void) | null;
   // (Set by a server component's scope; see server-internal.)
   declare context: Record<symbol, unknown> | null;
   /** Values to come from an async iterator: each taken when it lands (at once, when it answers synchronously). */
@@ -1256,7 +1259,7 @@ export class Computation<T> extends Node<T> implements Owner {
     for (const [r, at] of readers) if (!r.disposed && r.ranAt === at) r.mark(DIRTY);
   }
   /** Who waits for its next answer (a refresh's promise): each told, those still waiting kept. */
-  waiters: (() => boolean)[] | null = null;
+  declare waiters: (() => boolean)[] | null;
   wake() {
     const w = this.waiters;
     if (!w) return;
@@ -1305,7 +1308,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null });
+Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
