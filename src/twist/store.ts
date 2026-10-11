@@ -868,18 +868,45 @@ function rawOf(v: any, seen: Map<any, any>): any {
   // (A projection following another store is rewritten as that one changes: copied, so the snapshot stays as it was.)
   if (derivedFrom.has(t)) return plain(t, seen);
   seen.set(t, t);
+  // (As a pass sees it: what is staged in this flush included.)
+  const keys = rawKeys(t);
+  const staged = keys.length !== Reflect.ownKeys(t).length || keys.some((k) => seenStaged(t, k));
+  const vals: any[] = [];
   let copy: any = null;
-  for (const k of Reflect.ownKeys(t)) {
+  for (const k of keys) {
     const d = Object.getOwnPropertyDescriptor(t, k);
-    if (!d || !("value" in d) || !d.value || typeof d.value !== "object") continue;
-    const x = rawOf(d.value, seen);
-    if (x === d.value) continue;
-    copy ??= Array.isArray(t) ? [...t] : Object.assign(Object.create(Object.getPrototypeOf(t)), t);
+    if (d && !("value" in d)) {
+      vals.push(d);
+      continue;
+    }
+    const val = rawGet(t, k);
+    const x = val && typeof val === "object" ? rawOf(val, seen) : val;
+    vals.push(x);
+    if (x === val && !staged) continue;
+    copy ??= Array.isArray(t) ? [] : Object.create(Object.getPrototypeOf(t));
     copy[k] = x;
   }
-  if (copy) seen.set(t, copy);
-  return copy ?? t;
+  // (A copy holds every key: the staged world's, or the original's with what changed.)
+  if (copy) for (let i = 0; i < keys.length; i++) {
+    const k = keys[i]!;
+    const d = Object.getOwnPropertyDescriptor(t, k);
+    if (d && !("value" in d)) Object.defineProperty(copy, k, d);
+    else copy[k] = vals[i];
+  }
+  // (Changed since the last snapshot of it — the object is written in place: a copy, so what changed has a new
+  // identity; unchanged, the same answer as before.)
+  const prev = snapped.get(t);
+  if (prev && prev.keys.length === keys.length && prev.keys.every((k, i) => k === keys[i] && Object.is(prev.vals[i], vals[i]))) {
+    seen.set(t, prev.out);
+    return prev.out;
+  }
+  const out = copy ?? (prev ? (Array.isArray(t) ? [...t] : Object.assign(Object.create(Object.getPrototypeOf(t)), t)) : t);
+  snapped.set(t, { keys, vals, out });
+  seen.set(t, out);
+  return out;
 }
+/** Each store object's last snapshot: its keys and values then, and the answer given. */
+const snapped = new WeakMap<object, { keys: (string | symbol)[]; vals: any[]; out: any }>();
 
 function plain(v: any, seen: Map<any, any>, keys = viewKeys, get = viewGet): any {
   if (!isWrappable(v)) return v;

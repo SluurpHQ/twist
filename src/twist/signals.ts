@@ -3045,8 +3045,19 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
       const after = (r: IteratorResult<any, R>) => {
         if (r.done) return end(() => ok(r.value));
         const v = r.value;
-        if (v && typeof v.then === "function") v.then((x: unknown) => step("next", x), (e: unknown) => step("throw", e));
-        else step("next", v);
+        // (As await: a then getter or call that throws is thrown back in at the yield; one already answered stays.)
+        let settled = false;
+        try {
+          const then = v && (typeof v === "object" || typeof v === "function") ? v.then : undefined;
+          if (typeof then !== "function") return step("next", v);
+          then.call(
+            v,
+            (x: unknown) => !settled && ((settled = true), step("next", x)),
+            (e: unknown) => !settled && ((settled = true), step("throw", e)),
+          );
+        } catch (e) {
+          if (!settled) (settled = true), step("throw", e);
+        }
       };
       step("next");
     });
@@ -3621,7 +3632,49 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
 }
 
 /** A value with what is under it resolved: accessors called, nested arrays flattened. */
-export const flatten = (v: unknown) => resolveChildren(v);
+// (Ported from Solid's flatten: `skipNonRendered` drops null, booleans and ""; `doNotUnwrap` leaves accessors in, the
+// answer then a function resolving them.)
+type FlattenOptions = { skipNonRendered?: boolean; doNotUnwrap?: boolean };
+export function flatten(children: any, options?: FlattenOptions): any {
+  if (typeof children === "function" && !children.length) {
+    if (options?.doNotUnwrap) return children;
+    do children = children();
+    while (typeof children === "function" && !children.length);
+  }
+  if (options?.skipNonRendered && (children == null || children === true || children === false || children === "")) return;
+  if (!Array.isArray(children)) return children;
+  const results: any[] = [];
+  if (!flattenArray(children, results, options)) return results;
+  return () => {
+    const nested: any[] = [];
+    flattenArray(results, nested, { ...options, doNotUnwrap: false });
+    return nested;
+  };
+}
+function flattenArray(children: any[], results: any[], options?: FlattenOptions): boolean {
+  let notReady: NotReadyError | null = null;
+  let needsUnwrap = false;
+  for (let child of children) {
+    try {
+      if (typeof child === "function" && !child.length) {
+        if (options?.doNotUnwrap) {
+          results.push(child);
+          needsUnwrap = true;
+          continue;
+        }
+        do child = child();
+        while (typeof child === "function" && !child.length);
+      }
+      if (Array.isArray(child)) needsUnwrap = flattenArray(child, results, options) || needsUnwrap;
+      else if (!(options?.skipNonRendered && (child == null || child === true || child === false || child === ""))) results.push(child);
+    } catch (e) {
+      if (!(e instanceof NotReadyError)) throw e;
+      notReady = e;
+    }
+  }
+  if (notReady) throw notReady;
+  return needsUnwrap;
+}
 
 // ---------------------------------------------------------------- optimistic values
 
