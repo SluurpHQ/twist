@@ -41,7 +41,8 @@ export function ownerPath(subject: any): string[] | undefined {
   if (!subject) return undefined;
   const path: string[] = [];
   for (let o = ownerOf(subject); o; o = o.parent) {
-    const name = o.name;
+    // (A label given the way a component owner gets one, `_name`, counts too.)
+    const name = o.name ?? (Object.hasOwn(o, "_name") ? o._name : undefined);
     if (typeof name === "string" && name.length) path.push(name);
   }
   return path.length ? path.reverse() : undefined;

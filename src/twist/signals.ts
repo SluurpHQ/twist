@@ -8,7 +8,7 @@
 // flight lands. Writes on graphs no flight touches commit at once.
 declare const process: { env: Record<string, string | undefined> };
 
-import { diagnose, emitDiagnostic, reportDiagnostic } from "./diagnostics.ts";
+import { diagnose, emitDiagnostic, ownerPath, reportDiagnostic } from "./diagnostics.ts";
 
 // Messages Solid's diagnostics carry, word for word (tools and tests match them).
 const OWNED_WRITE_MESSAGE =
@@ -3336,7 +3336,7 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
   // Only boundaries made directly under a reveal order are its members: not those inside this one.
   if (boundary.context?.[REVEAL]) boundary.context = { ...boundary.context, [REVEAL]: undefined };
   // The content: made once (again only when what its making reads changes, or at a reset), apart from what it shows.
-  const content: Computation<T> = runWithOwner(boundary, () => new Computation<T>(MEMO, () => fn()));
+  const content: Computation<T> = runWithOwner(boundary, () => new Computation<T>(MEMO, () => fn(), { name: "children" }));
   // What the fallback shows: built once per error under the boundary, kept current with what it reads.
   let view: Computation<F> | null = null;
   let viewFor: unknown = NONE;
@@ -3594,7 +3594,7 @@ export const useStoreMarks = (f: typeof storeMarks) => void (storeMarks = f);
 
 /** Where a root keeps its own error hook (ahead of configureClientErrors'). */
 export const ROOT_ERROR_HOOK = Symbol("root-error-hook");
-type ErrorHook = (error: unknown, info: { ownerPath: string[]; boundaryPath: string[] }) => void;
+type ErrorHook = (error: unknown, info: { ownerPath?: string[]; boundaryPath?: string[] }) => void;
 let clientHook: ErrorHook | undefined;
 const told = new WeakSet<object>();
 
@@ -3614,7 +3614,13 @@ function reportCaught(e: unknown, boundary: Owner) {
   hook ??= clientHook;
   if (!hook) return;
   try {
-    hook(e, { ownerPath: [], boundaryPath: [] });
+    // (Where it was thrown, and the boundary that met it: labelled owners only, each path only when there is one.)
+    const context: { ownerPath?: string[]; boundaryPath?: string[] } = {};
+    const thrown = ownerPath(throwerOf(e) ?? boundary);
+    const met = ownerPath(boundary);
+    if (thrown) context.ownerPath = thrown;
+    if (met) context.boundaryPath = met;
+    hook(e, context);
   } catch (err) {
     console.error(err);
   }

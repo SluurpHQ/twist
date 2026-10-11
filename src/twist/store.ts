@@ -545,7 +545,9 @@ function draftOf<T>(v: T): T {
 /** A setter's return value replaces the target's contents (a shallow diff: keys gone are removed). */
 function replaceInto(target: Raw, next: any, d: any = draftOf(target)) {
   const raw = unwrap(next);
-  if (raw === target || !isWrappable(raw)) return;
+  // (The committed object itself: what this batch wrote to it is dropped.)
+  if (raw === target) return void records.get(target)?.pending?.clear();
+  if (!isWrappable(raw)) return;
   if (Array.isArray(target)) {
     for (let i = 0; i < raw.length; i++) d[i] = raw[i];
     d.length = raw.length;
@@ -561,6 +563,7 @@ const ASYNC_STORE_SETTER_MESSAGE =
   "[ASYNC_STORE_SETTER] Store setter callback returned a Promise. A store setter is a synchronous transaction: " +
   "the draft closes when the callback returns, so writes after an `await` are lost. " +
   "Move the await into an action() and call the setter from there.";
+const thenable = (r: unknown) => r != null && (typeof r === "object" || typeof r === "function") && typeof (r as any).then === "function";
 function asyncStoreSetter(): never {
   if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "ASYNC_STORE_SETTER", kind: "write", severity: "error", message: ASYNC_STORE_SETTER_MESSAGE, data: { operation: "setStore" } });
   throw new Error(ASYNC_STORE_SETTER_MESSAGE);
@@ -577,7 +580,7 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
     const before = (fn as any)?.[RECONCILE] ? new Set(dirtyRecords) : null;
     if (typeof fn === "function") {
       const r = (fn as (d: T) => T | void)(d as T);
-      if (r != null && (typeof r === "object" || typeof r === "function") && typeof (r as any).then === "function") asyncStoreSetter();
+      if (thenable(r)) asyncStoreSetter();
       if (r !== undefined && r !== d) replaceInto(target, r);
     } else replaceInto(target, { ...untrack(() => ({ ...d })), ...(fn as object) });
     // A reconcile given to the setter: its diff visible at once.
@@ -759,6 +762,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     const d = draftOf(target);
     if (typeof change === "function") {
       const r = (change as (d: T) => T | void)(d as T);
+      if (thenable(r)) asyncStoreSetter();
       if (r !== undefined) replaceInto(target, r);
     } else replaceInto(target, { ...(change as object) });
   };
@@ -769,6 +773,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
 
 /** New data diffed into a store's draft (or a part of it), keeping identity for entries with the same key. */
 export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = "id") {
+  // (An empty key: by position, not by identity.)
+  if (key === "") key = null;
   const apply = (draft: any) => {
     if (draft == null) return;
     const target = unwrap(draft) as Raw;
@@ -1032,6 +1038,7 @@ export function createOptimisticStore<T extends object>(init: T | ((draft: T) =>
     const d = guessDraftOf(target);
     if (typeof fn === "function") {
       const r = (fn as (d: T) => T | void)(d as T);
+      if (thenable(r)) asyncStoreSetter();
       if (r !== undefined && r !== d) replaceInto(target, r, d);
     } else for (const k of Reflect.ownKeys(fn as object)) (d as any)[k] = (fn as any)[k];
   };

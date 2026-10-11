@@ -13,6 +13,7 @@ import {
   createRoot,
   flatten,
   getOwner,
+  ROOT_ERROR_HOOK,
   onCleanup,
   runWithOwner,
   untrack,
@@ -864,12 +865,14 @@ function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
 // ---------------------------------------------------------------- render
 
 /** `code()` put in `element`, kept current; answers a function that takes it away. */
-export function render(code: () => any, element: Element | ShadowRoot | Document, _init?: unknown, _options?: unknown) {
+export function render(code: () => any, element: Element | ShadowRoot | Document, _init?: unknown, options?: { onError?: (error: unknown, context: unknown) => void }) {
   roots.add(element);
   for (const t of delegated) listen(element, t);
   let disposer!: () => void;
   createRoot((dispose) => {
     disposer = dispose;
+    // (What a boundary under it catches is told here first, over the page's own hook.)
+    if (options?.onError) (getOwner() as any)[ROOT_ERROR_HOOK] = options.onError;
     // Held as a whole while what it shows first waits on a first load (no half-made page): a boundary with no fallback.
     insert(element, createLoadingBoundary(code, () => undefined, { mountRoot: true } as any));
   });
