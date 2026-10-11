@@ -759,10 +759,31 @@ type Render = {
   abandons: Map<string, () => void>;
 };
 
-/** A boundary failed: what waits under it (by id) is let go of, so the stream can end. */
-function abandonUnder(r: Render, id: string) {
-  for (const [k, let_go] of [...r.abandons]) if (k !== id && k.startsWith(id)) r.abandons.delete(k), let_go();
+/** A boundary failed: what waits under it (by id) is let go of, so the stream can end (and how much, said). */
+function abandonUnder(r: Render, id: string, error: unknown) {
+  let fragments = 0;
+  let serialized = 0;
+  for (const [k, let_go] of [...r.abandons])
+    if (k !== id && k.startsWith(id)) {
+      r.abandons.delete(k), let_go();
+      DATA in let_go ? serialized++ : fragments++;
+    }
+  if (OBSERVE && (fragments || serialized))
+    emitDiagnostic(
+      {
+        code: "SSR_SUBTREE_ABANDONED",
+        kind: "ssr",
+        severity: "warn",
+        message:
+          `[SSR_SUBTREE_ABANDONED] Fragment '${id}' failed with ${fragments} nested fragment(s) and ${serialized} serialized value(s) ` +
+          `still pending; the subtree was discarded and the client renders it from scratch.`,
+        data: { fragment: id, fragments, serialized, error },
+      },
+      null,
+    );
 }
+/** Marks an abandon that lets go of a serialized value (not a nested fragment). */
+const DATA = Symbol("data");
 
 /**
  * The head with the render's asset links before `</head>`. A page with no head (one embedded in the caller's
@@ -1051,7 +1072,7 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
             // One that never settles, before the shell went out: the request fails with it.
             if (stuck && !r.shellSent && (r as any).failShell) return void ((r as any).failShell(e2), r.wake?.());
             // A real error retrying: the boundary's record fails with it (the stream goes on).
-            abandonUnder(r, id);
+            abandonUnder(r, id, e2);
             failures.get(boundary)?.(e2);
             // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
             if (r.shellSent) r.sink.fragment(id!, failedOutcome(r, boundary, fallback, e2), { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
@@ -1197,7 +1218,7 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
         return void fragments.get(boundary)?.(false);
       }
       if (track) settleBoundary(r, track, "error", e);
-      abandonUnder(r, id);
+      abandonUnder(r, id, e);
       failures.get(boundary)?.(e);
       // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
       if (r.shellSent) r.sink.fragment(id, failedOutcome(r, boundary, fallback, e), { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
@@ -1595,7 +1616,7 @@ function awaitData<V>(r: Render, v: V, id?: string): V {
   r.pendingData++;
   let open = true;
   const done = () => open && ((open = false), id != null && r.abandons.delete(id), queueMicrotask(() => (r.pendingData--, r.wake?.())));
-  if (id != null) r.abandons.set(id, done);
+  if (id != null) r.abandons.set(id, Object.assign(done, { [DATA]: true }));
   // (A promise as it is, the serializer's to write; one that answers with a source, held until that ends.)
   if (typeof (v as any).then === "function" && !(v as any)[SOURCE_ANSWER]) return (v as any).then(done, done), v;
   return held(v, done);
