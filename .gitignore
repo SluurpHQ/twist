@@ -9,3 +9,4 @@ conformance/solid/errors.txt
 conformance/report.json
 conformance/solid/report.json
 examples/*/dist/
+npm/

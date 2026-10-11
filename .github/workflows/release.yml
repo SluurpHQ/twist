@@ -1,0 +1,42 @@
+name: Release
+
+# A version tag (v0.5.0-alpha.0…) publishes Twist to npm: the compiler built on each platform, a package per
+# platform, then @sluurp/twist (scripts/publish.mjs). Needs the NPM_TOKEN secret.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  compiler:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-14, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node scripts/build-compiler.mjs --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiler-${{ matrix.os }}
+          path: napi/*.node
+
+  publish:
+    needs: compiler
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: napi
+          pattern: compiler-*
+          merge-multiple: true
+      - run: node scripts/publish.mjs
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

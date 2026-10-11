@@ -4,6 +4,7 @@
   "description": "One runtime for React's API and Solid 2's: fine-grained DOM on signals, server rendering, streaming and hydration, React and Solid-style components in the same tree.",
   "type": "module",
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/SluurpHQ/twist.git" },
   "exports": {
     ".": "./src/twist/index.ts",
     "./store": "./src/twist/index.ts",
