@@ -47,6 +47,8 @@ export function callComponent<P>(type: (props: P) => any, props: P) {
 
 /** A part that can change: read where it is used (bound to its node, or a prop getter). */
 export const __twist_d = <T>(fn: () => T) => ((fn as any)[DYNAMIC] = true, fn);
+/** A condition in JSX (`test ? a : b`, `test && a`): its test as a memo, so a branch is made again only when it flips. */
+export const __twist_memo = <T>(fn: () => T) => createMemo(fn);
 /** A component's children: built when the component reads them. */
 export const __twist_c = <T>(fn: () => T) => ((fn as any)[CHILDREN] = true, fn);
 /** JSX used as a statement: its value passed through, so the call is kept. */

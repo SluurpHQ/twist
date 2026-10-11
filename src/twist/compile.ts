@@ -110,8 +110,8 @@ export function compile(source: string, filename = "file.tsx", options: { hot?: 
         continue;
       }
       visit(v.expression);
-      // An event handler is read when the event comes; a ref is called once.
-      if (dynamic(v.expression) && name !== "ref" && !/^on[A-Z]/.test(name)) wrap(v, "__twist_d");
+      // An element's event handler is read when the event comes; a ref is called once. (A component's onX is a prop.)
+      if (dynamic(v.expression) && name !== "ref" && (component || !/^on[A-Z]/.test(name))) wrap(v, "__twist_d");
     }
     const kids = el.children.filter((c: AnyNode) => !(c.type === "JSXText" && !c.value.trim()) && !(c.type === "JSXExpressionContainer" && c.expression.type === "JSXEmptyExpression"));
     for (const c of el.children) visitChild(c, component);
@@ -134,8 +134,36 @@ export function compile(source: string, filename = "file.tsx", options: { hot?: 
     if (c.type === "JSXFragment") return visitFragment(c, inComponent);
     if (c.type === "JSXExpressionContainer" && c.expression.type !== "JSXEmptyExpression") {
       visit(c.expression);
-      if (dynamic(c.expression)) wrap(c, "__twist_d");
+      if (dynamic(c.expression) && !condition(c.expression)) wrap(c, "__twist_d");
     }
+  };
+
+  /**
+   * A child `test ? a : b` or `test && a` with JSX in a branch, as Solid compiles it: the test a memo, so the branch is
+   * made again only when the test flips.
+   */
+  const condition = (e: AnyNode): boolean => {
+    const ternary = e.type === "ConditionalExpression";
+    const and = e.type === "LogicalExpression" && e.operator === "&&";
+    if (!ternary && !and) return false;
+    const test = ternary ? e.test : e.left;
+    if (!dynamic(test) || !(ternary ? hasJsx(e.consequent) || hasJsx(e.alternate) : hasJsx(e.right))) return false;
+    used = true;
+    edits.push({ start: e.start, end: e.start, text: `__twist_d((() => { const _c$ = __twist_memo(() => ${ternary ? "!!" : ""}(` });
+    edits.push({ start: test.end, end: test.end, text: `)); return () => _c$()` });
+    edits.push({ start: e.end, end: e.end, text: `; })())` });
+    return true;
+  };
+  const hasJsx = (n: AnyNode | null | undefined): boolean => {
+    if (!n || typeof n !== "object") return false;
+    if (n.type === "JSXElement" || n.type === "JSXFragment") return true;
+    if (n.type === "ArrowFunctionExpression" || n.type === "FunctionExpression") return false;
+    for (const k in n) {
+      if (k === "start" || k === "end") continue;
+      const v = n[k];
+      if (Array.isArray(v) ? v.some((x) => x && typeof x === "object" && "type" in x && hasJsx(x)) : v && typeof v === "object" && "type" in v && hasJsx(v)) return true;
+    }
+    return false;
   };
 
   const visitFragment = (f: AnyNode, inComponent = false) => {
@@ -181,7 +209,7 @@ export function compile(source: string, filename = "file.tsx", options: { hot?: 
   }
   // Applied back to front, nested edits included (an outer wrap re-reads its inner edits' text).
   let out = edits.length ? applyEdits(source, edits) : source;
-  if (used || marks) out = `import { __twist_d, __twist_c, __twist_ref, __twist_k, __twist_mark } from "${RUNTIME}";\n` + out;
+  if (used || marks) out = `import { __twist_d, __twist_c, __twist_ref, __twist_k, __twist_mark, __twist_memo } from "${RUNTIME}";\n` + out;
   return templates(out, filename);
 }
 

@@ -227,6 +227,10 @@ export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
 export function onCleanup<T extends () => void>(fn: T): T {
   if (inSettled) throw new Error("Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead");
   if (owner) (owner.cleanups ??= []).push(fn);
+  else
+    reportDiagnostic(
+      emitDiagnostic({ code: "NO_OWNER_CLEANUP", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_CLEANUP] onCleanup called outside a reactive context will never be run" }),
+    );
   return fn;
 }
 
@@ -2138,8 +2142,14 @@ export class NoOwnerError extends Error {
 }
 
 /** Children resolved: accessors called, arrays flattened. */
-export function children<T>(fn: () => T): Accessor<any> {
-  return createMemo(() => resolveChildren(fn()));
+export function children<T>(fn: () => T): Accessor<any> & { toArray: () => any[] } {
+  const memo = createMemo(() => resolveChildren(fn())) as Accessor<any> & { toArray: () => any[] };
+  // (Solid's: the resolved children always as a list.)
+  memo.toArray = () => {
+    const v = memo();
+    return Array.isArray(v) ? v : v != null ? [v] : [];
+  };
+  return memo;
 }
 function resolveChildren(v: any): any {
   if (typeof v === "function" && v.length === 0) return resolveChildren(v());

@@ -31,7 +31,7 @@ import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, cal
 export * from "./control.ts";
 export * from "./response.ts";
 import { inOrder } from "../shared/in-order.ts";
-import { MATH_NS, MATH_TAGS, SVG_NS, SVG_TAGS, expand, hasHoles, type Spec } from "./tags.ts";
+import { MATH_NS, MATH_TAGS, SVG_NS, SVG_TAGS, Place, expand, hasHoles, places, type Spec } from "./tags.ts";
 
 export { createRoot, untrack, getOwner, flatten, merge, omit };
 export const isServer = false;
@@ -87,6 +87,13 @@ function element(tag: string, props: Record<string, any>): Element {
   if (hasSpread(props)) return spreadOn(el, mergedProps(props), false, false), el;
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) insert(el, props.children);
+  // A select's static value, as Solid's compiled code sets it: once its options are in, and again after a microtask
+  // (for options that come later).
+  if (tag === "select" && "value" in props && !isDynamic(props.value) && !hydrating) {
+    const v = props.value;
+    (el as HTMLSelectElement).value = v;
+    queueMicrotask(() => ((el as HTMLSelectElement).value = v));
+  }
   return el;
 }
 
@@ -104,27 +111,36 @@ export function __twist_t(spec: Spec) {
     return el;
   };
 }
-function build([tag, fixed, , kids]: Spec): Element {
+function build(spec: Spec): Element {
+  const [tag, fixed, , kids] = spec;
   const el = document.createElement(tag);
   for (let i = 0; i < fixed.length; i += 2) el.setAttribute(fixed[i]!, fixed[i + 1]!);
-  for (const k of kids) if (k !== 0) el.appendChild(typeof k === "string" ? document.createTextNode(k) : build(k));
+  const where = places(spec);
+  kids.forEach((k, i) => {
+    if (k !== 0) el.appendChild(typeof k === "string" ? document.createTextNode(k) : build(k));
+    else if (where[i] === Place.Comment) el.appendChild(document.createComment(""));
+  });
   return el;
 }
-/** A copy's values in place: attributes set, then children (a run of values put before the fixed node after it). */
+/** A copy's values in place: attributes set, then each child value before its marker (the walk first, as values move nodes). */
 function fill(el: Element, spec: Spec, values: unknown[], at: { i: number }) {
   for (const name of spec[2]) set(el, name, values[at.i++]);
+  const kids = spec[3];
+  const where = places(spec);
+  const puts: [unknown, Node | null][] = [];
   let node = el.firstChild;
-  let run: unknown[] | null = null;
-  for (const k of spec[3]) {
+  for (let i = 0; i < kids.length; i++) {
+    const k = kids[i]!;
     if (k === 0) {
-      (run ??= []).push(values[at.i++]);
+      const p = where[i];
+      puts.push([values[at.i++], p === Place.Comment ? node : p === Place.Before ? node : null]);
+      if (p === Place.Comment) node = node!.nextSibling;
       continue;
     }
-    if (run) insertHosted(el, run.length === 1 ? run[0] : run, node), (run = null);
     if (typeof k !== "string" && hasHoles(k)) fill(node as Element, k, values, at);
     node = node!.nextSibling;
   }
-  if (run) insertHosted(el, run.length === 1 ? run[0] : run, null);
+  for (const [v, marker] of puts) insertHosted(el, v, marker);
 }
 
 const hasSpread = (props: Record<string, any>) => Object.keys(props).some((k) => k.startsWith("$spread$"));
@@ -330,18 +346,23 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
   if (!props) return;
   // (Whether the children are claimed is decided now: the attribute effect below clears its own flag.)
   const claimingChildren = claiming;
-  // A spread's handlers: listeners of their own, swapped as the spread changes.
+  // A spread's handlers: delegated when they bubble (as any handler), else listeners of their own; swapped as the
+  // spread changes.
   const isEvent = (k: string) => /^on[A-Z]/.test(k);
   const listeners = new Map<string, EventListener>();
   const listenOn = (k: string, h: any) => {
     if (h == null) return;
+    const type = k.slice(2).toLowerCase();
+    if (BUBBLING.has(type)) return addEvent(el, type, h, true);
     const l = listenerFor(h);
     listeners.set(k, l);
-    el.addEventListener(k.slice(2).toLowerCase(), l);
+    el.addEventListener(type, l);
   };
   const unlisten = (k: string) => {
+    const type = k.slice(2).toLowerCase();
+    if (BUBBLING.has(type)) return void ((el as any)[EVENT_KEY + type] = (el as any)[EVENT_KEY + type + "Data"] = undefined);
     const l = listeners.get(k);
-    if (l) el.removeEventListener(k.slice(2).toLowerCase(), l), listeners.delete(k);
+    if (l) el.removeEventListener(type, l), listeners.delete(k);
   };
   let prev: Record<string, any> = {};
   createRenderEffect(
@@ -383,7 +404,10 @@ const listening = new WeakMap<Node, Set<string>>();
 export function addEvent(el: Element, type: string, handler: any, delegate = true) {
   // Not delegated: a listener of its own on the element (a handler given as [fn, data] is called with data first).
   if (!delegate) return void el.addEventListener(type, listenerFor(handler));
-  (el as any)["$$" + type] = handler;
+  // (Where Solid keeps it: `_$$type`, a [fn, data] handler's data beside it.)
+  const key = EVENT_KEY + type;
+  if (Array.isArray(handler)) ((el as any)[key] = handler[0]), ((el as any)[key + "Data"] = handler[1]);
+  else (el as any)[key] = handler;
   if (!delegated.has(type)) {
     delegated.add(type);
     for (const r of roots) listen(r, type);
@@ -420,8 +444,10 @@ const containers = new Map<Node, Node>();
 /** The next node an event bubbles to: up the DOM, except from a portal's content: on from where the portal sits. */
 const bubbleFrom = (node: any): Node | null => node._$host ?? node.parentNode;
 
+const EVENT_KEY = "_$$";
+
 function dispatch(e: Event, root: Node) {
-  const key = "$$" + e.type;
+  const key = EVENT_KEY + e.type;
   let node = e.target as any;
   const target = node;
   Object.defineProperty(e, "currentTarget", { configurable: true, get: () => node ?? root });
@@ -432,7 +458,9 @@ function dispatch(e: Event, root: Node) {
     if (handler) ran.add(node);
     if (handler && !node.disabled) {
       if (isDynamic(handler)) handler = handler();
-      if (Array.isArray(handler)) handler[0].call(node, handler[1], e);
+      const data = node[key + "Data"];
+      if (data !== undefined) handler.call(node, data, e);
+      else if (Array.isArray(handler)) handler[0].call(node, handler[1], e);
       else if (typeof handler === "function") handler.call(node, e);
       else handler?.handleEvent?.(e);
       if (e.cancelBubble) break;

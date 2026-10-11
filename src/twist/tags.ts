@@ -24,6 +24,32 @@ export function hasHoles(spec: Spec): boolean {
   return any;
 }
 
+/** Where a value goes among its siblings, as Solid's compiled code places it. */
+export const enum Place {
+  /** At the end of its parent (an only child, or the last with no other value beside it). */
+  End,
+  /** Before a comment of its own (`<!>`): next to text or another value, or last among several values. */
+  Comment,
+  /** Before the element after it. */
+  Before,
+}
+const placed = new WeakMap<Spec, Place[]>();
+/** Each child's place (a value's; fixed children's unused), worked out once per template. */
+export function places(spec: Spec): Place[] {
+  let out = placed.get(spec);
+  if (out) return out;
+  const kids = spec[3];
+  const values = kids.filter((k) => k === 0).length;
+  out = kids.map((k, i) => {
+    if (k !== 0 || kids.length === 1) return Place.End;
+    const next = kids[i + 1];
+    if (next === undefined) return values > 1 ? Place.Comment : Place.End;
+    return typeof next === "object" ? Place.Before : Place.Comment;
+  });
+  placed.set(spec, out);
+  return out;
+}
+
 /** A template as the JSX it stands for: what hydration and the server build from it. */
 export function expand(spec: Spec, values: unknown[], at: { i: number }, jsx: (t: string, p: any) => any, jsxs: (t: string, p: any) => any): any {
   const [tag, fixed, slots, kids] = spec;
