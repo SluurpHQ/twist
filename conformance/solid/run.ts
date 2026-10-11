@@ -17,7 +17,7 @@ const walk = (d: string) => {
 };
 for (const part of ["signals/tests", "solid/test", "web/test"]) walk(join(here, "solid-tests", part));
 
-type Row = { file: string; pass: number; fail: number; note?: string };
+type Row = { file: string; pass: number; fail: number; beyond?: number; note?: string };
 const rows: Row[] = [];
 /** What failed, by message: counted across files into errors.txt, with the files it came from. */
 const errors = new Map<string, { n: number; files: Set<string> }>();
@@ -32,6 +32,9 @@ async function worker() {
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
     clearTimeout(timer);
     const row: Row = { file: rel.replace(/^solid-tests\//, ""), pass: count(out, "pass"), fail: count(out, "fail") };
+    // (A test Solid marks failing — a bug of its own it pins — that Twist passes: not a failure of Twist's.)
+    const beyond = out.match(/marked as failing but it passed/g)?.length ?? 0;
+    if (beyond) (row.fail -= beyond), (row.beyond = beyond);
     // A file that did not load: why (an export Twist lacks, an internal module).
     const load = /(Export named '[^']+' not found|Cannot find module '[^']+'|SyntaxError[^\n]*)/.exec(out)?.[1];
     if (!row.pass && load) row.note = load.replace(/ in module.*$/, "").slice(0, 120);
@@ -71,19 +74,20 @@ for (const r of rows) {
   else if (!r.pass && /\._nextSub\b|\._subs\b/.test(src)) r.note = "not ours: reads Solid's graph fields";
 }
 const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
-const sum = (k: "pass" | "fail") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + r[k], 0);
+const sum = (k: "pass" | "fail" | "beyond") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + (r[k] ?? 0), 0);
 const unloaded = rows.filter((r) => r.note && !r.note.startsWith("not ours"));
 const reasons = new Map<string, number>();
 for (const r of unloaded) reasons.set(r.note!, (reasons.get(r.note!) ?? 0) + 1);
 const md = [
   `# Solid's tests on Twist\n`,
   `${sum("pass")} pass, ${sum("fail")} fail, ${files.length} files (${unloaded.length} did not load, ${notOurs.length} test Solid's internals)\n`,
+  `${sum("beyond")} more pass that Solid itself fails (its own \`.fails\` tests, pinning its known bugs)\n`,
   `## Why files did not load\n`,
   ...[...reasons].sort((a, b) => b[1] - a[1]).map(([why, n]) => `- ${n} × ${why}`),
   `\n## Files\n`,
-  `| file | pass | fail | note |`,
-  `|---|---|---|---|`,
-  ...rows.map((r) => `| ${r.file} | ${r.pass} | ${r.fail} | ${r.note ?? ""} |`),
+  `| file | pass | fail | beyond Solid | note |`,
+  `|---|---|---|---|---|`,
+  ...rows.map((r) => `| ${r.file} | ${r.pass} | ${r.fail} | ${r.beyond ?? ""} | ${r.note ?? ""} |`),
 ].join("\n");
 writeFileSync(join(here, "report.md"), md + "\n");
 // Against the last full run with no losses: files that lost passes. A run that lost some keeps that baseline.
