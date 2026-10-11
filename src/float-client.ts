@@ -332,21 +332,35 @@ export function stylesheetPending(root: Document | ShadowRoot, props: any): Prom
   // (In the document already: taken as loaded, as React assumes when it cannot tell.)
   // (Its preload loaded already: the transition goes on, React does not hold it then.)
   if (!r?.state || r.state.loading & (INSERTED | SETTLED)) return null;
-  const settled = (el: Element) =>
-    new Promise<void>((done) => {
-      el.addEventListener("load", () => done(), { once: true });
-      el.addEventListener("error", () => done(), { once: true });
-    });
+  // Told synchronously, in the load events (as React inserts and commits in them), not a microtask later.
+  const waiting: (() => void)[] = [];
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    for (const on of waiting.splice(0)) on();
+  };
+  const onSettled = (el: Element, then: () => void) => {
+    el.addEventListener("load", then, { once: true });
+    el.addEventListener("error", then, { once: true });
+  };
   // Its preload first (if still loading), then the stylesheet itself put in place and loaded (React's suspended
   // commit inserts it once the preload has loaded, and commits when it has loaded).
-  const preload = r.state.preload as HTMLElement | null;
-  const before = preload && !(r.state.loading & SETTLED) ? settled(preload) : Promise.resolve();
-  return before.then(() => {
-    if (r.state!.loading & INSERTED) return;
+  const insert = () => {
+    if (r.state!.loading & INSERTED) return finish();
     const el = acquireResource(root, r, props);
-    if (el) return settled(el);
-  });
+    if (el) onSettled(el, finish);
+    else finish();
+  };
+  const preload = r.state.preload as HTMLElement | null;
+  if (preload) onSettled(preload, insert);
+  else insert();
+  const wait = { then: (on: () => void) => void (done ? on() : waiting.push(on)) } as PromiseLike<void>;
+  // (Told apart from data a render waits for: an update outside a transition waits only for these.)
+  (wait as any)[STYLESHEET_WAIT] = true;
+  return wait;
 }
+export const STYLESHEET_WAIT = Symbol("stylesheetWait");
 
 export function getResource(root: Document | ShadowRoot, type: string, props: any): Resource | null {
   if (type === "link" && props?.rel === "stylesheet" && typeof props.precedence === "string") stylesheetsInUse = true;

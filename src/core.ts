@@ -18,7 +18,7 @@ import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, 
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
 import { getOffsets, setOffsets } from "./dom-selection.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
-import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, stylesheetsInUse, suspendResource } from "./float-client.ts";
+import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, STYLESHEET_WAIT, stylesheetsInUse, suspendResource } from "./float-client.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -1751,7 +1751,7 @@ function keptOnClear(n: Node): boolean {
   return n.nodeName === "SCRIPT" || n.nodeName === "STYLE" || (n.nodeName === "LINK" && (n as HTMLLinkElement).rel?.toLowerCase() === "stylesheet");
 }
 
-function clearSparingly(container: Node, root?: object, keepText = false) {
+function clearSparingly(container: Node, root?: object, keepText = false, keepHoistable = false) {
   let n = container.firstChild;
   if (n && n.nodeType === 10) n = n.nextSibling;
   while (n) {
@@ -1759,6 +1759,8 @@ function clearSparingly(container: Node, root?: object, keepText = false) {
     n = n.nextSibling;
     // (At commit, after the render's own clear: its text is the render's.)
     if (keepText && node.nodeType === 3) continue;
+    // (A <head> taken over: what React marks as its own there, a resource or a preload, stays — React's clearHead.)
+    if (keepHoistable && (node as any)[HOISTABLE]) continue;
     // Drawn by this root already (its nodes placed before the singleton was taken over): kept. (A singleton it holds
     // is looked into.)
     if (root && (node as any)[FIBER]?.root === root && !(node as any)[FIBER].dead && !/^(HTML|HEAD|BODY)$/.test(node.nodeName)) continue;
@@ -2156,7 +2158,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // Taken over while hydrating: what follows it in its parent comes next.
     if (single && hydrating && single.parentNode === host) hydrating.set(host, single.nextSibling);
     // (Not while a document's clear waits for the commit, its stylesheets loading: that one clears it then.)
-    if (single && !hydrating && type !== "html" && !renderSheets) clearSparingly(single, f.root);
+    if (single && !hydrating && type !== "html" && !renderSheets) clearSparingly(single, f.root, false, type === "head");
     // Taken over on a fresh render: its attributes go too (React's acquireSingletonInstance), the props set after.
     // (Pre-warmed while another fiber holds it, a fallback: left to that one, as React never commits the pre-warm.)
     const held = !!single && prewarming && !!(single as any)[FIBER] && !(single as any)[FIBER].dead;
@@ -3282,7 +3284,7 @@ export class Component<P = any, S = any> {
       list.push(partial);
       p.classes.set(this, list);
     };
-    if (!inTransition(apply, preview, this.__f)) apply();
+    if (!inTransition(apply, preview, this.__f) && !holdForStylesheets(apply, () => dryRun([this.__f], preview))) apply();
   }
   forceUpdate(done?: () => void) {
     warnOnInvalidCallback(done);
@@ -3666,7 +3668,7 @@ function settleAll() {
 let actDepth = 0;
 export const insideAct = () => actDepth > 0;
 /** For a test runner: what a test left hanging (an act, an async action, a suspended transition) forgotten. */
-export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), hoverTargets.clear(), (replayScheduled = false), (deferredWaiting = 0), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
+export const resetAct = () => void ((actDepth = 0), (actionsRunning = 0), actionsEra++, (transitionsSuspended = 0), (transitionEnds.length = 0), (transitionWork.length = 0), (prewarms.length = 0), (nestedSync = 0), (nestedPassive = 0), (passiveQueue.length = 0), (passiveUnmounts.length = 0), (focusedBefore = undefined), toHydrate.clear(), hoverTargets.clear(), (replayScheduled = false), (deferredWaiting = 0), (heldWait = null), (heldDefault.length = 0), hydrationEra++, (transitionHeld = null), (transitionRetried = false), resetViewTransitions());
 
 export function act<T>(fn: () => T | Promise<T>): PromiseLike<T> {
   // An error no boundary caught is thrown from act, as React's is (one, or all of them together).
@@ -3758,9 +3760,40 @@ const continuousWork: (() => void)[] = [];
 const CONTINUOUS_EVENTS = new Set("drag dragenter dragexit dragleave dragover mousemove mouseout mouseover pointermove pointerout pointerover scroll touchmove wheel mouseenter mouseleave pointerenter pointerleave".split(" "));
 /** A state update given its lane: at once while its component renders, as a transition inside one, after the
  * urgent ones during a continuous event, else now. */
+/**
+ * An update at React's default priority (not in an event, not flushSync, not during a render or a layout effect)
+ * that would render a stylesheet not loaded yet: held until it has, the screen as it is meanwhile (React suspends
+ * the commit). Updates of that priority set while one is held wait behind it, in order. True when held.
+ */
+function dryRun(fibers: Fiber[], preview: (p: Preview) => void): PromiseLike<any> | null {
+  const p: Preview = { states: new Map(), classes: new Map() };
+  preview(p);
+  return tryTransition(fibers, p);
+}
+const heldDefault: (() => void)[] = [];
+let heldWait: PromiseLike<void> | null = null;
+function holdForStylesheets(apply: () => void, dry: () => PromiseLike<any> | null): boolean {
+  if (!stylesheetsInUse || syncing || current || depth > 0 || (inEffects > 0 && !inPassive)) return false;
+  if (typeof window !== "undefined" && (window as any).event) return false;
+  if (!heldWait) {
+    const waits = dry();
+    if (!waits || !(waits as any)[STYLESHEET_WAIT]) return false;
+    heldWait = waits;
+    const release = () => {
+      heldWait = null;
+      for (const a of heldDefault.splice(0)) a();
+      flushSignals();
+    };
+    waits.then(release, release);
+  }
+  heldDefault.push(apply);
+  return true;
+}
+
 function enqueueUpdate(f: Fiber, apply: () => void, preview: (p: Preview) => void) {
   if (current === f) return apply();
   if (inTransition(apply, preview, f)) return;
+  if (holdForStylesheets(apply, () => dryRun([f], preview))) return;
   if (!duringContinuousEvent()) return apply();
   continuousWork.push(apply);
   scheduleTransitions(flushTransitions);
@@ -4907,6 +4940,9 @@ Check the render method of ${nameOf(owner.type)}.`));
         deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)), (p) => (p.roots ??= new Map()).set(top, children), top);
         return;
       }
+      // An update at default priority rendering a stylesheet not loaded yet: held till it has (React's suspended commit).
+      if (!first && top.children.length && !hydrating_ && holdForStylesheets(() => ((pending = children), asked.set(asked.peek() + 1)), () => dryRun([], (p) => (p.roots ??= new Map()).set(top, children))))
+        return;
       // An update while the hydration waits for data (none of it committed): the root is drawn on the client.
       if (hydrationWaiting && first && hydrating_) clientInstead = true;
       if (first && hydrating_ && !clientInstead && hydrateFirst === NONE && pending === NONE) hydrateFirst = children;
