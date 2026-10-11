@@ -356,6 +356,12 @@ const readHandler: ProxyHandler<Raw> = {
     return viewKeys(target);
   },
   getOwnPropertyDescriptor(target, key) {
+    // (Whether it has the key, as `in` asks it: its key set.)
+    if (isTracking()) {
+      const g = overlaid(target, key);
+      if (g === true) trackNode(recordOf(target).keys);
+      else if (!g) recordOf(target).keys.read();
+    }
     const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
     if (o) return o.v === DELETE ? undefined : shownDesc(target, key, leaf(target, key, o.v));
     const n = seenStaged(target, key);
