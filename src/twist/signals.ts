@@ -148,6 +148,12 @@ class Root implements Owner {
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
+  get _context() {
+    return toolContext(this);
+  }
+  set _context(c) {
+    this.context = c;
+  }
   /** (Solid's owner tree as its tools walk it: first child, parent, next sibling; disposed ones skipped.) */
   get _firstChild(): Owner | null {
     return liveFrom(this.owned, 0);
@@ -908,6 +914,12 @@ export class Computation<T> extends Node<T> implements Owner {
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
+  get _context() {
+    return toolContext(this);
+  }
+  set _context(c) {
+    this.context = c;
+  }
   /** (Solid's parked frame as its tools read it: the first child and the cleanups a held rerun kept.) */
   get _x() {
     const p = (this as any).parked as Owner[] | null | undefined;
@@ -1173,6 +1185,8 @@ export class Computation<T> extends Node<T> implements Owner {
       if (relinking) this.relinking = null;
       if (relinking) for (const s of relinking) if (!this.sources.includes(s)) s.unsubscribe(this);
     }
+    // (A first pass joining a hold makes the pass that created it part of the hold: membership is the tick's.)
+    if (this.readHeld && this.ranAt === -1 && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = this.readHeld;
     this.state = CLEAN;
     this.ranAt = clock;
     if (threw !== NONE) {
@@ -1678,6 +1692,8 @@ function tellStatus() {
 function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (seen.has(n)) return false;
   seen.add(n);
+  // (Never committed a value, a first load or born in a hold: nothing stale is shown.)
+  if (n instanceof Computation && (!n.ready || (n as any).bornHeld) && n.override === NONE) return false;
   // Held by a transaction still waiting on a flight (one with none left commits this round).
   // (A held truth equal to what shows is no change in flight, A24.)
   if (n.tx && n.staged !== NONE && !committableTx(n.tx) && !(n instanceof Signal && Object.is(n.staged, n.value))) return true;
@@ -1838,7 +1854,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     }
     // Reading a node a transaction holds joins it; an action's write is its transaction's.
     // (A render effect showed the frame of what it holds: it runs again at the commit instead.)
-    if (n instanceof Computation)
+    // (A first pass a fresh boundary caught read the committed world: it is the boundary's, not the tick's.)
+    if (n instanceof Computation && !(n.staleRead && !n.readHeld && n.kind === MEMO))
       for (const s of n.sources) {
         if (!s.tx || n.verdict?.has(s) || (n as any).insideTx) continue;
         if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld) s.tx.root.stale.add(n);
@@ -1909,10 +1926,10 @@ function heldRead<T>(n: Node<T>): T {
     const b = ((l as any).loading as LoadingState | undefined) ?? boundaryOf(l);
     if (b?.fresh) {
       b.holdOn(t);
-      // (Not joined: it reads the committed world now, and runs again at the commit.)
+      // (Not joined, and pending: the committed value would tear; it runs again at the commit.)
       t.stale.add(l);
       l.staleRead = true;
-      return n.value;
+      throw new NotReadyError(n);
     }
   }
   if (!born && (l.kind === RENDER || l.verdictReader) && (l.tx?.root !== t || (l.revealing === t && !(n instanceof Computation))) && !(l.ranAt === -1 && l.tx)) {
@@ -2646,6 +2663,16 @@ class LoadingState {
   ready(c: Computation<any>) {
     if (this.waiting.delete(c)) this.count.bump();
   }
+}
+
+/** (Solid's owner context as its tools read it: the Loading boundary an owner is under, its readers those waiting.) */
+const BOUNDARY_KEY = Symbol("loading");
+function toolContext(o: Owner): Record<PropertyKey, unknown> | null {
+  for (let p: Owner | null = o; p; p = p.parent) {
+    const b = (p as any).loading as LoadingState | undefined;
+    if (b) return { ...o.context, [BOUNDARY_KEY]: { _readers: b.waiting } };
+  }
+  return o.context;
 }
 
 /** The Loading boundary a computation is under (found once: a boundary is set before what is under it is made). */
