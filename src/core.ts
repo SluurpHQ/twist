@@ -552,8 +552,11 @@ function reappear(f: Fiber, layoutOnly = false) {
     if (x.kind === HOIST && !(x as any).resource) {
       if (!x.dom) x.dom = placeHoistable((x as any).hoistRoot, x.type, x.props);
       else if (!x.dom.parentNode) mountHoistable((x as any).hoistRoot, x.type, x.dom);
-      // Shown again as React shows what it hid: its display unset, an empty style left behind.
-      if (x.dom && !x.dom.hasAttribute("style")) x.dom.setAttribute("style", "");
+      // Shown again as React shows what it hid: its display unset, an empty style left behind. (Only one at the top
+      // of what was hidden: React hides those, not one inside another element.)
+      let top = true;
+      for (let p = x.parent; p && p !== f; p = p.parent) if (p.kind === HOST) top = false;
+      if (top && x.dom && !x.dom.hasAttribute("style")) x.dom.setAttribute("style", "");
     }
   };
   layoutQueue.push(() => {
