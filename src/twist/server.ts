@@ -172,19 +172,21 @@ function dynamicCore<P>(source: () => any, options: { static?: boolean } | undef
 
 /** Its children, or its fallback (given the error and a reset) once rendering them throws. */
 export function Errored(props: { fallback: any; children?: any }) {
-  // The boundary; its content under a first owner of its own, its fallback under a second (the client claims the same).
+  // As Solid's: the boundary (its content under an owner of its own, its error sent under its id), then an output owner
+  // beside it that its fallback renders under (the client claims the same).
   const boundary = createOwner();
+  const output = createOwner();
   const content = ownerUnder(boundary);
   const fallback = (err: unknown) => {
     // What the client may see of it: the error hook's answer, else the sanitized error (heard once, where it was met).
-    const id = (content as any).id;
+    const id = (boundary as any).id;
     const e = ssrSanitizeError(err, boundary, { kind: "render", handling: "fallback", boundary: id }, (sharedConfig.context as any)?.errorPolicy);
     // The error goes to the client under the content's id: the fallback hydrates against it.
     const r = render;
     if (r?.serializer && id != null && !isNoHydration() && !r.written.has(id)) r.written.add(id), r.serializer.write(id, e);
     else if (!r && id != null && !isNoHydration()) (sharedConfig.context as any)?.serialize?.(id, e);
     const f = props.fallback;
-    return runWithOwner(ownerUnder(boundary), () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
+    return runWithOwner(output, () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
   };
   try {
     const before = holeCount;
@@ -665,7 +667,14 @@ type Render = {
   /** Stylesheets the shell's head carries (a fragment does not link them again). */
   headStyles: Set<string> | null;
   nonce: Nonce | undefined;
+  /** What a failed boundary lets go of, by id: data still to come, nested boundaries still waiting. */
+  abandons: Map<string, () => void>;
 };
+
+/** A boundary failed: what waits under it (by id) is let go of, so the stream can end. */
+function abandonUnder(r: Render, id: string) {
+  for (const [k, let_go] of [...r.abandons]) if (k !== id && k.startsWith(id)) r.abandons.delete(k), let_go();
+}
 
 /**
  * The head with the render's asset links before `</head>`. A page with no head (one embedded in the caller's
@@ -802,11 +811,11 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
 /** The shell with its waiting holes filled (holes rendered late may hold holes of their own). */
 async function filled(r: Render, s: string, pass?: () => void): Promise<string> {
   for (;;) {
-    const m = /\u0000hole\d+\u0000/.exec(s);
-    if (!m) return s;
-    // (Each hole awaited is a pass, the one that failed too.)
-    const v = await r.holes.get(m[0])!.finally(() => pass?.());
-    s = s.replace(m[0], () => v);
+    const found = s.match(/\u0000hole\d+\u0000/g);
+    if (!found) return s;
+    // (Each hole awaited is a pass, the one that failed too; one failing fails them all, at once.)
+    const vs = await Promise.all(found.map((h) => r.holes.get(h)!.finally(() => pass?.())));
+    found.forEach((h, i) => (s = s.replace(h, () => vs[i]!)));
   }
 }
 
@@ -884,9 +893,18 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
     const collapse = !!reg?.collapseFallback;
     const track = trackBoundary(r, id, boundary, group);
     let passes = 0;
+    let abandoned = false;
     const retry = (p: Promise<void>) => {
       r.waiting.add(p);
+      r.abandons.set(id, () => {
+        abandoned = true;
+        r.waiting.delete(p);
+        fragments.get(boundary)?.(false);
+        r.wake?.();
+      });
       p.then(() => {
+        if (abandoned) return;
+        r.abandons.delete(id);
         r.waiting.delete(p);
         // A boundary rendered again since (or thrown away): this retry is not its any more.
         // (Its record settles: nothing will be sent for it.)
@@ -932,6 +950,7 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
             // One that never settles, before the shell went out: the request fails with it.
             if (stuck && !r.shellSent && (r as any).failShell) return void ((r as any).failShell(e2), r.wake?.());
             // A real error retrying: the boundary's record fails with it (the stream goes on).
+            abandonUnder(r, id);
             failures.get(boundary)?.(e2);
             // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
             if (r.shellSent) r.sink.fragment(id!, " ", { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
@@ -1076,6 +1095,7 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
         return void fragments.get(boundary)?.(false);
       }
       if (track) settleBoundary(r, track, "error", e);
+      abandonUnder(r, id);
       failures.get(boundary)?.(e);
       // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
       if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
@@ -1083,10 +1103,17 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
     },
   ).finally(() => rendering(r, r.options, () => group?.onResolved(id)));
   const settled = done.then(() => {
+    r.abandons.delete(id);
     r.waiting.delete(settled);
     r.wake?.();
   });
   r.waiting.add(settled);
+  // (Let go of by a failing boundary around it: its record settles, nothing more is sent for it.)
+  r.abandons.set(id, () => {
+    r.waiting.delete(settled);
+    fragments.get(boundary)?.(false);
+    r.wake?.();
+  });
   return placeholder(id, fallback, collapse);
 }
 
@@ -1458,14 +1485,15 @@ function sendAnswer(node: any, answer: unknown) {
   const id = node?.id as string | undefined;
   if (!r?.serializer || id == null || isNoHydration() || !sharedConfig.context || r.written.has(id)) return;
   r.written.add(id);
-  r.serializer.write(id, awaitData(r, answer));
+  r.serializer.write(id, awaitData(r, answer, id));
 }
 /** A value still to come (a promise, or an async source's values): the stream stays open until it has all been written. */
-function awaitData<V>(r: Render, v: V): V {
+function awaitData<V>(r: Render, v: V, id?: string): V {
   if (!isData(v)) return v;
   r.pendingData++;
   let open = true;
-  const done = () => open && ((open = false), queueMicrotask(() => (r.pendingData--, r.wake?.())));
+  const done = () => open && ((open = false), id != null && r.abandons.delete(id), queueMicrotask(() => (r.pendingData--, r.wake?.())));
+  if (id != null) r.abandons.set(id, done);
   // (A promise as it is, the serializer's to write; one that answers with a source, held until that ends.)
   if (typeof (v as any).then === "function" && !(v as any)[SOURCE_ANSWER]) return (v as any).then(done, done), v;
   return held(v, done);
@@ -1651,7 +1679,7 @@ function streamContext(r: Render, options: StreamOptions) {
     serialize(id: string, p: unknown, deferStream?: boolean) {
       if (!r.serializer) return;
       if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add(p as Promise<unknown>);
-      r.serializer.write(id, awaitData(r, p));
+      r.serializer.write(id, awaitData(r, p, id));
     },
     block(p: Promise<unknown>) {
       if (!r.shellSent) r.blocks.add(p);
@@ -1729,7 +1757,7 @@ type StreamOptions = {
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: StreamOptions = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: null as any, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null, nonce: normalizeNonce(options.nonce) };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: null as any, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null, nonce: normalizeNonce(options.nonce), abandons: new Map() };
   r.head = newHead(r.tracking.resources);
   // Its hook is its request's: a server function the request calls later reports to it.
   fileRequestHook(options.onError);

@@ -1299,7 +1299,7 @@ function claimFallbackThenRender(props: { fallback?: any; children?: any; on?: u
  * under it; content the server streamed later shows its fallback (claimed) until the fragment record settles, the
  * reveal script having swapped the content in, which is claimed then.
  */
-function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): Node[] {
+function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, at: Cursor): Node[] {
   const parent = getOwner();
   // The id the server's boundary took, looked at (not taken) to tell the two shapes apart.
   let id: string | undefined;
@@ -1354,19 +1354,20 @@ function claimLoading(props: { fallback?: any; children?: any }, at: Cursor): No
  * it did on the server, which then rendered the fallback), the fallback is claimed from the same place instead.
  */
 function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): Node[] {
-  // As the server made it: the boundary, its content under a first owner, its fallback under a second.
+  // As the server made it: the boundary (its content under an owner of its own), then the output owner of its fallback.
   const boundary = createOwner() as any;
+  const output = createOwner() as any;
   const content = ownerUnder(boundary) as any;
   const start = at.next;
   const fallback = (e: unknown) => {
     at.next = start;
     const f = props.fallback;
-    return runWithOwner(ownerUnder(boundary), () => claimHtml(typeof f === "function" ? f(() => e, () => {}) : f, false, at));
+    return runWithOwner(output, () => claimHtml(typeof f === "function" ? f(() => e, () => {}) : f, false, at));
   };
-  // The server caught an error here: it sent it under the content's id, and rendered the fallback.
+  // The server caught an error here: it sent it under the boundary's id, and rendered the fallback.
   const sent = (globalThis as any)._$HY?.r;
-  if (sent && content.id != null && content.id in sent) {
-    const v = sent[content.id];
+  if (sent && boundary.id != null && boundary.id in sent) {
+    const v = sent[boundary.id];
     return fallback(v && typeof v === "object" && "s" in v && "v" in v ? v.v : v);
   }
   // (An error something under it reports while it is claimed comes back here.)
