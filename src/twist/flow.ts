@@ -43,6 +43,13 @@ function cell<T>(v: T) {
   return { read: () => s.read(), set: (n: T) => (s.write(n), isFlushing() && s.commit()) };
 }
 
+/** The same rows in the same places (the list a pass made is the last one: its readers have nothing new). */
+function sameRows(a: unknown[], b: unknown[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /**
  * Each item mapped once and kept while it stays: by identity (`fn(item, index())`), by position
  * (`keyed: false`: `fn(item(), index)`), or by a key (`keyed: item => key`: `fn(item(), index())`).
@@ -108,7 +115,7 @@ export function mapArray<T, U>(
         }
         for (let i = next.length; i < rows.length; i++) end(owners[i]!);
         owners.length = items.length = next.length;
-        return (rows = out);
+        return (rows = sameRows(rows, out) ? rows : out);
       }
       // By identity or key.
       const nextKeys = keyed === true ? next : next.map(keyOf);
@@ -172,7 +179,7 @@ export function mapArray<T, U>(
       owners = outOwners;
       indexes = outIndexes;
       items = outItems;
-      return (rows = out);
+      return (rows = sameRows(rows, out) ? rows : out);
     });
   }));
 }
