@@ -51,7 +51,8 @@ export function mapArray<T, U>(
   fn: (item: any, index: any) => U,
   options: { keyed?: Keyed<T>; fallback?: () => U } = {},
 ): Accessor<U[]> {
-  const parent = getOwner();
+  // Its rows under an owner of its own (one id where it sits, the rows' under it), as Solid's.
+  const parent = ownerUnder(getOwner());
   const keyed = options.keyed ?? true;
   const keyOf = typeof keyed === "function" ? keyed : (v: T) => v;
   // (A row that takes no index gets no cell for one.)
@@ -177,7 +178,8 @@ export function mapArray<T, U>(
 
 /** `fn(index)` for each index from `from` (0 unless given) up to `from + count`: rows kept, none diffed. */
 export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, options: { from?: Accessor<number>; fallback?: () => U } = {}): Accessor<U[]> {
-  const parent = getOwner();
+  // Its rows under an owner of its own, as Solid's.
+  const parent = ownerUnder(getOwner());
   const made = new Map<number, [U, Owner]>();
   let fallback: [U, Owner] | null = null;
   const end = (o: Owner) => disposeScope(o, parent);
