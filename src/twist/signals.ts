@@ -730,8 +730,11 @@ abstract class Node<T = any> {
       if (lane && !lane.done && listener) {
         // A derivation reading the guess is the lane's work; an effect reads the screen: not the guess until the lane
         // is revealed (then it runs again).
-        if (listener.kind === MEMO) listener.passLane = lane;
-        else {
+        // (Guesses of two lanes read by one derivation: one reveal unit, the lanes merged, A15.)
+        if (listener.kind === MEMO) {
+          const p = listener.passLane;
+          listener.passLane = p && !p.done && p.root !== lane.root ? mergeTx(lane, p) : lane;
+        } else {
           lane.stale.add(listener);
           listener.staleRead = true;
           return (!inPass || this.staged === NONE ? this.value : this.staged) as T;
