@@ -33,6 +33,28 @@ if (process.env.ALLOC) {
   for (const [k, v] of [...bytes].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`${((100 * v) / all).toFixed(1).padStart(5)}%  ${k}`);
   process.exit(0);
 }
+// EACH=1: the step alone, warmed before each round outside the profile (one profile per round, merged).
+if (process.env.EACH) {
+  const merged = { nodes: [], samples: [], timeDeltas: [] };
+  let offset = 0;
+  for (let i = 0; i < +rounds; i++) {
+    await page.evaluate(([n]) => window.benchWarm(n), [name]);
+    await cdp.send("Profiler.start");
+    await page.evaluate(([n]) => window.benchRun(n), [name]);
+    const { profile } = await cdp.send("Profiler.stop");
+    let top = 0;
+    for (const n of profile.nodes) {
+      merged.nodes.push({ ...n, id: n.id + offset, children: n.children?.map((c) => c + offset) });
+      top = Math.max(top, n.id);
+    }
+    merged.samples.push(...profile.samples.map((s) => s + offset));
+    merged.timeDeltas.push(...profile.timeDeltas);
+    offset += top + 1;
+  }
+  await browser.close();
+  console.log(summary(merged, `${app} ${name} (each)`));
+  process.exit(0);
+}
 // STEP=1: the step alone, warmed once (a step that undoes itself, as select row is made to).
 const step = !!process.env.STEP;
 if (step) await page.evaluate(([n]) => window.benchWarm(n), [name]);

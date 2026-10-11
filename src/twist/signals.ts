@@ -137,7 +137,7 @@ class Root implements Owner {
   declare transparent?: boolean;
   constructor(public parent: Owner | null, options?: { id?: string; transparent?: boolean }) {
     this.context = parent?.context ?? null;
-    if (parent) (parent.owned ??= []).push(this);
+    if (parent) parent.owned ? parent.owned.push(this) : (parent.owned = [this]);
     if (options?.transparent) this.transparent = true;
     if (options?.id != null) this.id = options.id;
     else giveId(this, parent);
@@ -730,8 +730,8 @@ export class Computation<T> extends Node<T> implements Owner {
     this.fn = fn;
     this.parent = owner;
     this.context = owner?.context ?? null;
-    if (owner) (owner.owned ??= []).push(this);
-    if ((options as any)?.transparent) this.transparent = true;
+    if (owner) owner.owned ? owner.owned.push(this) : (owner.owned = [this]);
+    if ((options as any)?.transparent && !this.transparent) this.transparent = true;
     if (options?.name) this.name = options.name;
     giveId(this, owner);
     if (options?.equals !== undefined) this.equals = options.equals;
@@ -787,10 +787,11 @@ export class Computation<T> extends Node<T> implements Owner {
   track(source: Source) {
     if (verdictReading) (this.verdict ??= new Set()).add(source);
     if (this.sources.includes(source)) return;
-    // (Read outside a run of its own: its lists made now, the shared empty one never written to.)
-    if (this.sources === NOTHING_YET) (this.sources = []), (this.seen = []);
-    this.sources.push(source);
-    this.seen.push(source.version);
+    // (Its lists made by the first read, a source long: most have one, and a list pushed to grows to 17 places.)
+    if (this.sources === NOTHING_YET) (this.sources = [source]), (this.seen = [source.version]);
+    // (A second one: a list of two, not one grown to 17.)
+    else if (this.sources.length === 1) (this.sources = [this.sources[0]!, source]), (this.seen = [this.seen[0]!, source.version]);
+    else this.sources.push(source), this.seen.push(source.version);
     if (source.height >= this.height) this.height = source.height + 1;
     if (this.attached && !this.relinking?.has(source)) source.subscribe(this);
   }
@@ -949,9 +950,9 @@ export class Computation<T> extends Node<T> implements Owner {
     const relinking = this.attached && this.sources.length ? new Set(this.sources) : null;
     if (relinking) this.relinking = relinking;
     this.before = this.sources;
-    this.sources = [];
+    this.sources = NOTHING_YET as Source[];
     if (this.readHeld) this.readHeld = null;
-    this.seen = [];
+    this.seen = NOTHING_YET as number[];
     if (this.verdict) this.verdict = null;
     if (!this.attached) this.attached = true;
     const prevOwner = owner;
@@ -2980,8 +2981,8 @@ export function onSettled(fn: () => void | (() => void)) {
         waiter.fn = () => {
           (source as any).read?.call(source);
         };
-        waiter.sources = [];
-        waiter.seen = [];
+        waiter.sources = NOTHING_YET as Source[];
+        waiter.seen = NOTHING_YET as number[];
         waiter.attached = true;
         waiter.track(source);
         waiter.fn = () => void settledQueue.push(attempt);

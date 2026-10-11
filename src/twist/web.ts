@@ -134,13 +134,13 @@ export function __twist_t(spec: Spec) {
  * last one with something to do (null: none) — past a fixed node, into a fixed element with values below, or a value
  * put before its marker.
  */
-type Plan = { slots: string[]; steps: Step[] | null };
+type Plan = { slots: string[]; events: string[]; steps: Step[] | null };
 type Step = { place: Place; value: boolean; inner: Plan | null };
 function planOf(spec: Spec): Plan {
   const where = places(spec);
   const steps: Step[] = spec[3].map((k, i) => ({ place: where[i]!, value: k === 0, inner: k !== 0 && typeof k !== "string" && hasHoles(k) ? planOf(k) : null }));
   while (steps.length && !steps[steps.length - 1]!.value && !steps[steps.length - 1]!.inner) steps.pop();
-  return { slots: spec[2], steps: steps.length ? steps : null };
+  return { slots: spec[2], events: spec[2].map(eventOf), steps: steps.length ? steps : null };
 }
 function build(spec: Spec): Element {
   const [tag, fixed, , kids] = spec;
@@ -156,7 +156,10 @@ function build(spec: Spec): Element {
 /** A copy's values in place, as its plan says: attributes set, then each child value before its marker (the walk first, as values move nodes). */
 function fill(el: Element, plan: Plan, values: unknown[], at: { i: number }) {
   const slots = plan.slots;
-  for (let i = 0; i < slots.length; i++) set(el, slots[i]!, values[at.i++]);
+  for (let i = 0; i < slots.length; i++) {
+    const type = plan.events[i]!;
+    type ? addEvent(el, type, values[at.i++], BUBBLING.has(type)) : set(el, slots[i]!, values[at.i++]);
+  }
   const steps = plan.steps;
   if (!steps) return;
   let node = el.firstChild;
@@ -208,7 +211,7 @@ function propCompute(this: PropBinding) {
   const v = this.source();
   return this.prop === "style" || this.prop === "class" ? readShallow(v) : v;
 }
-(PropBinding.prototype as any).adopt = false;
+Object.assign(PropBinding.prototype, { adopt: false, apply: propApply, transparent: true });
 function propApply(this: PropBinding, v: any, prev: any) {
   if (this.adopt) {
     this.adopt = false;
@@ -218,20 +221,21 @@ function propApply(this: PropBinding, v: any, prev: any) {
   assignProp(this.el, this.prop, v, prev);
 }
 
-/** An event prop's type, by its name (onClick: click). */
+/** An event prop's type, by its name (onClick: click; "" for a prop that is no event). */
 const eventTypes = new Map<string, string>();
+function eventOf(name: string) {
+  let type = eventTypes.get(name);
+  if (type === undefined) eventTypes.set(name, (type = /^on[A-Z]/.test(name) ? name.slice(2).toLowerCase() : ""));
+  return type;
+}
 function set(el: Element, name: string, value: any) {
   // (A ref given through a getter: its value, read once, applied.)
   if (name === "ref") return applyRef(isDynamic(value) ? untrack(value) : value, el);
-  if (/^on[A-Z]/.test(name)) {
-    let type = eventTypes.get(name);
-    if (!type) eventTypes.set(name, (type = name.slice(2).toLowerCase()));
-    return addEvent(el, type, value, BUBBLING.has(type));
-  }
+  const type = eventOf(name);
+  if (type) return addEvent(el, type, value, BUBBLING.has(type));
   if (isDynamic(value)) {
     // (A binding takes no id: the server makes none for it.)
     const b = new PropBinding(RENDER_EFFECT, propCompute, bindingNamed(el, name));
-    b.apply = propApply;
     b.el = el;
     b.prop = name;
     b.source = value;
@@ -650,13 +654,12 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
 function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null) {
   const b = new Binding(RENDER_EFFECT, bindingCompute, name === undefined ? bindingNamed(parent, "children") : bindingOptions(name));
-  b.apply = bindingApply;
   b.place = parent;
   b.source = value;
-  b.endAt = end;
+  if (end) b.endAt = end;
   if (initial?.length) b.nodes = initial;
-  b.first = claimed;
-  b.host = host;
+  if (claimed) b.first = claimed;
+  if (host) b.host = host;
   startEffect(b);
 }
 /** A node's children bound to a value: its state on the effect (one object a binding, no closures). */
@@ -697,7 +700,7 @@ class Binding extends Computation<any> {
     return CLAIMED;
   }
 }
-Object.assign(Binding.prototype, { text: null, nodes: NO_NODES });
+Object.assign(Binding.prototype, { text: null, nodes: NO_NODES, endAt: null, first: undefined, host: undefined, apply: bindingApply, transparent: true });
 /** A list with nothing to call and nothing nested in it: shown as it is. */
 function plainList(v: any[]) {
   for (let i = 0; i < v.length; i++) {
