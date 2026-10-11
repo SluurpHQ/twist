@@ -1905,6 +1905,7 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
   const was = n.override;
   n.override = v as any;
   (n as any).guessTx = t;
+  (n as any).guessedIn = cycle();
   // Its lane: the parent's (one per parent while it is not yet revealed).
   const lane = t.lane && !t.lane.done ? t.lane : (t.lane = newLane(t));
   (n as any).laneTx = lane;
@@ -2205,6 +2206,11 @@ function superseded(l: Transaction): boolean {
   for (const [n, before] of l.guessed) {
     if (n.override === NONE) continue;
     const truth = truthOf(n);
+    // (A truth of the guess's own batch is what it was written over: the newer intent is the guess.)
+    if ((n as any).guessedIn === cycle()) {
+      l.guessed.set(n, truth);
+      continue;
+    }
     if (truth === NONE || truth === before) continue;
     if (!((n as any).equals?.(truth, n.override) ?? truth === n.override)) return true;
   }
