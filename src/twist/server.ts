@@ -811,6 +811,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
     if (!r || !r.async || id == null || !HOLE_TOKEN.test(content)) {
       const waited = r && id != null ? r.tracks?.get(id) : undefined;
       if (waited && waited.outcome === undefined) waited.passes++, settleBoundary(r!, waited, "settled");
+      // (Its modules, for the client to load before it hydrates it.)
+      if (id != null) boundaryModules(id);
       return { t: content };
     }
     const reg = group?.register(id) ?? null;
@@ -840,6 +842,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
     if (!r || !r.async || !waits || id == null) {
       // What it showed, final: the fallback of a string render, or client-only content the client renders.
       const track = trackBoundary(r, id ?? "", boundary, group);
+      // (The modules it began to load, for the client to load before it renders it.)
+      if (id != null) boundaryModules(id);
       settleBoundary(r, track, client ? "client" : "fallback");
       return { t: fallback };
     }
@@ -1009,6 +1013,13 @@ function holdShell(r: Render, e: unknown, waits: Promise<void>) {
 /** A boundary's place in the stream: its fallback between markers (kept in the template while its group collapses it). */
 const placeholder = (id: string, fallback: string, collapse: boolean) =>
   collapse ? `<template id="pl-${id}">${fallback}</template><!--pl-${id}-->` : `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->`;
+
+/** A boundary's modules, serialized for the client to load before it hydrates or renders it. */
+function boundaryModules(id: string) {
+  const ctx = sharedConfig.context as any;
+  const map = ctx?.getBoundaryModules?.(id);
+  if (map && Object.keys(map).length) ctx.serialize?.(id + "_assets", { ...map });
+}
 
 function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>, group: RevealGroup | null = null, collapse = false, track?: BoundaryTrack): string {
   boundaryRecord(r, boundary, id);
@@ -1614,8 +1625,8 @@ type StreamOptions = {
   renderId?: string;
   noHydrate?: boolean;
   nonce?: string;
-  onCompleteShell?: () => void;
-  onCompleteAll?: () => void;
+  onCompleteShell?: (info: { write: (chunk: string) => void }) => void;
+  onCompleteAll?: (info: { write: (chunk: string) => void }) => void;
   /** A sink of the caller's in place of the document (what the render makes goes there). */
   sink?: Partial<Sink>;
   /** The serializer data is written with (the hydration serializer by default). */
@@ -1727,8 +1738,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       return;
     }
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
+      options.onCompleteAll?.({ write: (chunk) => sinks.forEach((w) => write(w, chunk)) });
       done = true;
-      options.onCompleteAll?.();
       dispose();
       for (const w of sinks) w.end();
       finished();
@@ -1782,8 +1793,10 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       // (One settled inside a placeholder that was itself streamed: it streams too.)
       for (const [id, content] of r.inlined) r.sink.fragment(id, content, { styles: { inline: [], links: [] } });
       r.inlined.clear();
-      options.onCompleteShell?.();
+      const extra: string[] = [];
+      options.onCompleteShell?.({ write: (chunk) => void extra.push(chunk) });
       for (const w of sinks) write(w, shell);
+      for (const chunk of extra) for (const w of sinks) write(w, chunk);
       rendering(r, options, drain);
     },
     (e) => {
