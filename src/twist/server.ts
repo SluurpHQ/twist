@@ -1643,6 +1643,9 @@ export function renderToString(code: () => any, options: { renderId?: string; no
             // (No head rendered: no page to look through for one.)
             const page = fillHead(html(code(), false), head!, false) as string;
             const out = withHeadAssets(page, tracking, head, nonce, options.onHead);
+            // (The response head as declared, frozen before the render is disposed: what it declared stays.)
+            const ev = getRequestEvent();
+            if (ev?.response) commitResponseStub(ev.response, { event: ev });
             return data ? out + `<script${nonceAttr(nonce, "script")}>${headerScript(options.renderId)}${data}</script>` : out;
           } catch (e) {
             // A render that fails: the hook hears it (the request fails), then the caller.
@@ -1789,6 +1792,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   r.head = newHead(r.tracking.resources);
   // Its hook is its request's: a server function the request calls later reports to it.
   fileRequestHook(options.onError);
+  // (The request it renders for: its response head freezes once the shell goes out.)
+  const requestEvent = getRequestEvent();
   // The document: html text, data as script, each fragment as a template and its reveal.
   let documentShell = "";
   const documentSink: Sink = {
@@ -1947,6 +1952,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       });
       shell = documentShell;
       shellSent = true;
+      if (requestEvent?.response) commitResponseStub(requestEvent.response, { event: requestEvent });
       record?.shell();
       r.shellSent = true;
       // (One settled inside a placeholder that was itself streamed: it streams too.)
