@@ -935,7 +935,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (owner) owner.owned ? owner.owned.push(this) : (owner.owned = [this]);
     if ((options as any)?.transparent && !this.transparent) this.transparent = true;
     if (options?.name) this.name = options.name;
-    giveId(this, owner);
+    if ((options as any)?.id != null) this.id = (options as any).id;
+    else giveId(this, owner);
     if (options?.equals !== undefined) this.equals = options.equals;
     if (options?.lazy) this.lazy = true;
     if ((options as any)?.deferStream) (this as any).deferStream = true;
@@ -2992,6 +2993,11 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   const order = (owner?.context?.[REVEAL] as RevealOrderController | undefined) ?? null;
   const slot: Slot = { gated: false, collapsed: false, owner: null, draw: new (class extends Node<number> {})(), ready: () => false };
   slot.draw.value = 0;
+  // Its ids, as Solid's: the boundary takes one (X); its fallback's are X's own, `on` takes X00, its content the next
+  // (X00, or X01 after `on`), and what the content resolves to the one after.
+  const X = owner && idOwner(owner).id != null ? getNextChildId(owner) : undefined;
+  let idAt = 0;
+  const idUnder = () => (X === undefined ? undefined : X + "0" + (idAt++).toString(36));
   // `on`: what it reads, tracked outside the boundary (as a condition around it would be). A change after the first
   // re-arms it once the flush ends: something it shows still loading, its fallback shows again until that lands.
   let armed = false;
@@ -3045,7 +3051,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
           schedule();
         });
       }
-    }, { transparent: true } as any);
+    }, { transparent: true, id: idUnder() } as any);
     watch.run();
   }
   // The content: built once under the boundary (what under it waits on a first load tells the boundary), built
@@ -3059,7 +3065,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       if (e instanceof NotReadyError) return (content.readHeld = null), NOT_READY;
       throw e;
     }
-  });
+  }, { id: idUnder() } as any);
   (content as any).loading = state;
   // Only boundaries made directly under a reveal order are its members: not those inside this one.
   if (content.context?.[REVEAL]) content.context = { ...content.context, [REVEAL]: undefined };
@@ -3075,7 +3081,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   const outer = owner;
   let shownFallback: { value: F; dispose: () => void } | null = null;
   const showFallback = (): F => {
-    if (!shownFallback) runWithOwner(outer, () => createRoot((dispose) => void (shownFallback = { value: untrack(fallback), dispose })));
+    if (!shownFallback) runWithOwner(outer, () => createRoot((dispose) => void (shownFallback = { value: untrack(fallback), dispose }), X === undefined ? undefined : { id: X }));
     return shownFallback!.value;
   };
   const dropFallback = () => {
@@ -3122,7 +3128,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       if (e instanceof NotReadyError) return showFallback();
       throw e;
     }
-  }, { transparent: true } as any);
+  }, X === undefined ? ({ transparent: true } as any) : ({ id: idUnder() } as any));
   if (order) {
     order.add(slot);
     onCleanup(() => order.remove(slot));

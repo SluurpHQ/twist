@@ -814,13 +814,15 @@ async function filled(r: Render, s: string, pass?: () => void): Promise<string> 
  * Its children, or its fallback while something under it is not ready. In a stream the fallback is sent first, between
  * markers the client's reveal script finds; the children follow in a template once what they wait on lands.
  */
-export function Loading(props: { fallback?: any; children?: any }) {
+export function Loading(props: { fallback?: any; on?: unknown; children?: any }) {
   const parent = getOwner();
   const boundary = ownerUnder(parent);
   // (A group coordinates the boundaries directly inside it, not theirs.)
   const group = revealGroupOf(parent);
   if (group) setRevealGroup(boundary, null);
   const id = (boundary as any).id as string | undefined;
+  // Its content's ids as the client's: under X00 (X01 after `on`); its fallback's under X.
+  if (id != null) (boundary as any).id = id + ("on" in props ? "01" : "00");
   const wasBoundary = headBoundary;
   try {
     boundaries++;
