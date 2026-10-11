@@ -32,6 +32,12 @@ struct Edit {
 /// `source` with its JSX's dynamic parts marked (unchanged if it has nothing to mark); an error if it does not parse.
 /// `path` names the file (its extension says TSX or JSX; a `?query` is ignored).
 pub fn compile(source: &str, path: &str) -> Result<String, String> {
+    compile_with(source, path, false)
+}
+
+/// `compile`; `hot`: each component's mark also names it (hot reload keeps one component per name across edits).
+pub fn compile_with(source: &str, path: &str, hot: bool) -> Result<String, String> {
+    let named = |name: &str| if hot { format!(", {}", json(name)) } else { String::new() };
     let has_jsx = source.as_bytes().windows(2).any(|w| w[0] == b'<' && (w[1].is_ascii_alphabetic() || w[1] == b'>'));
     if !has_jsx {
         return Ok(source.to_string());
@@ -76,16 +82,16 @@ pub fn compile(source: &str, path: &str) -> Result<String, String> {
                     && capitalised(&id.name)
                 {
                     let end = top.span().end;
-                    pass.edits.push(Edit { start: end, end, text: format!("\n{0} = __twist_mark({0});", id.name) });
+                    pass.edits.push(Edit { start: end, end, text: format!("\n{0} = __twist_mark({0}{1});", id.name, named(&id.name)) });
                     marks += 1;
                 }
             }
             Declared::Variables(v) => {
                 for d in &v.declarations {
-                    let named = d.id.get_binding_identifier().is_some_and(|i| capitalised(&i.name));
-                    if let (true, Some(init @ (Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)))) = (named, &d.init) {
+                    let id = d.id.get_binding_identifier().filter(|i| capitalised(&i.name));
+                    if let (Some(id), Some(init @ (Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)))) = (id, &d.init) {
                         let s = init.span();
-                        pass.edits.push(Edit { start: s.start, end: s.end, text: format!("__twist_mark({})", &source[s.start as usize..s.end as usize]) });
+                        pass.edits.push(Edit { start: s.start, end: s.end, text: format!("__twist_mark({}{})", &source[s.start as usize..s.end as usize], named(&id.name)) });
                         marks += 1;
                     }
                 }
@@ -760,6 +766,13 @@ mod tests {
         // A static attribute after one set at run time: marked (the server keeps their order).
         let mixed = c("const C = () => <a class=\"x\" href={h()}>a</a>;");
         assert!(mixed.contains(r#"["a", ["class", "x"], ["href"], ["a"], 1]"#), "{mixed}");
+    }
+
+    #[test]
+    fn hot_marks_name_components() {
+        let out = super::compile_with("function A() { return <p />; }\nconst B = () => <i />;", "a.tsx", true).unwrap();
+        assert!(out.contains("A = __twist_mark(A, \"A\");"), "{out}");
+        assert!(out.contains("\"B\")"), "{out}");
     }
 
     #[test]

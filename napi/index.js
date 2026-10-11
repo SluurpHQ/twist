@@ -20,5 +20,8 @@ function load() {
 
 const addon = load();
 
-/** `source` (the file at `path`) with its JSX marked for Twist and its fixed markup made templates. */
-export const compile = (source, path) => addon.compile(source, path);
+/**
+ * `source` (the file at `path`) with its JSX marked for Twist and its fixed markup made templates; `hot`: each
+ * component's mark also names it, for hot reload.
+ */
+export const compile = (source, path, { hot = false } = {}) => addon.compile(source, path, hot);

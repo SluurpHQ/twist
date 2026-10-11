@@ -7,7 +7,7 @@ import { platformName } from "../napi/platform.js";
 const root = resolve(import.meta.dirname, "..");
 const release = process.argv.includes("--release");
 const windows = process.platform === "win32";
-const cargo = (args) => spawnSync("cargo", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 1 << 28, shell: windows });
+const cargo = (args) => spawnSync("cargo", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 1 << 28 });
 if (cargo(["build", "-p", "twist-compiler-napi", ...(release ? ["--release"] : [])]).status !== 0) process.exit(1);
 // Where Cargo builds, as it says (a .cargo/config.toml above may name a shared folder).
 const target = JSON.parse(cargo(["metadata", "--format-version", "1", "--no-deps"]).stdout).target_directory;

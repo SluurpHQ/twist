@@ -6,9 +6,9 @@
 //   props read live (a change renders it again); Twist children given to it arrive as a React child.
 //
 // Installed with the app's React (Sluurp's @sluurp/dom, or React itself): `installBridge(React, createRoot)`.
-import { createRenderEffect, createRoot, createSignal, flush, onCleanup, untrack } from "./signals.ts";
+import { createRenderEffect, createSignal, flush, onCleanup, untrack } from "./signals.ts";
 import { createComponent, isTwist, setForeignComponent, setReactHost } from "./control.ts";
-import { hydrate, insert, setForeignClaim } from "./web.ts";
+import { hydrate, render, setForeignClaim } from "./web.ts";
 
 /** An element that takes no box of its own: what is mounted in it lays out as its parent's children. */
 function box(tag: string) {
@@ -45,13 +45,9 @@ export function TwistHost({ component, props }: { component: (p: any) => any; pr
     const [read, set] = createSignal(props, { equals: false });
     const el = ref.current!;
     const code = () => createComponent(component, liveProps(read));
-    // What the server drew is adopted (hydrated), else drawn here.
-    const dispose = el.firstChild
-      ? hydrate(code, el, { renderId: id })
-      : createRoot((d) => {
-          insert(el, code);
-          return d;
-        });
+    // What the server drew is adopted (hydrated), else drawn here; either way the host is a root of its own, its
+    // delegated events listened to there.
+    const dispose = el.firstChild ? hydrate(code, el, { renderId: id }) : render(code, el);
     flush();
     live.current = { set, dispose };
     return () => {
@@ -101,13 +97,8 @@ function TwistContent({ content }: { content: () => any }) {
   const ref = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const el = ref.current!;
-    // What the server drew is adopted, else drawn here.
-    const dispose = el.firstChild
-      ? hydrate(content, el)
-      : createRoot((d) => {
-          insert(el, content);
-          return d;
-        });
+    // What the server drew is adopted, else drawn here (a root of its own, as the host's).
+    const dispose = el.firstChild ? hydrate(content, el) : render(content, el);
     flush();
     return dispose;
   }, [content]);
