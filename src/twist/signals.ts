@@ -533,7 +533,8 @@ export function teeSource<T>(source: AsyncIterable<T>): Tee<T> {
       (e) => {
         asking = null;
         ended = true;
-        for (let i = 0; i < 2; i++) if (!gone[i]) kept[i]!.push({ e });
+        // (Not ready is the render's to wait on, never sent: the client's reader ends there.)
+        for (let i = 0; i < 2; i++) if (!gone[i]) kept[i]!.push(i === 1 && e instanceof NotReadyError ? { r: { done: true, value: undefined } } : { e });
       },
     ));
   const close = () => {
@@ -1504,6 +1505,12 @@ export class Computation<T> extends Node<T> implements Owner {
    */
   serverStream(iterable: AsyncIterable<T>, tee?: Tee<T>) {
     const ctx = sharedConfig.context as any;
+    // (A render tried again: the source, or the slot, answered on an earlier pass — its first value, its client
+    // reader sent then.)
+    const answers = serverAnswers;
+    const id = (this as any).id as string | undefined;
+    const known = !tee ? (answered.get(iterable as object) ?? (answers && id != null ? answers.get(id) : undefined)) : undefined;
+    if (known) return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
     // As Solid reads a source on a server: in a live server component, or declared live outside a pumping scope, the
     // first value and the source closed (the client connects for the rest); in a server component of a response that
     // stays open, every value, each a commit; else the first value here, every value to the client.
@@ -1518,7 +1525,8 @@ export class Computation<T> extends Node<T> implements Owner {
     const split = live ? null : (tee ?? teeSource(iterable));
     if (live && tee) void tee[1][Symbol.asyncIterator]().return?.();
     const it = (split ? split[0] : (tee?.[0] ?? iterable))[Symbol.asyncIterator]();
-    const first = it.next();
+    // (A first step reading what is not ready: waited for, then failed not-ready — the render tries again with a fresh source.)
+    const first = it.next().then(undefined, (e) => (e instanceof NotReadyError ? (settlesOf(e) ?? Promise.resolve()).then(() => Promise.reject(e)) : Promise.reject(e)));
     const close = () => void Promise.resolve(it.return?.()).catch(noop);
     this.closeStream = split ? () => (close(), split[2]()) : close;
     if (liveScope || ((iterable as any)[LIVE_SOURCE] && !pumps)) {
@@ -1549,6 +1557,7 @@ export class Computation<T> extends Node<T> implements Owner {
     // The client gets every value (its reader is the hydration record); this render, the first.
     if (!sent) serverFly?.(this, split[1]);
     first.then(close, noop);
+    first.then((r) => void answered.set(iterable as object, [true, r.value]), (e) => void answered.set(iterable as object, [false, e]));
     return this.fly(first.then((r: IteratorResult<T>) => r.value), true);
   }
   /** Lets go of the iterator a stream reads (when it is disposed). */
