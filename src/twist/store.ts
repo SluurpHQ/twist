@@ -1068,12 +1068,18 @@ function guessDraftOf<T>(v: T): T {
  * function), until the action that made them ends (or, outside an action, the flush does).
  */
 export function createOptimisticStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: { key?: string | ((v: any) => any) }): [T, StoreSetter<T>] {
-  const [store] = typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true) : createStore(init as T, undefined, options);
+  // (Given a plain store: one that follows it, its own optimistic layer over it; given an optimistic one, its layers
+  // compose over the same object.)
+  const source = typeof init !== "function" && unwrap(init) !== init && !derives.has(unwrap(init) as Raw) ? init : null;
+  const [store] =
+    typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true)
+    : source ? derivedStore(() => source, (Array.isArray(unwrap(source)) ? [] : {}) as T, options, true)
+    : createStore(init as T, undefined, options);
   const target = unwrap(store) as Raw;
-  const source = derives.get(target);
+  const derive = derives.get(target);
   const set: StoreSetter<T> = (fn) => {
     const was = guessSource;
-    guessSource = source;
+    guessSource = derive;
     try {
       write(fn);
     } finally {
