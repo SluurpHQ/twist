@@ -20,7 +20,7 @@ jobs:
       - name: Compiler addon
         run: node scripts/build-compiler.mjs
       - name: Install
-        run: bun install && (cd test/bridge/libs && bun install)
+        run: bun install && (cd conformance && bun install) && (cd test/bridge/libs && bun install)
       - name: Bridge tests
         working-directory: test/bridge
         run: bun test
@@ -33,7 +33,7 @@ jobs:
         include:
           - os: windows-latest
           - os: macos-14
-          - os: macos-13
+          - os: macos-15-intel
           - os: ubuntu-latest
           - os: ubuntu-24.04-arm
     runs-on: ${{ matrix.os }}

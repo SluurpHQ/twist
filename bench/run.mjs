@@ -14,6 +14,8 @@ for (const [engine, type] of [["webkit", webkit], ["chromium", chromium]]) {
     await page.goto(`http://127.0.0.1:8820/bench/${name}/index.html`);
     const got = await page.evaluate((n) => window.bench(n), runs);
     for (const [k, v] of Object.entries(got)) ((rows[k] ??= {})[`${engine} ${name}`] = v);
+    // (Progress as it goes: a full run takes minutes.)
+    console.error(`${engine} ${name}: create 1k ${got["create 1k"]}, create 10k ${got["create 10k"]}`);
     await page.close();
   }
   await browser.close();

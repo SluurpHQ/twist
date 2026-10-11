@@ -22,7 +22,7 @@ export function summary(profile, title) {
     }
   }
   const top = (m, k) => [...m].sort((a, b) => b[1] - a[1]).slice(0, k).map(([l, v]) => `${((100 * v) / count).toFixed(1).padStart(5)}%  ${l}`).join("\n");
-  const hot = [...self].filter(([l]) => !l.startsWith("(")).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const hot = process.env.HOT ? [...self.keys()].find((l) => l.startsWith(process.env.HOT + ":")) : [...self].filter(([l]) => !l.startsWith("(")).sort((a, b) => b[1] - a[1])[0]?.[0];
   const callers = new Map();
   for (const id of profile.samples) {
     if (label(byId.get(id)) !== hot) continue;

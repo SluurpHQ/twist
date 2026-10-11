@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "twist-compiler"
-version = "0.1.0"
+version = "0.5.0-alpha.0"
 dependencies = [
  "oxc",
  "serde_json",
@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "twist-compiler-napi"
-version = "0.1.0"
+version = "0.5.0-alpha.0"
 dependencies = [
  "napi",
  "napi-build",
