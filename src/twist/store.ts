@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, takenValue, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -706,7 +706,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     return 0;
   }, { writes: true, ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   derives.set(target, m);
-  onTake(m, (v) => {
+  const took = (v: unknown) => {
     // (On a server, what its source wrote before this answer is the state it answers with.)
     if (traced) promoteWrites(new Set()), queueMicrotask(changed);
     // (Each landing in the seed window: what the run wrote, committed whole.)
@@ -716,7 +716,11 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
     into(target, unwrap(v) as Raw, key);
     promoteWrites(before);
-  });
+  };
+  onTake(m, took);
+  // (An answer taken as it was made, before it was told where to go: hydrating, the server's.)
+  const early = takenValue(m);
+  if (early !== undefined && typeof early !== "number") took(early);
   const proxy = new Proxy(target, {
     ...readHandler,
     get(t, k, receiver) {

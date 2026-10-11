@@ -3679,3 +3679,8 @@ export function onTake<T>(read: () => T, fn: (v: T) => void) {
   const c = accessors.get(read);
   if (c) c.onTake = fn;
 }
+/** What `read`'s computation has taken so far (undefined before its first answer), without reading it. */
+export function takenValue<T>(read: () => T): T | undefined {
+  const c = accessors.get(read);
+  return c?.ready && c.error === NONE ? (c.value as T) : undefined;
+}
