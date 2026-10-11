@@ -45,6 +45,11 @@ export function callComponent<P>(type: (props: P) => any, props: P) {
   return foreign && !isTwist(type) ? foreign(type, props) : createComponent(type, props);
 }
 
+/** A component called in the current owner, with none of its own (a static dynamic: as compiled `<C />` sits). */
+export function callInline<P>(type: (props: P) => any, props: P) {
+  return foreign && !isTwist(type) ? foreign(type, props) : untrack(() => ownOf(type)(props));
+}
+
 /** A part that can change: read where it is used (bound to its node, or a prop getter). */
 export const __twist_d = <T>(fn: () => T) => ((fn as any)[DYNAMIC] = true, fn);
 /** A condition in JSX (`test ? a : b`, `test && a`): its test as a memo, so a branch is made again only when it flips. */

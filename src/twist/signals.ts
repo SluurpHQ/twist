@@ -144,9 +144,12 @@ class Root implements Owner {
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
-  /** (Solid's owner tree as its tools walk it: first child, next sibling; disposed ones skipped.) */
+  /** (Solid's owner tree as its tools walk it: first child, parent, next sibling; disposed ones skipped.) */
   get _firstChild(): Owner | null {
     return liveFrom(this.owned, 0);
+  }
+  get _parent(): Owner | null {
+    return this.parent;
   }
   get _nextSibling(): Owner | null {
     const o = this.parent?.owned;
@@ -713,6 +716,9 @@ export class Computation<T> extends Node<T> implements Owner {
   /** (Solid's owner tree as its tools walk it: first child, next sibling; disposed ones skipped.) */
   get _firstChild(): Owner | null {
     return liveFrom(this.owned, 0);
+  }
+  get _parent(): Owner | null {
+    return this.parent;
   }
   get _nextSibling(): Owner | null {
     const o = this.parent?.owned;
@@ -2519,12 +2525,17 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
  * reads (upstream through memos).
  */
 function pendingUnder(root: Computation<any>): boolean {
+  return someUpstream(root, (n) => !!n.flight && !n.disposed);
+}
+
+/** Whether `test` holds for a computation among what `root`, or anything it owns, reads (upstream through memos). */
+function someUpstream(root: Computation<any>, test: (n: Computation<any>) => boolean): boolean {
   const seen = new Set<Node<any>>();
   const upstream = (n: Node<any>): boolean => {
     if (seen.has(n)) return false;
     seen.add(n);
     if (!(n instanceof Computation)) return false;
-    if (n.flight && !n.disposed) return true;
+    if (test(n)) return true;
     for (const src of n.sources) if (upstream(src)) return true;
     return false;
   };
@@ -2707,8 +2718,16 @@ export function createRevealOrder<T>(fn: () => T, options?: { order?: () => Reve
 /** `fn`'s value, or `fallback(error, reset)` once something under it throws. */
 export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
   const failed = new Signal<unknown>(NONE, { ownedWrite: true, equals: false });
-  // Reset: the content made again.
-  const reset = () => ((failed.value = NONE), (view = null), (caughtBelow = false), content.mark(DIRTY), failed.bump());
+  // Reset: the content made again, and what failed upstream of it asked again (a source that fails anew shows its error).
+  const reset = () => {
+    failed.value = NONE;
+    view?.dispose();
+    view = null;
+    caughtBelow = false;
+    someUpstream(content, (n) => (n !== content && n.error !== NONE && n.mark(DIRTY), false));
+    content.mark(DIRTY);
+    failed.bump();
+  };
   let caughtBelow = false;
   // The boundary: what under it throws comes here. Transparent, as its content takes the id it would.
   const boundary = new Root(owner, { transparent: true });
@@ -2728,10 +2747,12 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
   // What the fallback shows: built once per error under the boundary, kept current with what it reads.
   let view: Computation<F> | null = null;
   let viewFor: unknown = NONE;
+  // (Owned by the boundary, not by what shows it: that one runs again each time the view changes, and would dispose it.)
   const showFallback = (): F => {
-    if (!view || viewFor !== failed.value) {
+    if (!view || view.disposed || viewFor !== failed.value) {
       viewFor = failed.value;
-      view = runWithOwner(m, () => new Computation<F>(MEMO, () => resolveChildren(fallback(() => failed.value, reset))));
+      view?.dispose();
+      view = runWithOwner(boundary, () => new Computation<F>(MEMO, () => resolveChildren(fallback(() => failed.value, reset))));
       view.run();
     }
     return view.read();

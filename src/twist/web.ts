@@ -26,7 +26,7 @@ import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./h
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, markBuiltin } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, markBuiltin } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -82,11 +82,24 @@ const PROPS: Record<string, Set<string>> = {
 };
 
 function element(tag: string, props: Record<string, any>): Element {
-  const el = SVG_TAGS.has(tag) && tag !== "title" ? document.createElementNS(SVG_NS, tag) : MATH_TAGS.has(tag) ? document.createElementNS(MATH_NS, tag) : document.createElement(tag);
   // With a spread: every prop as one merged source (later ones winning, a key the spread drops falling back).
-  if (hasSpread(props)) return spreadOn(el, mergedProps(props), false, false), el;
+  const merged = hasSpread(props) ? mergedProps(props) : null;
+  // `xmlns`, read once (untracked): the namespace it is made in, over what its tag says.
+  const xmlns = untrack(() => {
+    const v = (merged ?? props).xmlns;
+    return isDynamic(v) ? v() : v;
+  });
+  const el =
+    typeof xmlns === "string"
+      ? document.createElementNS(xmlns, tag)
+      : SVG_TAGS.has(tag) && tag !== "title"
+        ? document.createElementNS(SVG_NS, tag)
+        : MATH_TAGS.has(tag)
+          ? document.createElementNS(MATH_NS, tag)
+          : document.createElement(tag);
+  if (merged) return spreadOn(el, merged, false, false), el;
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
-  if ("children" in props) insert(el, props.children);
+  if ("children" in props) insertHosted(el, props.children, null);
   // A select's static value, as Solid's compiled code sets it: once its options are in, and again after a microtask
   // (for options that come later).
   if (tag === "select" && "value" in props && !isDynamic(props.value) && !hydrating) {
@@ -166,7 +179,8 @@ function mergedProps(props: Record<string, any>) {
 
 /** A prop on an element: bound when it can change, set once when it cannot. */
 function set(el: Element, name: string, value: any) {
-  if (name === "ref") return applyRef(value, el);
+  // (A ref given through a getter: its value, read once, applied.)
+  if (name === "ref") return applyRef(isDynamic(value) ? untrack(value) : value, el);
   if (/^on[A-Z]/.test(name)) {
     const type = name.slice(2).toLowerCase();
     return addEvent(el, type, value, BUBBLING.has(type));
@@ -351,8 +365,8 @@ export function applyRef(r: any, el: Element) {
  * winning key read); `skip` names keys left alone. One effect applies them, ref included (called again when it
  * changes); children inserted on their own, with no effect when they are plain data.
  */
-export function spread(el: Element, props: any, skipChildren?: boolean, skip?: (key: string) => boolean) {
-  spreadOn(el, props, !!skipChildren, false, skip);
+export function spread(el: Element, props: any, skipChildren?: boolean, skip?: (key: string) => boolean, name?: string) {
+  spreadOn(el, props, !!skipChildren, false, skip, name ?? null);
   return props;
 }
 
@@ -361,7 +375,7 @@ const isEvent = (k: string) => /^on[A-Z]/.test(k);
 const sourcesOf = (props: any): any[] => (Array.isArray(props) ? props : [props]).map((p) => (typeof p === "function" ? p() : p)).filter((p) => p != null);
 
 /** A spread applied: `claiming` the server's element, its first value is what the page shows already. */
-function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: boolean, skip?: (key: string) => boolean) {
+function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: boolean, skip?: (key: string) => boolean, name: string | null = el.localName) {
   if (!props) return;
   // (Whether the children are claimed is decided now: the attribute effect below clears its own flag.)
   const claimingChildren = claiming;
@@ -391,18 +405,19 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
       }
       assign(el, next, true, prev, true);
     },
-    bindingNamed(el, "spread"),
+    bindingOptions(name && `${name}.spread`),
   );
   if (skipChildren || skip?.("children")) return;
   if (claimingChildren) return void claimChildren(untrack(() => props.children), { parent: el, next: el.firstChild });
   // Plain data children: put in once, no effect for them.
   const plain = !Array.isArray(props) && typeof props !== "function" ? untrack(() => Object.getOwnPropertyDescriptor(props, "children")) : undefined;
-  if (plain && !plain.get) return void insert(el, plain.value);
-  if (!plain && !untrack(() => sourcesOf(props).some((p) => "children" in p))) return;
-  insert(el, () => {
+  if (plain && !plain.get) return void insertHosted(el, plain.value, null, undefined, undefined, name && `${name}.children`);
+  // (An object without them: nothing to insert. A source that is called is read only by the effect.)
+  if (!plain && !Array.isArray(props) && typeof props !== "function" && !untrack(() => "children" in props)) return;
+  insertHosted(el, () => {
     const sources = sourcesOf(props);
     for (let i = sources.length - 1; i >= 0; i--) if ("children" in sources[i]) return sources[i].children;
-  });
+  }, null, undefined, undefined, name && `${name}.children`);
 }
 
 // ---------------------------------------------------------------- events, delegated per render root
@@ -531,7 +546,7 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
  * `value` put in `parent` (before `marker`, else at the end), kept current when it can change. Lists move by the
  * longest run still in order; nodes kept stay.
  */
-export function insert(parent: Node, value: any, marker: Node | null = null, initial?: Node[]) {
+export function insert(parent: Node, value: any, marker: Node | null = null, initial?: Node[], options?: { name?: string }) {
   // In a claim window over server nodes: claimed where they are.
   if (initial?.length && sharedConfig.hydrating && (!sc.isClaiming || sc.isClaiming())) {
     const was = hydrating;
@@ -545,7 +560,7 @@ export function insert(parent: Node, value: any, marker: Node | null = null, ini
       hydrating = was;
     }
   }
-  insertHosted(parent, value, marker, initial);
+  insertHosted(parent, value, marker, initial, undefined, options?.name ?? null);
 }
 
 /** A fragment's placeholder range gone (its boundary disposed before it arrived). */
@@ -563,17 +578,17 @@ function cleanupFragment(id: string) {
 }
 
 /** `insert`, with each node told its portal host. */
-function insertHosted(parent: Node, value: any, marker: Node | null, initial?: Node[], host?: () => Node | null) {
+function insertHosted(parent: Node, value: any, marker: Node | null, initial?: Node[], host?: () => Node | null, name?: string | null) {
   // Children given as a list: static ones put in place; a part that can change, bound where it sits (before an empty
   // anchor of its own when more follows it).
   if (Array.isArray(value) && value.some((v) => typeof v === "function")) {
     const last = value.length - 1;
     value.forEach((v, i) => {
-      if (typeof v !== "function" || i === last) return insertHosted(parent, v, marker, i === last ? initial : undefined, host);
+      if (typeof v !== "function" || i === last) return insertHosted(parent, v, marker, i === last ? initial : undefined, host, name);
       const anchor = document.createTextNode("");
       if (host) (anchor as any)._$host = host();
       parent.insertBefore(anchor, marker);
-      bind(parent, v, anchor, undefined, host);
+      bind(parent, v, anchor, undefined, host, undefined, name);
     });
     return;
   }
@@ -584,16 +599,16 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
     else for (const n of next) parent.insertBefore(n, marker);
     return;
   }
-  bind(parent, value, marker, undefined, host, initial);
+  bind(parent, value, marker, undefined, host, initial, name);
 }
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
-function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[]) {
+function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null) {
   let current: Node[] = initial ?? [];
   // What the apply step makes (a description drawn late) belongs where the binding was made.
   const home = getOwner();
   let first: Cursor | undefined = claimed;
-  const named = bindingNamed(parent, "children");
+  const named = name === undefined ? bindingNamed(parent, "children") : bindingOptions(name);
   const apply = (v: any) => {
     if (v === CLAIMED || v === NESTED) return;
     // Text as text: its one node written in place, or made.
@@ -666,6 +681,14 @@ const bindingNamed = (el: Node, prop: string) => {
   if (!o) byProp.set(prop, (o = { ...BINDING, name: `${tag}.${prop}` }));
   return o;
 };
+/** A binding's options for a name (none: a plain binding), one object per name. */
+const bindingOptions = (name: string | null) => {
+  if (!name) return BINDING;
+  let o = bindingsByName.get(name);
+  if (!o) bindingsByName.set(name, (o = { ...BINDING, name }));
+  return o;
+};
+const bindingsByName = new Map<string, any>();
 /** Binding options by tag and prop (read only, so shared). */
 const bindingNames = new Map<string, Map<string, any>>();
 
@@ -972,7 +995,7 @@ function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof 
           onCleanup(() => sites.delete(setAddress));
           return untrack(() => (binding.component as any)(props, address));
         }
-        return untrack(() => callComponent(c, props));
+        return callInline(c, props);
       }
       if (typeof c === "string") return tag ? untrack(() => tag(c, props)) : undefined;
       return undefined;
@@ -981,10 +1004,11 @@ function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof 
 }
 
 function staticDynamic(c: any, tag?: typeof tagArm): (props: any) => any {
+  if (c && typeof c.then === "function") throw new Error("dynamic(): a static source must resolve synchronously (to a component or a tag), not to a promise.");
   if (typeof c === "function") {
     const binding = bindingOf(c);
     if (binding) return (props) => untrack(() => (binding.component as any)(props, () => binding.address));
-    return (props) => untrack(() => callComponent(c, props));
+    return (props) => callInline(c, props);
   }
   if (typeof c === "string" && tag) return (props) => tag(c, props);
   return () => undefined;
@@ -1296,7 +1320,8 @@ function claimDescribed(d: { tag: string; props: Record<string, any> }, keyed: b
 
 /** A render effect, as compiled code makes one (its options' name is for development tools). */
 export function effect<T>(compute: (prev?: T) => T, apply: (v: T, prev?: T) => void, options?: { name?: string }) {
-  createRenderEffect(compute, apply, BINDING);
+  // (The compiled name, Solid's sourceNames.bindings, on its node.)
+  createRenderEffect(compute, apply, options?.name ? { ...BINDING, name: options.name } : BINDING);
 }
 
 /**
