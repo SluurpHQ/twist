@@ -1,5 +1,5 @@
 // Lists and props helpers: mapArray (by identity, by position or by key), repeat, merge, omit.
-import { createMemo, keepMemo, ownerUnder, getOwner, runOwned, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
+import { createMemo, keepMemo, ownerUnder, getOwner, runOwned, untrack, Signal, onCleanup, isFlushing, type Owner } from "./signals.ts";
 import { $PROXY } from "./store.ts";
 
 type Accessor<T> = () => T;
@@ -39,7 +39,8 @@ function disposeComputation(o: Owner) {
 /** A value as a node of its own (an item's index or a slot's item), set without the owned-scope guard. */
 function cell<T>(v: T) {
   const s = new Signal<T>(v, { ownedWrite: true });
-  return { read: () => s.read(), set: (n: T) => s.write(n) };
+  // (Set by the list's own pass during a flush: committed at once, so what reads it runs in this round, one frame.)
+  return { read: () => s.read(), set: (n: T) => (s.write(n), isFlushing() && s.commit()) };
 }
 
 /**

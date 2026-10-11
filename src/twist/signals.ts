@@ -825,6 +825,8 @@ export class Signal<T> extends Node<T> {
   }
   /** The pending write staged, if it changes the value. */
   commit() {
+    // (Committed already, in the pass that wrote it.)
+    if (this.pending === NONE) return;
     const next = this.pending as T;
     this.pending = NONE;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
