@@ -970,6 +970,8 @@ export class Computation<T> extends Node<T> implements Owner {
       }
       this.error = threw;
       this.version++;
+      // Failed: no longer waiting (the Loading above lets the error through to whatever catches it).
+      boundaryOf(this)?.ready(this);
       if (this.kind !== MEMO) handleError(this, threw);
       return;
     }
@@ -2711,7 +2713,8 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
   // The boundary: what under it throws comes here. Transparent, as its content takes the id it would.
   const boundary = new Root(owner, { transparent: true });
   (boundary as any).catch = (e: unknown) => {
-    if (failed.value !== NONE) return false;
+    // (Already showing an error: the latest one shown instead.)
+    if (failed.value === e) return true;
     failed.value = e;
     caughtBelow = true;
     failed.bump();
