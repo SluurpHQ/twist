@@ -858,14 +858,17 @@ export function Loading(props: { fallback?: any; children?: any }) {
           group?.onResolved(id!);
         } catch (e2) {
           // (A pass that never stops waiting on something new: given up after a budget of passes, as an error.)
-          if (e2 instanceof NotReadyError && ++passes >= CONVERGE_BUDGET) e2 = new Error(`<Loading> did not converge: still waiting after ${passes} passes`);
+          const stuck = e2 instanceof NotReadyError && ++passes >= CONVERGE_BUDGET;
+          if (stuck) e2 = new Error(`<Loading> did not converge: still waiting after ${passes} passes`);
           const next = e2 instanceof NotReadyError && settlesOf(e2);
           if (!next) {
-            // Before the shell went out: the request fails with it (nothing was sent to render it again on the client).
-            if (!r.shellSent && (r as any).failShell) return void ((r as any).failShell(e2), r.wake?.());
+            // One that never settles, before the shell went out: the request fails with it.
+            if (stuck && !r.shellSent && (r as any).failShell) return void ((r as any).failShell(e2), r.wake?.());
             // A real error retrying: the boundary's record fails with it (the stream goes on).
             failures.get(boundary)?.(e2);
+            // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
             if (r.shellSent) r.sink.fragment(id!, " ", { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
+            else r.inlined.set(id!, "");
             group?.onResolved(id!);
             return void r.wake?.();
           }
@@ -928,7 +931,9 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
     },
     (e) => {
       failures.get(boundary)?.(e);
+      // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
       if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
+      else r.inlined.set(id, "");
     },
   ).finally(() => rendering(r, r.options, () => group?.onResolved(id)));
   const settled = done.then(() => {
@@ -1638,6 +1643,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     }
   };
   options.signal?.addEventListener("abort", () => abandon(true), { once: true });
+  // (Aborted before it began: no event will come.)
+  if (options.signal?.aborted) abandon(true);
   let readable: ReadableStream<Uint8Array> | null = null;
   const failed = shellReady.then(
     async (s) => {
