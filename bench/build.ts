@@ -95,8 +95,11 @@ for (const [name, { entry, plugins, server, minify = !server }] of Object.entrie
     conditions: server ? ["node", "solid"] : ["browser", "solid"],
     define: { "process.env.NODE_ENV": '"production"', __DEV__: "false" },
     plugins,
+    metafile: true,
   });
   if (!out.success) throw new Error(`${name}: ${out.logs.join("\n")}`);
+  // (What each module adds: bench/sizes.ts reads it.)
+  await Bun.write(join(dir, "meta.json"), JSON.stringify(out.metafile));
   if (!server) await Bun.write(join(dir, "index.html"), `<!doctype html><meta charset="utf-8"><title>bench ${name}</title><body><div id="main"></div><script type="module" src="app.js"></script>`);
   console.log(name.padEnd(14), (out.outputs[0]!.size / 1024).toFixed(0).padStart(4) + " KB");
 }

@@ -91,6 +91,8 @@ export function renderComponent<P, R>(Comp: (props: P) => any, props: P, render:
 /** Twist's own components (control flow, boundaries): their bodies read what they need, as Solid's computations do. */
 const builtins = new WeakSet<Function>();
 export const markBuiltin = (...fs: Function[]) => fs.forEach((f) => builtins.add(f));
+/** A built-in component, marked as one where it is defined (a pure call: unused, it is dropped). */
+export const builtin = <F extends Function>(f: F): F => (__twist_mark(f), markBuiltin(f), f);
 
 
 /** A component's props: marked parts as getters, spreads read where used, children lazy. */
@@ -129,17 +131,17 @@ export function spreadSource(read: () => any) {
 // ---------------------------------------------------------------- control flow
 
 /** A list: `children(item, index)`, by identity (default), position (`keyed={false}`) or a key function. */
-export function For<T>(props: { each: readonly T[] | null | undefined | false; fallback?: any; keyed?: boolean | ((v: T) => unknown); children: (item: any, index: any) => any }) {
+export const For = /* @__PURE__ */ builtin(function For<T>(props: { each: readonly T[] | null | undefined | false; fallback?: any; keyed?: boolean | ((v: T) => unknown); children: (item: any, index: any) => any }) {
   return mapArray(() => props.each, (item, index) => props.children(item, index), { keyed: props.keyed, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
-}
+});
 
 /** `children(index)` for `count` indices (from `from`), no diffing. */
-export function Repeat(props: { count: number; from?: number; fallback?: any; children: (index: number) => any }) {
+export const Repeat = /* @__PURE__ */ builtin(function Repeat(props: { count: number; from?: number; fallback?: any; children: (index: number) => any }) {
   return repeat(() => props.count, (i) => props.children(i), { from: "from" in props ? () => props.from ?? 0 : undefined, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
-}
+});
 
 /** `children` while `when` holds, else `fallback`; function children get an accessor (the value, when keyed). */
-export function Show<T>(props: { when: T | undefined | null | false; keyed?: boolean; fallback?: any; children: any }) {
+export const Show = /* @__PURE__ */ builtin(function Show<T>(props: { when: T | undefined | null | false; keyed?: boolean; fallback?: any; children: any }) {
   // The condition read once per change; what decides the branch is its truth (its value, when keyed).
   const value = createMemo(() => props.when);
   const branch = createMemo(() => (props.keyed ? value() : !!value()), { equals: Object.is });
@@ -150,7 +152,7 @@ export function Show<T>(props: { when: T | undefined | null | false; keyed?: boo
     if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? b : value));
     return c;
   });
-}
+});
 
 type MatchProps<T> = { when: T | undefined | null | false; keyed?: boolean; children: any };
 const MATCH = Symbol("match");
@@ -160,12 +162,12 @@ let describedNode = (v: any) => v;
 export const setDescribedNode = (fn: (v: any) => any) => void (describedNode = fn);
 
 /** One branch of a Switch. */
-export function Match<T>(props: MatchProps<T>) {
+export const Match = /* @__PURE__ */ builtin(function Match<T>(props: MatchProps<T>) {
   return { [MATCH]: true, props } as any;
-}
+});
 
 /** The first Match whose `when` holds, else `fallback`. */
-export function Switch(props: { fallback?: any; children: any }) {
+export const Switch = /* @__PURE__ */ builtin(function Switch(props: { fallback?: any; children: any }) {
   const matches = createMemo(() => {
     const list = flatten(typeof props.children === "function" ? props.children() : props.children);
     return (Array.isArray(list) ? list : [list]).map((m: any) => describedNode(m)).filter((m: any) => m && m[MATCH]).map((m: any) => m.props as MatchProps<unknown>);
@@ -193,20 +195,20 @@ export function Switch(props: { fallback?: any; children: any }) {
     if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(m.keyed ? w : values()[i]!));
     return c;
   });
-}
+});
 
 /** Shows `fallback` while what is under it waits on a first load. */
 /** The order in which the Loading boundaries directly inside show their content (see createRevealOrder). */
-export function Reveal(props: { order?: RevealOrder; collapsed?: boolean; children: any }) {
+export const Reveal = /* @__PURE__ */ builtin(function Reveal(props: { order?: RevealOrder; collapsed?: boolean; children: any }) {
   return createRevealOrder(() => props.children, { order: () => props.order ?? "sequential", collapsed: () => !!props.collapsed });
-}
+});
 
-export function Loading(props: { fallback?: any; on?: unknown; children: any }) {
+export const Loading = /* @__PURE__ */ builtin(function Loading(props: { fallback?: any; on?: unknown; children: any }) {
   return createLoadingBoundary(() => props.children, () => props.fallback, "on" in props ? { on: () => props.on } : undefined);
-}
+});
 
 /** Shows `fallback` (or `fallback(error, reset)`) once something under it throws. */
-export function Errored(props: { fallback: any; children: any }) {
+export const Errored = /* @__PURE__ */ builtin(function Errored(props: { fallback: any; children: any }) {
   return createErrorBoundary(
     () => props.children,
     // A function fallback is called with the error and reset (a fallback that declares no parameters cannot see the
@@ -218,7 +220,7 @@ export function Errored(props: { fallback: any; children: any }) {
       return f(err, reset);
     },
   );
-}
+});
 
 
 /** A component whose code loads when first rendered (its readers wait, as for any first load). */
@@ -251,14 +253,13 @@ export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
 
 
 /** Its children are not hydrated: what the server rendered stays as it is. */
-export function NoHydration(props: { children?: any }) {
+export const NoHydration = /* @__PURE__ */ builtin(function NoHydration(props: { children?: any }) {
   return sharedConfig.hydrating ? undefined : props.children;
-}
+});
 
 /** Its children hydrate again (inside NoHydration). */
-export function Hydration(props: { children?: any }) {
+export const Hydration = /* @__PURE__ */ builtin(function Hydration(props: { children?: any }) {
   return props.children;
-}
+});
 
 // The control flow here is Solid-style.
-for (const f of [For, Repeat, Show, Switch, Match, Loading, Errored, Reveal, NoHydration, Hydration]) __twist_mark(f), markBuiltin(f);

@@ -26,7 +26,7 @@ import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./h
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, markBuiltin } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -408,7 +408,7 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
     bindingOptions(name && `${name}.spread`),
   );
   if (skipChildren || skip?.("children")) return;
-  if (claimingChildren) return void claimChildren(untrack(() => props.children), { parent: el, next: el.firstChild });
+  if (claimingChildren) return void claims!.children(untrack(() => props.children), { parent: el, next: el.firstChild });
   // Plain data children: put in once, no effect for them.
   const plain = !Array.isArray(props) && typeof props !== "function" ? untrack(() => Object.getOwnPropertyDescriptor(props, "children")) : undefined;
   if (plain && !plain.get) return void insertHosted(el, plain.value, null, undefined, undefined, name && `${name}.children`);
@@ -503,6 +503,8 @@ function dispatch(e: Event, root: Node) {
  * The nodes a description claimed while hydrating: what it stands for after (a list keeps the row it made then, the
  * description, and gives it again when it changes).
  */
+/** Hydration's claim pass, reached through here: `hydrate()` fills it, so a page that never hydrates carries none of it. */
+let claims: { html: typeof claimHtml; list: typeof claimList; children: typeof claimChildren } | null = null;
 const claimedNodes = new WeakMap<object, Node[]>();
 const claimedBy = (d: object, nodes: Node[]) => (claimedNodes.set(d, nodes), nodes);
 
@@ -548,12 +550,12 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
  */
 export function insert(parent: Node, value: any, marker: Node | null = null, initial?: Node[], options?: { name?: string }) {
   // In a claim window over server nodes: claimed where they are.
-  if (initial?.length && sharedConfig.hydrating && (!sc.isClaiming || sc.isClaiming())) {
+  if (claims && initial?.length && sharedConfig.hydrating && (!sc.isClaiming || sc.isClaiming())) {
     const was = hydrating;
     hydrating ??= { registry: sc.registry ?? new Map() };
     try {
       // What the server had there and the value did not claim: gone, as an insert over `initial` replaces it.
-      const claimed = claimHtml(value, false, { parent, next: initial[0]! });
+      const claimed = claims.html(value, false, { parent, next: initial[0]! });
       for (const n of initial) if (!claimed.includes(n) && n.parentNode === parent) parent.removeChild(n);
       return;
     } finally {
@@ -648,7 +650,7 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
       // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
       const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
       if (open) at.next = open.nextSibling;
-      current = untrack(() => claimList(Array.isArray(v) ? v : [v], false, false, true, at));
+      current = untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at));
       if (open) {
         let n = at.next;
         while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
@@ -763,7 +765,7 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
 }
 
 /** A node rendered elsewhere (document.body unless `mount` is given); its events still reach this root. */
-export const Portal = __twist_mark(function Portal(props: { mount?: Node; children?: any }) {
+export const Portal = /* @__PURE__ */ builtin(function Portal(props: { mount?: Node; children?: any }) {
   // An owner of its own: the id the server's Portal took (it draws nothing there; its children are the browser's).
   return runWithOwner(createOwner(), () => portal(props));
 });
@@ -827,12 +829,10 @@ function clientOnlyRun<T>(fn: () => T): T {
 }
 
 /** The component (or tag name) `component` names, given the other props. */
-export function Dynamic<P>(props: P & { component: any }) {
+export const Dynamic = /* @__PURE__ */ builtin(function Dynamic<P>(props: P & { component: any }) {
   const Comp = dynamic<P>(() => props.component);
   return createComponent(Comp, omit(props as any, "component") as any);
-}
-__twist_mark(Dynamic);
-markBuiltin(Dynamic, (Portal as any)[Symbol.for("twist.component")]);
+});
 
 // Server rendering, asked for in the browser (shared code imports it): said, and nothing done.
 const serverOnly = (name: string) => console.error(new Error(name + " is not supported in the browser, returning undefined"));
@@ -1056,6 +1056,7 @@ export function hydrate(code: () => any, element: Element | Document, options: {
   roots.add(element);
   for (const t of delegated) listen(element, t);
   enableHydration();
+  claims ??= { html: claimHtml, list: claimList, children: claimChildren };
   const hy = ((globalThis as any)._$HY ??= { r: {}, fe() {} });
   sc.load = (id: string) => hy.r[id];
   sc.has = (id: string) => id in hy.r;
