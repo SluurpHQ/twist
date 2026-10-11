@@ -13,8 +13,11 @@ export const vi = {
   runAllTimers: () => jest.runAllTimers(),
   clearAllMocks: () => jest.clearAllMocks(),
   restoreAllMocks: () => jest.restoreAllMocks(),
-  // Microtasks and timers run on: what a test awaits runs.
-  advanceTimersByTimeAsync: async (ms: number) => (jest.advanceTimersByTime(ms), await Promise.resolve()),
+  // As Vitest's: a millisecond at a time, the promise work each timer releases run before the next.
+  async advanceTimersByTimeAsync(ms: number) {
+    await settle();
+    for (let i = 0; i < ms; i++) jest.advanceTimersByTime(1), await settle();
+  },
   runAllTimersAsync: async () => (jest.runAllTimers(), await Promise.resolve()),
   // A global replaced until unstubAllGlobals() puts each back as it was (absent ones removed).
   stubGlobal(name: string, value: unknown) {
@@ -29,3 +32,7 @@ export const vi = {
   },
 };
 const stubbed = new Map<string, PropertyDescriptor | undefined>();
+/** The promise work queued now, and what it queues, run. */
+async function settle() {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+}

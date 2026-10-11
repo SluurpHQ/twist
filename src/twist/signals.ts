@@ -461,6 +461,25 @@ const teeOf = (v: AsyncIterable<any>) => {
  * Two readers of one async source: each value kept for the reader behind, the source asked once per value. A reader
  * let go of stops reading; the source is returned when both are, or when `close` is called.
  */
+/** `source` with its first step already asked (now, by the caller): the same values, its marks kept. */
+function primed<T>(source: AsyncIterable<T>): AsyncIterable<T> {
+  const it = source[Symbol.asyncIterator]();
+  let first: any = it.next();
+  const self: any = {
+    [Symbol.asyncIterator]: () => self,
+    next(...a: any[]) {
+      if (!first) return (it.next as any)(...a);
+      const f = first;
+      first = null;
+      return f;
+    },
+    return: (v?: any) => ((first = null), it.return ? it.return(v) : Promise.resolve({ done: true, value: v })),
+  };
+  if (it.throw) self.throw = (e?: any) => ((first = null), it.throw!(e));
+  for (const k of Object.getOwnPropertySymbols(source)) if (k !== Symbol.asyncIterator) self[k] = (source as any)[k];
+  return self;
+}
+
 export function teeSource<T>(source: AsyncIterable<T>): Tee<T> {
   const it = source[Symbol.asyncIterator]();
   const kept: { r?: IteratorResult<T>; e?: unknown }[][] = [[], []];
@@ -1174,7 +1193,11 @@ export class Computation<T> extends Node<T> implements Owner {
           const takeOver = () => !this.disposed && ((this.quiet = true), this.mark(DIRTY), schedule());
           ref && typeof ref.then === "function" && ref.s !== 1 ? ref.then(takeOver, noop) : queueMicrotask(takeOver);
         }
-      } else next = this.fn(this.current());
+      } else {
+        next = this.fn(this.current());
+        // (An async iterable's first step runs here: what it reads before its first await is tracked.)
+        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function") next = primed(next as any) as T;
+      }
       // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
       if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
         const now = this.staged !== NONE ? (this.staged as T) : this.value;

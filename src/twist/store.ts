@@ -588,6 +588,38 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
   return [proxy, set];
 }
 
+/** A derive run: whether it is still the newest, and whether it has gone async; its drafts. */
+type Run = { live: boolean; async: boolean; drafts: WeakMap<object, any> };
+
+/** `v`'s draft for a derive run: its writes dropped once a newer run has started, committed as made once it is async. */
+function runDraft<T>(v: T, run: Run): T {
+  v = unwrap(v);
+  if (!isWrappable(v)) return v;
+  let d = run.drafts.get(v as object);
+  if (d) return d;
+  const inner = draftOf(v) as any;
+  const write = (f: () => boolean) => {
+    if (!run.live) return true;
+    if (!run.async) return f();
+    const before = new Set(dirtyRecords);
+    const ok = f();
+    promoteWrites(before);
+    return ok;
+  };
+  d = new Proxy(v as Raw, {
+    ...draftHandler,
+    get(t, k) {
+      const x = draftHandler.get!(t, k, inner);
+      return typeof x === "object" && x !== null && k !== $TARGET && k !== $PROXY ? runDraft(x, run) : x;
+    },
+    set: (t, k, value) => write(() => draftHandler.set!(t, k, value, inner)),
+    deleteProperty: (t, k) => write(() => draftHandler.deleteProperty!(t, k)),
+    defineProperty: (t, k, desc) => write(() => draftHandler.defineProperty!(t, k, desc)),
+  });
+  run.drafts.set(v as object, d);
+  return d;
+}
+
 /** A read-only store derived from what `fn` reads: it changes its draft, or returns a value reconciled into it. */
 export function createProjection<T extends object>(fn: (draft: T) => T | void | Promise<T | void>, seed: T = {} as T, options?: { key?: string | ((v: any) => any) }): T {
   return derivedStore(fn, seed, options, false)[0];
@@ -635,15 +667,18 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     into(target, plain(shadow, new Map()), key);
     promoteWrites(before);
   };
+  let run: Run | null = null;
   const m = createMemo(() => {
     shadow = options?.seedLoadingValue && runs === 0 ? (plain(target, new Map()) as Raw) : null;
-    const d = draftOf(shadow ?? target);
+    if (run) run.live = false;
+    run = { live: true, async: false, drafts: new WeakMap() };
+    const d = shadow ? draftOf(shadow) : runDraft(target, run);
     const before = new Set(dirtyRecords);
     let r = fn(d as T);
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // An async derive's answers are reconciled as they land (onTake, below): the memo flies on its promise or generator.
-    if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return r;
+    if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return (run.async = true), r;
     // (A first answer at once: its writes are that answer.)
     if (shadow) promoteWrites(before), commitShadow(), (shadow = null);
     if (r !== undefined) {
