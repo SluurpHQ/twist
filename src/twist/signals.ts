@@ -2137,6 +2137,16 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       }
     const by = (n as any).writtenIn as Transaction | null;
     if (by && !by.done) joins = by.root;
+    // A memo below reading what another transaction holds entangles them: the two settle as one (A15).
+    for (const c of below) {
+      if (c.kind !== MEMO) continue;
+      for (const s of c.sources) {
+        const st = (s.tx ?? (s instanceof Computation && s.flight ? flightHolder(s) : null))?.root;
+        // (A reveal's hold is not a transition: what reads its flight waits on its own.)
+        if (!st || st.done || st.parentTx || (st as any).byReveal || (c as any).insideTx) continue;
+        joins = joins && joins !== st && !joins.parentTx ? mergeTx(st, joins) : (joins ?? st);
+      }
+    }
     if (!holds && !joins) continue;
     // (Held with the reveal: what its pass made just now.)
     for (const k of made) below.add(k);
