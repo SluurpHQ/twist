@@ -1196,7 +1196,26 @@ function removeRegion(r: { start: Comment; end: Comment }): Node | null {
 function clearRegion(r: { start: Comment; end: Comment }) {
   for (let n = r.start.nextSibling; n && n !== r.end; ) {
     const next = n.nextSibling;
+    // A mark where it gave the document its <html>, <head> or <body>: what it set there goes too (React's
+    // clearSingletonPreambleContribution; the <head>'s children too, but for resources).
+    if (n.nodeType === 8 && /^(html|head|body)$/.test((n as Comment).data)) {
+      const d = n.ownerDocument!;
+      const el = (n as Comment).data === "html" ? d.documentElement : (n as Comment).data === "head" ? d.head : d.body;
+      if (el) {
+        for (const a of [...el.attributes]) el.removeAttribute(a.name);
+        if (el === d.head) clearHead(el);
+      }
+    }
     n.parentNode!.removeChild(n);
+    n = next;
+  }
+}
+/** The document's <head> emptied but for what React keeps there (resources, scripts, styles, stylesheets). */
+function clearHead(head: Element) {
+  for (let n = head.firstChild; n; ) {
+    const next = n.nextSibling;
+    const name = n.nodeName;
+    if (!((n as any)[HOISTABLE] || name === "SCRIPT" || name === "STYLE" || (name === "LINK" && (n as HTMLLinkElement).rel?.toLowerCase() === "stylesheet"))) head.removeChild(n);
     n = next;
   }
 }
