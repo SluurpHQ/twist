@@ -74,14 +74,21 @@ export function mapArray<T, U>(
     const next = Array.from(source);
     return untrack(() => {
       if (!next.length) {
+        // (The fallback first: if it throws, nothing else has changed.)
+        if (options.fallback && !fallbackRow)
+          try {
+            fallbackRow = [scope(parent, fallbackOwner, 0, options.fallback)];
+          } catch (e) {
+            if (fallbackOwner.length) end(fallbackOwner.pop()!);
+            throw e;
+          }
         owners.forEach(end);
         keys = [];
         rows = [];
         owners = [];
         indexes = [];
         items = [];
-        if (!options.fallback) return rows;
-        return (fallbackRow ??= [scope(parent, fallbackOwner, 0, options.fallback)]);
+        return options.fallback ? fallbackRow! : rows;
       }
       if (fallbackRow) end(fallbackOwner.pop()!), (fallbackRow = null);
       // By position: slots kept, their item set.
@@ -108,13 +115,22 @@ export function mapArray<T, U>(
       const outIndexes: ReturnType<typeof cell<number>>[] = indexed ? new Array(next.length) : indexes;
       const outItems: ReturnType<typeof cell<T>>[] = typeof keyed === "function" ? new Array(next.length) : items;
       const kept = new Uint8Array(keys.length);
+      // (What this pass changed, undone if it throws.)
+      const made: Owner[] = [];
+      const undo: (() => void)[] = [];
       const keep = (i: number, j: number) => {
         kept[i] = 1;
         out[j] = rows[i]!;
         outOwners[j] = owners[i]!;
-        if (indexed) (outIndexes[j] = indexes[i]!).set(j);
-        if (typeof keyed === "function") (outItems[j] = items[i]!).set(next[j]!);
+        if (indexed && i !== j) (outIndexes[j] = indexes[i]!).set(j), undo.push(() => indexes[i]!.set(i));
+        else if (indexed) outIndexes[j] = indexes[i]!;
+        if (typeof keyed === "function") {
+          const was = untrack(items[i]!.read);
+          (outItems[j] = items[i]!).set(next[j]!);
+          undo.push(() => items[i]!.set(was));
+        }
       };
+      try {
       // The same at both ends: kept where they are; only what lies between is looked up.
       let from = 0;
       let oldEnd = keys.length;
@@ -137,8 +153,17 @@ export function mapArray<T, U>(
         else {
           const index = indexed ? (outIndexes[j] = cell(j)) : null;
           const item = typeof keyed === "function" ? (outItems[j] = cell<T>(next[j]!)) : null;
-          out[j] = scope(parent, outOwners, j, fn, item ? item.read : next[j], index?.read);
+          try {
+            out[j] = scope(parent, outOwners, j, fn, item ? item.read : next[j], index?.read);
+          } finally {
+            if (outOwners[j]) made.push(outOwners[j]!);
+          }
         }
+      }
+      } catch (e) {
+        for (const o of made) end(o);
+        for (let k = undo.length - 1; k >= 0; k--) undo[k]!();
+        throw e;
       }
       for (let i = 0; i < keys.length; i++) if (!kept[i]) end(owners[i]!);
       keys = nextKeys;
@@ -158,7 +183,13 @@ export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, opt
   const end = (o: Owner) => disposeScope(o, parent);
   const row = (fn: () => U): [U, Owner] => {
     const o: Owner[] = [];
-    return [scope(parent, o, 0, fn), o[0]!];
+    try {
+      return [scope(parent, o, 0, fn), o[0]!];
+    } catch (e) {
+      // (A row that throws takes its owner with it.)
+      if (o[0]) end(o[0]);
+      throw e;
+    }
   };
   onCleanup(() => {
     for (const [, o] of made.values()) end(o);
