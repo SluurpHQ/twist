@@ -193,8 +193,44 @@ function disposeOwned(o: Owner) {
 function dispose(o: Owner) {
   if (o.disposed) return;
   o.disposed = true;
+  // (Death takes a parked frame with it: first, as its commit would have retired it.)
+  if ((o as any).parked) drainParked(o as any);
   disposeOwned(o);
   if (o instanceof Computation) o.end();
+}
+
+/** A memo's last frame kept by a rerun a transaction holds: it renders until the transaction ends. */
+function parkFrame(c: Computation<any>, t: Transaction) {
+  const frame = { owned: c.owned, cleanups: c.cleanups } as Owner;
+  c.owned = null;
+  c.cleanups = null;
+  ((c as any).parked ??= []).push(frame);
+  dormant(frame);
+  endWith(t, () => drainParked(c as any));
+}
+/** What a parked frame holds: shown as it is, never run again (it goes when the frame is let go). */
+function dormant(o: Owner) {
+  for (const c of o.owned ?? []) {
+    if (c instanceof Computation) c.dormant = true;
+    dormant(c);
+  }
+}
+/** Its parked frames let go: children first, later registrations before earlier, each frame once. */
+function drainParked(c: { parked?: Owner[] | null }) {
+  const p = c.parked;
+  if (!p) return;
+  c.parked = null;
+  for (let i = p.length - 1; i >= 0; i--) disposeOwned(p[i]!);
+}
+/** The transaction holding a write `c` read on its last run, if any. */
+function heldBy(c: Computation<any>): Transaction | null {
+  for (const s of c.sources) {
+    if (s.tx && !s.tx.root.done) return s.tx.root;
+    // (An action's write, not yet held: its transaction holds it at the round's end.)
+    const by = (s as any).writtenIn as Transaction | null;
+    if (by && !by.done) return by.root;
+  }
+  return null;
 }
 
 export function getOwner(): Owner | null {
@@ -872,6 +908,11 @@ export class Computation<T> extends Node<T> implements Owner {
   get _config() {
     return this.transparent ? CONFIG_TRANSPARENT : 0;
   }
+  /** (Solid's parked frame as its tools read it: the first child and the cleanups a held rerun kept.) */
+  get _x() {
+    const p = (this as any).parked as Owner[] | null | undefined;
+    return p?.length ? { _pendingFirstChild: liveFrom(p[0]!.owned, 0), _pendingDisposal: p[0]!.cleanups } : undefined;
+  }
   /** (Solid's owner tree as its tools walk it: first child, next sibling; disposed ones skipped.) */
   get _firstChild(): Owner | null {
     return liveFrom(this.owned, 0);
@@ -915,6 +956,10 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** While it runs again: the sources it was subscribed to (kept when read again, let go after). */
   declare relinking: Set<Source> | null;
+  /** In a parked frame: shown as it is, not run again. */
+  declare dormant: boolean;
+  /** The transaction holding the write this memo last ran for, if any (its frame is then a held pass). */
+  declare heldPass: Transaction | null;
   /** Its Loading boundary, once looked up (null: none). */
   declare boundary?: LoadingState | null;
   override subscribe(o: Computation<any>) {
@@ -926,7 +971,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (readersOf(this)) return;
     this.unobserved?.();
     // A lazy memo with no reader left is torn down; an unowned one whose last reader was released goes with it.
-    if (this.lazy) this.detach(), (this.state = DIRTY);
+    if (this.lazy) this.detach(), (this.state = DIRTY), drainParked(this as any);
     else if (releasing && this.kind === MEMO && !this.parent) release(this);
   }
   /** Released: subscribed to nothing, built again from scratch when next read. */
@@ -961,7 +1006,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** Something it read changed (DIRTY), or may have through a memo (CHECK): queued, and its readers told. */
   mark(state: number) {
-    if (this.state >= state || this.disposed) return;
+    if (this.state >= state || this.disposed || this.dormant) return;
     const was = this.state;
     this.state = state;
     if (was !== CLEAN) return;
@@ -1064,7 +1109,15 @@ export class Computation<T> extends Node<T> implements Owner {
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
-    disposeOwned(this);
+    // (Run again for a held write: the committed frame parked, rendering until the commit; a held pass's own frame,
+    // or any other, let go now.)
+    if (this.kind === MEMO) {
+      const holder = heldBy(this);
+      const prior = this.heldPass;
+      if (holder && !(prior && !prior.done) && (this.owned || this.cleanups)) parkFrame(this, holder);
+      else disposeOwned(this);
+      if (holder !== prior) this.heldPass = holder;
+    } else disposeOwned(this);
     if (this.childCount) this.childCount = 0;
     // Its old sources stay subscribed through the run (a lazy memo read again keeps its reader); the rest let go after.
     const relinking = this.attached && this.sources.length ? new Set(this.sources) : null;
@@ -1476,7 +1529,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
@@ -2038,7 +2091,7 @@ function drain() {
       if (passes > 1e5) throw new Error("Potential infinite loop detected.");
       const now = dirty.sort(byOrder);
       dirty = [];
-      for (const c of now) if (!c.disposed && !c.released) ownersFirst(c), c.disposed || c.update();
+      for (const c of now) if (!c.disposed && !c.released) ownersFirst(c), c.disposed || c.dormant || c.update();
     }
     settleRound();
     if (frameGuesses.length) settleFrameGuesses();
