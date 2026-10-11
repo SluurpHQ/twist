@@ -1,16 +1,15 @@
 /**
  * Signals: values that say when they change, and the work that follows them.
  *
- *     import { signal, computed, effect } from "sluurp/reactive";
+ *     import { signal, computed, effect } from "@sluurp/twist/signals";
  *
  *     const name = signal("Edna");
  *     const loud = computed(() => name().toUpperCase());
  *     effect(() => console.log(loud()));
  *     name.set("Seymour"); // logs SEYMOUR
  *
- * Apart from `sluurp/ui` because nothing here knows about the DOM. A store,
- * a client cache or a worker can be reactive without loading a template
- * engine, and `sluurp/ui` is what builds on this, not the other way round.
+ * Nothing here knows about the DOM: a store, a client cache or a worker can
+ * be reactive without loading a renderer, and the renderers build on this.
  *
  * Signals are called rather than read — `name()` not `name` — because with
  * no build step there is no compiler to rewrite a plain read into a

@@ -1,5 +1,5 @@
 {
-  "name": "dom-bench",
+  "name": "twist-bench",
   "private": true,
   "description": "The frameworks the benchmark compares ours with, at exact versions.",
   "dependencies": {

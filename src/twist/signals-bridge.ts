@@ -1,4 +1,4 @@
-// Sluurp's signals (@sluurp/signals: the React runtime, live() and sync, the SDK) and Twist's, as one: a signal of
+// The signals of @sluurp/twist/signals (the React side, and code written on them) and the Solid side's, as one: a signal of
 // either read where the other is tracking is followed there. Each read across gets a mirror on the tracking side, a
 // counter the other side bumps when the value changes; the value itself is always read from where it lives.
 import * as sluurp from "../signals.js";

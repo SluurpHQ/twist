@@ -39,7 +39,7 @@ export const SOLID = {
 };
 
 /** Signals, for code written on them directly. */
-export const SIGNALS = { "@sluurp/signals": ["signals.js", "signals.js"] };
+export const SIGNALS = { "@sluurp/twist/signals": ["signals.js", "signals.js"] };
 
 /** The folder Twist's sources are in (forward slashes: as bundlers name modules). */
 export const SRC = fileURLToPath(new URL("./src/", import.meta.url)).replace(/\\/g, "/");

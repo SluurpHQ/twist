@@ -1,4 +1,4 @@
-// Twist on npm: one package per platform for the compiler's addon (only the one for the machine is installed, as
+// Twist on npm: @sluurp/create-twist (the starter), one package per platform for the compiler's addon (only the one for the machine is installed, as
 // Tailwind's Oxide), then @sluurp/twist naming them as optional dependencies. Run by the release workflow with the
 // addons gathered in napi/: node scripts/publish.mjs [--dry-run]
 import { execFileSync } from "node:child_process";
@@ -47,4 +47,13 @@ try {
   npm([], root);
 } finally {
   writeFileSync(join(root, "package.json"), original);
+}
+// The starter, at the same version.
+const create = join(root, "create");
+const starter = readFileSync(join(create, "package.json"), "utf8");
+writeFileSync(join(create, "package.json"), starter.replace(/"version": "[^"]+"/, `"version": "${pkg.version}"`));
+try {
+  npm([], create);
+} finally {
+  writeFileSync(join(create, "package.json"), starter);
 }

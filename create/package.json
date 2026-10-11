@@ -1,0 +1,10 @@
+{
+  "name": "@sluurp/create-twist",
+  "version": "0.5.0-alpha.0",
+  "description": "A new Twist app: npm create @sluurp/twist my-app",
+  "type": "module",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/SluurpHQ/twist.git", "directory": "create" },
+  "bin": { "create-twist": "index.js" },
+  "files": ["index.js", "template"]
+}
