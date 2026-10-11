@@ -1123,6 +1123,8 @@ export class Computation<T> extends Node<T> implements Owner {
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
+    // (The answer it waited on is stale now: one its cleanups give changes nothing.)
+    if (this.flight && !this.streaming) (this.flight = null), flights.delete(this);
     // (Run again for a held write: the committed frame parked, rendering until the commit; a held pass's own frame,
     // or any other, let go now.)
     if (this.kind === MEMO) {
@@ -1133,6 +1135,9 @@ export class Computation<T> extends Node<T> implements Owner {
       if (holder !== prior) this.heldPass = holder;
     } else disposeOwned(this);
     if (this.childCount) this.childCount = 0;
+    // (Run again: the stream it read is let go.)
+    const close = this.closeStream;
+    if (close) (this.closeStream = null), close();
     // Its old sources stay subscribed through the run (a lazy memo read again keeps its reader); the rest let go after.
     const relinking = this.attached && this.sources.length ? new Set(this.sources) : null;
     if (relinking) this.relinking = relinking;
@@ -1408,7 +1413,9 @@ export class Computation<T> extends Node<T> implements Owner {
     let first = noop;
     this.settles = new Promise<void>((r) => (first = r));
     const it = iterable[Symbol.asyncIterator]();
-    this.closeStream = () => void Promise.resolve(it.return?.()).catch(noop);
+    // (Let go: what the iterator still answers is stale, its return() answering included.)
+    let stopped = false;
+    this.closeStream = () => ((stopped = true), void Promise.resolve(it.return?.()).catch(noop));
     let yielded = false;
     this.streamed = false;
     let inRun = true;
@@ -1417,7 +1424,7 @@ export class Computation<T> extends Node<T> implements Owner {
       let early: [boolean, unknown] | null = null;
       const onValue = (r: IteratorResult<T>) => {
         first();
-        if (this.flight !== flight) return;
+        if (this.flight !== flight || stopped) return;
         if (r.done) {
           this.flight = null;
           flights.delete(this);
@@ -1433,15 +1440,24 @@ export class Computation<T> extends Node<T> implements Owner {
       };
       const onError = (e: unknown) => {
         first();
-        if (this.flight !== flight) return;
+        if (this.flight !== flight || stopped) return;
         this.flight = null;
         flights.delete(this);
         inRun ? this.failNow(e) : this.fail(e);
       };
-      it.next().then(
-        (r) => (sync ? (early = [true, r]) : onValue(r)),
-        (e) => (sync ? (early = [false, e]) : onError(e)),
-      );
+      // (A next() may answer a bare result, or throw: taken at once.)
+      let next: any;
+      try {
+        next = it.next();
+      } catch (e) {
+        early = [false, e];
+      }
+      if (!early && next && typeof next.then === "function")
+        next.then(
+          (r: IteratorResult<T>) => (sync ? (early = [true, r]) : onValue(r)),
+          (e: unknown) => (sync ? (early = [false, e]) : onError(e)),
+        );
+      else early ??= [true, next];
       sync = false;
       if (early) {
         const [ok, v] = early as [boolean, unknown];
