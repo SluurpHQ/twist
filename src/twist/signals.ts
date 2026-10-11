@@ -130,13 +130,13 @@ class Root implements Owner {
   cleanups: (() => void)[] | null = null;
   context: Record<symbol, unknown> | null;
   disposed = false;
-  id?: string;
-  childCount = 0;
-  transparent?: boolean;
+  declare id?: string;
+  declare childCount: number;
+  declare transparent?: boolean;
   constructor(public parent: Owner | null, options?: { id?: string; transparent?: boolean }) {
     this.context = parent?.context ?? null;
     if (parent) (parent.owned ??= []).push(this);
-    this.transparent = options?.transparent;
+    if (options?.transparent) this.transparent = true;
     if (options?.id != null) this.id = options.id;
     else giveId(this, parent);
     ownerCreations++;
@@ -163,6 +163,7 @@ class Root implements Owner {
     if (this.parent?.owned) remove(this.parent.owned, this);
   }
 }
+(Root.prototype as any).childCount = 0;
 
 /** An owner made to run again: what it owned and its cleanups gone, its child ids from the start. */
 export function resetOwner(o: Owner) {
@@ -221,12 +222,16 @@ export const throwerOf = (error: unknown): Owner | undefined =>
   error !== null && (typeof error === "object" || typeof error === "function") ? throwers.get(error as object) : undefined;
 
 export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
+  return runOwned(o, fn as any);
+}
+/** runWithOwner, `fn` given its arguments (no closure needed to pass them). */
+export function runOwned<A, B, T>(o: Owner | null, fn: (a: A, b: B) => T, a?: A, b?: B): T {
   const prevOwner = owner;
   const prevListener = listener;
   owner = o;
   listener = null;
   try {
-    return fn();
+    return fn(a!, b!);
   } catch (e) {
     stampThrower(e, o);
     throw e;
@@ -634,6 +639,12 @@ const RENDER = 2;
 type Source = Node<any>;
 const accessors = new WeakMap<Function, Computation<any>>();
 
+/** The equals verdict a compute reached on what it answers (take() asks it once). */
+let comparedBy: Computation<any> | null = null;
+let comparedNow: unknown;
+let comparedNext: unknown;
+let comparedSame = false;
+
 export class Computation<T> extends Node<T> implements Owner {
   parent: Owner | null;
   owned: Owner[] | null = null;
@@ -800,17 +811,13 @@ export class Computation<T> extends Node<T> implements Owner {
   /** Disposed: its subscriptions, its flight and its effect's cleanup let go. */
   end() {
     const close = this.closeStream;
-    this.closeStream = null;
-    close?.();
+    if (close) (this.closeStream = null), close();
     if (this.attached) this.detach();
-    this.sources = [];
-    this.seen = [];
-    this.attached = false;
-    this.flight = null;
-    flights.delete(this);
+    this.sources = NOTHING_YET as Source[];
+    this.seen = NOTHING_YET as number[];
+    if (this.flight) (this.flight = null), flights.delete(this);
     const c = this.cleanup;
-    this.cleanup = undefined;
-    c?.();
+    if (c) (this.cleanup = undefined), c();
   }
   /** Something it read changed (DIRTY), or may have through a memo (CHECK): queued, and its readers told. */
   mark(state: number) {
@@ -957,7 +964,8 @@ export class Computation<T> extends Node<T> implements Owner {
       // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
       if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
         const now = this.staged !== NONE ? (this.staged as T) : this.value;
-        (this as any).compared = { now, next, same: this.equals(now, next!) };
+        const same = this.equals(now, next!);
+        (comparedBy = this), (comparedNow = now), (comparedNext = next!), (comparedSame = same);
       }
     } catch (e) {
       threw = e;
@@ -1029,11 +1037,10 @@ export class Computation<T> extends Node<T> implements Owner {
     this.ready = true;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
     // (Compared already by the compute that made it: once.)
-    const compared = (this as any).compared;
-    (this as any).compared = null;
-    const same = () => (compared && compared.now === now && compared.next === next ? compared.same : this.equals !== false && this.equals(now, next));
-    const changed = first || this.recovered || this.equals === false || !same();
-    this.recovered = false;
+    const compared = comparedBy === this && comparedNow === now && comparedNext === next;
+    comparedBy = null;
+    const changed = first || this.recovered || this.equals === false || !(compared ? comparedSame : this.equals(now, next));
+    if (this.recovered) this.recovered = false;
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
       // (A pass that read the frame and found what it shows already applies nothing: it runs again at the reveal.)
@@ -1273,18 +1280,24 @@ export class Computation<T> extends Node<T> implements Owner {
     const prev = this.applied === NONE ? undefined : this.applied;
     this.applied = this.value as T;
     const c = this.cleanup;
-    this.cleanup = undefined;
+    if (c) this.cleanup = undefined;
     let done: unknown;
     const wasIn = inEffectCallback;
+    const prevOwner = owner;
+    const prevListener = listener;
     inEffectCallback = true;
     try {
       c?.();
-      done = runWithOwner(null, () => this.apply!(this.value as T, prev));
+      // (Unowned and untracked.)
+      owner = listener = null;
+      done = this.apply!(this.value as T, prev);
     } catch (e) {
       // The effect's own code threw: not its error handler's (that is for its compute) — the nearest boundary, else
       // the system halts (A5).
       escalate(this, e);
     } finally {
+      owner = prevOwner;
+      listener = prevListener;
       inEffectCallback = wasIn;
     }
     if (done !== undefined && typeof done !== "function") throw new Error("effect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
@@ -1563,6 +1576,14 @@ function newLane(t: Transaction): Transaction {
 }
 
 function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => void) {
+  // (Nothing in flight and no transaction: nothing can hold.)
+  if (!flights.size && !transactions.size) {
+    for (const n of now) {
+      if ((n as any).revealNow) (n as any).revealNow = false;
+      else if (!n.tx) n.promote();
+    }
+    return;
+  }
   let tx: Transaction | null = null;
   /** The transaction this round parked into (new or joined). */
   let parked: Transaction | null = null;
@@ -2006,6 +2027,12 @@ function effectOf<T>(kind: 1 | 2, compute: (prev?: T) => T, apply?: ((value: T, 
   if (typeof apply === "function") e.apply = apply;
   else if (apply) (e.apply = apply.effect), (e.onError = apply.error);
   else e.apply = () => {};
+  startEffect(e, options);
+}
+
+/** A made effect run: its first value applied now if it renders (the DOM is built with it), else at the flush. */
+export function startEffect<T>(e: Computation<T>, options?: SignalOptions<T>) {
+  const kind = e.kind as 1 | 2;
   e.run();
   // Deferred: what it computed first is its baseline, not a change to apply.
   if (options?.defer && e.due) {
@@ -2014,14 +2041,14 @@ function effectOf<T>(kind: 1 | 2, compute: (prev?: T) => T, apply?: ((value: T, 
     e.applied = e.current() as T;
     e.promote();
   }
-  // A render effect applies its first value as it is made (the DOM is built with it), unless scheduled; others at
-  // the flush.
+  // (Unless scheduled.)
   if (kind === RENDER && !options?.schedule && e.due && !e.tx && e.error === NONE) {
     remove(applies[RENDER], e);
     e.runApply();
   }
   schedule();
 }
+export const RENDER_EFFECT = RENDER;
 
 export function createEffect<T>(compute: (prev?: T) => T, apply?: ((value: T, prev?: T) => void | (() => void)) | EffectBundle<T>, options?: SignalOptions<T>) {
   effectOf(EFFECT, compute, apply, options);

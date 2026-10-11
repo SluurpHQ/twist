@@ -324,7 +324,7 @@ export const markShallow = (target: object) => void shallowTargets.add(target);
 /** A value read from `target[key]`: a store of its own, unless the store is shallow or the property frozen (a proxy
  * must give a frozen property's value as it is). */
 function leaf(target: Raw, key: PropertyKey, v: any) {
-  if (shallowTargets.has(target)) return v;
+  if (!isWrappable(v) || shallowTargets.has(target)) return v;
   const d = Reflect.getOwnPropertyDescriptor(target, key);
   if (d && !d.configurable && !d.writable) return v;
   return wrap(v);

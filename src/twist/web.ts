@@ -23,6 +23,9 @@ import {
   createOwner,
   ownerUnder,
   peekNextChildId,
+  Computation,
+  startEffect,
+  RENDER_EFFECT,
 } from "./signals.ts";
 import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./hydration.ts";
 import { merge, omit, isStatic } from "./flow.ts";
@@ -193,30 +196,48 @@ function mergedProps(props: Record<string, any>) {
 }
 
 /** A prop on an element: bound when it can change, set once when it cannot. */
+/** An element's prop bound to a value: its state on the effect. */
+class PropBinding extends Computation<any> {
+  declare el: Element;
+  declare prop: string;
+  declare source: () => any;
+  /** Hydrating: its first value is what the page shows already, nothing written (what the user typed stays). */
+  declare adopt: boolean;
+}
+// (A style or class object is read whole: one changed in place applies again.)
+function propCompute(this: PropBinding) {
+  const v = this.source();
+  return this.prop === "style" || this.prop === "class" ? readShallow(v) : v;
+}
+(PropBinding.prototype as any).adopt = false;
+function propApply(this: PropBinding, v: any, prev: any) {
+  if (this.adopt) {
+    this.adopt = false;
+    if (this.prop === "class") (this.el as any).$$cls = classes(v);
+    return;
+  }
+  assignProp(this.el, this.prop, v, prev);
+}
+
+/** An event prop's type, by its name (onClick: click). */
+const eventTypes = new Map<string, string>();
 function set(el: Element, name: string, value: any) {
   // (A ref given through a getter: its value, read once, applied.)
   if (name === "ref") return applyRef(isDynamic(value) ? untrack(value) : value, el);
   if (/^on[A-Z]/.test(name)) {
-    const type = name.slice(2).toLowerCase();
+    let type = eventTypes.get(name);
+    if (!type) eventTypes.set(name, (type = name.slice(2).toLowerCase()));
     return addEvent(el, type, value, BUBBLING.has(type));
   }
   if (isDynamic(value)) {
-    // (A binding takes no id: the server makes none for it.) Hydrating, its first value is what the page shows already:
-    // nothing written (what the user typed, styles the page has, stay).
-    let adopt = !!hydrating;
-    createRenderEffect(
-      // (A style or class object is read whole: one changed in place applies again.)
-      name === "style" || name === "class" ? () => readShallow(value()) : value,
-      (v: any, prev: any) => {
-        if (adopt) {
-          adopt = false;
-          if (name === "class") (el as any).$$cls = classes(v);
-          return;
-        }
-        assignProp(el, name, v, prev);
-      },
-      bindingNamed(el, name),
-    );
+    // (A binding takes no id: the server makes none for it.)
+    const b = new PropBinding(RENDER_EFFECT, propCompute, bindingNamed(el, name));
+    b.apply = propApply;
+    b.el = el;
+    b.prop = name;
+    b.source = value;
+    if (hydrating) b.adopt = true;
+    startEffect(b);
     return;
   }
   // Hydrating: a static value is in the page already.
@@ -332,14 +353,17 @@ export function className(el: Element, value: any, prev?: any) {
   // A number is its text (0 included).
   if (typeof value === "number") value = String(value);
   if (typeof prev === "number") prev = String(prev);
-  const now = classes(value);
-  // What it applied last (an object changed in place is not what it was): the diff is against that.
-  const before: Set<string> = (el as any).$$cls ?? classes(prev);
-  (el as any).$$cls = now;
+  // A string is the whole class (kept as given: an object later diffs against it).
   if (typeof value === "string" || value == null || value === false) {
-    if (value == null || value === false || value === "") return el.removeAttribute("class");
+    (el as any).$$cls = value || undefined;
+    if (!value) return el.removeAttribute("class");
     return el.setAttribute("class", value);
   }
+  const now = classes(value);
+  // What it applied last (an object changed in place is not what it was): the diff is against that.
+  const was = (el as any).$$cls;
+  const before: Set<string> = was instanceof Set ? was : classes(was ?? prev);
+  (el as any).$$cls = now;
   for (const c of before) if (!now.has(c)) el.classList.remove(c);
   for (const c of now) if (!before.has(c)) el.classList.add(c);
   if (!el.classList.length) el.removeAttribute("class");
@@ -442,11 +466,13 @@ const roots = new Set<Node>();
 const listening = new WeakMap<Node, Set<string>>();
 
 /** `onX` handlers: kept on the element, run by the root's listener as the event bubbles. */
+const eventKeys = new Map<string, string>();
 export function addEvent(el: Element, type: string, handler: any, delegate = true) {
   // Not delegated: a listener of its own on the element (a handler given as [fn, data] is called with data first).
   if (!delegate) return void el.addEventListener(type, listenerFor(handler));
   // (Where Solid keeps it: `_$$type`, a [fn, data] handler's data beside it.)
-  const key = EVENT_KEY + type;
+  let key = eventKeys.get(type);
+  if (!key) eventKeys.set(type, (key = EVENT_KEY + type));
   if (Array.isArray(handler)) ((el as any)[key] = handler[0]), ((el as any)[key + "Data"] = handler[1]);
   else (el as any)[key] = handler;
   if (!delegated.has(type)) {
@@ -621,71 +647,90 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
 function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null) {
-  let current: Node[] = initial ?? [];
-  // What the apply step makes (a description drawn late) belongs where the binding was made.
-  const home = getOwner();
-  let first: Cursor | undefined = claimed;
-  const named = name === undefined ? bindingNamed(parent, "children") : bindingOptions(name);
-  const apply = (v: any) => {
-    if (v === CLAIMED || v === NESTED) return;
-    // Text as text: its one node written in place, or made.
-    if ((typeof v === "string" && v !== "") || typeof v === "number") {
-      const t = String(v);
-      const only = current.length === 1 && current[0]!.nodeType === 3 ? (current[0] as Text) : null;
-      if (only) return void (only.data !== t && (only.data = t));
-      // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
-      if (!current.length && end === null && !host && !parent.firstChild && parent.nodeType === 1) {
-        (parent as Element).textContent = t;
-        return void (current = [parent.firstChild!]);
-      }
-      if (!current.length) {
-        const n = document.createTextNode(t);
-        if (host) (n as any)._$host = host();
-        parent.insertBefore(n, end);
-        return void (current = [n]);
-      }
-    }
-    const next = runWithOwner(home, () => untrack(() => nodesOf(v, [], current)));
-    if (host) for (const n of next) (n as any)._$host = host();
-    reconcile(parent, current, next, end);
-    current = next;
-  };
-  createRenderEffect<any>(
-    () => {
-      const raw = value();
-      // Accessors in what it made: read by an effect of their own, so a change there is shown again, not made again.
-      if (!hasAccessor(raw)) return show(resolveDeep(raw));
-      createRenderEffect<any>(() => show(resolveDeep(raw)), apply, named);
-      return NESTED;
-    },
-    apply,
-    named,
-  );
+  const b = new Binding(RENDER_EFFECT, bindingCompute, name === undefined ? bindingNamed(parent, "children") : bindingOptions(name));
+  b.apply = bindingApply;
+  b.place = parent;
+  b.source = value;
+  b.endAt = end;
+  if (initial?.length) b.nodes = initial;
+  b.first = claimed;
+  b.host = host;
+  startEffect(b);
+}
+/** A node's children bound to a value: its state on the effect (one object a binding, no closures). */
+const NO_NODES: Node[] = [];
+class Binding extends Computation<any> {
+  declare place: Node;
+  declare source: () => any;
+  declare endAt: Node | null;
+  /** The nodes it shows now: one text node, or a list. */
+  declare text: Text | null;
+  declare nodes: Node[];
+  /** Hydrating: where its first value claims the server's nodes. */
+  declare first: Cursor | undefined;
+  declare host: (() => Node | null) | undefined;
   /** A value's nodes in place: claimed from the server's the first time when hydrating. */
-  function show(v: any) {
+  show(v: any) {
     // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
-    if (first) {
-      const at = first;
-      first = undefined;
-      // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
-      const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
-      if (open) at.next = open.nextSibling;
-      current = untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at));
-      if (open) {
-        let n = at.next;
-        while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
-          // Not what it renders (the server's page differed): gone.
-          const x = n.nextSibling;
-          if (!current.includes(n)) n.parentNode!.removeChild(n);
-          n = x;
-        }
-        end = n;
-        at.next = n ? n.nextSibling : null;
-      } else end = at.next;
-      return CLAIMED;
-    }
-    return v;
+    const at = this.first;
+    if (!at) return v;
+    this.first = undefined;
+    // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
+    const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
+    if (open) at.next = open.nextSibling;
+    const current = (this.nodes = untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at)));
+    if (open) {
+      let n = at.next;
+      while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
+        // Not what it renders (the server's page differed): gone.
+        const x = n.nextSibling;
+        if (!current.includes(n)) n.parentNode!.removeChild(n);
+        n = x;
+      }
+      this.endAt = n;
+      at.next = n ? n.nextSibling : null;
+    } else this.endAt = at.next;
+    return CLAIMED;
   }
+}
+Object.assign(Binding.prototype, { text: null, nodes: NO_NODES });
+function bindingCompute(this: Binding) {
+  const raw = this.source();
+  // Accessors in what it made: read by an effect of their own, so a change there is shown again, not made again.
+  if (!hasAccessor(raw)) return this.show(resolveDeep(raw));
+  createRenderEffect<any>(() => this.show(resolveDeep(raw)), (v) => bindingApply.call(this, v), bindingOptions((this as any).name ?? null));
+  return NESTED;
+}
+function bindingApply(this: Binding, v: any) {
+  if (v === CLAIMED || v === NESTED) return;
+  const parent = this.place;
+  const end = this.endAt;
+  const text = this.text;
+  // Text as text: its one node written in place, or made.
+  if ((typeof v === "string" && v !== "") || typeof v === "number") {
+    const t = String(v);
+    if (text) return void (text.data !== t && (text.data = t));
+    const current = this.nodes;
+    if (current.length === 1 && current[0]!.nodeType === 3) return void (((this.text = current[0] as Text), (this.nodes = NO_NODES)), bindingApply.call(this, t));
+    // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
+    if (!current.length && end === null && !this.host && !parent.firstChild && parent.nodeType === 1) {
+      (parent as Element).textContent = t;
+      return void (this.text = (parent as Element).firstChild as Text);
+    }
+    if (!current.length) {
+      const n = (this.text = document.createTextNode(t));
+      if (this.host) (n as any)._$host = this.host();
+      parent.insertBefore(n, end);
+      return;
+    }
+  }
+  const current = text ? [text as Node] : this.nodes;
+  if (text) this.text = null;
+  // (What it makes, a description drawn late, belongs where the binding was made.)
+  const next = runWithOwner(this.parent, () => untrack(() => nodesOf(v, [], current)));
+  if (this.host) for (const n of next) (n as any)._$host = this.host();
+  reconcile(parent, current, next, end);
+  this.nodes = next;
 }
 
 const NESTED = Symbol("nested");
@@ -696,6 +741,8 @@ const BINDING = { transparent: true } as any;
 
 /** A binding's options: transparent, named `tag.prop` as Solid's compiled bindings are (owner paths say where). */
 const bindingNamed = (el: Node, prop: string) => {
+  // (Its name is for diagnostics: none in production.)
+  if (process.env.NODE_ENV === "production") return BINDING;
   const tag = (el as Element).localName ?? "#fragment";
   let byProp = bindingNames.get(tag);
   if (!byProp) bindingNames.set(tag, (byProp = new Map()));

@@ -1,15 +1,13 @@
 // Lists and props helpers: mapArray (by identity, by position or by key), repeat, merge, omit.
-import { createMemo, keepMemo, ownerUnder, getOwner, runWithOwner, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
+import { createMemo, keepMemo, ownerUnder, getOwner, runOwned, untrack, Signal, onCleanup, type Owner } from "./signals.ts";
 import { $PROXY } from "./store.ts";
 
 type Accessor<T> = () => T;
 type Keyed<T> = boolean | ((item: T) => unknown) | undefined;
 
-/** An item's own scope, disposed when the item leaves the list. */
-function scope<T>(parent: Owner | null, fn: () => T): [T, () => void] {
-  const o = ownerUnder(parent);
-  const value = runWithOwner(o, fn);
-  return [value, () => disposeScope(o, parent)];
+/** `fn` in an item's own scope, kept in `owners[at]` (disposed with disposeScope when the item leaves the list). */
+function scope<T, A, B>(parent: Owner | null, owners: Owner[], at: number, fn: (a: A, b: B) => T, a?: A, b?: B): T {
+  return runOwned((owners[at] = ownerUnder(parent)), fn, a, b);
 }
 function disposeScope(o: Owner, parent: Owner | null) {
   if (o.disposed) return;
@@ -60,14 +58,15 @@ export function mapArray<T, U>(
   const indexed = fn.length > 1;
   let keys: unknown[] = [];
   let rows: U[] = [];
-  let ends: (() => void)[] = [];
+  let owners: Owner[] = [];
   let indexes: ReturnType<typeof cell<number>>[] = [];
   let items: ReturnType<typeof cell<T>>[] = [];
-  let fallbackEnd: (() => void) | null = null;
+  const fallbackOwner: Owner[] = [];
   let fallbackRow: U[] | null = null;
+  const end = (o: Owner) => disposeScope(o, parent);
   onCleanup(() => {
-    for (const end of ends) end();
-    fallbackEnd?.();
+    owners.forEach(end);
+    fallbackOwner.forEach(end);
   });
   return keepMemo(createMemo(() => {
     // Every item read here, tracked (a store list keeps its identity while its items move); mapped untracked.
@@ -75,21 +74,16 @@ export function mapArray<T, U>(
     const next = Array.from(source);
     return untrack(() => {
       if (!next.length) {
-        for (const end of ends) end();
+        owners.forEach(end);
         keys = [];
         rows = [];
-        ends = [];
+        owners = [];
         indexes = [];
         items = [];
         if (!options.fallback) return rows;
-        if (!fallbackRow) {
-          const [v, end] = scope(parent, () => options.fallback!());
-          fallbackRow = [v];
-          fallbackEnd = end;
-        }
-        return fallbackRow;
+        return (fallbackRow ??= [scope(parent, fallbackOwner, 0, options.fallback)]);
       }
-      if (fallbackEnd) fallbackEnd(), (fallbackEnd = null), (fallbackRow = null);
+      if (fallbackRow) end(fallbackOwner.pop()!), (fallbackRow = null);
       // By position: slots kept, their item set.
       if (keyed === false) {
         const out: U[] = new Array(next.length);
@@ -100,47 +94,47 @@ export function mapArray<T, U>(
           } else {
             const item = cell<T>(next[i]!);
             items[i] = item;
-            const [v, end] = scope(parent, () => fn(item.read, i));
-            out[i] = v;
-            ends[i] = end;
+            out[i] = scope(parent, owners, i, fn, item.read, i);
           }
         }
-        for (let i = next.length; i < rows.length; i++) ends[i]!();
-        ends.length = items.length = next.length;
+        for (let i = next.length; i < rows.length; i++) end(owners[i]!);
+        owners.length = items.length = next.length;
         return (rows = out);
       }
       // By identity or key: where each old key was (several places for one listed twice).
-      const at = new Map<unknown, number[]>();
+      // (A place, or the places of a key listed more than once, last first.)
+      const at = new Map<unknown, number | number[]>();
       for (let i = keys.length - 1; i >= 0; i--) {
         const k = keys[i];
         const places = at.get(k);
-        places ? places.push(i) : at.set(k, [i]);
+        if (places === undefined) at.set(k, i);
+        else if (typeof places === "number") at.set(k, [places, i]);
+        else places.push(i);
       }
-      const nextKeys = next.map(keyOf);
+      const nextKeys = keyed === true ? next : next.map(keyOf);
       const out: U[] = new Array(next.length);
-      const outEnds: (() => void)[] = new Array(next.length);
+      const outOwners: Owner[] = new Array(next.length);
       const outIndexes: ReturnType<typeof cell<number>>[] = new Array(next.length);
       const outItems: ReturnType<typeof cell<T>>[] = new Array(next.length);
       const kept = new Uint8Array(keys.length);
       for (let j = 0; j < next.length; j++) {
-        const i = at.get(nextKeys[j])?.pop();
+        const places = keys.length ? at.get(nextKeys[j]) : undefined;
+        const i = typeof places === "number" ? (at.delete(nextKeys[j]), places) : places?.pop();
         if (i !== undefined) {
           kept[i] = 1;
           out[j] = rows[i]!;
-          outEnds[j] = ends[i]!;
+          outOwners[j] = owners[i]!;
           if (indexed) (outIndexes[j] = indexes[i]!).set(j);
           if (typeof keyed === "function") (outItems[j] = items[i]!).set(next[j]!);
         } else {
           const index = indexed ? (outIndexes[j] = cell(j)) : null;
           const item = typeof keyed === "function" ? (outItems[j] = cell<T>(next[j]!)) : null;
-          const [v, end] = scope(parent, () => fn(item ? item.read : next[j], index?.read));
-          out[j] = v;
-          outEnds[j] = end;
+          out[j] = scope(parent, outOwners, j, fn, item ? item.read : next[j], index?.read);
         }
       }
-      for (let i = 0; i < keys.length; i++) if (!kept[i]) ends[i]!();
+      for (let i = 0; i < keys.length; i++) if (!kept[i]) end(owners[i]!);
       keys = nextKeys;
-      ends = outEnds;
+      owners = outOwners;
       indexes = outIndexes;
       items = outItems;
       return (rows = out);
@@ -151,29 +145,34 @@ export function mapArray<T, U>(
 /** `fn(index)` for each index from `from` (0 unless given) up to `from + count`: rows kept, none diffed. */
 export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, options: { from?: Accessor<number>; fallback?: () => U } = {}): Accessor<U[]> {
   const parent = getOwner();
-  const made = new Map<number, [U, () => void]>();
-  let fallback: [U, () => void] | null = null;
+  const made = new Map<number, [U, Owner]>();
+  let fallback: [U, Owner] | null = null;
+  const end = (o: Owner) => disposeScope(o, parent);
+  const row = (fn: () => U): [U, Owner] => {
+    const o: Owner[] = [];
+    return [scope(parent, o, 0, fn), o[0]!];
+  };
   onCleanup(() => {
-    for (const [, end] of made.values()) end();
-    fallback?.[1]();
+    for (const [, o] of made.values()) end(o);
+    if (fallback) end(fallback[1]);
   });
   return keepMemo(createMemo(() => {
     const n = Math.max(0, count() | 0);
     const from = options.from ? options.from() | 0 : 0;
     return untrack(() => {
-      for (const [i, [, end]] of made) if (i < from || i >= from + n) end(), made.delete(i);
+      for (const [i, [, o]] of made) if (i < from || i >= from + n) end(o), made.delete(i);
       if (!n) {
         if (!options.fallback) return [];
-        fallback ??= scope(parent, () => options.fallback!());
+        fallback ??= row(options.fallback);
         return [fallback[0]];
       }
-      if (fallback) fallback[1](), (fallback = null);
+      if (fallback) end(fallback[1]), (fallback = null);
       const out: U[] = new Array(n);
       for (let k = 0; k < n; k++) {
         const i = from + k;
-        let row = made.get(i);
-        if (!row) made.set(i, (row = scope(parent, () => fn(i))));
-        out[k] = row[0];
+        let r = made.get(i);
+        if (!r) made.set(i, (r = row(() => fn(i))));
+        out[k] = r[0];
       }
       return out;
     });
