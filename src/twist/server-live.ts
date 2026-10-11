@@ -11,7 +11,7 @@ function resolveSSRNode(v, result) {
 
 /** A pending read under a hole: Twist's renderer waits for it itself (a Loading's fallback, or a shell hole). */
 function buildAsyncWrap(err, hole) {
-  const p = ssrHandleError(err, true);
+  const p = ssrHandleError(err);
   return p ? { fn: hole, p } : null;
 }
 
@@ -84,12 +84,11 @@ export function createLiveHoles(sink, scoped) {
             resolveSSRNode(hole(), r);
           } catch (err) {
             const wrap = buildAsyncWrap(err, hole);
-            // Real error: contribute nothing, matching the resolver's
-            if (wrap) {
-              r.h.push(wrap.fn);
-              r.p.push(wrap.p);
-              r.t.push("");
-            }
+            // (A real error goes on to the boundary around it, as the resolver routes it there.)
+            if (!wrap) throw err;
+            r.h.push(wrap.fn);
+            r.p.push(wrap.p);
+            r.t.push("");
           }
         } finally {
           engine.suppressed--;

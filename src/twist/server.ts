@@ -21,7 +21,7 @@ import { isHttpNavigationTarget } from "./response.ts";
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
 import { getProjectionTrace } from "./container-trace.ts";
 import { traceFor, traceForEvent } from "./trace.ts";
-import { shareAsyncIterable } from "./server-internal.ts";
+import { inServerComponentScope, shareAsyncIterable } from "./server-internal.ts";
 import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
@@ -170,6 +170,35 @@ function dynamicCore<P>(source: () => any, options: { static?: boolean } | undef
   };
 }
 
+/** A server Errored's answer for a failure inside it: its fallback's markup (read by a failed Loading's fragment). */
+const ERRORED_OUTCOME = Symbol("twist.ssr.errored-outcome");
+
+/**
+ * What a failed streamed Loading inside a server component puts in its place: the nearest server Errored's fallback, or
+ * (none) its own fallback, the error escaping to the frame. Outside one: nothing (the client renders it again).
+ */
+function failedOutcome(r: Render, boundary: any, fallback: string, e: unknown): string {
+  if (!inServerComponentScope(boundary)) return " ";
+  const answer = boundary.context?.[ERRORED_OUTCOME] as ((e: unknown) => string) | undefined;
+  if (answer) {
+    // (Finished markup, nothing live in it: the live-hole engine mints nothing for it.)
+    const live = (r.ctx as any)?.liveHoles;
+    if (live) live.suppressed++;
+    try {
+      return rendering(r, r.options, () => runWithOwner(boundary, () => answer(e)));
+    } catch {
+    } finally {
+      if (live) live.suppressed--;
+    }
+  }
+  const message = e instanceof Error ? e.message : String(e);
+  // (The frame as one value errors: a frame stream's unkeyed error chunk, or the document's live op addressed to it.)
+  const ctx = (boundary.renderCtx ?? r.ctx) as any;
+  if (r.options.sink?.error) r.sink.error!("", message);
+  else ctx?.live?.error?.(ctx.frameId, message);
+  return fallback.replace(/^<template id="pl-[^"]*"><\/template>|<!--pl-[^>]*-->$/g, "");
+}
+
 /** Its children, or its fallback (given the error and a reset) once rendering them throws. */
 export function Errored(props: { fallback: any; children?: any }) {
   // As Solid's: the boundary (its content under an owner of its own, its error sent under its id), then an output owner
@@ -177,6 +206,8 @@ export function Errored(props: { fallback: any; children?: any }) {
   const boundary = createOwner();
   const output = createOwner();
   const content = ownerUnder(boundary);
+  // (In a server component: what a failed Loading inside it renders in its place, this fallback for the error.)
+  if (inServerComponentScope(content)) content.context = { ...content.context, [ERRORED_OUTCOME]: (err: unknown) => fallback(err) };
   const fallback = (err: unknown) => {
     // What the client may see of it: the error hook's answer, else the sanitized error (heard once, where it was met).
     const id = (boundary as any).id;
@@ -745,6 +776,18 @@ function registerAssetIn(tracking: AssetTracking, shellSent: () => boolean, sink
   }
 }
 
+/** Nothing left that renders: the document's live channel gets its last sweep and closes (before the data's end, which
+ * it would otherwise hold open). */
+function endLive(r: Render) {
+  const live = (r.ctx as any).live;
+  if (!live?.end || r.waiting.size || r.holds) return;
+  const end = live.end;
+  live.end = null;
+  // (Closed after the shell: the response waits for the close to be written.)
+  if (r.shellSent) (r as any).liveClosing = true;
+  end();
+}
+
 /** The shell with the fragments that settled before it went out in place of their placeholders. */
 function inlineFragments(r: Render, shell: string): string {
   for (let again = true; again && r.inlined.size; ) {
@@ -981,7 +1024,7 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
             abandonUnder(r, id);
             failures.get(boundary)?.(e2);
             // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
-            if (r.shellSent) r.sink.fragment(id!, " ", { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
+            if (r.shellSent) r.sink.fragment(id!, failedOutcome(r, boundary, fallback, e2), { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
             else r.inlined.set(id!, "");
             settleBoundary(r, track, "error", e2);
             group?.onResolved(id!);
@@ -1074,7 +1117,8 @@ function boundaryRecord(r: Render, boundary: object, id: string) {
   record.catch(() => {});
   fragments.set(boundary, revealed);
   failures.set(boundary, (e: unknown) => failed(ssrSanitizeError(e, boundary, { kind: "render", handling: "client", boundary: id }, (r.ctx as any)?.errorPolicy)));
-  if (r.serializer && !isNoHydration()) {
+  // (A server component's too: hydration-free, but its fragment's outcome is what the client's dev report reads.)
+  if (r.serializer && (!isNoHydration() || inServerComponentScope(boundary as any))) {
     r.serializer.write(id + "_fr", record);
     // The stream ends after the record's settling is written.
     r.pendingData++;
@@ -1126,7 +1170,7 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
       abandonUnder(r, id);
       failures.get(boundary)?.(e);
       // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
-      if (r.shellSent) r.sink.fragment(id, " ", { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
+      if (r.shellSent) r.sink.fragment(id, failedOutcome(r, boundary, fallback, e), { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
       else r.inlined.set(id, "");
     },
   ).finally(() => rendering(r, r.options, () => group?.onResolved(id)));
@@ -1881,11 +1925,14 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const drain = () => {
     // Ended: the sinks are closed (a wake-up after the last write has nothing left to send).
     if (done) return;
+    // (Nothing left that renders: the document's live channel gets its last sweep and closes — before the data's end,
+    // which it would otherwise hold open.)
+    endLive(r);
     const data = takeData(r);
     if (data) r.chunks.push(data);
     for (; sent < r.chunks.length && !done; sent++) for (const w of sinks) write(w, r.chunks[sent]!);
     // A frame stream ends after its serializer's last record (a trace still writing is part of the response).
-    if (!r.waiting.size && !r.pendingData && !r.holds && !done && options.sink && (r.serializer as any)?.pending > 0) {
+    if (!r.waiting.size && !r.pendingData && !r.holds && !done && (options.sink || (r as any).liveClosing) && (r.serializer as any)?.pending > 0) {
       (typeof setImmediate === "function" ? setImmediate : setTimeout)(() => r.wake?.(), 0);
       return;
     }
@@ -1945,6 +1992,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const failed = shellReady.then(
     async (s) => {
       if (whole && !quiet()) await new Promise<void>((ok) => idle.push(ok));
+      // (All settled before the shell: the live channel closes with it.)
+      endLive(r);
       rendering(r, options, () => {
         serializeFragmentAssets("", r.tracking, r.ctx, options.renderId ?? "");
         r.headStyles = new Set([...r.tracking.emittedAssets].filter((u) => !r.tracking.currentBoundaryId && u.endsWith(".css")));
