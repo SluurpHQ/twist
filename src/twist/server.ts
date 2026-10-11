@@ -387,8 +387,17 @@ function flatChildren(v: any[], out: any[] = []): any[] {
   return out;
 }
 
+/** Tag names seen valid (one element name: a letter, then letters, digits, dots, dashes, underscores, colons). */
+const validTags = new Set<string>();
+const TAG_NAME = /^[A-Za-z][A-Za-z0-9._:-]*$/;
+
 function element(el: Element_, keyed: boolean): string {
   const { tag } = el;
+  // (A name from run time: one element name, or nothing is written.)
+  if (!validTags.has(tag)) {
+    if (!TAG_NAME.test(tag)) throw new Error(`"${tag}" is not a valid tag name`);
+    validTags.add(tag);
+  }
   // The key first: what the props read is the element's, after it.
   let out = "<" + tag + (keyed ? ssrHydrationKey() : "");
   const all = propsOf(el);
