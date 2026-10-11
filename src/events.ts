@@ -231,8 +231,9 @@ export const countDehydrated = (d: number) => void (dehydrated += d);
 function inDehydrated(target: Node | null): boolean {
   if (!dehydrated) return false;
   for (let n: any = target; n; n = n.parentNode) {
-    // A node React already owns: the boundaries around it have hydrated.
-    if (n[FIBER]) return false;
+    // A node React already owns: the boundaries around it have hydrated. (Not one a thrown-away hydration attempt
+    // claimed: its fiber is dead.)
+    if (n[FIBER] && !n[FIBER].dead) return false;
     let depth = 0;
     for (let s: any = n.previousSibling; s; s = s.previousSibling) {
       if (s.nodeType !== 8) continue;
@@ -252,7 +253,7 @@ function nearest(target: Node | null, roots: Set<object>): FiberLike | null {
   if (inDehydrated(target)) return null;
   for (let n: any = target; n; n = n.parentNode) {
     const f: FiberLike | undefined = n[FIBER];
-    if (f && roots.has(f.root)) return f;
+    if (f && roots.has(f.root) && !(f as any).dead) return f;
   }
   return null;
 }
