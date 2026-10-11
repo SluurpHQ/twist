@@ -603,6 +603,8 @@ export function insert(parent: Node, value: any, marker: Node | null = null, ini
     const was = hydrating;
     hydrating ??= { registry: sc.registry ?? new Map() };
     try {
+      // Nodes made here, never in the page, over the server's: a mismatch — the server's stay.
+      if (madeHere(value)) return;
       // What the server had there and the value did not claim: gone, as an insert over `initial` replaces it.
       const claimed = claims.html(value, false, { parent, next: initial[0]! });
       for (const n of initial) if (!claimed.includes(n) && n.parentNode === parent) parent.removeChild(n);
@@ -613,6 +615,10 @@ export function insert(parent: Node, value: any, marker: Node | null = null, ini
   }
   insertHosted(parent, value, marker, initial, undefined, options?.name ?? null);
 }
+
+/** Whether a value is nodes made outside the page (not one of them in it). */
+const madeHere = (v: any): boolean =>
+  Array.isArray(v) ? v.length > 0 && v.every(madeHere) : v != null && typeof v === "object" && typeof v.nodeType === "number" && !v.isConnected;
 
 /** A fragment's placeholder range gone (its boundary disposed before it arrived). */
 function cleanupFragment(id: string) {
@@ -1475,6 +1481,8 @@ function claimDescribed(d: { tag: string; props: Record<string, any> }, keyed: b
   const registry: Map<string, Element> | undefined = sc.registry ?? hydrating?.registry;
   let el = (key != null && registry?.get(key)) || (nextNode(at) as Element | null);
   if (key != null) registry?.delete(key);
+  // (Its own key claimed too: taken by position, or by a key that missed.)
+  if (el?.nodeType === 1 && (el as Element).hasAttribute("_hk")) registry?.delete((el as Element).getAttribute("_hk")!);
   if (!el || el.nodeType !== 1) {
     // Not what the server rendered: made here.
     el = element(d.tag, {});
