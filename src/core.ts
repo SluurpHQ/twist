@@ -1574,6 +1574,8 @@ function drawFresh(f: Fiber, host: Node, end: Node | null) {
 
 /** A boundary kept as the server drew it (or not any more): its start comment marked, so events in it are not
  * dispatched until it hydrates (React blocks them). */
+/** The boundaries still as the server drew them. */
+const dehydratedNow = new Set<Fiber>();
 function setDehydrated(f: Fiber, on: boolean) {
   const was = !!(f as any).dehydrated;
   (f as any).dehydrated = on;
@@ -1585,8 +1587,8 @@ function setDehydrated(f: Fiber, on: boolean) {
     (f as any).contextThen = then;
   }
   const start: any = (f as any).region?.start;
-  if (on && !was) countDehydrated(1);
-  else if (!on && was) countDehydrated(-1);
+  if (on && !was) countDehydrated(1), dehydratedNow.add(f);
+  else if (!on && was) countDehydrated(-1), dehydratedNow.delete(f);
   if (start) start[DEHYDRATED] = on;
 }
 
@@ -2389,9 +2391,14 @@ function update(f: Fiber, c: any) {
     return;
   }
   if (f.kind === PROVIDER) {
+    const changed = !Object.is(f.value!.peek(), props.value);
     f.props = props;
     f.value!.set(props.value);
     reconcile(f, toList(props.children), hostParentOf(f), nextDomAfter(f));
+    // A boundary below still as the server drew it, which read this context then: updated as if given new props
+    // (React propagates the change into it): hydrated now if it can be, else drawn on the client.
+    if (changed && dehydratedNow.size && !hydrating)
+      for (const b of [...dehydratedNow]) if (!b.dead && (b as any).contextThen?.has(f) && (b as any).dehydrated) updateDehydrated(b, b.props, b.kind === COMP ? () => restart(b) : () => {});
     return;
   }
   // A new version of its component (Fast Refresh): drawn with the new code, its state kept.
