@@ -970,6 +970,9 @@ export class Computation<T> extends Node<T> implements Owner {
           const at = this.ranAt;
           const again = () => !this.disposed && this.ranAt === at && (this.mark(DIRTY), schedule());
           p.then(again, again);
+        } else if (p instanceof Computation && p !== this && !this.sources.includes(p)) {
+          // Waiting on one it read untracked: run again when that one answers.
+          (p.untrackedReaders ??= new Map()).set(this, this.ranAt);
         }
         if (this.kind !== MEMO || !this.ready) boundaryOf(this)?.wait(this);
         return;
@@ -1203,6 +1206,7 @@ export class Computation<T> extends Node<T> implements Owner {
     flights.delete(this);
     landings.push([this, v]);
     statusChanged();
+    this.rerunReaders();
     landNow();
     this.wake();
     this.renderCtx?.commit?.();
@@ -1216,8 +1220,20 @@ export class Computation<T> extends Node<T> implements Owner {
     clock++;
     for (const o of this.observers) o.mark(DIRTY);
     statusChanged();
+    this.rerunReaders();
     landNow();
     this.wake();
+  }
+  /**
+   * Computations that read it untracked while it had no answer (waiting, not subscribed): run again in the flush its
+   * answer lands in, once.
+   */
+  untrackedReaders: Map<Computation<any>, number> | null = null;
+  rerunReaders() {
+    const readers = this.untrackedReaders;
+    if (!readers) return;
+    this.untrackedReaders = null;
+    for (const [r, at] of readers) if (!r.disposed && r.ranAt === at) r.mark(DIRTY);
   }
   /** Who waits for its next answer (a refresh's promise): each told, those still waiting kept. */
   waiters: (() => boolean)[] | null = null;
