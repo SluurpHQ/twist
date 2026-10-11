@@ -380,6 +380,13 @@ let strictRead: string | false = false;
 export function checkStrictRead(n: { name?: string }) {
   if (strictRead && !listener) strictReadUntracked(n as Node<any>);
 }
+function pendingUntrackedRead(n: Node<any>): never {
+  const message =
+    `[PENDING_ASYNC_UNTRACKED_READ] Reading a pending async value directly in ${strictRead}. ` +
+    `Async values must be read within a tracking scope (JSX, a memo, or an effect's compute function).`;
+  emitDiagnostic({ code: "PENDING_ASYNC_UNTRACKED_READ", kind: "async", severity: "error", message, data: { strictRead }, nodeName: n.name } as any);
+  throw new Error(message);
+}
 function strictReadUntracked(n: Node<any>) {
   // Named when the name says something (the defaults would only restate "reactive value").
   const named = n.name !== undefined && n.name !== "signal" && n.name !== "computed";
@@ -1152,8 +1159,12 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.error !== NONE) throw this.error;
     // An authoritative reader asks the truth: a refetch with nothing landed for its question has none yet (A17).
     if (authoritative && !this.loadingWindow && this.flight && this.ready && !this.streaming && this.staged === NONE && this.override === NONE) throw new NotReadyError(this);
-    // Never had a value (a first load, or waiting on one): not ready.
-    if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);
+    // Never had a value (a first load, or waiting on one): not ready. (Read directly in a strict scope, in the
+    // browser: an error saying so — nothing would show it when it lands.)
+    if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) {
+      if (strictRead && !listener && !serverRender && process.env.NODE_ENV !== "production") pendingUntrackedRead(this);
+      throw new NotReadyError(this);
+    }
     // A fresh derivation reading a flight a transaction waits on suspends on it (A15).
     // (A resolve() reading one this read itself set off: its last answer, stale while it revalidates.)
     if (listener && (listener.kind === MEMO || ((listener as any).resolving && flewBefore)) && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && !this.loadingWindow && !this.streaming) throw new NotReadyError(this);
