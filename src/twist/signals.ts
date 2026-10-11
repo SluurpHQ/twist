@@ -1249,7 +1249,9 @@ export class Computation<T> extends Node<T> implements Owner {
       // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
       if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
         const now = this.staged !== NONE ? (this.staged as T) : this.value;
+        comparing = this;
         const same = this.equals(now, next!);
+        comparing = null;
         (comparedBy = this), (comparedNow = now), (comparedNext = next!), (comparedSame = same);
       }
     } catch (e) {
@@ -1293,6 +1295,8 @@ export class Computation<T> extends Node<T> implements Owner {
       // Failed: no longer waiting (the Loading above lets the error through to whatever catches it).
       boundaryOf(this)?.ready(this);
       if (this.kind !== MEMO) handleError(this, threw);
+      // (Its comparator threw: the boundary it is made under hears it at once, before what made it runs again.)
+      else if (comparing === this) (comparing = null), boundaryCatches(this, threw);
       return;
     }
     // Recovered from an error: a value again is a change, even the one it had before.
@@ -1897,6 +1901,9 @@ function settleRound() {
     awaitingRound.clear();
   }
 }
+
+/** The computation whose equals comparator runs now (a throw from it is a comparator's). */
+let comparing: Computation<any> | null = null;
 
 /** A landing is being taken (an async answer, not a compute). */
 let landing = false;
