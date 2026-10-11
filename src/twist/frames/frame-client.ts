@@ -493,8 +493,11 @@ export function createFrameHost(options = {}) {
       }
       let r = records;
       // The address as a source: `start` opens a flight; the write that
-      if (chunk.type === "start") store.open = true;
-      else if (lands(records)) {
+      if (chunk.type === "start") {
+        store.open = true;
+        // A new flight over an errored landing (a re-ask): the error was the last flight's.
+        if (store.records[":error"] !== undefined) delete store.records[":error"], (r = { ...records, ":error": undefined });
+      } else if (lands(records)) {
         store.open = false;
         store.shown = r = store.records;
         store.shownVersion = chunk.version;

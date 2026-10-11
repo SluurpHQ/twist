@@ -1007,8 +1007,9 @@ export class Computation<T> extends Node<T> implements Owner {
     dropReader(this, o);
     if (readersOf(this)) return;
     this.unobserved?.();
-    // A lazy memo with no reader left is torn down; an unowned one whose last reader was released goes with it.
-    if (this.lazy) this.detach(), (this.state = DIRTY), drainParked(this as any);
+    // A lazy memo with no reader left is torn down as the flush ends (unless read again by then); an unowned one whose
+    // last reader was released goes with it.
+    if (this.lazy) unread.add(this), schedule();
     else if (releasing && this.kind === MEMO && !this.parent) release(this);
   }
   /** Released: subscribed to nothing, built again from scratch when next read. */
@@ -1627,6 +1628,19 @@ function applyMadeFirst(o: Owner) {
 function primitiveInEffectCallback(): never {
   if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "PRIMITIVE_IN_EFFECT_CALLBACK", kind: "lifecycle", severity: "error", message: PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE });
   throw new Error(PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE);
+}
+
+/** Lazy memos left with no reader: torn down as the flush ends, unless read again by then. */
+const unread = new Set<Computation<any>>();
+function dropUnread() {
+  while (unread.size) {
+    const m = unread.values().next().value!;
+    unread.delete(m);
+    if (m.disposed || readersOf(m)) continue;
+    m.detach();
+    m.state = DIRTY;
+    drainParked(m as any);
+  }
 }
 
 /** Unowned memos read outside any computation since the last flush. */
@@ -2260,6 +2274,7 @@ function drain() {
       for (const end of ambientEnds.splice(0)) end();
     }
   }
+  dropUnread();
   // (An effect's own code that threw in the last round.)
   if (uncaught.length) throw uncaught.splice(0)[0];
 }

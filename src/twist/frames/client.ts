@@ -141,8 +141,18 @@ function reask(address: string): Promise<unknown> | undefined {
       `Server component boundary "${address}" errored, but no call is recorded for it; ` +
         `reset() cannot re-ask the server. (The address was written by hand, not by a call.)`
     );
-  return call && call.retry();
+  if (!call) return undefined;
+  // (Once while it is out: a pass run again before its answer starts waits on the same re-ask.)
+  let asked = reasking.get(address);
+  if (!asked) {
+    const clear = () => void reasking.delete(address);
+    reasking.set(address, (asked = Promise.resolve(call.retry())));
+    asked.then(clear, clear);
+  }
+  return asked;
 }
+/** Re-asks still out, by address. */
+const reasking = new Map<string, Promise<unknown>>();
 
 /** A mount's error tick for `landing`: the read, and the frame `onApply` */
 function failing(): [() => number, (info: { reason: string }) => void] {
