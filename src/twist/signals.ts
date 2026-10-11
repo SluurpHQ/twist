@@ -692,6 +692,9 @@ abstract class Node<T = any> {
       }
       return this.override as T;
     }
+    // A derivation a lane re-ran, read by an effect: the effect runs again at the lane's reveal.
+    const work = (this as any).passLane as Transaction | null | undefined;
+    if (work && listener && listener.kind !== MEMO && !work.done) work.stale.add(listener);
     // A direct read sees a lane's work (as it sees its guess).
     if (!listener && this.staged !== NONE && this.tx && !this.tx.root.done && this.tx.root.parentTx) return this.staged as T;
     if (!inPass || this.staged === NONE) return this.value;
@@ -881,6 +884,9 @@ export class Computation<T> extends Node<T> implements Owner {
   declare passLane: Transaction | null;
   /** The parent whose lane's reveal runs it next (and, while that run lasts, `revealing`). */
   declare revealOf: Transaction | null;
+  /** The lane whose reveal runs it next, and the one it is running for. */
+  declare laneOf: Transaction | null;
+  declare revealingLane: Transaction | null;
   declare revealing: Transaction | null;
   /** This pass read the frame under a hold or an unrevealed lane (it runs again when that lands). */
   declare staleRead: boolean;
@@ -1148,6 +1154,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.passLane) this.passLane = null;
     if (this.revealing !== this.revealOf) this.revealing = this.revealOf;
     if (this.revealOf) this.revealOf = null;
+    if (this.revealingLane !== this.laneOf) this.revealingLane = this.laneOf;
+    if (this.laneOf) this.laneOf = null;
     if (this.staleRead) this.staleRead = false;
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done));
@@ -1623,7 +1631,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
@@ -1933,6 +1941,9 @@ function mergeTx(from: Transaction, into: Transaction): Transaction {
   return into;
 }
 
+/** `t`, or the transaction it is a lane of. */
+const outOfLane = (t: Transaction): Transaction => (t.parentTx && !t.parentTx.root.done ? t.parentTx.root : t);
+
 /** Transactions with work that has not had a round yet (a new lane's, a voided lane's parent's): not committable while it waits to run. */
 const awaitingRound = new Set<Transaction>();
 
@@ -1978,7 +1989,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     const revealed: Computation<any>[] = [];
     const made: Computation<any>[] = [];
     for (const c of below) {
-      if (c.tx) joins = c.tx.root;
+      // (Lane work leads to the lane's parent: a plain write is never part of a guess's frame.)
+      if (c.tx) joins = outOfLane(c.tx.root);
       if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO ? !hidden(c) : rendered(c))) holds = true;
       // A reveal: what the write brings on screen reads a flight already up — the write waits for its answer.
       // (Nothing shown yet, a first mount, is no reveal.)
@@ -2016,7 +2028,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       for (const s of n.sources) {
         if (!s.tx || n.verdict?.has(s) || (n as any).insideTx) continue;
         if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld) s.tx.root.stale.add(n);
-        else joins = s.tx.root;
+        else joins = outOfLane(s.tx.root);
       }
     const by = (n as any).writtenIn as Transaction | null;
     if (by && !by.done) joins = by.root;
@@ -2092,6 +2104,8 @@ function heldRead<T>(n: Node<T>): T {
       throw new NotReadyError(n);
     }
   }
+  // (A lane's reveal shows what it derived, whichever transaction holds it.)
+  if (l.revealingLane && n instanceof Computation && n.passLane === l.revealingLane) return n.staged as T;
   // (A lane's reveal shows its derivations over the parent's committed writes.)
   const outside = l.revealing === t ? !(n instanceof Computation) : l.tx?.root !== t;
   if (!born && (l.kind === RENDER || l.verdictReader) && outside && !(l.ranAt === -1 && l.tx)) {
@@ -2251,7 +2265,7 @@ function commitTransactions() {
       if (e.disposed) continue;
       e.due && !e.tracked && ((e.due = false), (e.staged = NONE as any)), e.mark(DIRTY);
       // A lane revealed: its effects show it over the parent's world as committed (the parent's commit runs them again).
-      if (t.parentTx && e.kind !== MEMO) e.revealOf = t.parentTx.root;
+      if (t.parentTx && e.kind !== MEMO) (e.revealOf = t.parentTx.root), (e.laneOf = t);
     }
     statusChanged();
   }
