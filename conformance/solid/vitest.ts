@@ -2,6 +2,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest, mock, spyOn, test } from "bun:test";
 
 export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test };
+// expect.soft: as expect (the first failure ends the test).
+(expect as any).soft ??= expect;
 export const vi = {
   fn: (impl?: (...a: any[]) => any) => mock(impl ?? (() => {})),
   spyOn,

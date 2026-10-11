@@ -23,6 +23,8 @@ for (const hook of [PropertySymbol.connectedToDocument, PropertySymbol.onSetAttr
 }
 // Solid's tests run in jsdom, which has no reportError (Bun and happy-dom do): an uncaught error's cause is logged.
 delete (globalThis as any).reportError;
+// Vitest runs Solid's source with __DEV__ defined true.
+(globalThis as any).__DEV__ = true;
 // Vitest's globals, as Solid's tests use them without importing.
 import { vi } from "./vitest.ts";
 (globalThis as any).vi = vi;

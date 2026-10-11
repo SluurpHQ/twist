@@ -682,6 +682,8 @@ abstract class Node<T = any> {
     this.staged = next;
     clock++;
     if (!this.tx) staged.push(this);
+    // (A write to a node a transaction holds enters it: the round's plain writes go with it, A34.)
+    else if (!(this instanceof Computation) && !this.tx.root.done) enteredTx ??= this.tx.root;
     // Shown through a guess: its readers see the guess, not this (no change for them); the guess's end tells them if
     // the truth differs.
     if (this.override !== NONE) return;
@@ -1764,6 +1766,9 @@ function settleRound() {
   }
 }
 
+/** The transaction a write this round entered (a write to a node it holds). */
+let enteredTx: Transaction | null = null;
+
 /** The transaction the running flush parked into, if any (reset when the outermost flush ends). */
 let frameTx: Transaction | null = null;
 /** The first action opened since the last flush: guesses written outside an action in that tick join it. */
@@ -1783,6 +1788,9 @@ function settleFrameGuesses() {
 
 /** `v` shown over `n` until `t` lands; then the truth (a truth equal to the guess changes nothing on screen). */
 function installGuess(n: Node, v: unknown, t: Transaction) {
+  // (Guessed by another action still running: this one, holding writes of its own, merges into it.)
+  const owner = (n as any).guessTx as Transaction | null | undefined;
+  if (owner && !owner.done && !t.parentTx && !owner.root.parentTx && owner.root.open && t.root.nodes.size) t = mergeTx(t, owner);
   const was = n.override;
   n.override = v as any;
   (n as any).guessTx = t;
@@ -1814,6 +1822,28 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
   for (const o of n.observers) o.kind === MEMO ? o.mark(DIRTY) : lane.stale.add(o);
 }
 
+/** `from` joins `into`: what it holds commits with it, once both have ended. */
+function mergeTx(from: Transaction, into: Transaction): Transaction {
+  from = from.root;
+  into = into.root;
+  if (from === into || from.done || into.done) return into;
+  from.merged = into;
+  for (const n of from.nodes) into.nodes.add(n);
+  for (const e of from.effects) into.effects.add(e);
+  for (const c of from.flights) into.flights.add(c);
+  for (const e of from.stale) into.stale.add(e);
+  into.ends.push(...from.ends.splice(0));
+  into.open += from.open;
+  from.open = 0;
+  const held = heldBoundaries.get(from);
+  if (held) {
+    heldBoundaries.delete(from);
+    for (const b of held) b.heldBy.delete(from), b.holdOn(into);
+  }
+  if (tickTx === from) tickTx = into;
+  return into;
+}
+
 /** Transactions with work that has not had a round yet (a new lane's, a voided lane's parent's): not committable while it waits to run. */
 const awaitingRound = new Set<Transaction>();
 
@@ -1839,7 +1869,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
   }
   let tx: Transaction | null = null;
   /** The transaction this round parked into (new or joined). */
-  let parked: Transaction | null = null;
+  let parked: Transaction | null = enteredTx;
+  enteredTx = null;
   for (const n of now) {
     if ((n as any).revealNow) {
       (n as any).revealNow = false;
@@ -2188,6 +2219,15 @@ export function flush<T>(fn?: () => T): T {
         "[FLUSH_IN_EFFECT_CALLBACK] flush() called from inside an effect callback is a no-op: the flush that runs effects is already in progress. " +
         "Writes made here are processed in the same flush's continuation; to force a drain afterwards, defer it: queueMicrotask(() => flush()).",
     });
+    return fn ? fn() : result;
+  }
+  // From an action's body: its writes are its transaction's until it settles; a drain here would leak them.
+  if (acting) {
+    if (process.env.NODE_ENV !== "production") {
+      const message = "[FLUSH_IN_ACTION] flush() cannot be called inside an action body: its writes are held until the action settles. Yield instead, or flush after the action.";
+      emitDiagnostic({ code: "FLUSH_IN_ACTION", kind: "write", severity: "error", message });
+      throw new Error(message);
+    }
     return fn ? fn() : result;
   }
   // Stopped by an effect's uncaught error: nothing runs until resetErrorHalt().
@@ -2565,13 +2605,14 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
       const me = { tx };
       const it = gen(...args);
       const end = (f: () => void) => {
-        tx.open--;
+        tx.root.open--;
         settleStep();
         f();
       };
       // Each step of the body ends with a flush (what it wrote shows, or reverts, as it returns).
       const settleStep = () => {
-        if (!flushing && !halted) flush();
+        // (Inside another action's body: its flush is that action's step end.)
+        if (!flushing && !halted && !acting) flush();
         else schedule();
       };
       let first = true;
@@ -3166,7 +3207,7 @@ const ambientEnds: (() => void)[] = [];
 
 /** `end` run when the optimistic writes being made now are undone: at their action's end, or at the flush's. */
 export function onGuessEnd(end: () => void) {
-  const tx = acting?.tx;
+  const tx = acting?.tx.root;
   if (tx && !tx.done) tx.ends.push(end);
   else ambientEnds.push(end), schedule();
 }
