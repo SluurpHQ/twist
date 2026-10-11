@@ -23,21 +23,10 @@ export interface RequestEvent {
   response?: ResponseStub;
 }
 
-const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
-/** The render a caller belongs to, through its owner (a render's root files its context here). */
+/** The render a caller belongs to, through its owner (each owner made in a render keeps that render's context). */
 export function renderContextOf(owner: any) {
-  const roots = (globalThis as any)[RENDER_ROOTS];
-  if (!roots) return undefined;
-  for (; owner; owner = owner.parent) {
-    const context = roots.get(owner);
-    if (context) return context;
-  }
-}
-/** Files `context` as the render the current owner's subtree belongs to. */
-export function claimRenderRoot(context: unknown, owner = getOwner()) {
-  const g = globalThis as any;
-  (g[RENDER_ROOTS] ||= new WeakMap()).set(owner, context);
-  return owner;
+  for (; owner; owner = owner.parent) if (owner.renderCtx) return owner.renderCtx;
+  return undefined;
 }
 
 /** The request event in scope (undefined outside one, and on the client). */

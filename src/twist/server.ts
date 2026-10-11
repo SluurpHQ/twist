@@ -20,6 +20,7 @@ import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
 import { getProjectionTrace } from "./container-trace.ts";
+import { traceFor, traceForEvent } from "./trace.ts";
 import { shareAsyncIterable } from "./server-internal.ts";
 import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
@@ -1484,6 +1485,12 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
 
 setRouteDeclarer(() => (sharedConfig.context as any)?._declareRoute);
 
+/** A render's trace: its request's, or (outside one) its own. */
+function traceOfRender(ctx: object) {
+  const event = getRequestEvent();
+  return event ? traceForEvent(event as any) : traceFor(ctx, undefined);
+}
+
 /** A server render's "render" record, when something listens: told once, at settle. */
 function renderRecord(ctx: any, mode: "string" | "stream") {
   const records = OBSERVE?.records;
@@ -1506,7 +1513,10 @@ function renderRecord(ctx: any, mode: "string" | "stream") {
         for (const k of ["name", "to", "params"]) if (route[k] !== undefined) named[k] = route[k];
         event.route = named;
       }
-      records.emit("render", event, { trace: ctx.trace, event: ctx.event ?? getRequestEvent() });
+      // (Told under an owner of the render: its listener reads this render's trace, whatever renders now.)
+      const o = runWithOwner(null, () => createOwner()) as any;
+      o.renderCtx = ctx;
+      runWithOwner(o, () => records.emit("render", event, { trace: ctx.trace?.context, event: ctx.event ?? getRequestEvent() }));
     },
   };
 }
@@ -1530,6 +1540,7 @@ export function renderToString(code: () => any, options: { renderId?: string; no
   };
   ctx.registerAsset = (type: string, value: unknown) => registerAssetIn(tracking, () => false, null, type, value);
   applyAssetTracking(ctx, tracking, options.manifest);
+  ctx.trace = traceOfRender(ctx);
   const record = renderRecord(ctx, "string");
   let outcome: "complete" | "error" = "error";
   try {
@@ -1706,6 +1717,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   };
   r.sink = { ...documentSink, ...options.sink } as Sink;
   r.ctx = streamContext(r, options);
+  (r.ctx as any).trace = traceOfRender(r.ctx);
   const record = renderRecord(r.ctx, "stream");
   applyAssetTracking(r.ctx, r.tracking, options.manifest);
   rendering(r, options, () => registerEntryAssets(r.ctx, options.manifest));
