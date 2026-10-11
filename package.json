@@ -1,6 +1,6 @@
 {
   "name": "@sluurp/twist",
-  "version": "0.1.0",
+  "version": "0.5.0-alpha.0",
   "description": "One runtime for React's API and Solid 2's: fine-grained DOM on signals, server rendering, streaming and hydration, React and Solid-style components in the same tree.",
   "type": "module",
   "license": "MIT",

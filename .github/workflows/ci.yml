@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # The compiler's tests, and React and Solid in one tree (the bridge tests), on the compiler built here.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Compiler tests
+        run: cargo test -p twist-compiler
+      - name: Compiler addon
+        run: node scripts/build-compiler.mjs
+      - name: Install
+        run: bun install && (cd test/bridge/libs && bun install)
+      - name: Bridge tests
+        working-directory: test/bridge
+        run: bun test
+
+  # The compiler's native addon for each platform, as Twist's npm packages ship it (one package per platform).
+  compiler:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-14
+          - os: macos-13
+          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build
+        run: node scripts/build-compiler.mjs --release
+      - name: Check it loads
+        run: node -e "import('./napi/index.js').then(m => console.log(m.compile('const A = () => <p>{x()}</p>;', 'a.tsx')))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiler-${{ matrix.os }}
+          path: napi/*.node
