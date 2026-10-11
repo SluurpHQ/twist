@@ -149,6 +149,10 @@ export function isCssUrl(url: string) {
   return (q === -1 ? url : url.slice(0, q)).endsWith(".css");
 }
 
+/** What a preload can be fetched as (browsers ignore the rest). */
+const PRELOAD_DESTINATIONS = new Set(["fetch", "font", "image", "script", "style", "track"]);
+const preloadCheck = (message: string, field: string, value: unknown) =>
+  devCheck({ code: "PRELOAD_DESCRIPTOR_INVALID", kind: "head", severity: "warn", message: "[PRELOAD_DESCRIPTOR_INVALID] " + message, data: { field, value } });
 const PRELOAD_ATTRIBUTES = ["type", "crossorigin", "integrity", "referrerpolicy", "fetchpriority", "media", "imagesrcset", "imagesizes"];
 const attrEscape = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
@@ -159,10 +163,18 @@ export function preloadLink(tracking: AssetTracking, link: any): PreloadEntry | 
     return null;
   }
   const href = typeof link.href === "string" && link.href ? link.href : null;
-  if (!href && !(typeof link.imagesrcset === "string" && link.imagesrcset)) return null;
+  if (!href && !(typeof link.imagesrcset === "string" && link.imagesrcset)) {
+    preloadCheck("a preload descriptor needs an href (or an imagesrcset): skipped", "href", link.href);
+    return null;
+  }
+  const as = link.as.toLowerCase();
+  if (!PRELOAD_DESTINATIONS.has(as)) {
+    preloadCheck(`unsupported as destination "${as}": skipped`, "as", as);
+    return null;
+  }
   const props: Record<string, string> = { rel: "preload" };
   if (href) props.href = href;
-  props.as = link.as.toLowerCase();
+  props.as = as;
   for (const name of PRELOAD_ATTRIBUTES) {
     const v = link[name];
     if (v == null || v === false) continue;

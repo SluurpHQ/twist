@@ -125,6 +125,25 @@ export function configureServerErrors(config: { onError?: ServerErrorHook }) {
   ((globalThis as any)[SERVER_ERRORS] ||= {}).hook = config ? config.onError : undefined;
 }
 
+/** How a render error was handled, as its finding says it. */
+const HANDLED: Record<string, string> = {
+  fallback: "Render error caught by <Errored>",
+  client: "Render error in a <Loading> fragment — the fragment rejected and the client re-renders it",
+  failed: "Render error outside any boundary — the request failed",
+};
+/** A render error the server contained, recorded where it was thrown (the boundary that met it beside). */
+function renderErrorFinding(value: unknown, site: ServerErrorSite, subject: unknown) {
+  const handling = site.handling as string;
+  const boundaryPath = subject ? ownerLabels(subject) : undefined;
+  const at = handling === "failed" ? null : (throwerOf(value) ?? subject ?? null);
+  const data: Record<string, unknown> = { handling, error: value };
+  if (boundaryPath) data.boundaryPath = boundaryPath;
+  if ((site as any).boundary !== undefined) data.boundary = (site as any).boundary;
+  const entry = emitDiagnostic({ code: "SSR_RENDER_ERROR_CONTAINED", kind: "ssr", severity: "error", message: `[SSR_RENDER_ERROR_CONTAINED] ${HANDLED[handling] ?? "Render error"}: ${errorText(value)}`, data }, at);
+  // (A failed render is the caller's to report: recorded only.)
+  if (IS_DEV && handling !== "failed") reportDiagnostic(entry);
+}
+
 /** Root-first component labels up an owner chain. */
 function ownerLabels(subject: any): string[] | undefined {
   if (!subject || !("parent" in subject)) return undefined;
@@ -137,6 +156,7 @@ export function reportServerError(value: unknown, site: ServerErrorSite, subject
   const verdict = verdictOf(value);
   if (verdict !== undefined && verdict.reported) return verdict.decided ? { mapped: true, value: verdict.wire } : { mapped: false, heard: true };
   if (verdict !== undefined) verdict.reported = true;
+  if (site.kind === "render") renderErrorFinding(value, site, subject);
   const target = hook ?? ambientServerErrorHook();
   if (target === undefined) return { mapped: false };
   const context: ServerErrorSite = { ...site };

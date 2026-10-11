@@ -13,7 +13,7 @@ export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
-import { commitResponseStub, deriveHead, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
+import { commitResponseStub, deriveHead, devCheck, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
 import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
@@ -347,6 +347,11 @@ export function html(v: any, inTemplate: boolean): string {
   if (typeof v.t === "string") return v.t;
   // A binding-slot value as text: the markers the client writes between.
   if (isSlotValue(v)) return v.w();
+  // Neither text, a node, a list nor something to call: skipped, and said (as the client does).
+  if (typeof v === "object" || typeof v === "symbol") {
+    if (process.env.NODE_ENV !== "production") devCheck({ code: "UNRECOGNIZED_INSERT_VALUE", kind: "render", severity: "warn", message: `[UNRECOGNIZED_INSERT_VALUE] Unrecognized value. Skipped inserting (${typeof v}).`, data: { type: typeof v, value: v } });
+    return "";
+  }
   return escape(String(v));
 }
 
@@ -1144,11 +1149,20 @@ const newHead = (): HeadRegistry => ({ groups: [], resources: [], sent: new Set(
  * stylesheets, preloads) go out as they are.
  */
 export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc[])) {
-  if (!head) return;
+  if (!head || !sharedConfig.context) {
+    if (process.env.NODE_ENV !== "production") headCheck("useHead called outside a server render: ignored", { reason: "outside-render" });
+    return;
+  }
   const list = typeof tags === "function" ? tags() : tags;
   const group: HeadGroup = { boundary: headBoundary, tags: [] };
   for (const d of Array.isArray(list) ? list : [list]) {
-    if (!d || !HEAD_TAGS.has(d.tag)) continue;
+    if (!d) continue;
+    if (!HEAD_TAGS.has(d.tag)) {
+      if (process.env.NODE_ENV !== "production") headCheck(`useHead: ignoring non-head tag <${d.tag}>`, { reason: "non-head-tag", detail: d.tag });
+      continue;
+    }
+    if (process.env.NODE_ENV !== "production")
+      for (const k of Object.keys(d.props ?? {})) if (k !== "children" && !ATTR_NAME.test(k)) headCheck(`useHead: ignoring invalid attribute name "${k}" on <${d.tag}>`, { reason: "invalid-attribute", detail: k });
     if (isResource(d)) {
       // (Its props read now: one not ready waits, under its boundary, like any read.)
       const markup = headTag(d);
@@ -1162,6 +1176,9 @@ export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc
   }
   if (group.tags.length) head.groups.push(group);
 }
+
+/** A head check's finding (dev), located by component. */
+const headCheck = (message: string, data: Record<string, unknown>) => devCheck({ code: "HEAD_TAG_INVALID", kind: "head", severity: "warn", message: "[HEAD_TAG_INVALID] " + message, data });
 
 const RAW = "\u0000raw";
 
