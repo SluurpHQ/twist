@@ -23,7 +23,7 @@ signals: no virtual DOM, no re-running components to find what changed.
 npm install @sluurp/twist
 ```
 
-A Solid-style app:
+One plugin, for every app: React apps, Solid apps, and apps with both kinds of component all run on Twist.
 
 ```js
 // vite.config.js
@@ -32,18 +32,10 @@ import twist from "@sluurp/twist/vite";
 export default { plugins: [twist()] };
 ```
 
-A React app, with Twist as its React:
-
-```js
-export default { plugins: [twist({ react: "twist" })] };
-```
-
-React's own runtime, with Solid-style components inside it (only files that import `solid-js` or `@solidjs/web` are
-compiled by Twist):
-
-```js
-export default { plugins: [twist({ react: true })] };
-```
+Each file is read for what it is. A file that imports `solid-js` or `@solidjs/web` is Solid-style, and one that imports
+`react` is React-style. A file that imports neither follows the app: React-style when its package.json lists `react`
+and not `solid-js`, Solid-style otherwise. When a file of one kind imports a component of the other, Twist adds the
+bridge that lets each render the other; an app of one kind never loads it.
 
 The `examples/` folder has three apps, all on Twist: `vite-react` (a React app), `vite-solid` (a Solid app) and
 `vite-mixed` (a Solid app that uses React-style components, with their own state and hooks).

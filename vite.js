@@ -1,12 +1,9 @@
-// Twist for Vite: Solid-style files compiled by Twist's pass (native, see napi/), and Solid's module names answered by
-// Twist (its browser build, or its server build where Vite renders on the server).
+// Twist for Vite: React apps, Solid apps, and apps with both kinds of component, all on Twist. React's module names
+// and Solid's are answered by Twist (its browser build, or its server build where Vite renders on the server);
+// Solid-style files are compiled by Twist's pass (native, see napi/).
 //
 //   import twist from "@sluurp/twist/vite";
 //   export default { plugins: [twist()] };
-//
-// `react: true`: the app has React components too (React's own); only files that import solid-js / @solidjs/web (or
-// say `@jsxImportSource solid-js`) are Twist's. `react: "twist"`: React's module names are answered by Twist as well,
-// so React components and Solid-style ones share one runtime.
 //
 // Solid libraries ship their components as JSX under the "solid" export condition, for the app to compile: that
 // condition is asked for first, and those libraries are compiled here like the app's own files (not pre-bundled).
@@ -64,33 +61,87 @@ if (import.meta.hot) import.meta.hot.accept((next) => {
   );
 }
 
+
+/** Whether a file is written React-style: it imports React. */
+const REACT_STYLE = /\bfrom\s*["'](react|react-dom)(\/[\w./-]+)?["']/;
+/** The modules a file imports (static, re-exported, dynamic). */
+const IMPORTS = /(?:\bfrom\s*|\bimport\s*\(?\s*)["']([^"']+)["']/g;
+
+/** The app's dependencies (what its package.json lists). */
+function dependencies(root) {
+  try {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    return { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
+  } catch {
+    return {};
+  }
+}
+
+/** Whether a module in node_modules is written for React: its package needs React and is not one of React's own. */
+function reactPackage(file) {
+  const at = file.lastIndexOf("/node_modules/") + 14;
+  const parts = file.slice(at).split("/");
+  const name = parts[0].startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+  if (REACT[name]) return false;
+  try {
+    const pkg = JSON.parse(readFileSync(file.slice(0, at) + name + "/package.json", "utf8"));
+    return !!{ ...pkg.dependencies, ...pkg.peerDependencies }.react;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * @param {{ react?: boolean | "twist" }} [options]
+ * Twist for every app: React's module names, Solid's and its own answered by Twist. A file is Solid-style when it
+ * imports Solid, React-style when it imports React; one that imports neither is React's when the app lists React and
+ * not Solid, else Solid's.
+ *
  * @returns {import("vite").Plugin}
  */
-export default function twist(options = {}) {
-  const mixed = !!options.react;
-  // The names Twist answers: Solid's always; React's too when it is the app's React.
-  const tables = options.react === "twist" ? [SOLID, SIGNALS, REACT] : [SOLID, SIGNALS];
+export default function twist() {
   let serving = false;
+  let reactByDefault = false;
+  const styleOf = (code) => (SOLID_STYLE.test(code) ? "solid" : REACT_STYLE.test(code) ? "react" : reactByDefault ? "react" : "solid");
+  /** Whether a file imports a component of the other kind (then the bridge is loaded with it). */
+  async function importsOther(ctx, code, id, style) {
+    for (const [, spec] of code.matchAll(IMPORTS)) {
+      if (SOLID[spec] || REACT[spec] || SIGNALS[spec]) continue;
+      const resolved = await ctx.resolve(spec, id, { skipSelf: true });
+      const file = resolved?.id.split("?")[0].replace(/\\/g, "/");
+      if (!file || !JSX_FILE.test(file) && !file.includes("/node_modules/")) continue;
+      let other;
+      if (file.includes("/node_modules/")) other = style === "solid" ? reactPackage(file) : false;
+      else {
+        try {
+          other = styleOf(readFileSync(file, "utf8")) !== style;
+        } catch {
+          other = false;
+        }
+      }
+      if (other) return true;
+    }
+    return false;
+  }
   return {
     name: "sluurp-twist",
     enforce: "pre",
     config(config) {
-      const libraries = solidLibraries(config.root ?? process.cwd());
-      const answered = options.react === "twist" ? [...OWN, ...Object.keys(REACT)] : OWN;
+      const root = config.root ?? process.cwd();
+      const deps = dependencies(root);
+      reactByDefault = !!deps.react && !deps["solid-js"];
+      const libraries = solidLibraries(root);
+      const answered = [...OWN, ...Object.keys(REACT)];
       return {
-        // Twist's JSX for the app's own files unless React is there too (then each Solid-style file says so).
-        esbuild: mixed ? { jsx: "automatic" } : { jsx: "automatic", jsxImportSource: "@sluurp/twist" },
-        // (React's own: one copy, the app's, for Twist's bridge too.)
-        resolve: { conditions: ["solid", ...defaultClientConditions], ...(options.react === true ? { dedupe: ["react", "react-dom"] } : {}) },
+        // React-style files' JSX is React's (answered by Twist); a Solid-style file says its own.
+        esbuild: { jsx: "automatic" },
+        resolve: { conditions: ["solid", ...defaultClientConditions] },
         // Twist's sources and Solid libraries' JSX are compiled as the app's, on the server too.
         optimizeDeps: { exclude: [...answered, ...libraries] },
         ssr: { noExternal: [...answered, ...libraries], resolve: { conditions: ["solid", ...defaultServerConditions] } },
       };
     },
     resolveId(id, _importer, opts) {
-      for (const table of tables) {
+      for (const table of [SOLID, SIGNALS, REACT]) {
         const file = fileFor(table, id, !!opts?.ssr);
         if (file) return file;
       }
@@ -99,19 +150,21 @@ export default function twist(options = {}) {
     configResolved(config) {
       serving = config.command === "serve";
     },
-    transform(code, id, opts) {
-      const file = id.split("?")[0];
-      if (!JSX_FILE.test(file) || file.replace(/\\/g, "/").startsWith(SRC)) return null;
-      // A library's JSX is Solid-style when it says so (it imports Solid); the app's, unless React is there too.
+    async transform(code, id, opts) {
+      const file = id.split("?")[0].replace(/\\/g, "/");
+      if (!JSX_FILE.test(file) || file.startsWith(SRC)) return null;
+      // A library's JSX is Solid-style when it says so (it imports Solid); otherwise it is left as it is.
       const library = file.includes("/node_modules/");
-      if ((library || mixed) && !SOLID_STYLE.test(code)) return null;
+      if (library && !SOLID_STYLE.test(code)) return null;
+      const style = library ? "solid" : styleOf(code);
+      // One kind importing the other: the bridge, so either can render the other (none in an app of one kind).
+      const head = !library && (await importsOther(this, code, id, style)) ? 'import "@sluurp/twist/bridge";\n' : "";
+      if (style === "react") return head ? { code: head + code, map: null } : null;
       // Hot reload: the app's own files, in the browser, while developing.
       const hot = serving && !opts?.ssr && !library;
       let out = compile(code.replace(PRAGMA, ""), file, { hot });
       if (hot && out.includes("__twist_mark(")) out = hotModule(out);
-      // With React in the app: the bridge, so either kind of component can render the other.
-      const bridge = mixed ? 'import "@sluurp/twist/bridge";\n' : "";
-      return { code: "/** @jsxImportSource @sluurp/twist */\n" + bridge + out, map: null };
+      return { code: "/** @jsxImportSource @sluurp/twist */\n" + head + out, map: null };
     },
   };
 }
