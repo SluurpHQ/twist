@@ -250,6 +250,7 @@ function templates(source: string, filename: string): string {
   function specOf(el: AnyNode, values: string[]): Spec {
     const fixed: string[] = [];
     const slots: string[] = [];
+    let mixed = false;
     for (const a of el.openingElement.attributes as AnyNode[]) {
       const name = a.name.type === "JSXIdentifier" ? (a.name.name as string) : source.slice(a.name.start, a.name.end);
       if (name === "key") continue;
@@ -258,6 +259,7 @@ function templates(source: string, filename: string): string {
         fixed.push(name, attrText(v)!);
         continue;
       }
+      if (fixed.length) mixed = true;
       slots.push(name);
       values.push(!v ? "true" : v.type === "JSXExpressionContainer" ? text(v.expression) : v.type === "Literal" ? JSON.stringify(attrText(v)) : text(v));
     }
@@ -274,7 +276,7 @@ function templates(source: string, filename: string): string {
       } else if (c.type === "JSXElement" && templatable(c)) kids.push(specOf(c, values));
       else kids.push(0), values.push(text(c));
     }
-    return [tagOf(el), fixed, slots, kids];
+    return mixed ? [tagOf(el), fixed, slots, kids, 1] : [tagOf(el), fixed, slots, kids];
   }
 
   const body = rewrite(0, source.length, program as unknown as AnyNode);

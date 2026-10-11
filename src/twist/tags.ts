@@ -7,10 +7,22 @@ export const SVG_TAGS = new Set(
 export const MATH_TAGS = new Set("math,mi,mn,mo,ms,mtext,mrow,msup,msub,mfrac,msqrt,mroot,mtable,mtr,mtd,mspace,munder,mover,munderover,semantics,annotation".split(","));
 
 /**
- * A template: `[tag, static attributes (name, value, …), attributes set at run time, children]`; a child is text, a
- * template, or 0 (a value given at run time). Values come in source order: an element's attributes, then its children.
+ * A template: `[tag, static attributes (name, value, …), attributes set at run time, children, mixed]`; a child is
+ * text, a template, or 0 (a value given at run time); `mixed` (1) when an attribute set at run time follows a static one.
+ * Values come in source order: an element's attributes, then its children.
  */
-export type Spec = [string, string[], string[], (string | Spec | 0)[]];
+export type Spec = [string, string[], string[], (string | Spec | 0)[], 1?];
+
+const holed = new WeakMap<Spec, boolean>();
+/** Whether a template has values in it, at any depth (each part's answer kept, so a fixed part is not walked). */
+export function hasHoles(spec: Spec): boolean {
+  let any = holed.get(spec);
+  if (any !== undefined) return any;
+  any = spec[2].length > 0;
+  for (const k of spec[3]) if (k === 0 || (typeof k !== "string" && hasHoles(k))) any = true;
+  holed.set(spec, any);
+  return any;
+}
 
 /** A template as the JSX it stands for: what hydration and the server build from it. */
 export function expand(spec: Spec, values: unknown[], at: { i: number }, jsx: (t: string, p: any) => any, jsxs: (t: string, p: any) => any): any {

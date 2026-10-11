@@ -9,6 +9,7 @@
     "@solidjs/signals": "2.0.0-rc.14",
     "@solidjs/web": "2.0.0-rc.14",
     "preact": "11.0.0-rc.2",
+    "preact-render-to-string": "6.8.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "solid-js": "2.0.0-rc.14"

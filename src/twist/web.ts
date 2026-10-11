@@ -31,7 +31,7 @@ import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, cal
 export * from "./control.ts";
 export * from "./response.ts";
 import { inOrder } from "../shared/in-order.ts";
-import { MATH_NS, MATH_TAGS, SVG_NS, SVG_TAGS, expand, type Spec } from "./tags.ts";
+import { MATH_NS, MATH_TAGS, SVG_NS, SVG_TAGS, expand, hasHoles, type Spec } from "./tags.ts";
 
 export { createRoot, untrack, getOwner, flatten, merge, omit };
 export const isServer = false;
@@ -96,19 +96,13 @@ function element(tag: string, props: Record<string, any>): Element {
  */
 export function __twist_t(spec: Spec) {
   let made: Node | null = null;
-  holes(spec);
+  hasHoles(spec);
   return (values: unknown[]) => {
     if (hydrating) return expand(spec, values, { i: 0 }, jsx, jsxs);
     const el = (made ??= build(spec)).cloneNode(true) as Element;
     fill(el, spec, values, { i: 0 });
     return el;
   };
-}
-/** Whether a template has values below it (kept as its fifth entry, so a fixed part is not walked). */
-function holes(spec: Spec): boolean {
-  let any = spec[2].length > 0;
-  for (const k of spec[3]) if (k === 0 || (typeof k !== "string" && holes(k))) any = true;
-  return ((spec as any)[4] = any);
 }
 function build([tag, fixed, , kids]: Spec): Element {
   const el = document.createElement(tag);
@@ -127,7 +121,7 @@ function fill(el: Element, spec: Spec, values: unknown[], at: { i: number }) {
       continue;
     }
     if (run) insertHosted(el, run.length === 1 ? run[0] : run, node), (run = null);
-    if (typeof k !== "string" && (k as any)[4]) fill(node as Element, k, values, at);
+    if (typeof k !== "string" && hasHoles(k)) fill(node as Element, k, values, at);
     node = node!.nextSibling;
   }
   if (run) insertHosted(el, run.length === 1 ? run[0] : run, null);

@@ -11,6 +11,7 @@
         "@solidjs/signals": "2.0.0-rc.14",
         "@solidjs/web": "2.0.0-rc.14",
         "preact": "11.0.0-rc.2",
+        "preact-render-to-string": "6.8.0",
         "react": "19.3.0",
         "react-dom": "19.3.0",
         "solid-js": "2.0.0-rc.14",
@@ -129,6 +130,8 @@
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 
     "preact": ["preact@11.0.0-rc.2", "", { "peerDependencies": { "preact-render-to-string": ">=6.7.0" }, "optionalPeers": ["preact-render-to-string"] }, "sha512-pXZc/lFB2lCnI0ZM3ceuA+9EAGhNV/v48rgUsrh0+kxTOi9CPCkAImX9AhPi8fXg5M2J2gzT/XHxXq4RlwjDOA=="],
+
+    "preact-render-to-string": ["preact-render-to-string@6.8.0", "", { "peerDependencies": { "preact": ">=10 || >= 11.0.0-0" } }, "sha512-2qiMrReQz+MZ5+/bT27kbVnFE7QNCC2fku/Tnc2H5bFUS3I3ASbRy0q72XLZ+2p2KyDE5xMfvSEtkmVo6TRNyA=="],
 
     "react": ["react@19.3.0", "", {}, "sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog=="],
 

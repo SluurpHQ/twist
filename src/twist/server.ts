@@ -18,7 +18,7 @@ import { reportServerError, ssrSanitizeError } from "./request.ts";
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
 import { getProjectionTrace } from "./container-trace.ts";
 import { shareAsyncIterable } from "./server-internal.ts";
-import { expand, type Spec } from "./tags.ts";
+import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, serializeFragmentAssets, type AssetTracking } from "./server-assets.ts";
@@ -54,8 +54,35 @@ type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string,
 
 export const Fragment = (props: { children?: unknown }) => props.children;
 
-/** A compiled template: on the server, the JSX it stands for. */
-export const __twist_t = (spec: Spec) => (values: unknown[]) => expand(spec, values, { i: 0 }, jsx, jsxs);
+/**
+ * A compiled template on the server: the element the JSX stands for, its static attributes rendered once and each
+ * fixed part as its HTML (rendered the first time). Static attributes after one set at run time: the JSX itself, so
+ * attributes keep their order.
+ */
+export const __twist_t = (spec: Spec) => (values: unknown[]) => described(spec, values, { i: 0 });
+const fixedAttrs = new WeakMap<Spec, string>();
+const fixedHtml = new WeakMap<Spec, { t: string }>();
+function described(spec: Spec, values: unknown[], at: { i: number }): any {
+  if (spec[4]) return expand(spec, values, at, jsx, jsxs);
+  const [tag, fixed, slots, kids] = spec;
+  const props: Record<string, any> = {};
+  for (const name of slots) props[name] = values[at.i++];
+  const children = kids.map((k) => (k === 0 ? values[at.i++] : typeof k === "string" ? k : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
+  if (children.length > 1) ((children as any)[OWN] = true), (props.children = children);
+  else if (children.length) props.children = children[0];
+  let attrs = fixedAttrs.get(spec);
+  if (attrs === undefined) {
+    attrs = "";
+    for (let i = 0; i < fixed.length; i += 2) attrs += ssrAttribute(fixed[i]!, fixed[i + 1]);
+    fixedAttrs.set(spec, attrs);
+  }
+  return { [EL]: true, tag, props, attrs } as Element_;
+}
+function fixedPart(spec: Spec): { t: string } {
+  let part = fixedHtml.get(spec);
+  if (!part) fixedHtml.set(spec, (part = { t: element(described(spec, [], { i: 0 }), false) }));
+  return part;
+}
 
 export function jsx(type: any, props: Record<string, any>): any {
   if (type === Fragment) return props.children;
@@ -1194,7 +1221,8 @@ function winners(groups: HeadGroup[]): HeadDesc[] {
 
 /** The head's slot filled: the shell's tags (and its resources). Waiting when `wait`: a tag not ready holds it. */
 function fillHead(shell: string, h: HeadRegistry, wait: boolean): string | Promise<string> {
-  if (!shell.includes(HEAD_SLOT)) return shell;
+  // (The slot is written with the head: none, nothing to look for in the page.)
+  if (!h.placed || !shell.includes(HEAD_SLOT)) return shell;
   try {
     const tags = winners(h.groups.filter((g) => g.boundary === "")).map(headTag);
     return shell.replace(HEAD_SLOT, () => h.resources.join("") + tags.join(""));
@@ -1312,7 +1340,9 @@ export function renderToString(code: () => any, options: { renderId?: string; no
       return createRoot(
         (dispose) => {
           try {
-            const out = withHeadAssets(fillHead(html(code(), false), head!, false) as string, tracking, options.nonce);
+            // (No head rendered: no page to look through for one.)
+            const page = fillHead(html(code(), false), head!, false) as string;
+            const out = head!.placed ? withHeadAssets(page, tracking, options.nonce) : page;
             return data ? out + `<script>${headerScript(options.renderId)}${data}</script>` : out;
           } catch (e) {
             // A render that fails: the hook hears it (the request fails), then the caller.
