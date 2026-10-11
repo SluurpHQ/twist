@@ -403,6 +403,75 @@ let serverAnswers: Map<string, [boolean, unknown]> | null = null;
 export const setServerAnswers = (m: Map<string, [boolean, unknown]> | null) => void (serverAnswers = m);
 /** Told of each async node's answer as a server render asks for it (to send it to the client). */
 let serverFly: ((node: unknown, answer: unknown) => void) | null = null;
+
+type Tee<T> = [AsyncIterable<T>, AsyncIterable<T>, () => void];
+/** An answer that may be a source: the stream stays open until the source has ended, not only until it answered. */
+export const SOURCE_ANSWER = Symbol("twist.source-answer");
+const sourceAnswer = <P extends object>(p: P) => (((p as any)[SOURCE_ANSWER] = true), p);
+/** A source an async answer gave, split once: the same split however many passes read it. */
+const sourceTees = new WeakMap<object, Tee<any>>();
+const teeOf = (v: AsyncIterable<any>) => {
+  let t = sourceTees.get(v);
+  if (!t) sourceTees.set(v, (t = teeSource(v)));
+  return t;
+};
+/**
+ * Two readers of one async source: each value kept for the reader behind, the source asked once per value. A reader
+ * let go of stops reading; the source is returned when both are, or when `close` is called.
+ */
+export function teeSource<T>(source: AsyncIterable<T>): Tee<T> {
+  const it = source[Symbol.asyncIterator]();
+  const kept: { r?: IteratorResult<T>; e?: unknown }[][] = [[], []];
+  const gone = [false, false];
+  let asking: Promise<void> | null = null;
+  let ended = false;
+  const ask = () =>
+    (asking ??= Promise.resolve(it.next()).then(
+      (r) => {
+        asking = null;
+        if (r.done) ended = true;
+        for (let i = 0; i < 2; i++) if (!gone[i]) kept[i]!.push({ r });
+      },
+      (e) => {
+        asking = null;
+        ended = true;
+        for (let i = 0; i < 2; i++) if (!gone[i]) kept[i]!.push({ e });
+      },
+    ));
+  const close = () => {
+    gone[0] = gone[1] = true;
+    if (ended) return;
+    ended = true;
+    try {
+      void Promise.resolve(it.return?.()).catch(noop);
+    } catch {
+      // (A source whose return throws: let go of all the same.)
+    }
+  };
+  const reader = (i: number): AsyncIterable<T> => {
+    const self: AsyncIterator<T> & AsyncIterable<T> = {
+      [Symbol.asyncIterator]: () => self,
+      async next() {
+        while (!kept[i]!.length) {
+          if (gone[i] || (ended && !asking)) return { done: true, value: undefined };
+          await ask();
+        }
+        const k = kept[i]!.shift()!;
+        if ("e" in k) throw k.e;
+        return k.r!;
+      },
+      async return(value?: any) {
+        gone[i] = true;
+        kept[i]!.length = 0;
+        if (gone[0] && gone[1]) close();
+        return { done: true, value };
+      },
+    };
+    return self;
+  };
+  // (The client's reader: what the stream stays open for, see awaitData.)
+  return [reader(0), sourceAnswer(reader(1)), close];
+}
 export const setServerFly = (fn: typeof serverFly) => void (serverFly = fn);
 
 /** What a not-ready read waits on: the flight of the node it read, upstream of it, or nothing known. */
@@ -1122,11 +1191,11 @@ export class Computation<T> extends Node<T> implements Owner {
    * An answer still to come: in flight until it lands. A thenable that answers while `then` is called (a sync
    * thenable) is not in flight at all: its value is taken at once.
    */
-  fly(p: PromiseLike<T>) {
+  fly(p: PromiseLike<T>, streamed = false) {
     // On a server, a promise already settled answers at once (a render tried again reads what landed).
     const answers = serverAnswers;
     const id = (this as any).id as string | undefined;
-    const known = serverRender ? answered.get(p as object) ?? (answers && id != null ? answers.get(id) : undefined) : undefined;
+    const known = serverRender && !streamed ? answered.get(p as object) ?? (answers && id != null ? answers.get(id) : undefined) : undefined;
     if (known) {
       if (serverFly) {
         // (A failure sent as a rejected promise, handled here so nothing reports it as unhandled.)
@@ -1134,9 +1203,20 @@ export class Computation<T> extends Node<T> implements Owner {
         failed?.catch(noop);
         serverFly(this, failed ?? known[1]);
       }
+      // (A source answered on an earlier pass: read as the stream it is, its client reader sent then.)
+      const tee = !streamed && known[0] && known[1] && typeof known[1] === "object" ? sourceTees.get(known[1] as object) : undefined;
+      if (tee) return this.serverStream(known[1] as any, tee);
       return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
     }
-    if (serverRender) serverFly?.(this, p);
+    // (On a server, an answer that is an async source streams: split now, the client's reader sent in its place.)
+    // (A derived store's answer is reconciled into it: sent as it is.)
+    if (serverRender && !streamed && (this as any).writes) serverFly?.(this, p);
+    else if (serverRender && !streamed) {
+      const answer = sourceAnswer(Promise.resolve(p).then((v: any) => (v && typeof v[Symbol.asyncIterator] === "function" ? teeOf(v)[1] : v)));
+      // (Its failure is the flight's, handled there: this copy is only what the client is sent.)
+      answer.catch(noop);
+      serverFly?.(this, answer);
+    }
     const flight = {};
     this.streaming = false;
     this.settles = serverRender
@@ -1177,18 +1257,25 @@ export class Computation<T> extends Node<T> implements Owner {
    * On a server, an async iterable answers with its first value. Rendering a response that stays open (a frame's: its
    * context commits), the values after it are taken too, each a commit the response sends on.
    */
-  serverStream(iterable: AsyncIterable<T>) {
-    const it = iterable[Symbol.asyncIterator]();
+  serverStream(iterable: AsyncIterable<T>, tee?: Tee<T>) {
     const ctx = sharedConfig.context as any;
-    const first = it.next();
-    const close = () => void Promise.resolve(it.return?.()).catch(noop);
-    this.closeStream = close;
     // As Solid reads a source on a server: in a live server component, or declared live outside a pumping scope, the
     // first value and the source closed (the client connects for the rest); in a server component of a response that
-    // stays open, every value, each a commit.
+    // stays open, every value, each a commit; else the first value here, every value to the client.
     const scoped = !!this.context?.[SERVER_COMPONENT_SCOPE];
     const liveScope = !!this.context?.[LIVE_SERVER_COMPONENT_SCOPE];
     const pumps = !!ctx?.commit && scoped && !liveScope;
+    // (A derived store's generator keeps its own way: its values are reconciled into the store, not sent as a source.)
+    const live = liveScope || pumps || !!(iterable as any)[LIVE_SOURCE] || !!(this as any).writes;
+    // (A plain one: two readers of the source, this render's and the client's. Already split when a promise answered
+    // with it: the client's reader went out then.)
+    const sent = !!tee;
+    const split = live ? null : (tee ?? teeSource(iterable));
+    if (live && tee) void tee[1][Symbol.asyncIterator]().return?.();
+    const it = (split ? split[0] : (tee?.[0] ?? iterable))[Symbol.asyncIterator]();
+    const first = it.next();
+    const close = () => void Promise.resolve(it.return?.()).catch(noop);
+    this.closeStream = split ? () => (close(), split[2]()) : close;
     if (liveScope || ((iterable as any)[LIVE_SOURCE] && !pumps)) {
       first.then((r) => !r.done && close(), noop);
       return this.fly(first.then((r: IteratorResult<T>) => r.value));
@@ -1210,8 +1297,14 @@ export class Computation<T> extends Node<T> implements Owner {
           (e) => !this.disposed && (this.fail(e), ctx.commit(), release()),
         );
       first.then((r) => (r.done || this.disposed ? release() : pump()), release);
+      return this.fly(first.then((r: IteratorResult<T>) => r.value));
     }
-    return this.fly(first.then((r: IteratorResult<T>) => r.value));
+    // (Not split: read as before, its first value the answer.)
+    if (!split) return this.fly(first.then((r: IteratorResult<T>) => r.value));
+    // The client gets every value (its reader is the hydration record); this render, the first.
+    if (!sent) serverFly?.(this, split[1]);
+    first.then(close, noop);
+    return this.fly(first.then((r: IteratorResult<T>) => r.value), true);
   }
   /** Lets go of the iterator a stream reads (when it is disposed). */
   declare closeStream: (() => void) | null;
@@ -1276,6 +1369,9 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.kind !== MEMO) handleError(this, e);
   }
   land(v: T) {
+    // (A source split for a server render: read as its stream, in that render.)
+    const tee = v && typeof v === "object" ? sourceTees.get(v as object) : undefined;
+    if (tee) return void (this.scope ? this.scope.enter(() => this.serverStream(v as any, tee)) : this.serverStream(v as any, tee));
     this.flight = null;
     flights.delete(this);
     landings.push([this, v]);
@@ -1657,7 +1753,6 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     let holds = false;
     let joins: Transaction | null = null;
     const revealed: Computation<any>[] = [];
-    if (process.env.TWDBG) console.log("SETTLE n", n.constructor.name, [...below].map((c) => [c.kind, c.order, c.applied !== NONE, c.kind === MEMO && rendered(c), c.born === flushes, c.sources.map((x) => (x instanceof Computation ? (x.flight ? "F" : "c") + x.order + (c.before.includes(x) ? "b" : "") : "s")).join(",")]));
     for (const c of below) {
       if (c.tx) joins = c.tx.root;
       if (c.flight && c.ready && !c.loadingWindow && (c.kind !== MEMO ? !hidden(c) : rendered(c))) holds = true;
@@ -1677,7 +1772,6 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       }
     const by = (n as any).writtenIn as Transaction | null;
     if (by && !by.done) joins = by.root;
-    if (process.env.TWDBG) console.log("HOLDS", holds, !!joins, revealed.map((x) => [x.order, heldFlight(x), x.loadingWindow, x.streaming]));
     if (!holds && !joins) continue;
     const t: Transaction = joins ?? (tx ??= newTransaction());
     setTx(t);

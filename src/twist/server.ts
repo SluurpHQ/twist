@@ -1,7 +1,7 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
-import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack } from "./signals.ts";
+import { childIdCount, setChildIdCount, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack, SOURCE_ANSWER } from "./signals.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { createHydrationSerializer } from "./serialization.ts";
@@ -1309,15 +1309,31 @@ function sendAnswer(node: any, answer: unknown) {
   const id = node?.id as string | undefined;
   if (!r?.serializer || id == null || isNoHydration() || !sharedConfig.context || r.written.has(id)) return;
   r.written.add(id);
-  awaitData(r, answer);
-  r.serializer.write(id, answer);
+  r.serializer.write(id, awaitData(r, answer));
 }
-/** A value still to come: the stream stays open until it has been written (or failed to be). */
-function awaitData(r: Render, v: unknown) {
-  if (!v || typeof (v as any).then !== "function") return;
+/** A value still to come (a promise, or an async source's values): the stream stays open until it has all been written. */
+function awaitData<V>(r: Render, v: V): V {
+  if (!isData(v)) return v;
   r.pendingData++;
-  const done = () => queueMicrotask(() => (r.pendingData--, r.wake?.()));
-  (v as Promise<unknown>).then(done, done);
+  let open = true;
+  const done = () => open && ((open = false), queueMicrotask(() => (r.pendingData--, r.wake?.())));
+  // (A promise as it is, the serializer's to write; one that answers with a source, held until that ends.)
+  if (typeof (v as any).then === "function" && !(v as any)[SOURCE_ANSWER]) return (v as any).then(done, done), v;
+  return held(v, done);
+}
+// (A source counts only when it is the client's reader of one Twist split: anything else goes to the serializer as it is.)
+const isData = (v: any) => !!v && (typeof v.then === "function" || (typeof v[Symbol.asyncIterator] === "function" && !!v[SOURCE_ANSWER]));
+/** `v` with `done` called once it has all come: a promise when it settles (or, answering with a source, when that ends). */
+function held(v: any, done: () => void): any {
+  if (typeof v.then === "function") return v.then((x: any) => (x && typeof x[Symbol.asyncIterator] === "function" ? held(x, done) : (done(), x)), (e: unknown) => (done(), Promise.reject(e)));
+  // (A source: done when it ends, fails or is let go of. Only the iterator method shows: what is serialized is the
+  // source, not its reader's methods.)
+  const it = v[Symbol.asyncIterator]();
+  const reader = {
+    next: (...a: any[]) => Promise.resolve(it.next(...a)).then((x: IteratorResult<unknown>) => (x.done && done(), x), (e: unknown) => (done(), Promise.reject(e))),
+    return: (x?: unknown) => (done(), it.return ? it.return(x) : Promise.resolve({ done: true, value: x })),
+  };
+  return { [Symbol.asyncIterator]: () => reader };
 }
 
 /** The data not yet sent, as a script (the scope's header ahead of the first). */
@@ -1441,8 +1457,7 @@ function streamContext(r: Render, options: StreamOptions) {
     serialize(id: string, p: unknown, deferStream?: boolean) {
       if (!r.serializer) return;
       if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add(p as Promise<unknown>);
-      awaitData(r, p);
-      r.serializer.write(id, p);
+      r.serializer.write(id, awaitData(r, p));
     },
     block(p: Promise<unknown>) {
       if (!r.shellSent) r.blocks.add(p);
