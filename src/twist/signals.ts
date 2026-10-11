@@ -139,6 +139,7 @@ class Root implements Owner {
     this.context = parent?.context ?? null;
     if (parent) parent.owned ? parent.owned.push(this) : (parent.owned = [this]);
     if (options?.transparent) this.transparent = true;
+    if (serverRender) (this as any).renderCtx = sharedConfig.context;
     if (options?.id != null) this.id = options.id;
     else giveId(this, parent);
     ownerCreations++;
@@ -336,6 +337,14 @@ const noop = () => {};
 
 /** Rendering on a server: promises that settled are remembered, and read again they answer at once. */
 let serverRender = false;
+/** The server render an owner was made in (its context), found up its chain; null with none. */
+export function renderContextOf(o: Owner | null): any {
+  for (; o; o = o.parent) {
+    const c = (o as any).renderCtx;
+    if (c) return c;
+  }
+  return null;
+}
 const answered = new WeakMap<object, [boolean, unknown]>();
 /** Server mode on or off; answers what it was. */
 const SERVER_COMPONENT_SCOPE = Symbol.for("twist.ssr.server-component");

@@ -825,6 +825,7 @@ export function Loading(props: { fallback?: any; children?: any }) {
     const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
     if (!r || !r.async || !waits || id == null) return { t: fallback };
     const collapse = !!reg?.collapseFallback;
+    let passes = 0;
     const retry = (p: Promise<void>) => {
       r.waiting.add(p);
       p.then(() => {
@@ -856,6 +857,8 @@ export function Loading(props: { fallback?: any; children?: any }) {
           else r.sink.fragment(id!, content, { styles: collectStreamStyles(id!, r.tracking, r.headStyles), patch, revealGroup: group?.id });
           group?.onResolved(id!);
         } catch (e2) {
+          // (A pass that never stops waiting on something new: given up after a budget of passes, as an error.)
+          if (e2 instanceof NotReadyError && ++passes >= CONVERGE_BUDGET) e2 = new Error(`<Loading> did not converge: still waiting after ${passes} passes`);
           const next = e2 instanceof NotReadyError && settlesOf(e2);
           if (!next) {
             // A real error retrying: the boundary's record fails with it (the stream goes on).
@@ -875,6 +878,9 @@ export function Loading(props: { fallback?: any; children?: any }) {
     return { t: placeholder(id, fallback, collapse) };
   }
 }
+
+/** The passes a Loading boundary's content gets to stop waiting before it fails. */
+const CONVERGE_BUDGET = 100;
 
 /** The boundary's fragment record: settles once its content has been sent (the client hydrates it then). */
 function boundaryRecord(r: Render, boundary: object, id: string) {
@@ -1314,7 +1320,6 @@ function takeData(r: Render): string {
 }
 
 function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?: boolean }, fn: () => T): T {
-  const was = sharedConfig.context;
   const wasRender = render;
   sharedConfig.context = options.noHydrate ? null : (r?.ctx ?? stringCtx ?? stringContext(options.renderId ?? ""));
   render = r;
@@ -1329,7 +1334,7 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   } finally {
     setServerScope(wasScope);
     setServerRender(wasServer);
-    sharedConfig.context = was;
+    // (The context stays the global one: whichever render touched it last, as Solid leaves it.)
     render = wasRender;
     head = wasHead;
     setServerAnswers(wasRender?.answers ?? null);

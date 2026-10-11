@@ -1,7 +1,7 @@
 // Solid's API as it runs on a server: the same core, but effects are one render pass. A render effect computes and
 // applies once; createEffect only computes; tracked effects and onSettled only take their ids (the client's tree has
 // them, so hydration ids line up).
-import { createMemo, createOwner, getNextChildId, getOwner, NotReadyError, onCleanup, peekNextChildId, resetOwner, runWithOwner, settlesOf, sharedConfig, untrack } from "./signals.ts";
+import { createMemo, createOwner, getNextChildId, getOwner, NotReadyError, onCleanup, peekNextChildId, resetOwner, runWithOwner, settlesOf, sharedConfig, untrack, renderContextOf } from "./signals.ts";
 import { __twist_mark } from "./control.ts";
 import { isNoHydration } from "./server.ts";
 
@@ -129,7 +129,8 @@ export function lazy<P>(fn: () => Promise<any>, options?: { export?: string }, m
   };
   wrap.preload = () => {
     const cur = load();
-    const ctx = sharedConfig.context as any;
+    // (The render of the owner it runs under: none without one.)
+    const ctx = renderContextOf(getOwner());
     if (!ctx?.resolveAssets || !ctx.registerAsset) return cur;
     const noHydrate = isNoHydration();
     const hint = (id: string) => resolveLazyAssets(ctx, id, (a) => hintAssets(ctx, a, noHydrate));
@@ -140,7 +141,20 @@ export function lazy<P>(fn: () => Promise<any>, options?: { export?: string }, m
   };
   const marked: any = __twist_mark(wrap);
   marked.preload = wrap.preload;
-  marked.moduleUrl = moduleUrl;
+  // Its module's client URL in the render of the owner it is read under (that render hinted to load it), else as given.
+  Object.defineProperty(marked, "moduleUrl", {
+    enumerable: true,
+    get() {
+      const ctx = renderContextOf(getOwner());
+      if (!moduleUrl || !ctx?.resolveAssets || !ctx.registerAsset) return moduleUrl;
+      let url: string | undefined;
+      resolveLazyAssets(ctx, moduleUrl, (a) => {
+        hintAssets(ctx, a, isNoHydration());
+        url = a?.js?.[0];
+      });
+      return url ?? moduleUrl;
+    },
+  });
   return marked as ((props: P) => any) & { preload: () => Promise<any>; moduleUrl?: string };
 }
 const noopFn = () => {};
