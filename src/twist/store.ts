@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, onTake, NotReadyError, isServerRender, type Transaction, useStoreMarks } from "./signals.ts";
 import { registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -588,7 +588,7 @@ const derives = new WeakMap<object, () => unknown>();
 function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: StoreOptions | undefined, writable: boolean): [T, StoreSetter<T>] {
   const target = unwrap(seed) as Raw;
   if (options?.shallow) markShallow(target);
-  const key = options?.key ?? "id";
+  const key = options && "key" in options ? (options.key ?? null) : "id";
   // On a server, a projection's trace (what crosses a frame's border): told of each change, and of its source's end.
   const traced = !writable && isServerRender();
   let streaming = false;
@@ -622,8 +622,23 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     // An async derive's answers are reconciled as they land (onTake, below): the memo flies on its promise or generator.
     if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return r;
     if (r !== undefined) {
-      if (unwrap(r) !== r) linkFamily(target, unwrap(r) as Raw);
-      reconcileInto(target, unwrap(r) as Raw, key);
+      // Another store: followed live (its changes reconciled in as they come, by a follower this run owns).
+      if (unwrap(r) !== r) {
+        const source = unwrap(r) as Raw;
+        linkFamily(target, source);
+        // (An effect: it runs whenever the source changes, read or not.)
+        createEffect(
+          () => {
+            trackDeep(r);
+            const mine = new Set(dirtyRecords);
+            // (As it shows now: a write staged this flush included.)
+            untrack(() => reconcileInto(target, plain(source, new Map()), key));
+            promoteWrites(mine);
+            return 0;
+          },
+          () => {},
+        );
+      } else into(target, unwrap(r) as Raw, key);
     }
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
@@ -637,7 +652,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     if (v === undefined || typeof v === "number") return;
     const before = new Set(dirtyRecords);
     if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
-    reconcileInto(target, unwrap(v) as Raw, key);
+    into(target, unwrap(v) as Raw, key);
     promoteWrites(before);
   });
   const proxy = new Proxy(target, {
@@ -694,7 +709,7 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
     const next = unwrap(value) as any;
     // The same record, or none: a different key at the top is not a diff of this one.
     if (key != null && isWrappable(target) && isWrappable(next) && !Array.isArray(target) && !Array.isArray(next) && keyOf(key, target) !== keyOf(key, next))
-      throw new Error("reconcile: the value's key differs from the target's");
+      throw new Error("reconcile: the value has a different identity from the target (its key differs)");
     const before = new Set(dirtyRecords);
     reconcileInto(target, next, key);
     // A reconcile's diff is visible as it returns.
@@ -709,7 +724,14 @@ const RECONCILE = Symbol("reconcile");
 
 const keyOf = (key: string | ((v: any) => any) | null, v: any) => (key == null || v == null || typeof v !== "object" ? v : typeof key === "function" ? key(v) : v[key]);
 
-function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) | null) {
+/** A derive's answer into its store: another entity at the root (its key differs) replaces the children, not merged. */
+function into(target: Raw, next: Raw, key: string | ((v: any) => any) | null) {
+  const other = key != null && !Array.isArray(target) && isWrappable(next) && !Array.isArray(next) && Reflect.ownKeys(target).length > 0 && keyOf(key, target) !== keyOf(key, next);
+  reconcileInto(target, next, key, other);
+}
+
+/** `next` diffed into `target`; `fresh`: its values put in as they are (nothing merged into what was there). */
+function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) | null, fresh = false) {
   const d = draftOf(target);
   if (Array.isArray(target) && Array.isArray(next)) {
     const old = untrack(() => [...(d as any[])].map(unwrap));
@@ -730,7 +752,7 @@ function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) |
   for (const k of Reflect.ownKeys(next)) {
     const n = unwrap(next[k as any]);
     const o = unwrap(pendingValue(target, k));
-    if (isWrappable(o) && isWrappable(n) && o !== n && (Array.isArray(o) === Array.isArray(n)) && (key == null || keyOf(key, o) === keyOf(key, n))) reconcileInto(o, n, key);
+    if (!fresh && isWrappable(o) && isWrappable(n) && o !== n && (Array.isArray(o) === Array.isArray(n)) && (key == null || keyOf(key, o) === keyOf(key, n))) reconcileInto(o, n, key);
     else d[k] = n;
   }
 }
@@ -749,6 +771,8 @@ function rawOf(v: any, seen: Map<any, any>): any {
   const t = unwrap(v);
   if (!t || typeof t !== "object") return t;
   if (seen.has(t)) return seen.get(t);
+  // (A projection following another store is rewritten as that one changes: copied, so the snapshot stays as it was.)
+  if (derivedFrom.has(t)) return plain(t, seen);
   seen.set(t, t);
   let copy: any = null;
   for (const k of Reflect.ownKeys(t)) {
@@ -778,13 +802,14 @@ function plain(v: any, seen: Map<any, any>): any {
 
 /** Every property read (so any nested change re-runs the reader), answered as a plain snapshot. */
 export function deep<T>(v: T): T {
-  const visit = (x: any, seen: Set<any>) => {
-    if (!x || typeof x !== "object" || seen.has(x)) return;
-    seen.add(x);
-    for (const k of Reflect.ownKeys(x)) visit(x[k], seen);
-  };
-  visit(v, new Set());
+  trackDeep(v);
   return snapshot(v);
+}
+/** Every property of a store read (its keys too), at any depth: a change anywhere in it runs the reader again. */
+function trackDeep(v: any, seen = new Set<any>()) {
+  if (!v || typeof v !== "object" || seen.has(v)) return;
+  seen.add(v);
+  for (const k of Reflect.ownKeys(v)) trackDeep(v[k], seen);
 }
 
 
