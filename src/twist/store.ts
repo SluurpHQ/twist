@@ -293,9 +293,9 @@ const readHandler: ProxyHandler<Raw> = {
   },
   getOwnPropertyDescriptor(target, key) {
     const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
-    if (o) return o.v === DELETE ? undefined : { value: leaf(target, key, o.v), writable: true, enumerable: true, configurable: true };
+    if (o) return o.v === DELETE ? undefined : shownDesc(target, key, leaf(target, key, o.v));
     const n = seenStaged(target, key);
-    if (n) return n.raw === DELETE ? undefined : { value: leaf(target, key, n.raw), writable: true, enumerable: true, configurable: true };
+    if (n) return n.raw === DELETE ? undefined : shownDesc(target, key, leaf(target, key, n.raw));
     const desc = Reflect.getOwnPropertyDescriptor(target, key);
     if (!desc || desc.get || !desc.configurable) return desc;
     return { ...desc, value: leaf(target, key, desc.value) };
@@ -306,6 +306,12 @@ const readHandler: ProxyHandler<Raw> = {
   deleteProperty: (t, k) => !frozen(t, k),
   defineProperty: (t, k) => !frozen(t, k),
 };
+
+/** A shown value's descriptor, as a proxy may report it: one the target declares non-configurable (an array's length) stays so. */
+function shownDesc(target: Raw, key: PropertyKey, value: unknown): PropertyDescriptor {
+  const d = Reflect.getOwnPropertyDescriptor(target, key);
+  return { value, writable: true, enumerable: d ? d.enumerable : true, configurable: d ? d.configurable : true };
+}
 
 /** Whether `key` cannot change on `target` (non-configurable, and non-writable or a different value). */
 function frozen(target: Raw, key: PropertyKey, value?: unknown): boolean {
@@ -491,7 +497,7 @@ const draftHandler: ProxyHandler<Raw> = {
     if (!pendingHas(target, key)) return undefined;
     const base = Reflect.getOwnPropertyDescriptor(target, key);
     if (base?.get || base?.set) return base;
-    return { value: pendingValue(target, key), writable: true, enumerable: base?.enumerable ?? true, configurable: true };
+    return shownDesc(target, key, pendingValue(target, key));
   },
   set(target, key, value) {
     // (No reaching the prototype through a draft: __proto__ is not written; constructor and prototype are plain keys.)
@@ -537,10 +543,9 @@ function draftOf<T>(v: T): T {
 }
 
 /** A setter's return value replaces the target's contents (a shallow diff: keys gone are removed). */
-function replaceInto(target: Raw, next: any) {
+function replaceInto(target: Raw, next: any, d: any = draftOf(target)) {
   const raw = unwrap(next);
   if (raw === target || !isWrappable(raw)) return;
-  const d = draftOf(target);
   if (Array.isArray(target)) {
     for (let i = 0; i < raw.length; i++) d[i] = raw[i];
     d.length = raw.length;
@@ -784,8 +789,11 @@ const snapshots = new WeakMap<object, { at: number; value: any }>();
 /** A plain copy of a store's committed state, untracked (the same copy while nothing in it changed). */
 export function snapshot<T>(v: T): T {
   // Nothing optimistic shown: the committed objects themselves (unchanged data keeps its identity).
+  const t = unwrap(v);
+  // (An optimistic draft: what it shows, this tick's guesses over the view.)
+  if (t && typeof t === "object" && guessDrafts.get(t) === v) return untrack(() => plain(t, new Map(), guessKeys, guessGet));
   if (!liveOverlays) return rawOf(v, new Map());
-  return untrack(() => plain(unwrap(v), new Map())) as T;
+  return untrack(() => plain(t, new Map())) as T;
 }
 
 /** The objects under a value's store proxies, at any depth: one holding a proxy copied with it unwrapped, the rest as they are. */
@@ -809,15 +817,15 @@ function rawOf(v: any, seen: Map<any, any>): any {
   return copy ?? t;
 }
 
-function plain(v: any, seen: Map<any, any>): any {
+function plain(v: any, seen: Map<any, any>, keys = viewKeys, get = viewGet): any {
   if (!isWrappable(v)) return v;
   if (seen.has(v)) return seen.get(v);
   const out: any = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
   seen.set(v, out);
-  for (const k of viewKeys(v)) {
+  for (const k of keys(v)) {
     const desc = Object.getOwnPropertyDescriptor(v, k);
     if (desc?.get) Object.defineProperty(out, k, desc);
-    else out[k] = plain(unwrap(viewGet(v, k)), seen);
+    else out[k] = plain(unwrap(get(v, k)), seen, keys, get);
   }
   return out;
 }
@@ -845,6 +853,16 @@ function guessGet(target: Raw, key: PropertyKey): any {
     return v === DELETE ? undefined : v;
   }
   return viewGet(target, key);
+}
+function guessKeys(target: Raw): (string | symbol)[] {
+  const keys = new Set<string | symbol>(viewKeys(target));
+  const g = records.get(target)?.guessing;
+  if (g) for (const [k, v] of g) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+  if (Array.isArray(target)) {
+    const len = guessGet(target, "length");
+    for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
+  }
+  return [...keys];
 }
 function guessHas(target: Raw, key: PropertyKey): boolean {
   const g = records.get(target)?.guessing;
@@ -923,19 +941,10 @@ const guessHandler: ProxyHandler<Raw> = {
     return guessDraftOf(v);
   },
   has: (target, key) => guessHas(target, key),
-  ownKeys(target) {
-    const keys = new Set<string | symbol>(viewKeys(target));
-    const g = records.get(target)?.guessing;
-    if (g) for (const [k, v] of g) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
-    if (Array.isArray(target)) {
-      const len = guessGet(target, "length");
-      for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
-    }
-    return [...keys];
-  },
+  ownKeys: (target) => guessKeys(target),
   getOwnPropertyDescriptor(target, key) {
     if (!guessHas(target, key)) return undefined;
-    return { value: guessGet(target, key), writable: true, enumerable: true, configurable: true };
+    return shownDesc(target, key, guessGet(target, key));
   },
   set(target, key, value) {
     const raw = unwrap(value);
@@ -984,11 +993,7 @@ export function createOptimisticStore<T extends object>(init: T | ((draft: T) =>
     const d = guessDraftOf(target);
     if (typeof fn === "function") {
       const r = (fn as (d: T) => T | void)(d as T);
-      if (r !== undefined && r !== d) {
-        const raw = unwrap(r) as Raw;
-        for (const k of Reflect.ownKeys(d)) if (!(k in raw)) delete (d as any)[k];
-        for (const k of Reflect.ownKeys(raw)) (d as any)[k] = raw[k as any];
-      }
+      if (r !== undefined && r !== d) replaceInto(target, r, d);
     } else for (const k of Reflect.ownKeys(fn as object)) (d as any)[k] = (fn as any)[k];
   };
   return [store, set];
