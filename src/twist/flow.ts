@@ -101,32 +101,40 @@ export function mapArray<T, U>(
         owners.length = items.length = next.length;
         return (rows = out);
       }
-      // By identity or key: where each old key was (several places for one listed twice).
-      // (A place, or the places of a key listed more than once, last first.)
+      // By identity or key.
+      const nextKeys = keyed === true ? next : next.map(keyOf);
+      const out: U[] = new Array(next.length);
+      const outOwners: Owner[] = new Array(next.length);
+      const outIndexes: ReturnType<typeof cell<number>>[] = indexed ? new Array(next.length) : indexes;
+      const outItems: ReturnType<typeof cell<T>>[] = typeof keyed === "function" ? new Array(next.length) : items;
+      const kept = new Uint8Array(keys.length);
+      const keep = (i: number, j: number) => {
+        kept[i] = 1;
+        out[j] = rows[i]!;
+        outOwners[j] = owners[i]!;
+        if (indexed) (outIndexes[j] = indexes[i]!).set(j);
+        if (typeof keyed === "function") (outItems[j] = items[i]!).set(next[j]!);
+      };
+      // The same at both ends: kept where they are; only what lies between is looked up.
+      let from = 0;
+      let oldEnd = keys.length;
+      let nextEnd = next.length;
+      while (from < oldEnd && from < nextEnd && keys[from] === nextKeys[from]) keep(from, from), from++;
+      while (oldEnd > from && nextEnd > from && keys[oldEnd - 1] === nextKeys[nextEnd - 1]) keep(--oldEnd, --nextEnd);
+      // Where each old key between was (a place, or the places of a key listed more than once, last first).
       const at = new Map<unknown, number | number[]>();
-      for (let i = keys.length - 1; i >= 0; i--) {
+      for (let i = oldEnd - 1; i >= from; i--) {
         const k = keys[i];
         const places = at.get(k);
         if (places === undefined) at.set(k, i);
         else if (typeof places === "number") at.set(k, [places, i]);
         else places.push(i);
       }
-      const nextKeys = keyed === true ? next : next.map(keyOf);
-      const out: U[] = new Array(next.length);
-      const outOwners: Owner[] = new Array(next.length);
-      const outIndexes: ReturnType<typeof cell<number>>[] = new Array(next.length);
-      const outItems: ReturnType<typeof cell<T>>[] = new Array(next.length);
-      const kept = new Uint8Array(keys.length);
-      for (let j = 0; j < next.length; j++) {
-        const places = keys.length ? at.get(nextKeys[j]) : undefined;
+      for (let j = from; j < nextEnd; j++) {
+        const places = at.size ? at.get(nextKeys[j]) : undefined;
         const i = typeof places === "number" ? (at.delete(nextKeys[j]), places) : places?.pop();
-        if (i !== undefined) {
-          kept[i] = 1;
-          out[j] = rows[i]!;
-          outOwners[j] = owners[i]!;
-          if (indexed) (outIndexes[j] = indexes[i]!).set(j);
-          if (typeof keyed === "function") (outItems[j] = items[i]!).set(next[j]!);
-        } else {
+        if (i !== undefined) keep(i, j);
+        else {
           const index = indexed ? (outIndexes[j] = cell(j)) : null;
           const item = typeof keyed === "function" ? (outItems[j] = cell<T>(next[j]!)) : null;
           out[j] = scope(parent, outOwners, j, fn, item ? item.read : next[j], index?.read);

@@ -550,6 +550,7 @@ const claimedBy = (d: object, nodes: Node[]) => (claimedNodes.set(d, nodes), nod
 
 function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
   if (value == null || value === true || value === false || value === "") return out;
+  if ((value as Node).nodeType) return out.push(value), out;
   const claimed = typeof value === "object" && claimedNodes.get(value);
   if (claimed) return out.push(...claimed), out;
   // A description made while hydrating but never claimed (a fallback built then, shown later): drawn now.
@@ -560,10 +561,12 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
   }
   if (typeof value === "function") return nodesOf(value(), out, reuse);
   if (Array.isArray(value)) {
-    for (const v of value) nodesOf(v, out, reuse);
+    for (let i = 0; i < value.length; i++) {
+      const v = value[i];
+      v && v.nodeType ? out.push(v) : nodesOf(v, out, reuse);
+    }
     return out;
   }
-  if ((value as Node).nodeType) return out.push(value), out;
   // Neither text, a node, a list nor something to call: skipped, and said (as Solid's insert).
   if (typeof value === "object" || typeof value === "symbol") {
     if (process.env.NODE_ENV !== "production") diagnose({
@@ -695,8 +698,17 @@ class Binding extends Computation<any> {
   }
 }
 Object.assign(Binding.prototype, { text: null, nodes: NO_NODES });
+/** A list with nothing to call and nothing nested in it: shown as it is. */
+function plainList(v: any[]) {
+  for (let i = 0; i < v.length; i++) {
+    const x = v[i];
+    if (typeof x === "function" || Array.isArray(x)) return false;
+  }
+  return true;
+}
 function bindingCompute(this: Binding) {
   const raw = this.source();
+  if (Array.isArray(raw) && plainList(raw)) return this.show(raw);
   // Accessors in what it made: read by an effect of their own, so a change there is shown again, not made again.
   if (!hasAccessor(raw)) return this.show(resolveDeep(raw));
   createRenderEffect<any>(() => this.show(resolveDeep(raw)), (v) => bindingApply.call(this, v), bindingOptions((this as any).name ?? null));
@@ -806,14 +818,41 @@ function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
     for (const n of next) parent.insertBefore(n, end);
     return;
   }
-  const keep = new Set(next);
-  for (const n of old) if (!keep.has(n) && n.parentNode === parent) parent.removeChild(n);
+  // The same at both ends: only what lies between is compared, put before what follows it.
+  let from = 0;
+  let oldEnd = old.length;
+  let nextEnd = next.length;
+  while (from < oldEnd && from < nextEnd && old[from] === next[from]) from++;
+  while (oldEnd > from && nextEnd > from && old[oldEnd - 1] === next[nextEnd - 1]) oldEnd--, nextEnd--;
+  const after = nextEnd < next.length ? next[nextEnd]! : end;
+  if (from === oldEnd) {
+    for (let j = from; j < nextEnd; j++) parent.insertBefore(next[j]!, after);
+    return;
+  }
+  if (from === nextEnd) {
+    for (let i = from; i < oldEnd; i++) if (old[i]!.parentNode === parent) parent.removeChild(old[i]!);
+    return;
+  }
+  // Two swapped, the rest in place: the two moved.
+  if (oldEnd === nextEnd && old[from] === next[nextEnd - 1] && old[oldEnd - 1] === next[from]) {
+    let i = from + 1;
+    while (i < oldEnd - 1 && old[i] === next[i]) i++;
+    if (i === oldEnd - 1) {
+      parent.insertBefore(next[from]!, old[from]!);
+      parent.insertBefore(old[from]!, after);
+      return;
+    }
+  }
+  const keep = new Set<Node>();
+  for (let j = from; j < nextEnd; j++) keep.add(next[j]!);
+  for (let i = from; i < oldEnd; i++) if (!keep.has(old[i]!) && old[i]!.parentNode === parent) parent.removeChild(old[i]!);
   const at = new Map<Node, number>();
-  old.forEach((n, i) => at.set(n, i));
-  const stay = inOrder(next, (n) => at.get(n));
-  let cursor: Node | null = end;
-  for (let j = next.length - 1; j >= 0; j--) {
-    const n = next[j]!;
+  for (let i = from; i < oldEnd; i++) at.set(old[i]!, i);
+  const middle = next.slice(from, nextEnd);
+  const stay = inOrder(middle, (n) => at.get(n));
+  let cursor: Node | null = after;
+  for (let j = middle.length - 1; j >= 0; j--) {
+    const n = middle[j]!;
     if (!stay.has(j) || n.parentNode !== parent) parent.insertBefore(n, cursor);
     cursor = n;
   }
