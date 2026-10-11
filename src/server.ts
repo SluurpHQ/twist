@@ -1287,6 +1287,9 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   }
   if (b.status !== 1) {
     if (!fallbackDone) renderFallback();
+    // (In React its fallback is a task of its own, rendered after the part in flight: one the shell's abort reaches
+    // first is told, with this stack.)
+    if (b.status === 0 && !ctx.container && !ctx.fallbackOf) ((s.shared as any).shellFallbacks ??= []).push(stackText([...ctx.stack.slice(0, -1), "Suspense Fallback"]));
   } else {
     b.renderFallback = fallbackDone ? () => b.fallback : snapshotFallback(props.fallback, ctx);
   }
@@ -1945,6 +1948,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   // Aborted while the shell renders: what is left is aborted once it is done.
   let renderingShell = true;
   let rootAborted = false;
+  /** Where the root's part was when it was aborted: its component stack. */
+  let abortedAt: string | undefined;
   let api: { abort(reason?: unknown): void } | null = null;
   // The stream flows (piped): the shell and what completed into it written, then the rest as it comes.
   /** A prerender: the boundaries it leaves pending, for a resume to finish (React's postponed state). */
@@ -1971,7 +1976,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       if (renderingShell) {
         shared.aborted = { reason: reason ?? new Error("The render was aborted by the server without a reason.") };
         // (Not in a resume whose shell was sent already: replaying it is not the shell's task.)
-        if (!resumed && renderingIn?.streaming?.shared === shared && !renderingIn.container && !renderingIn.fallbackOf) rootAborted = (shared as any).rootAborted = true;
+        if (!resumed && renderingIn?.streaming?.shared === shared && !renderingIn.container && !renderingIn.fallbackOf)
+          (rootAborted = (shared as any).rootAborted = true), (abortedAt = stackText(renderingIn.stack));
       }
       else api?.abort(reason);
     },
@@ -1994,12 +2000,15 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     };
     // (The root's own part aborted as it rendered: fatal at once, so the parts waiting are not told, as React closes
     // the request before it reaches them.)
+    // (The part in flight first, then those waiting, as React aborts them.)
+    if (inFlight !== undefined) tell(true, inFlight);
     for (const t of tasks) {
       if (t.state !== 0) continue;
       t.state = 2;
       if (!rootFirst) tell(!t.container, t.at);
     }
-    if (inFlight !== undefined || why === null) tell(true, inFlight);
+    if (!rootFirst) for (const at of (shared as any).shellFallbacks ?? []) tell(false, at);
+    if (why === null) tell(true);
     // (A prerender whose shell could not finish: the whole render is left to a resume.)
     if (options.prerendering) options.onPostponed?.({ root: true, next: 0, boundaries: [] });
     // (Resuming: the shell went out with the prelude, so this is no shell error; the resume just ends, as React's
@@ -2036,13 +2045,14 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       // Aborted from a part outside any boundary as it rendered (React's root task in flight): the shell fails.
       if (shared.aborted && rootAborted) {
         renderingShell = false;
-        abortShell(shared.aborted.reason, undefined, undefined, true);
+        abortShell(shared.aborted.reason, abortedAt, undefined, true);
         return shared.aborted.reason ?? new Error("The render was aborted by the server without a reason.");
       }
     } catch (e: any) {
       if (e === ABORTED || shared.aborted) {
         renderingShell = false;
-        abortShell(shared.aborted!.reason, stackText(ctx.stack));
+        // (Where the root's part was when aborted, if that is known: the stack has unwound since.)
+        abortShell(shared.aborted!.reason, abortedAt ?? stackText(ctx.stack));
         return shared.aborted!.reason ?? e;
       }
       if (isBrowserOnly(e)) e = fatalBrowserError(e);
@@ -2051,6 +2061,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       closed = true;
       return e;
     }
+    // (The shell's pass done: the fallbacks it queued have rendered, in React too.)
+    (shared as any).shellFallbacks = undefined;
     if (rootPending === 0) shellReady();
     else sendHeaders(false);
     return null;

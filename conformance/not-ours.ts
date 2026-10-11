@@ -105,6 +105,7 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
   },
   "react-dom/ReactDOMFizzServer-test.js": {
     "supports iterable": "needs the 'immutable' package, not installed",
+    "handles stack overflows inside components themselves": "counts on V8's stack size: 10,000 nested calls do not overflow JavaScriptCore's (Bun's) deeper stack",
     'the "S" in "</?[Ss]cript" strings are replaced with unicode escaped lowercase s or S depending on case, preserving case sensitivity of nearby characters':
       HAPPY_DOM + " (script parsing after <!--)",
   },
