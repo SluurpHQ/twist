@@ -737,6 +737,9 @@ let now: () => number = () => (typeof performance !== "undefined" ? performance.
 export function setClock(fn: () => number) {
   now = fn;
 }
+/** When a Suspense fallback was last shown, and how long after it a retry waits to be put in place (React's). */
+let lastFallbackAt = -Infinity;
+const FALLBACK_THROTTLE = 300;
 /** When the render now under way began, and the time spent in nested draws of the draw running now. */
 let renderStart = 0;
 let nestedTime = 0;
@@ -1505,7 +1508,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     // own region commits its fallback now.)
     const sb = f.type === SUSPENSE ? null : boundaryOf(f);
     if (sb && sb.pending) {
-      if (drawnOrKept(f, sb, host, region)) layoutQueue.push(() => (sb.pending!.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
+      drawnOrKept(f, sb, host, region, () => (sb.pending!.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
       return;
     }
     layoutQueue.push(tell);
@@ -1522,7 +1525,7 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
  * above shows its fallback and the server's markup stays, dehydrated, tried again when the data is there (React's
  * client render did not commit). True when it was drawn.
  */
-function drawnOrKept(f: Fiber, sb: Fiber, host: Node, region: { start: Comment; end: Comment }): boolean {
+function drawnOrKept(f: Fiber, sb: Fiber, host: Node, region: { start: Comment; end: Comment }, drawn: () => void): boolean {
   const before = sb.pending!.peek();
   const frag = docOf(host).createDocumentFragment();
   lastHold = null;
@@ -1537,8 +1540,17 @@ function drawnOrKept(f: Fiber, sb: Fiber, host: Node, region: { start: Comment; 
     waits?.then(again, again);
     return false;
   }
-  host.insertBefore(frag, removeRegion(region));
   (f as any).region = undefined;
+  const put = () => {
+    if (f.dead) return;
+    host.insertBefore(frag, removeRegion(region));
+    drawn();
+  };
+  // Within the throttle after a fallback was shown: put in place when it is up (React renders a retry at once and
+  // commits it then, so content does not flash in and out).
+  const wait = lastFallbackAt + FALLBACK_THROTTLE - now();
+  if (wait > 10) setTimeout(put, wait);
+  else layoutQueue.push(put);
   return true;
 }
 
@@ -2291,7 +2303,7 @@ function updateDehydrated(f: Fiber, props: any, redraw: () => void): boolean {
   // An Activity under a Suspense: drawn off the page first, its server markup kept if that suspends.
   const sb = f.type === ACTIVITY ? boundaryOf(f) : null;
   if (sb?.pending) {
-    if (drawnOrKept(f, sb, host, region)) tellDeleted(f);
+    drawnOrKept(f, sb, host, region, () => tellDeleted(f));
     return false;
   }
   tellDeleted(f);
@@ -2646,6 +2658,8 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       // Its fallback committed: its children are pre-warmed once after the commit.
       // (Not in a sync render, nor one that met a recoverable error: React renders those again synchronously.)
       else if (!(fb as any).warmed && !prewarming && !syncing) ((fb as any).warmed = true), layoutQueue.push(() => !recoveredThisRender && prewarms.push(fb));
+      // (The time a fallback is shown: retries are put in place no sooner than the throttle after it.)
+      if (waiting && !last?.waiting) layoutQueue.push(() => void (!fb.dead && fb.pending!.peek() && (lastFallbackAt = now())));
       layoutQueue.push(() => {
         const kept = fb.children.find((c) => c.key === "kc");
         // (Shown again only what it hid itself: a hidden Activity around may hide the same nodes.)
