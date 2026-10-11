@@ -137,9 +137,12 @@ export const For = /* @__PURE__ */ builtin(function For<T>(props: { each: readon
   return mapArray(() => props.each, indexed ? (item, index) => props.children(item, index) : (item) => props.children(item), { keyed: props.keyed, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
 });
 
-/** `children(index)` for `count` indices (from `from`), no diffing. */
-export const Repeat = /* @__PURE__ */ builtin(function Repeat(props: { count: number; from?: number; fallback?: any; children: (index: number) => any }) {
-  return repeat(() => props.count, (i) => props.children(i), { from: "from" in props ? () => props.from ?? 0 : undefined, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
+/** `children(index)` for `count` indices (from `from`), no diffing; children that are not a function, repeated as they are. */
+export const Repeat = /* @__PURE__ */ builtin(function Repeat(props: { count: number; from?: number; fallback?: any; children: ((index: number) => any) | any }) {
+  return repeat(() => props.count, (i) => {
+    const c = props.children;
+    return typeof c === "function" ? c(i) : c;
+  }, { from: "from" in props ? () => props.from ?? 0 : undefined, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
 });
 
 /** `children` while `when` holds, else `fallback`; function children get an accessor (the value, when keyed). */

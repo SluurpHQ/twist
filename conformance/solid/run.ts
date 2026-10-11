@@ -19,8 +19,8 @@ for (const part of ["signals/tests", "solid/test", "web/test"]) walk(join(here, 
 
 type Row = { file: string; pass: number; fail: number; note?: string };
 const rows: Row[] = [];
-/** What failed, by message: counted across files into errors.txt. */
-const errors = new Map<string, number>();
+/** What failed, by message: counted across files into errors.txt, with the files it came from. */
+const errors = new Map<string, { n: number; files: Set<string> }>();
 const count = (out: string, word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}$`, "m").exec(out)?.[1] ?? 0);
 const queue = [...files];
 async function worker() {
@@ -38,7 +38,9 @@ async function worker() {
     rows.push(row);
     for (const m of out.matchAll(/^(?:\w*Error|error):[^\n]*/gm)) {
       const msg = m[0].replace(/\d+/g, "N").slice(0, 160);
-      errors.set(msg, (errors.get(msg) ?? 0) + 1);
+      const e = errors.get(msg) ?? errors.set(msg, { n: 0, files: new Set() }).get(msg)!;
+      e.n++;
+      e.files.add(row.file);
     }
   }
 }
@@ -94,5 +96,5 @@ if (existsSync(json) && !filter) {
   console.log(lost.length ? "lost passes:\n" + lost.join("\n") : "no file lost passes");
 }
 if (!filter && (!lostAny || accept)) writeFileSync(json, JSON.stringify(rows));
-writeFileSync(join(here, "errors.txt"), [...errors].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${n}\t${m}`).join("\n") + "\n");
+writeFileSync(join(here, "errors.txt"), [...errors].sort((a, b) => b[1].n - a[1].n).map(([m, e]) => `${e.n}\t${m}\n\t\t${[...e.files].join(", ")}`).join("\n") + "\n");
 console.log(md.split("\n").slice(0, 30).join("\n"));

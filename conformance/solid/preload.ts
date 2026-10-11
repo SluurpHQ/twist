@@ -29,8 +29,11 @@ delete (globalThis as any).reportError;
 import { vi } from "./vitest.ts";
 (globalThis as any).vi = vi;
 // And on Bun's own vi, which a test file may be given instead.
-import { vi as bunVi } from "bun:test";
+import * as bunTest from "bun:test";
+const bunVi = bunTest.vi;
 for (const [k, f] of Object.entries(vi)) if (!(k in bunVi)) (bunVi as any)[k] = f;
+// (A file importing some names from vitest still uses the others as globals: Bun then defines none.)
+for (const k of ["describe", "it", "test", "expect", "beforeAll", "beforeEach", "afterAll", "afterEach"] as const) (globalThis as any)[k] ??= bunTest[k];
 const src = join(import.meta.dir, "..", "..", "src");
 const solid = join(src, "twist", "index.ts");
 
