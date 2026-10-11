@@ -3194,6 +3194,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     shownFallback = null;
   };
   onCleanup(dropFallback);
+  // (Fallback to content, or back, is a change even when both show the same value: what it shows is told then.)
+  const sameSide = (a: unknown, b: unknown) => a === b && state.onFallback === (shown as any).nextFallback;
   // What shows: the fallback while something under it waits, else the content (its accessors read here, so a
   // change inside it never builds the content again). Held by a reveal order: its fallback (or nothing, collapsed).
   const shown = new Computation<T | F>(MEMO, () => {
@@ -3233,7 +3235,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       if (e instanceof NotReadyError) return showFallback();
       throw e;
     }
-  }, X === undefined ? ({ transparent: true } as any) : ({ id: idUnder() } as any));
+  }, X === undefined ? ({ transparent: true, equals: sameSide } as any) : ({ id: idUnder(), equals: sameSide } as any));
   if (order) {
     order.add(slot);
     onCleanup(() => order.remove(slot));
