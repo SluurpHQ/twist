@@ -678,6 +678,8 @@ abstract class Node<T = any> {
   declare override: T | typeof NONE;
   /** The value in the world being read: an optimistic override, else staged while a pass runs, else committed. */
   current(): T {
+    // (Its own truth landed over a guess: derivations and latest() read the truth; the screen keeps the guess.)
+    if (this.override !== NONE && (this as any).truthLanded && (verdictReading || listener?.kind === MEMO)) return (this.staged !== NONE ? this.staged : this.value) as T;
     if (this.override !== NONE && !authoritative) {
       const lane = (this as any).laneTx as Transaction | undefined;
       if (lane && !lane.done && listener) {
@@ -709,8 +711,17 @@ abstract class Node<T = any> {
     // (A write to a node a transaction holds enters it: the round's plain writes go with it, A34.)
     else if (!(this instanceof Computation) && !this.tx.root.done) enteredTx ??= this.tx.root;
     // Shown through a guess: its readers see the guess, not this (no change for them); the guess's end tells them if
-    // the truth differs.
-    if (this.override !== NONE) return;
+    // the truth differs. Its own answer landing ends the guess for derivations (A18): they derive from the truth now.
+    if (this.override !== NONE) {
+      // (One equal to the guess confirms it: nothing to re-derive.)
+      if (landing && this instanceof Computation && !(this.equals !== false && this.equals(this.override as T, next))) {
+        (this as any).truthLanded = true;
+        this.version++;
+        // (A guess never shown is voided with its lane, which re-derives what read it.)
+        if ((this as any).laneTx?.done !== false) for (const o of this.observers) if (o.kind === MEMO) o.mark(DIRTY);
+      }
+      return;
+    }
     this.version++;
     // Lane work: derivations follow now; effects at the lane's reveal.
     const lane = this.tx && !this.tx.root.done && this.tx.root.parentTx ? this.tx.root : null;
@@ -1863,6 +1874,9 @@ function settleRound() {
   }
 }
 
+/** A landing is being taken (an async answer, not a compute). */
+let landing = false;
+
 /** The transaction a write this round entered (a write to a node it holds). */
 let enteredTx: Transaction | null = null;
 
@@ -1909,6 +1923,7 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
       if (n.override === NONE) return;
       const guess = n.override;
       n.override = NONE;
+      (n as any).truthLanded = false;
       if (!(n as any).equals?.(n.value, guess)) n.bump();
     });
   }
@@ -2220,6 +2235,7 @@ function voidLane(l: Transaction) {
     if (n.staged !== NONE && !n.tx && !parent.done) hold(n, parent);
     if (n.override === NONE) continue;
     n.override = NONE as any;
+    (n as any).truthLanded = false;
     // (Effects never showed the guess: nothing changes for them; lane work re-derives.)
     for (const o of n.observers) if (o.kind === MEMO) o.mark(DIRTY);
   }
@@ -2277,7 +2293,16 @@ function drain() {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (TRACE && rounds && rounds % 10000 === 0) trace(`round ${rounds} writes ${writes.length} dirty ${dirty.length} tx ${transactions.size}`);
     if (writes.length) for (const s of writes.splice(0)) s.commit();
-    if (landings.length) for (const [c, v] of landings.splice(0)) if (!c.disposed) c.take(v);
+    if (landings.length)
+      for (const [c, v] of landings.splice(0)) {
+        if (c.disposed) continue;
+        landing = true;
+        try {
+          c.take(v);
+        } finally {
+          landing = false;
+        }
+      }
     if (guesses.length) installGuesses();
     if (guessWork.length) for (const [install, tx, source] of guessWork.splice(0)) install(tx && !tx.done ? tx : tickTx && !tickTx.done ? tickTx : source ? overFlight(accessors.get(source)) : null);
     for (let passes = 0; dirty.length; passes++) {
