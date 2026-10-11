@@ -1416,6 +1416,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (early) {
       this.flight = null;
       const [ok, v] = early as [boolean, unknown];
+      // (Answered at once with an async source: read as it comes.)
+      if (ok && !serverRender && v && typeof v === "object" && typeof (v as any)[Symbol.asyncIterator] === "function" && typeof (v as any).then !== "function") return this.stream(v as any);
       if (ok) return this.take(v as T);
       return this.failNow(v);
     }
@@ -1564,6 +1566,12 @@ export class Computation<T> extends Node<T> implements Owner {
     // (A source split for a server render: read as its stream, in that render.)
     const tee = v && typeof v === "object" ? sourceTees.get(v as object) : undefined;
     if (tee) return void (this.scope ? this.scope.enter(() => this.serverStream(v as any, tee)) : this.serverStream(v as any, tee));
+    // (Answered with an async source: its values are the answer, read as they come.)
+    if (!serverRender && v && typeof v === "object" && typeof (v as any)[Symbol.asyncIterator] === "function" && typeof (v as any).then !== "function") {
+      const close = this.closeStream;
+      if (close) (this.closeStream = null), close();
+      return void this.stream(v as any);
+    }
     this.flight = null;
     flights.delete(this);
     landings.push([this, v]);
@@ -1826,7 +1834,8 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   if (n.tx && n.staged !== NONE && !committableTx(n.tx) && !(n instanceof Signal && Object.is(n.staged, n.value))) return true;
   if ((n as any).affected) return true;
   if (n instanceof Computation) {
-    if (n.flight && n.ready && !n.quiet && !n.loadingWindow) return true;
+    // (A stream between its values is settled on the last one: not pending.)
+    if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming) return true;
     for (const s of n.sources) if (waiting(s, seen)) return true;
   }
   return false;
