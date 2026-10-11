@@ -444,8 +444,8 @@ function element(el: Element_, keyed: boolean): string {
     const v = String(own === NONE_CHOSEN ? "" : (own ?? ""));
     if (Array.isArray(selecting) ? selecting.map(String).includes(v) : String(selecting ?? "") === v) out += " selected";
   }
-  // (Ended as Solid ends them: a compiled template writes `<input …>`, a run-time element `<input … />`.)
-  if (VOID.has(tag)) return out + (el.sources ? " />" : ">");
+  // (Ended as Solid ends them: a compiled template writes `<input …>`, a run-time or spread element `<input … />`.)
+  if (VOID.has(tag)) return out + (el.sources || hasSpread(el.props) ? " />" : ">");
   out += ">";
   // The page's head: what useHead registers goes here once the shell is rendered.
   if (tag === "head" && head && !head.placed) {
@@ -557,14 +557,25 @@ function liveHole(f: () => any): string | null {
   return r == null ? null : typeof r === "string" ? r : r.t.join("");
 }
 
+const hasSpread = (props: unknown) => !!props && typeof props === "object" && Object.keys(props).some((k) => k.startsWith("$spread$"));
+
 /** Props with their spreads applied, in order. */
 function expandSpreads(props: Record<string, any>) {
   if (!Object.keys(props).some((k) => k.startsWith("$spread$"))) return props;
-  const out: Record<string, any> = {};
+  // (Each key from the last source that has it, read only there: one a later attribute overrides is never read.)
+  const winner = new Map<string, Record<string, any>>();
   for (const k of Object.keys(props)) {
-    if (k.startsWith("$spread$")) Object.assign(out, props[k]());
-    else out[k] = props[k];
+    // (Set again later: it moves there, as the later attribute.)
+    if (!k.startsWith("$spread$")) winner.delete(k), winner.set(k, props);
+    else {
+      const source = props[k]();
+      if (source) for (const key of Object.keys(source)) winner.delete(key), winner.set(key, source);
+    }
   }
+  const out: Record<string, any> = {};
+  for (const [k, source] of winner)
+    if (source === props) out[k] = props[k];
+    else Object.defineProperty(out, k, { get: () => source[k], enumerable: true, configurable: true });
   return out;
 }
 
