@@ -79,6 +79,7 @@ function hydrateWindow<T>(id: string | undefined, fn: () => T, scope?: Scope, o:
   const prevGather = (sharedConfig as any).gather;
   const prevHydrating = hydratingValue;
   const prevClaim = claimOwner;
+  const prevOpen = (sharedConfig as any).windowOpen;
   if (scope) {
     (sharedConfig as any).registry = scope.registry;
     (sharedConfig as any).gather = scope.gather;
@@ -87,10 +88,12 @@ function hydrateWindow<T>(id: string | undefined, fn: () => T, scope?: Scope, o:
     if (id) (sharedConfig as any).gather?.(id);
     hydratingValue = true;
     claimOwner = o;
+    (sharedConfig as any).windowOpen = true;
     return fn();
   } finally {
     hydratingValue = prevHydrating;
     claimOwner = prevClaim;
+    (sharedConfig as any).windowOpen = prevOpen;
     if (scope) {
       (sharedConfig as any).registry = prevRegistry;
       (sharedConfig as any).gather = prevGather;

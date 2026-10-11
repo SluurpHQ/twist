@@ -36,7 +36,8 @@ async function worker() {
     const beyond = out.match(/marked as failing but it passed/g)?.length ?? 0;
     if (beyond) (row.fail -= beyond), (row.beyond = beyond);
     // A file that did not load: why (an export Twist lacks, an internal module).
-    const load = /(Export named '[^']+' not found|Cannot find module '[^']+'|SyntaxError[^\n]*)/.exec(out)?.[1];
+    // (A SyntaxError at a line's start: one in a dumped object is not why.)
+    const load = /(Export named '[^']+' not found|Cannot find module '[^']+'|^(?:error: )?SyntaxError[^\n]*)/m.exec(out)?.[1];
     if (!row.pass && load) row.note = load.replace(/ in module.*$/, "").slice(0, 120);
     rows.push(row);
     for (const m of out.matchAll(/^(?:\w*Error|error):[^\n]*/gm)) {

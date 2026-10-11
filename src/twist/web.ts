@@ -50,7 +50,7 @@ export const Fragment = (props: { children?: unknown }) => props.children;
 /** What `<type {...props}>` makes: an element, or what a component returns. */
 export function jsx(type: any, props: Record<string, any>) {
   // Hydrating: descriptions, claimed from the server's page top-down (in the order the server rendered them).
-  if (hydrating) return type === Fragment ? props.children : typeof type === "function" ? { [COMP]: true, fn: type, props } : { [EL]: true, tag: type, props };
+  if (describing()) return type === Fragment ? props.children : typeof type === "function" ? { [COMP]: true, fn: type, props } : { [EL]: true, tag: type, props };
   if (typeof type === "function") {
     if (type === Fragment) return childrenOf(props);
     // (A component of React's is mounted as a React subtree, when the bridge is there.)
@@ -61,7 +61,7 @@ export function jsx(type: any, props: Record<string, any>) {
 
 /** Several children written in the JSX (while hydrating, the template's own list: no separators between them). */
 export function jsxs(type: any, props: Record<string, any>) {
-  if (hydrating && Array.isArray(props.children)) (props.children as any)[OWN] = true;
+  if (describing() && Array.isArray(props.children)) (props.children as any)[OWN] = true;
   return jsx(type, props);
 }
 
@@ -125,7 +125,7 @@ export function __twist_t(spec: Spec) {
   let made: Node | null = null;
   const plan = planOf(spec);
   return (values: unknown[]) => {
-    if (hydrating) return expand(spec, values, { i: 0 }, jsx, jsxs);
+    if (describing()) return expand(spec, values, { i: 0 }, jsx, jsxs);
     const el = (made ??= build(spec)).cloneNode(true) as Element;
     fill(el, plan, values, { i: 0 });
     return el;
@@ -1039,7 +1039,7 @@ type DynamicOptions = { static?: boolean; deferStream?: boolean };
 const tagArm = (tag: string, props: any) => {
   const raw = componentRaw(props);
   // (Its children as described, claimed one by one; not one dynamic value over the lot.)
-  if (hydrating && "children" in props) raw.children = untrack(() => props.children);
+  if (describing() && "children" in props) raw.children = untrack(() => props.children);
   return jsx(tag, raw);
 };
 
@@ -1170,6 +1170,8 @@ export const setForeignClaim = (fn: typeof foreignClaim) => void (foreignClaim =
 /** Hydrating: the server's keyed elements by key (also `sharedConfig.registry`, which a claim window swaps). */
 let hydrating: { registry: Map<string, Element> } | null = null;
 const sc = sharedConfig as any;
+/** Whether JSX is described, to be claimed: hydrating, or in a claim window over server nodes. */
+const describing = () => hydrating !== null || (sc.windowOpen === true && sc.isClaiming());
 
 /** The keyed elements under `element` into the registry: those under `root`'s prefix, or all outside frame regions. */
 function gatherHydratable(element: Element | Document, root?: string) {
