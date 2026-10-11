@@ -31,7 +31,7 @@ import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./h
 import { merge, omit, isStatic } from "./flow.ts";
 import { $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -1145,6 +1145,8 @@ function componentRaw(props: Record<string, any>) {
 
 const EL = Symbol("twist.hydrate.element");
 const COMP = Symbol("twist.hydrate.component");
+// (A Switch reading its Matches while hydrating: their descriptions made into what they describe.)
+setDescribedNode((v) => (v && v[COMP] ? callComponent(v.fn, componentProps(v.props)) : v));
 const OWN = Symbol("twist.hydrate.own");
 
 /** How a React component the server drew is hydrated where it is (installed by the bridge). */
