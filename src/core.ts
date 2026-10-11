@@ -602,9 +602,18 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // The thenables it stopped at last time: asked again now (still pending, they hold the boundary again).
   const holds = (parent as any).holds as Hold[] | undefined;
   if (holds) for (const h of holds.splice(0)) release(h);
-  // (None to look up in a fresh list.)
-  const byKey = old.length ? new Map<string, Fiber>() : null;
-  if (byKey) for (const f of old) byKey.set(f.key, f);
+  // The old ones matched in order while their keys line up; from the first that does not, looked up by key.
+  let lineAt = 0;
+  let byKey: Map<string, Fiber> | null = null;
+  const lookUp = () => {
+    byKey = new Map();
+    for (let j = lineAt; j < old.length; j++) byKey.set(old[j]!.key, old[j]!);
+    lineAt = old.length;
+    return byKey;
+  };
+  // (Whether a kept one came out of line, or after a new one: then something moves.)
+  let keptOutOfLine = false;
+  let madeNew = false;
   const next: Fiber[] = [];
   // While hydrating, the children so far: a mismatch's diff prints the siblings before it.
   if (hydrating && (process.env.NODE_ENV !== "production" && dev())) (parent as any).building = next;
@@ -657,12 +666,18 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       seenKeys.add(key);
     }
     const type = typeOf(c);
-    const had = byKey?.get(key);
+    const lined = !byKey && lineAt < old.length && old[lineAt]!.key === key ? old[lineAt]! : null;
+    const had = lined ?? (old.length ? (byKey ?? lookUp()).get(key) : undefined);
     if (had && (had.type === type || sameFamily(had.type, type)) && !had.dead) {
-      byKey!.delete(key);
+      if (lined) lineAt++;
+      else (byKey as Map<string, Fiber> | null)!.delete(key), (keptOutOfLine = true);
+      if (madeNew) keptOutOfLine = true;
       update(had, c);
       next.push(had);
     } else {
+      // (One in line but not kept: the rest looked up by key, it among them, let go at the end.)
+      if (lined) lookUp();
+      madeNew = true;
       if (hydrating && !(list as any)[LONE]) nextTree = pushTree(childBase(parent), list.length, i - 1);
       nextOwner = c?._owner ?? null;
       next.push(mount(c, key, type, parent, host, before));
@@ -670,16 +685,17 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       nextOwner = null;
     }
   }
-  // Stopped at a suspending child: what it had and did not reach stays as it was, in its place.
-  if (stoppedAt && byKey) for (const f of old) if (byKey.get(f.key) === f) next.push(f), byKey.delete(f.key);
-  if (byKey) for (const f of byKey.values()) unmount(f, true);
+  // What it had and did not reach: kept as it was, in its place, when it stopped at a suspending child; else let go.
+  const left: Map<string, Fiber> | null = lineAt < old.length ? lookUp() : byKey;
+  if (stoppedAt && left) for (const f of old) if (left.get(f.key) === f) next.push(f), left.delete(f.key);
+  if (left) for (const f of left.values()) unmount(f, true);
   parent.children = next;
   if ((parent as any).building) (parent as any).building = undefined;
   // In order, back to front: each node before the one after it, moved only when it is not already there.
   // Taking over server markup, nodes are claimed or made in place: nothing to move.
   if (hydrating) return;
-  // All new: each was put in place as it was made.
-  if (!old.length && !((parent as any).singleton && host.nodeName === "BODY") && intoOf(parent, host) === host) return;
+  // All new, or the old ones kept in line with the new ones after them: each was put in place as it was made.
+  if (!keptOutOfLine && !((parent as any).singleton && host.nodeName === "BODY") && intoOf(parent, host) === host) return;
   // The same children in the same order (most updates): nothing moves.
   if (next.length === old.length) {
     let same = true;
