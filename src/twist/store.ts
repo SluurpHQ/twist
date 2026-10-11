@@ -104,15 +104,22 @@ function storeMarks(target: unknown, key: PropertyKey | undefined): KeyNode[] | 
 
 /** A key's node: read tracked, bumped when a flushed write changes the key. The record's key-set node also carries
  * the record's writes into the flush, and commits them there. */
+const KEY_NODE = { equals: false as const, ownedWrite: true };
 class KeyNode extends Signal<number> {
   /** A flushed write's value, staged like a signal's (held by a transaction, or put on the object when promoted). */
-  raw: any = NO_RAW;
-  seq = 0;
-  constructor(public record: Record_, public key: PropertyKey) {
-    super(0, { equals: false, ownedWrite: true });
+  declare raw: any;
+  declare seq: number;
+  declare record: Record_;
+  declare key: PropertyKey;
+  constructor(record: Record_, key: PropertyKey) {
+    super(0, KEY_NODE);
+    this.raw = NO_RAW;
+    this.seq = 0;
+    this.record = record;
+    this.key = key;
   }
   /** affects() marks on it: its own (a keyless mark's snapshot), and keyed ones on its key here or upstream. */
-  private ownAffected = 0;
+  declare private ownAffected: number;
   get affected() {
     return this.ownAffected + keyMarked(this.record.target, this.key);
   }
@@ -135,6 +142,7 @@ class KeyNode extends Signal<number> {
     super.promote();
   }
 }
+(KeyNode.prototype as any).ownAffected = 0;
 const NO_RAW: unique symbol = Symbol("no-raw");
 
 /** `target[key]` in the world being read: a staged write where the reader sees it, else the object's. */

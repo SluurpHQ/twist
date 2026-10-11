@@ -491,19 +491,28 @@ const readersOf = (n: Node) => (Array.isArray(n.observers) ? n.observers.length 
 const NOTHING_YET: readonly unknown[] = [];
 
 abstract class Node<T = any> {
+  // (Assigned, not class fields: a define on every node made is slower.)
+  constructor() {
+    this.value = undefined as T;
+    this.staged = NONE;
+    this.tx = null;
+    this.observers = NO_OBSERVERS;
+    this.height = 0;
+    this.version = 0;
+  }
   /** Its name (the `name` option, a store key): what diagnostics call it. */
   declare name?: string;
-  value!: T;
-  staged: T | typeof NONE = NONE;
-  tx: Transaction | null = null;
+  declare value: T;
+  declare staged: T | typeof NONE;
+  declare tx: Transaction | null;
   /** Who reads it (one shared empty set until the first: most nodes never have one). */
-  observers: Readers = NO_OBSERVERS;
-  height = 0;
+  declare observers: Readers;
+  declare height: number;
   get _name(): string {
     return this.name ?? (this instanceof Computation ? (this.kind === MEMO ? "computed" : "effect") : "signal");
   }
   /** Counts its changes: a reader compares it with the count it saw. */
-  version = 0;
+  declare version: number;
   declare unobserved?: () => void;
   /** An optimistic value shown over the truth until its transaction commits (or its flush ends). */
   declare override: T | typeof NONE;
@@ -567,12 +576,14 @@ abstract class Node<T = any> {
 
 export class Signal<T> extends Node<T> {
   /** A write waiting for the next flush. */
-  pending: T | typeof NONE = NONE;
-  equals: Equals<T>;
-  ownedWrite: boolean;
+  declare pending: T | typeof NONE;
+  declare equals: Equals<T>;
+  declare ownedWrite: boolean;
   constructor(value: T, options?: SignalOptions<T>) {
     super();
     this.value = value;
+    this.pending = NONE;
+    this.writtenIn = null;
     this.equals = options?.equals ?? Object.is;
     if (options?.unobserved) this.unobserved = options.unobserved;
     this.ownedWrite = !!options?.ownedWrite;
@@ -594,7 +605,7 @@ export class Signal<T> extends Node<T> {
     schedule();
   }
   /** The action whose transaction this write belongs to (held with it until the action ends). */
-  writtenIn: Transaction | null = null;
+  declare writtenIn: Transaction | null;
   /** The pending write dropped (a subclass commits it its own way). */
   settle() {
     this.pending = NONE;
@@ -666,39 +677,39 @@ let comparedNext: unknown;
 let comparedSame = false;
 
 export class Computation<T> extends Node<T> implements Owner {
-  parent: Owner | null;
+  declare parent: Owner | null;
   declare owned: Owner[] | null;
   declare cleanups: (() => void)[] | null;
-  context: Record<symbol, unknown> | null;
+  declare context: Record<symbol, unknown> | null;
   declare disposed: boolean;
   /** Its place in the order computations run in (creation order). */
-  order = ids++;
+  declare order: number;
   declare id?: string;
   declare childCount: number;
   declare transparent?: boolean;
-  kind: number;
-  fn: (prev?: T) => T;
-  state = DIRTY;
+  declare kind: number;
+  declare fn: (prev?: T) => T;
+  declare state: number;
   // (These three are made anew by its first run: until then, one shared empty list.)
-  sources: Source[] = NOTHING_YET as Source[];
+  declare sources: Source[];
   /** The transaction whose held values its last run read: what it computed is held in it. */
   declare readHeld: Transaction | null;
   /** The flush it was made in (made in this one: a first mount, no reveal). */
-  born = flushes;
+  declare born: number;
   /** What its last run read (while it runs again). */
-  before: Source[] = NOTHING_YET as Source[];
+  declare before: Source[];
   /** It asks isPending: it reads the screen, like a render effect. */
   declare verdictReader: boolean;
   /** The version of each source when it was read. */
-  seen: number[] = NOTHING_YET as number[];
+  declare seen: number[];
   /** Sources read only through isPending/latest: what is shown ahead of a hold (they do not hold this). */
   declare verdict: Set<Source> | null;
-  attached = false;
-  ranAt = -1;
+  declare attached: boolean;
+  declare ranAt: number;
   declare equals: Equals<T>;
   declare lazy: boolean;
   /** Has had a value (an async compute's first load has not). */
-  ready = false;
+  declare ready: boolean;
   /** The flight in progress (its promise), and whether it is a quiet re-ask (refresh). */
   declare flight: object | null;
   declare quiet: boolean;
@@ -726,10 +737,18 @@ export class Computation<T> extends Node<T> implements Owner {
     super();
     if ((owner as any)?.tracked) throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
     if (inEffectCallback && !owner) primitiveInEffectCallback();
-    this.kind = kind;
-    this.fn = fn;
     this.parent = owner;
     this.context = owner?.context ?? null;
+    this.order = ids++;
+    this.kind = kind;
+    this.fn = fn;
+    this.state = DIRTY;
+    this.sources = this.before = NOTHING_YET as Source[];
+    this.born = flushes;
+    this.seen = NOTHING_YET as number[];
+    this.attached = false;
+    this.ranAt = -1;
+    this.ready = false;
     if (owner) owner.owned ? owner.owned.push(this) : (owner.owned = [this]);
     if ((options as any)?.transparent && !this.transparent) this.transparent = true;
     if (options?.name) this.name = options.name;
@@ -797,6 +816,8 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** While it runs again: the sources it was subscribed to (kept when read again, let go after). */
   declare relinking: Set<Source> | null;
+  /** Its Loading boundary, once looked up (null: none). */
+  declare boundary?: LoadingState | null;
   override subscribe(o: Computation<any>) {
     addReader(this, o);
     if (!this.attached) this.attach();
@@ -2446,12 +2467,18 @@ class LoadingState {
   }
 }
 
+/** The Loading boundary a computation is under (found once: a boundary is set before what is under it is made). */
 function boundaryOf(c: Computation<any>): LoadingState | null {
+  if (c.boundary !== undefined) return c.boundary;
+  let found: LoadingState | null = null;
   for (let o: Owner | null = c.parent; o; o = o.parent) {
     const b = (o as any).loading as LoadingState | undefined;
-    if (b) return b;
+    if (b) {
+      found = b;
+      break;
+    }
   }
-  return null;
+  return (c.boundary = found);
 }
 
 /** `fn`'s value, or `fallback()` while what is under it waits on a first load. */

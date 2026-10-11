@@ -63,7 +63,8 @@ const twist = (server: boolean): Plugin => {
   };
 };
 
-type App = { entry: string; plugins: Plugin[]; minify?: boolean; server?: boolean };
+// ("named": minified with its names kept, for a profile that compares like with like.)
+type App = { entry: string; plugins: Plugin[]; minify?: boolean | "named"; server?: boolean };
 const apps: Record<string, App> = {
   vanilla: { entry: "app-vanilla.ts", plugins: [none] },
   react: { entry: "app.tsx", plugins: [] },
@@ -72,6 +73,8 @@ const apps: Record<string, App> = {
   sluurp: { entry: "app.tsx", plugins: [ours] },
   "sluurp-plain": { entry: "app.tsx", plugins: [ours], minify: false },
   twist: { entry: "app-solid.tsx", plugins: [solidFlush, twist(false)] },
+  "twist-named": { entry: "app-solid.tsx", plugins: [solidFlush, twist(false)], minify: "named" },
+  "solid-named": { entry: "app-solid.tsx", plugins: [solidFlush, solid("dom")], minify: "named" },
   "twist-plain": { entry: "app-solid.tsx", plugins: [solidFlush, twist(false)], minify: false },
   signals: { entry: "app-signals.tsx", plugins: [ours] },
   "signals-plain": { entry: "app-signals.tsx", plugins: [ours], minify: false },
@@ -91,7 +94,7 @@ for (const [name, { entry, plugins, server, minify = !server }] of Object.entrie
     outdir: dir,
     naming: "app.js",
     target: server ? "bun" : "browser",
-    minify,
+    minify: minify === "named" ? { whitespace: true, syntax: true, identifiers: false } : minify,
     conditions: server ? ["node", "solid"] : ["browser", "solid"],
     define: { "process.env.NODE_ENV": '"production"', __DEV__: "false" },
     plugins,
