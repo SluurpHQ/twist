@@ -2072,7 +2072,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
     // not fix it).
     const suppressed = hydrating && parent.kind === HOST && parent.props?.suppressHydrationWarning === true;
     // (Compared as the HTML parser leaves text: CR and CRLF as LF, no NUL — React's normalizeMarkupForTextOrAttribute.)
-    const parsedText = parsedMarkup(text);
+    const parsedText = hydrating ? parsedMarkup(text) : text;
     const had = hydrating && text !== "" ? (claim(host, (n) => n.nodeType === 3 && (suppressed || parsedMarkup((n as Text).data).startsWith(parsedText))) as Text | null) : null;
     if (had) {
       if (!suppressed && had.data.length > parsedText.length) hydrating!.set(host, had.splitText(parsedText.length));

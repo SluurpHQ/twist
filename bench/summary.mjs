@@ -31,5 +31,8 @@ export function summary(profile, title) {
     const k = path.join(" < ");
     callers.set(k, (callers.get(k) ?? 0) + 1);
   }
-  return `${title}: ${count} samples\n-- self\n${top(self, 30)}\n-- total\n${top(total, 25)}\n-- ${hot} called from\n${top(callers, 5)}`;
+  // Its lines, by the samples taken in each (Chromium's positionTicks).
+  const lines = new Map();
+  for (const n of profile.nodes) if (label(n) === hot) for (const t of n.positionTicks ?? []) lines.set(`line ${t.line}`, (lines.get(`line ${t.line}`) ?? 0) + t.ticks);
+  return `${title}: ${count} samples\n-- self\n${top(self, 30)}\n-- total\n${top(total, 25)}\n-- ${hot} called from\n${top(callers, 5)}\n-- ${hot} by line\n${top(lines, 8)}`;
 }

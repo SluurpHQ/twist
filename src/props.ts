@@ -317,7 +317,8 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
       return el.addEventListener(type, next, capture);
     }
   }
-  if (name[0] === "o" && name[1] === "n" && name.length > 2 && name[2] === name[2]!.toUpperCase()) {
+  // (Its third letter not lower case, compared by code: no string made per prop.)
+  if (name[0] === "o" && name[1] === "n" && name.length > 2 && !(name.charCodeAt(2) >= 97 && name.charCodeAt(2) <= 122)) {
     // iOS Safari only sends clicks to elements it thinks are clickable: React gives them an onclick that does nothing.
     if (name === "onClick" && next != null) (el as HTMLElement).onclick ??= noop;
     return listen(el, name, next);
