@@ -27,6 +27,8 @@ class Record_ {
   overlay: Map<PropertyKey, { v: any; tx: Transaction | null }> | null = null;
   /** Optimistic writes waiting for the next flush. */
   guessing: Map<PropertyKey, any> | null = null;
+  /** Keys defined through a draft as not enumerable, until their write lands. */
+  hidden: Set<PropertyKey> | null = null;
   /** What it holds: the given object until the first write, then a private copy (the given one never changes). */
   own: Raw;
   /** Whether `own` is its private copy yet. */
@@ -54,6 +56,8 @@ function mine(target: Raw): Raw {
   if (r.copied) return r.own;
   const from = r.own;
   const descs = Object.getOwnPropertyDescriptors(from) as Record<PropertyKey, PropertyDescriptor>;
+  // (Behind a shell, no proxy invariant holds it: every slot writable, as a store's are.)
+  if (from !== target) for (const d of Object.values(descs)) if ("value" in d) (d.writable = true), (d.configurable = true);
   let copy: Raw;
   if (Array.isArray(from)) {
     delete descs.length;
@@ -74,12 +78,17 @@ class Family {
     let t = this.map.get(v);
     if (t) return t;
     if (!root && (fam || proxies.has(v))) return v;
-    t = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
+    t = shellOf(v);
     families.set(t!, this);
     this.map.set(v, t!);
-    recordOf(t!).own = v;
     return t;
   }
+}
+/** An empty object standing in for `v` as a proxy's target, holding `v` until the first write. */
+function shellOf(v: Raw): Raw {
+  const t = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
+  recordOf(t).own = v;
+  return t;
 }
 const families = new WeakMap<object, Family>();
 /** A value read from `target`, as its store holds it: in a derived store, its shell there. */
@@ -181,7 +190,7 @@ class KeyNode extends Signal<number> {
       const desc = Object.getOwnPropertyDescriptor(t, this.key);
       if (this.raw === DELETE) delete t[this.key];
       else if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(t, this.key, { ...desc, value: this.raw });
-      else t[this.key] = this.raw;
+      else put(this.record, t, this.key, this.raw);
       this.raw = NO_RAW;
     }
     super.promote();
@@ -189,6 +198,11 @@ class KeyNode extends Signal<number> {
 }
 (KeyNode.prototype as any).ownAffected = 0;
 const NO_RAW: unique symbol = Symbol("no-raw");
+/** `o[key] = v`, as not enumerable when the draft defined it so. */
+function put(r: Record_, o: Raw, key: PropertyKey, v: any) {
+  if (r.hidden?.delete(key)) Object.defineProperty(o, key, { value: v, writable: true, enumerable: false, configurable: true });
+  else o[key] = v;
+}
 
 /** `target[key]` in the world being read: a staged write where the reader sees it, else the object's. */
 function rawGet(target: Raw, key: PropertyKey): any {
@@ -517,7 +531,7 @@ export function commitRecord(r: Record_) {
       const o = mine(t);
       const desc = had ? Object.getOwnPropertyDescriptor(o, key) : undefined;
       if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(o, key, { ...desc, value: v });
-      else o[key] = v;
+      else put(r, o, key, v);
     }
     r.nodes.get(key)?.bump();
   }
@@ -584,7 +598,10 @@ const draftHandler: ProxyHandler<Raw> = {
     return true;
   },
   defineProperty(target, key, desc) {
-    if ("value" in desc) stage(target, key, unwrap(desc.value));
+    if ("value" in desc) {
+      if (desc.enumerable === false) (recordOf(target).hidden ??= new Set()).add(key);
+      stage(target, key, unwrap(desc.value));
+    }
     else {
       // An accessor: defined now, its readers (and the key set's, for a new key) told.
       const had = Object.prototype.hasOwnProperty.call(own(target), key);
@@ -639,7 +656,9 @@ function asyncStoreSetter(): never {
 /** A store and its setter; given a function, a store derived from what the function reads (RFC 04). */
 export function createStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: StoreOptions): [T, StoreSetter<T>] {
   if (typeof init === "function") return derivedStore(init as any, seed ?? ({} as T), options, true) as [T, StoreSetter<T>];
-  const target = unwrap(init) as Raw;
+  const given = unwrap(init) as Raw;
+  // (A frozen object: behind a shell, written to an unfrozen copy.)
+  const target = given && typeof given === "object" && Object.isFrozen(given) && (Array.isArray(given) || [Object.prototype, null].includes(Object.getPrototypeOf(given))) ? shellOf(given) : given;
   if ((seed as any)?.shallow ?? options?.shallow) markShallow(target);
   const set: StoreSetter<T> = (fn) => {
     guardStoreWrite();
@@ -928,13 +947,14 @@ function rawOf(v: any, seen: Map<any, any>): any {
   if (seen.has(t)) return seen.get(t);
   // (A projection following another store is rewritten as that one changes: copied, so the snapshot stays as it was.)
   if (derivedFrom.has(t)) return plain(t, seen);
-  seen.set(t, t);
   // (As a pass sees it: what is staged in this flush included.)
   const keys = rawKeys(t);
   const o = own(t);
   const staged = keys.length !== Reflect.ownKeys(o).length || keys.some((k) => seenStaged(t, k));
+  // (Written to: a copy, made first, so a cycle back to it finds the copy.)
+  let copy: any = staged || records.get(t)?.copied ? (Array.isArray(t) ? [] : Object.create(Object.getPrototypeOf(t))) : null;
+  seen.set(t, copy ?? o);
   const vals: any[] = [];
-  let copy: any = null;
   for (const k of keys) {
     const d = Object.getOwnPropertyDescriptor(o, k);
     if (d && !("value" in d)) {
@@ -948,13 +968,12 @@ function rawOf(v: any, seen: Map<any, any>): any {
     copy ??= Array.isArray(t) ? [] : Object.create(Object.getPrototypeOf(t));
     copy[k] = x;
   }
-  // (Staged removals alone: a copy too.)
-  if (staged) copy ??= Array.isArray(t) ? [] : Object.create(Object.getPrototypeOf(t));
   // (A copy holds every key: the staged world's, or the original's with what changed.)
   if (copy) for (let i = 0; i < keys.length; i++) {
     const k = keys[i]!;
     const d = Object.getOwnPropertyDescriptor(o, k);
     if (d && !("value" in d)) Object.defineProperty(copy, k, d);
+    else if (d && !d.enumerable && !(k === "length" && Array.isArray(copy))) Object.defineProperty(copy, k, { value: vals[i], writable: true, enumerable: false, configurable: true });
     else copy[k] = vals[i];
   }
   // (Changed since the last snapshot of it — the object is written in place: a copy, so what changed has a new
