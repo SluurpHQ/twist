@@ -1947,6 +1947,18 @@ function asyncWork(n: Computation<any>, at: Computation<any>, seen = new Set<Nod
   return false;
 }
 
+/** A flight in progress at `n` or upstream of it, if any. */
+function flightAt(n: Computation<any>, seen = new Set<Node>()): Computation<any> | null {
+  if (seen.has(n)) return null;
+  seen.add(n);
+  if (n.flight && !n.streaming) return n;
+  for (const s of n.sources) if (s instanceof Computation) {
+    const f = flightAt(s, seen);
+    if (f) return f;
+  }
+  return null;
+}
+
 /** Whether a flight is in progress at `n` or upstream of it. */
 function inFlight(n: Node, seen = new Set<Node>()): boolean {
   if (seen.has(n)) return false;
@@ -2483,6 +2495,13 @@ function commitTransactions() {
     // A flight nothing shows any more (its readers moved on) holds nothing.
     for (const f of t.flights) if (!f.flight || f.disposed || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
     // A flight in progress at any node it holds keeps it.
+    // (And its guesses' own sources refetching: the guess lives until its own truth lands.)
+    for (const src of (t as any).guessSources ?? []) {
+      const c = accessors.get(src);
+      if (!c || c.disposed || c.streaming) continue;
+      const f = flightAt(c);
+      if (f) t.flights.add(f);
+    }
     for (const n of t.nodes) if (n instanceof Computation && n.flight && shownFlight(n)) t.flights.add(n);
     if (t.flights.size || t.open || (awaitingRound.has(t) && dirty.length)) continue;
     // (A guess written in it still to install.)
@@ -2531,7 +2550,12 @@ function drain() {
         if (mount && (mount as any).mount && !mount.done && !c.streaming && c.staged !== NONE && !c.tx) (hold(c, mount), ((c as any).bornHeld = true));
       }
     if (guesses.length) installGuesses();
-    if (guessWork.length) for (const [install, tx, source] of guessWork.splice(0)) install(tx && !tx.done ? tx : tickTx && !tickTx.done ? tickTx : source ? overFlight(accessors.get(source)) : null);
+    if (guessWork.length)
+      for (const [install, tx, source] of guessWork.splice(0)) {
+        // (A guess over a source of its own: the action's end waits for that source's answer in flight, A18.)
+        if (tx && !tx.done && source) ((tx.root as any).guessSources ??= new Set()).add(source);
+        install(tx && !tx.done ? tx : tickTx && !tickTx.done ? tickTx : source ? overFlight(accessors.get(source)) : null);
+      }
     for (let passes = 0; dirty.length; passes++) {
       if (passes > 1e5) throw new Error("Potential infinite loop detected.");
       const now = dirty.sort(byOrder);
