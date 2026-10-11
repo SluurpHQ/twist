@@ -2163,7 +2163,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       if (e) (e.serverProps = { ...(e.serverProps as any), ...differences }), (attrsDiffer = true);
     }
     if (server) {
-      if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !single && !hydrationWaits && !regions.some((r) => r.suspended)) dropUnclaimed(el, f);
+      if (props.dangerouslySetInnerHTML == null && type !== "noscript" && !single && !hydrationWaits && !regions.some((r) => r.suspended || r.mismatch)) dropUnclaimed(el, f);
     } else {
       (hydrating ? host : intoOf(parent, host)).insertBefore(el, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(el), regions[regions.length - 1]?.made.push(el);
