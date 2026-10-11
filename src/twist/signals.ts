@@ -1134,6 +1134,7 @@ export class Computation<T> extends Node<T> implements Owner {
         if (this.ranAt === clock && this.state !== DIRTY) this.attach();
         else this.state = DIRTY;
       }
+      flewBefore = !!this.flight;
       this.update();
       // An unowned memo read outside any computation, with nothing subscribed: released at the next flush.
       if (!listener && this.kind === MEMO && !this.parent && !readersOf(this)) untrackedReads.add(this);
@@ -1151,7 +1152,8 @@ export class Computation<T> extends Node<T> implements Owner {
     // Never had a value (a first load, or waiting on one): not ready.
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) throw new NotReadyError(this);
     // A fresh derivation reading a flight a transaction waits on suspends on it (A15).
-    if (listener && listener.kind === MEMO && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && !this.loadingWindow && !this.streaming) throw new NotReadyError(this);
+    // (A resolve() reading one this read itself set off: its last answer, stale while it revalidates.)
+    if (listener && (listener.kind === MEMO || ((listener as any).resolving && flewBefore)) && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && !this.loadingWindow && !this.streaming) throw new NotReadyError(this);
     // Born held: nothing committed to serve outside a pass.
     if ((this as any).bornHeld && !inPass && this.override === NONE) throw new NotReadyError(this);
     return this.current();
@@ -1924,11 +1926,12 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   if ((n as any).writes) return n instanceof Computation && (asyncWork(n, n) || (!!n.tx && !n.tx.root.done && n.tx.root.open > 0 && n.staged !== NONE));
   // Held by a transaction still waiting on a flight (one with none left commits this round).
   // (A held truth equal to what shows is no change in flight, A24.)
-  if (n.tx && n.staged !== NONE && !committableTx(n.tx) && !(n instanceof Signal && Object.is(n.staged, n.value))) return true;
-  if ((n as any).affected) return true;
+  if (n.tx && n.staged !== NONE && !committableTx(n.tx) && n.tx.root !== pendingInside && !(n instanceof Signal && Object.is(n.staged, n.value))) return true;
+  // (A mark its own action made: asked from inside that action, its world.)
+  if ((n as any).affected && !pendingInside) return true;
   if (n instanceof Computation) {
     // (A stream between its values is settled on the last one: not pending.)
-    if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming) return true;
+    if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming && !(pendingInside && flightHolder(n)?.root === pendingInside)) return true;
     for (const s of n.sources) if (waiting(s, seen)) return true;
   }
   return false;
@@ -2800,8 +2803,19 @@ export function isPending(fn: () => unknown): boolean {
     for (const s of reads) outer.track(s);
     verdictReading--;
   }
-  return reads.some((s) => waiting(s));
+  // (Asked by a reader inside an action: that action's own held writes are its world, not pending.)
+  const was = pendingInside;
+  pendingInside = ((outer as any)?.insideTx as Transaction | null | undefined)?.root ?? null;
+  try {
+    return reads.some((s) => waiting(s));
+  } finally {
+    pendingInside = was;
+  }
 }
+/** Whether the memo being read had a flight up before the read brought it up to date. */
+let flewBefore = false;
+/** The transaction whose held writes an isPending asked from inside it does not count. */
+let pendingInside: Transaction | null = null;
 
 /** `fn` read in the newest world: what is staged in a hold or in flight, ahead of what is shown. */
 export function latest<T>(fn: () => T): T {
@@ -2891,10 +2905,14 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
 /** A promise for `fn`'s first settled value (not in flight, not held). */
 export function resolve<T>(fn: () => T): Promise<T> {
   if (listener) throw new Error("Cannot call resolve inside a reactive scope; it only resolves the current value and does not track updates.");
+  // (In an action: what it reads in that action's held world answers now, as until()'s does.)
+  const tx = acting?.tx ?? null;
   return new Promise<T>((ok, fail) => {
     createRoot((dispose) => {
       createEffect(
         () => {
+          (listener as any).insideTx = tx;
+          (listener as any).resolving = true;
           const v = fn();
           return { v, settled: !isPending(() => fn()) };
         },
