@@ -605,8 +605,11 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // The old ones matched in order while their keys line up; from the first that does not, looked up by key.
   let lineAt = 0;
   let byKey: Map<string, Fiber> | null = null;
+  // (Old ones passed over in line, gone from the list unless asked for later.)
+  let skipped: Fiber[] | null = null;
   const lookUp = () => {
     byKey = new Map();
+    if (skipped) for (const f of skipped) byKey.set(f.key, f);
     for (let j = lineAt; j < old.length; j++) byKey.set(old[j]!.key, old[j]!);
     lineAt = old.length;
     return byKey;
@@ -666,6 +669,8 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       seenKeys.add(key);
     }
     const type = typeOf(c);
+    // One gone from the line (the old one after it has this key): passed over, the line kept.
+    if (!byKey && lineAt + 1 < old.length && old[lineAt]!.key !== key && old[lineAt + 1]!.key === key) (skipped ??= []).push(old[lineAt++]!);
     const lined = !byKey && lineAt < old.length && old[lineAt]!.key === key ? old[lineAt]! : null;
     const had = lined ?? (old.length ? (byKey ?? lookUp()).get(key) : undefined);
     if (had && (had.type === type || sameFamily(had.type, type)) && !had.dead) {
@@ -686,7 +691,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     }
   }
   // What it had and did not reach: kept as it was, in its place, when it stopped at a suspending child; else let go.
-  const left: Map<string, Fiber> | null = lineAt < old.length ? lookUp() : byKey;
+  const left: Map<string, Fiber> | null = byKey ?? (lineAt < old.length || skipped ? lookUp() : null);
   if (stoppedAt && left) for (const f of old) if (left.get(f.key) === f) next.push(f), left.delete(f.key);
   if (left) for (const f of left.values()) unmount(f, true);
   parent.children = next;
