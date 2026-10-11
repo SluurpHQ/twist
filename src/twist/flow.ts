@@ -20,10 +20,16 @@ function disposeScope(o: Owner, parent: Owner | null) {
   const cleanups = o.cleanups;
   o.cleanups = null;
   if (cleanups) for (let i = cleanups.length - 1; i >= 0; i--) cleanups[i]!();
-  if (parent?.owned) {
-    const i = parent.owned.indexOf(o);
-    if (i >= 0) parent.owned.splice(i, 1);
-  }
+  if (parent?.owned) leave(parent as Owner & { gone?: number }, o);
+}
+/** A disposed item out of its parent's list: counted, the list compacted once half of it is gone (rows go in bulk). */
+function leave(parent: Owner & { gone?: number }, o: Owner) {
+  const owned = parent.owned!;
+  if (owned[owned.length - 1] === o) return void owned.pop();
+  parent.gone = (parent.gone ?? 0) + 1;
+  if (parent.gone * 2 < owned.length) return;
+  parent.owned = owned.filter((c) => !c.disposed);
+  parent.gone = 0;
 }
 const disposeAny = (o: Owner) => ((o as any).end ? disposeComputation(o) : disposeScope(o, null));
 function disposeComputation(o: Owner) {

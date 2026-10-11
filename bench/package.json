@@ -1,0 +1,16 @@
+{
+  "name": "dom-bench",
+  "private": true,
+  "description": "The frameworks the benchmark compares ours with, at exact versions.",
+  "dependencies": {
+    "@babel/core": "7.28.4",
+    "@babel/preset-typescript": "7.27.1",
+    "@solidjs/babel-plugin": "2.0.0-rc.14",
+    "@solidjs/signals": "2.0.0-rc.14",
+    "@solidjs/web": "2.0.0-rc.14",
+    "preact": "11.0.0-rc.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "solid-js": "2.0.0-rc.14"
+  }
+}

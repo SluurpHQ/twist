@@ -43,4 +43,14 @@ for (const id of profile.samples) {
   }
 }
 const top = (m, k) => [...m].sort((a, b) => b[1] - a[1]).slice(0, k).map(([l, v]) => `${((100 * v) / count).toFixed(1).padStart(5)}%  ${l}`).join("\n");
-console.log(`${app} ${name}: ${count} samples\n-- self\n${top(self, 30)}\n-- total\n${top(total, 25)}`);
+// Who calls the hottest function, by its self time.
+const hot = [...self].filter(([l]) => !l.startsWith("(")).sort((a, b) => b[1] - a[1])[0]?.[0];
+const callers = new Map();
+for (const id of profile.samples) {
+  if (label(byId.get(id)) !== hot) continue;
+  const path = [];
+  for (let at = parent.get(id); at != null && path.length < 3; at = parent.get(at)) path.push(label(byId.get(at)));
+  const k = path.join(" < ");
+  callers.set(k, (callers.get(k) ?? 0) + 1);
+}
+console.log(`${app} ${name}: ${count} samples\n-- self\n${top(self, 30)}\n-- total\n${top(total, 25)}\n-- ${hot} called from\n${top(callers, 5)}`);

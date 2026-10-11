@@ -526,7 +526,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     if (r !== undefined) reconcileInto(target, unwrap(r) as Raw, key);
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
-    return runs;
+    // The same answer each run: readers are told by the keys that changed, not by the derive having run.
+    return 0;
   }, { writes: true, ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   derives.set(target, m);
   onTake(m, (v) => {

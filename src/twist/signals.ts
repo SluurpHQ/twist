@@ -241,7 +241,11 @@ export function createRoot<T>(fn: (dispose: () => void) => T, options?: { id?: s
   );
 }
 
+/** `item` out of `list`; the ends first, as lists are let go of in order or in reverse (no scan per item). */
 function remove<T>(list: T[], item: T) {
+  const last = list.length - 1;
+  if (list[last] === item) return void list.pop();
+  if (list[0] === item) return void list.shift();
   const i = list.indexOf(item);
   if (i >= 0) list.splice(i, 1);
 }
