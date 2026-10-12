@@ -1192,40 +1192,14 @@ const bindingOf = (v: any): { component: Function; address: string } | undefined
 
 function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof tagArm): (props: P) => any {
   if (options?.static) return staticDynamic(untrack(source), tag);
-  // Mounted sites of a bound component: a new address for the same component is delivered to them, not remounted.
-  const sites = new Set<(a: string) => void>();
-  let deliveredAddress: string | undefined;
-  const resolveBinding = (next: any, prev: any) => {
-    const binding = bindingOf(next);
-    if (!binding) return next;
-    deliveredAddress = binding.address;
-    const prevBinding = bindingOf(prev);
-    if (prevBinding && prevBinding.component === binding.component) {
-      for (const deliver of sites) deliver(binding.address);
-      return prev;
-    }
-    return next;
-  };
-  const sameInstance = (prev: any, next: any) => {
-    if (prev === next) return true;
-    const held = bindingOf(prev);
-    const incoming = bindingOf(next);
-    if (!held || !incoming || held.component !== incoming.component) return false;
-    if (held.address === incoming.address) return true;
-    if (deliveredAddress === undefined) return false;
-    if (incoming.address !== deliveredAddress) {
-      deliveredAddress = incoming.address;
-      for (const deliver of sites) deliver(incoming.address);
-    }
-    return true;
-  };
+  // (A bound answer for the component already shown: the same instance, at the answer's address, not a remount.)
+  const sameComponent = (prev: any, next: any) => prev === next || (!!bindingOf(prev) && bindingOf(prev)!.component === bindingOf(next)?.component);
   const cached = createMemo<any>(
-    (prev: any) => {
+    () => {
       const next = source();
-      if (!next || typeof next.then !== "function") return resolveBinding(next, prev);
-      return { [FLIGHT]: next };
+      return next && typeof next.then === "function" ? { [FLIGHT]: next } : next;
     },
-    { lazy: true, equals: sameInstance } as any,
+    { lazy: true } as any,
   );
   return (props: P) => {
     if (sharedConfig.hydrating) {
@@ -1233,33 +1207,31 @@ function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof 
         untrack(cached);
       } catch {}
     }
-    let latest = 0;
-    const value = createMemo<any>(
-      (prev: any) => {
-        const c = cached();
-        if (!c || !c[FLIGHT]) return resolveBinding(c, prev);
-        const next: PromiseLike<any> = c[FLIGHT];
-        const token = ++latest;
-        return {
-          then: (onFulfilled: any, onRejected: any) =>
-            next.then((resolved: any) => {
-              const landed = token === latest ? resolveBinding(resolved, prev) : resolved;
-              return onFulfilled ? onFulfilled(landed) : landed;
-            }, onRejected),
-        };
+    const value = createMemo<any>(() => {
+      const c = cached();
+      return c && c[FLIGHT] ? c[FLIGHT] : c;
+    });
+    // The address derives from the answer: a switch's new address lands in the switch's transaction, and the content
+    // it waits for holds that transaction (the source stays pending until the new address's first content applies).
+    // (Transparent: no ids of their own, so the server's memos and the client's keep the same ids.)
+    const shown = createMemo<any>(() => value(), { equals: sameComponent, transparent: true } as any);
+    // (While the next answer is on its way, the mount stays at the address it has.)
+    const address = createMemo(
+      (prev: string | undefined) => {
+        try {
+          return bindingOf(value())?.address as string;
+        } catch (e) {
+          if (e instanceof NotReadyError && prev !== undefined) return prev;
+          throw e;
+        }
       },
-      { equals: sameInstance } as any,
+      { transparent: true } as any,
     );
     return createMemo(() => {
-      const c = value();
+      const c = shown();
       if (typeof c === "function") {
         const binding = bindingOf(c);
-        if (binding) {
-          const [address, setAddress] = createSignal((deliveredAddress ??= binding.address), { ownedWrite: true });
-          sites.add(setAddress);
-          onCleanup(() => sites.delete(setAddress));
-          return untrack(() => (binding.component as any)(props, address));
-        }
+        if (binding) return untrack(() => (binding.component as any)(props, address));
         return callInline(c, props);
       }
       if (typeof c === "string") return tag ? untrack(() => tag(c, props)) : undefined;

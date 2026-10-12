@@ -3383,6 +3383,11 @@ function commitTransactions() {
       if (f) t.flights.add(f);
     }
     for (const n of t.nodes) if (n instanceof Computation && n.flight && !(n.streaming && n.streamed) && shownFlight(n)) t.flights.add(n);
+    // A first load made by a pass it holds (a memo the held pass created): what that pass shows waits on it.
+    for (const n of t.nodes) {
+      if (!(n instanceof Computation) || !n.owned) continue;
+      for (const o of n.owned) if (o instanceof Computation && o.kind === MEMO && !o.ready && outstanding(o)) t.flights.add(o);
+    }
     if (t.flights.size || t.open || (awaitingRound.has(t) && dirty.length)) continue;
     // (A guess written in it still to install.)
     if (guesses.some((g) => g[2]?.root === t)) continue;
