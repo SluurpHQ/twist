@@ -479,6 +479,17 @@ export function live(fn) {
           while (ends.length) settle(ends.pop(), error);
         };
         const wireOptions = { ...invokeOptions, [LIVE_WIRE]: wire, signal: invokeSignal ? AbortSignal.any([invokeSignal, controller.signal]) : controller.signal };
+        // The caller's signal rejects the pull at once; what is nested hears it when the body ends.
+        let callerLeft;
+        const unlessAborted = (p) => {
+          if (!invokeSignal) return p;
+          callerLeft ??= new Promise((_, reject) => {
+            if (invokeSignal.aborted) reject(invokeSignal.reason);
+            else invokeSignal.addEventListener("abort", () => reject(invokeSignal.reason), { once: true });
+          });
+          callerLeft.catch(() => {});
+          return Promise.race([p, callerLeft]);
+        };
         const emit = (state, error?) => {
           try {
             iterable.onstatus && iterable.onstatus(state, error);
@@ -559,7 +570,7 @@ export function live(fn) {
                 emit("connected");
               }
               // The answer lives as long as its response: a body ending on open deferreds is a death.
-              const r = await (ended ? Promise.race([it.next(), ended.then((end) => ({ end }))]) : it.next());
+              const r = await unlessAborted(ended ? Promise.race([it.next(), ended.then((end) => ({ end }))]) : it.next());
               if (r.end || r.done) {
                 const end = r.end || (ended && (await ended));
                 if (end && end.open > 0) {

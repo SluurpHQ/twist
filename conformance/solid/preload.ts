@@ -32,8 +32,9 @@ delete (globalThis as any).reportError;
 // Vitest runs Solid's source with __DEV__ defined true.
 (globalThis as any).__DEV__ = true;
 // Vitest's globals, as Solid's tests use them without importing.
-import { vi } from "./vitest.ts";
+import { expect, vi } from "./vitest.ts";
 (globalThis as any).vi = vi;
+(globalThis as any).expect = expect;
 // And on Bun's own vi, which a test file may be given instead.
 import * as bunTest from "bun:test";
 const bunVi = bunTest.vi;

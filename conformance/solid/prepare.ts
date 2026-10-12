@@ -69,6 +69,8 @@ for (const f of walk(out)) {
     const source = /@jsxImportSource\s+(\S+)/.exec(t)![1]!;
     t = `/** @jsxImportSource ${source} */\n` + t.replace(/^\s*\*?\s*@jsxImportSource\s+\S+\s*$/m, "");
   }
+  // Vitest's API through vitest.ts (Bun answers "vitest" itself, before any plugin).
+  t = t.replace(/(from\s*)(["'])vitest\2/g, '$1"@twist/vitest"');
   // What Twist skips or rewrites (skips.ts).
   t = applyChanges(relative(out, f).split("\\").join("/"), t);
   // JSX files through Twist's pass (Bun's JSX transform runs after, when the test loads).
@@ -148,5 +150,11 @@ for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-s
   mkdirSync(dir, { recursive: true });
   await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js" } }));
   await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(twist(file))};\n` + (name === "@twist/solid-server" ? serverDev : ""));
+}
+{
+  const dir = join(here, "node_modules", "@twist", "vitest");
+  mkdirSync(dir, { recursive: true });
+  await Bun.write(join(dir, "package.json"), JSON.stringify({ name: "@twist/vitest", type: "module", exports: { ".": "./index.js" } }));
+  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(join(here, "vitest.ts").split("\\").join("/"))};\n`);
 }
 console.log(`Solid's tests at ${REF} (${git(["rev-parse", "--short", "HEAD"], clone)}) in solid-tests/`);

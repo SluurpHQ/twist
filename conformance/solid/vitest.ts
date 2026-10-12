@@ -1,7 +1,45 @@
 // Vitest's API on Bun's test runner, as far as Solid's tests use it.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, jest, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect as bunExpect, it, jest, mock, spyOn, test } from "bun:test";
 
-export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test };
+export { afterAll, afterEach, beforeAll, beforeEach, describe, it, test };
+// (`.rejects`/`.resolves` await, as Vitest's: Bun's drain the microtasks inside the matcher, so a rejection the test
+// handles on its next line counts as unhandled there.)
+const settledFirst = (actual: any, kind: "rejects" | "resolves", negate = false): any =>
+  new Proxy(
+    {},
+    {
+      get(_, name) {
+        if (name === "then") return undefined;
+        if (name === "not") return settledFirst(actual, kind, !negate);
+        return async (...args: any[]) => {
+          let ok = true;
+          let value: any;
+          try {
+            value = await (typeof actual === "function" ? actual() : actual);
+          } catch (error) {
+            ok = false;
+            value = error;
+          }
+          let e: any;
+          if (ok !== (kind === "resolves")) e = (bunExpect(ok ? Promise.resolve(value) : Promise.reject(value)) as any)[kind];
+          else e = bunExpect(/^toThrow/.test(String(name)) ? () => { throw value; } : value);
+          return (negate ? e.not : e)[name](...args);
+        };
+      },
+    },
+  );
+export const expect: typeof bunExpect = new Proxy(bunExpect, {
+  apply(target, self, args) {
+    const e = Reflect.apply(target, self, args);
+    return new Proxy(e, {
+      get(t, key) {
+        if (key === "rejects" || key === "resolves") return settledFirst(args[0], key);
+        const v = Reflect.get(t, key, t);
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    });
+  },
+});
 // expect.soft: as expect (the first failure ends the test).
 (expect as any).soft ??= expect;
 export const vi = {
