@@ -39,7 +39,7 @@ export function __twist_mark<T>(f: T, name?: string): T {
 }
 export const isTwist = (f: any) => typeof f === "function" && !!f[TWIST];
 /** The Solid-style component itself, for a marked one React calls. */
-const ownOf = (f: any) => (typeof f?.[TWIST] === "function" ? f[TWIST] : f);
+export const ownOf = (f: any) => (typeof f?.[TWIST] === "function" ? f[TWIST] : f);
 
 /** How a React component is mounted inside a Twist tree (installed by the bridge; none, and it is called as is). */
 let foreign: ((type: any, props: any) => any) | null = null;
@@ -147,7 +147,7 @@ export function spreadSource(read: () => any) {
 export const For = /* @__PURE__ */ builtin(function For<T>(props: { each: readonly T[] | null | undefined | false; fallback?: any; keyed?: boolean | ((v: T) => unknown); children: (item: any, index: any) => any }) {
   // (The row function's own arity passed on: one that takes no index gets no index cell.)
   const indexed = untrack(() => props.children).length > 1;
-  return mapArray(() => props.each, indexed ? (item, index) => props.children(item, index) : (item) => props.children(item), { keyed: props.keyed, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
+  return mapArray(() => props.each, indexed ? (item, index) => props.children(item, index) : (item) => (props.children as (item: any) => any)(item), { keyed: props.keyed, ...("fallback" in props ? { fallback: () => props.fallback } : {}) });
 });
 
 /** `children(index)` for `count` indices (from `from`), no diffing; children that are not a function, repeated as they are. */
@@ -280,7 +280,7 @@ export function lazy<P>(fn: () => Promise<any>, options?: { export?: string }, m
     let local = comp;
     // Not loaded yet: an async memo of the component (its readers wait, as for any first load).
     // (Its code holds a stream's shell: a page never streams the fallback of a module still loading.)
-    if (!local) load(), (local = createMemo(() => load().then(pick), { deferStream: true } as any) as () => (props: P) => any);
+    if (!local) load(), (local = createMemo(() => load().then(pick), { deferStream: true } as any) as unknown as () => (props: P) => any);
     return createMemo(() => {
       const C = (comp || local)();
       return C ? callComponent(C, props) : "";

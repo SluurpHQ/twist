@@ -34,6 +34,7 @@ import {
   RENDER_EFFECT,
   hydrationFlag,
   runAgain,
+  type Owner,
 } from "./signals.ts";
 import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume } from "./hydration.ts";
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
@@ -626,7 +627,7 @@ function dispatch(e: Event, root: Node) {
     let handler = node[key];
     if (handler) {
       if (ran?.has(node)) handler = null;
-      else (ran ??= (e as any).$$ran = new Set()).add(node);
+      else (ran ??= (e as any).$$ran = new Set<Node>()).add(node);
     }
     if (handler && !node.disabled) {
       if (isDynamic(handler)) handler = handler();
@@ -1541,6 +1542,18 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
   // What comes before the boundary stays put: the content, once revealed, starts right after it.
   const ahead = pl.previousSibling;
   const host = at.parent;
+  // Its parent knows only the fallback: what is revealed or made later in its place goes with the boundary.
+  const past = at.next;
+  runWithOwner(boundary, () =>
+    onCleanup(() => {
+      if (past && past.parentNode !== host) return;
+      for (let n = ahead ? (ahead.parentNode === host ? ahead.nextSibling : null) : host.firstChild; n && n !== past; ) {
+        const next = n.nextSibling;
+        host.removeChild(n);
+        n = next;
+      }
+    }),
+  );
   const record = (globalThis as any)._$HY?.r?.[id + "_fr"];
   const release = record ? runWithOwner(boundary, () => initBoundaryResume(boundary, id!)) : () => false;
   const reveal = () => {

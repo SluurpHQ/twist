@@ -23,7 +23,7 @@
       "node": "./src/twist/jsx/server/jsx-dev-runtime.ts",
       "default": "./src/twist/jsx/client/jsx-dev-runtime.ts"
     },
-    "./hot": "./src/twist/hot.ts",
+    "./refresh": "./src/twist/refresh.ts",
     "./bridge": {
       "node": "./src/twist/react-bridge-server.ts",
       "default": "./src/twist/react-bridge.ts"

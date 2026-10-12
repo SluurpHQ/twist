@@ -34,7 +34,8 @@ export const SOLID = {
   "@sluurp/twist/web": ["twist/web.ts", "twist/server.ts"],
   "@sluurp/twist/jsx-runtime": ["twist/jsx/client/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
   "@sluurp/twist/jsx-dev-runtime": ["twist/jsx/client/jsx-dev-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
-  "@sluurp/twist/hot": ["twist/hot.ts", "twist/hot.ts"],
+  "solid-js/refresh": ["twist/refresh.ts", "twist/refresh.ts"],
+  "@sluurp/twist/refresh": ["twist/refresh.ts", "twist/refresh.ts"],
   "@sluurp/twist/bridge": ["twist/react-bridge.ts", "twist/react-bridge-server.ts"],
 };
 

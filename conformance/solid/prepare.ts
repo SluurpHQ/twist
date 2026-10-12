@@ -146,12 +146,16 @@ const ours = twist("index.ts");
 for (const name of ["solid-js", "@solidjs/signals"]) {
   const dir = join(here, "node_modules", name);
   mkdirSync(dir, { recursive: true });
-  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js", "./internal/container-trace": "./container-trace.js", "./attribution": "./attribution.js" } }));
+  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js", "./internal/container-trace": "./container-trace.js", "./attribution": "./attribution.js", "./refresh": "./refresh.js" } }));
   await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(ours)};\n`);
   await Bun.write(join(dir, "internal.js"), `export * from ${JSON.stringify(twist("internal.ts"))};\n`);
   await Bun.write(join(dir, "container-trace.js"), `export * from ${JSON.stringify(twist("container-trace.ts"))};\n`);
   await Bun.write(join(dir, "attribution.js"), `export * from ${JSON.stringify(twist("attribution/index.ts"))};\n`);
+  await Bun.write(join(dir, "refresh.js"), `export * from ${JSON.stringify(twist("refresh.ts"))};\n`);
 }
+// (Solid's refresh runtime, by its path.)
+mkdirSync(join(out, "solid", "src", "refresh"), { recursive: true });
+await Bun.write(join(out, "solid", "src", "refresh", "index.js"), `export * from ${JSON.stringify(twist("refresh.ts"))};\n`);
 // The web runtime, and the JSX runtime Bun's transform imports from it.
 const web = join(here, "..", "..", "src", "twist", "web.ts").split("\\").join("/");
 const webDir = join(here, "node_modules", "@solidjs", "web");

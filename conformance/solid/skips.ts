@@ -211,6 +211,23 @@ export const CHANGES: Change[] = [
     why: "reads Solid's built client files for its build flags",
   },
   {
+    file: "solid/test/refresh-prod.spec.ts",
+    find: `vi.mock(import("../src/client/core.js"), async importOriginal => {
+  const original = await importOriginal();
+  return { ...original, IS_DEV: false };
+});`,
+    replace: `const devEnv = process.env.NODE_ENV;
+beforeEach(() => void (process.env.NODE_ENV = "production"));
+afterEach(() => void (process.env.NODE_ENV = devEnv));`,
+    why: "Twist reads NODE_ENV where Solid reads its IS_DEV build constant (mocked by module there)",
+  },
+  {
+    file: "solid/test/refresh-prod.spec.ts",
+    find: `import { afterEach, describe, expect, test, vi } from "@twist/vitest";`,
+    replace: `import { afterEach, beforeEach, describe, expect, test, vi } from "@twist/vitest";`,
+    why: "the production switch above runs before each test",
+  },
+  {
     file: "web/test/interaction-provenance.spec.tsx",
     find: `expect(ev.timeStamp).toBeGreaterThan(performance.now()); // jsdom: Date.now()`,
     replace: `Object.defineProperty(ev, "timeStamp", { value: Date.now() });`,

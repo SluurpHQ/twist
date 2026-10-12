@@ -41,8 +41,8 @@ function solidLibraries(root) {
 }
 
 /**
- * A compiled module made hot: its components kept by name across edits (see src/twist/hot.ts); an edit taken in place
- * when it exports components only, else passed on to its importers.
+ * A compiled module made hot: its components registered with the refresh runtime (src/twist/refresh.ts), kept by name
+ * across edits; an edit taken in place when it exports components only, else passed on to its importers.
  */
 function hotModule(out) {
   const markImport = "__twist_mark, __twist_memo } from";
@@ -50,13 +50,13 @@ function hotModule(out) {
   return (
     out.replace(markImport, "__twist_mark as __twist_mark_base, __twist_memo } from") +
     `
-import { hotComponent as __twist_hotComponent, hotAccepts as __twist_hotAccepts } from "@sluurp/twist/hot";
+import { $$registry as __twist_registry, $$component as __twist_component, $$refresh as __twist_refresh } from "@sluurp/twist/refresh";
+const __twist_hot = __twist_registry();
 function __twist_mark(c, name) {
-  return __twist_hotComponent(import.meta.hot, name, __twist_mark_base(c));
+  const marked = __twist_mark_base(c, name);
+  return import.meta.hot ? __twist_component(__twist_hot, name ?? marked.name, marked) : marked;
 }
-if (import.meta.hot) import.meta.hot.accept((next) => {
-  if (!__twist_hotAccepts(import.meta.hot, next)) import.meta.hot.invalidate();
-});
+if (import.meta.hot) __twist_refresh("vite", import.meta.hot, __twist_hot);
 `
   );
 }
