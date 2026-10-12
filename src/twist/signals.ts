@@ -4665,6 +4665,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       return fn();
     } catch (e) {
       // Waiting: the pass is the boundary's (its fallback shows), not held with what it read.
+      // (Shown its content before, not re-armed: what waits now is held — its last content stays, A33.)
+      if (e instanceof NotReadyError && !state.fresh && !armed && content.ranAt !== -1) throw e;
       if (e instanceof NotReadyError) return (content.readHeld = null), NOT_READY;
       throw e;
     }
@@ -4706,14 +4708,14 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     if (!shownFallback)
       runWithOwner(outer, () =>
         createRoot((dispose) => {
-          if (armed) fallbackFresh++;
+          fallbackFresh++;
           try {
             shownFallback = { value: untrack(fallback), dispose };
           } catch (e) {
             dispose();
             throw e;
           } finally {
-            if (armed) fallbackFresh--;
+            fallbackFresh--;
           }
         }, X === undefined ? undefined : { id: X }),
       );
