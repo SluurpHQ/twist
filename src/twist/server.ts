@@ -1301,6 +1301,9 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
 
 const HOLE_TOKEN = /\u0000hole\d+\u0000/;
 
+/** The end of this turn of the event loop, as the platform has it when the module loads (as Solid's). */
+const deferFlush: (fn: () => void) => void = typeof setImmediate === "function" ? setImmediate : (fn) => void setTimeout(fn, 0);
+
 /** Swaps a streamed template in for the fallback before it (written for Twist, not taken from Solid). */
 /** Solid's fragment swap runtime (MIT, Ryan Carniato and contributors): `$df`, groups (`$dfj`), fallbacks (`$dflj`), style gates. */
 const REVEAL = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function $dfr(e,n,o,t){if(!(n=document.getElementById(e)))return 0;if(!(o=document.getElementById("pl-"+e)))return(_$HY.dq=_$HY.dq||{})[e]=1,0;for(;o&&(8!==o.nodeType||o.nodeValue!=="pl-"+e);)t=o.nextSibling,o.remove(),o=t;t=o.parentNode,o.replaceWith(n.content),n.remove(),(_$HY.v=_$HY.v||{})[e]=1,_$HY.fe(e,t),_$HY.hp&&_$HY.hp[e]&&($dh(_$HY.hp[e]),delete _$HY.hp[e]),$dfd();return 1}function $dfl(e,o,n){if(!(o=document.getElementById("pl-"+e)))return(_$HY.dlq=_$HY.dlq||{})[e]=1,0;if(o._$fl)return 1;for(n=o.nextSibling;n;){if(8===n.nodeType&&n.nodeValue==="pl-"+e){o.parentNode&&o.parentNode.insertBefore(o.content.cloneNode(!0),n),o._$fl=1,$dfd();return 1}n=n.nextSibling}return 0}function $dflj(e,i){for(i=0;i<e.length;i++)$dfl(e[i])}function $dfd(e,i){if(e=_$HY.dq){_$HY.dq=0;for(i in e)$df(i)}if(e=_$HY.dlq){_$HY.dlq=0;for(i in e)$dfl(i)}}function $dfs(e,c,d){(_$HY.sc=_$HY.sc||{})[e]=c,d&&((_$HY.sd=_$HY.sd||{})[e]=1)}function $dfg(e,g,i,k){if(!(g=_$HY.sg&&_$HY.sg[e]))return;for(i=0;i<g.length;i++)if(_$HY.sc&&_$HY.sc[g[i]]>0)return;for(i=0;i<g.length;i++)k=g[i],delete _$HY.sg[k],$df(k)}function $dfc(e){if(--_$HY.sc[e]<=0){delete _$HY.sc[e],_$HY.sg&&_$HY.sg[e]?$dfg(e):!(_$HY.sd&&_$HY.sd[e])&&$df(e);_$HY.sd&&delete _$HY.sd[e]}}function $dfj(e,i,n){for(i=0;i<e.length;i++)if(_$HY.sc&&_$HY.sc[e[i]]>0){for(n=0;n<e.length;n++)(_$HY.sg=_$HY.sg||{})[e[n]]=e;return}for(i=0;i<e.length;i++)$df(e[i])}function $dfe(e,t,k){(t=e.target)&&t.getAttribute&&!t._$dc&&(k=t.getAttribute("data-dfc"))&&(t._$dc=1,$dfc(k))}document.addEventListener("load",$dfe,!0);document.addEventListener("error",$dfe,!0)`;
@@ -1981,13 +1984,13 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     data: (payload: string) => void (r.data += payload + ";"),
     fragment: (key, value, meta) => {
       const styles = meta.styles ?? { inline: [], links: [] };
-      let out = takeData(r) + (meta.patch ?? "");
+      let out = meta.patch ?? "";
       for (const entry of styles.inline) out += renderInlineStyle(entry, r.nonce);
       if (styles.links.length) {
-        out += script(r, `$dfs("${key}",${styles.links.length},${meta.revealGroup ? 1 : 0})`) + `<template id="${key}">${value}</template>`;
+        out += takeData(r) + script(r, `$dfs("${key}",${styles.links.length},${meta.revealGroup ? 1 : 0})`) + `<template id="${key}">${value}</template>`;
         for (const entry of styles.links)
           out += typeof entry === "string" ? `<link rel="stylesheet" href="${entry}" data-dfc="${key}">` : `<link${entry.attrHtml} data-dfc="${key}">`;
-      } else out += `<template id="${key}">${value}</template>` + (meta.revealGroup ? "" : script(r, `$df("${key}")`));
+      } else out += `<template id="${key}">${value}</template>` + takeData(r) + (meta.revealGroup ? "" : script(r, `$df("${key}")`));
       r.chunks.push(out);
     },
     reveal: (keys, meta) => void r.chunks.push(takeData(r) + script(r, `${meta.fallback ? "$dflj" : "$dfj"}(${JSON.stringify(keys)})`)),
@@ -2021,7 +2024,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
           .then(async (shell) => {
             // What blocks the shell, until none is left: settling one can register another (a lazy chunk's data). The
             // flush itself waits a macrotask, as Solid's: a boundary settling within microtasks goes out inline.
-            const macrotask = () => new Promise((ok) => (typeof setImmediate === "function" ? setImmediate(ok) : setTimeout(ok, 0)));
+            const macrotask = () => new Promise<void>((ok) => deferFlush(ok));
             do {
               while (r.blocks.size) {
                 const now = [...r.blocks];
@@ -2065,16 +2068,21 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     // (Nothing left that renders: the document's live channel gets its last sweep and closes — before the data's end,
     // which it would otherwise hold open.)
     endLive(r);
-    const data = takeData(r);
-    if (data) r.chunks.push(data);
-    for (; sent < r.chunks.length && !done; sent++) for (const w of sinks) write(w, r.chunks[sent]!);
+    if (coalesce) {
+      if (r.chunks.length > sent || r.data) scheduleOut();
+    } else {
+      const data = takeData(r);
+      if (data) r.chunks.push(data);
+      for (; sent < r.chunks.length && !done; sent++) for (const w of sinks) write(w, r.chunks[sent]!);
+    }
     // A frame stream ends after its serializer's last record (a trace still writing is part of the response).
     if (!r.waiting.size && !r.pendingData && !r.holds && !done && (options.sink || (r as any).liveClosing) && (r.serializer as any)?.pending > 0) {
-      (typeof setImmediate === "function" ? setImmediate : setTimeout)(() => r.wake?.(), 0);
+      deferFlush(() => r.wake?.());
       return;
     }
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
-      options.onCompleteAll?.({ write: (chunk) => sinks.forEach((w) => write(w, chunk)) });
+      options.onCompleteAll?.({ write: (chunk) => void r.chunks.push(chunk) });
+      flushAll();
       done = true;
       // (Awaited whole, the render is let go of as it resolves: the record settles after.)
       if (!whole) record?.settle("complete", r.tracks?.size ?? 0);
@@ -2124,6 +2132,27 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     } catch {
       abandon(false, "abandoned", "sink");
     }
+  };
+  // After the shell, as Solid's: what settles in one turn of the event loop goes out as one write, the data it
+  // serialized included (sooner past 16 KB). A custom sink takes each part as it comes.
+  const coalesce = !options.sink;
+  let outScheduled = false;
+  const flushAll = () => {
+    outScheduled = false;
+    if (done) return;
+    const data = takeData(r);
+    if (data) r.chunks.push(data);
+    if (sent >= r.chunks.length) return;
+    const out = r.chunks.slice(sent).join("");
+    r.chunks.splice(sent, r.chunks.length - sent, out);
+    sent = r.chunks.length;
+    for (const w of sinks) write(w, out);
+  };
+  const scheduleOut = () => {
+    let pending = r.data.length;
+    for (let i = sent; i < r.chunks.length; i++) pending += r.chunks[i]!.length;
+    if (pending >= 16384) return flushAll();
+    if (!outScheduled) (outScheduled = true), deferFlush(flushAll);
   };
   // (A request aborted after the shell: a disconnect, the sink not touched again; before it, the response ends.)
   // (Ended quietly by its owner — a frame response cut at a bound — is no abandonment to report.)

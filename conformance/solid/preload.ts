@@ -50,7 +50,7 @@ import { expect, vi } from "./vitest.ts";
 import * as bunTest from "bun:test";
 const bunVi = bunTest.vi;
 // (Its spyOn and restoreAllMocks too: Bun's spies on no accessor.)
-for (const [k, f] of Object.entries(vi)) if (!(k in bunVi) || k === "fn" || k === "spyOn" || k === "restoreAllMocks") (bunVi as any)[k] = f;
+for (const [k, f] of Object.entries(vi)) if (!(k in bunVi) || k === "fn" || k === "spyOn" || k === "restoreAllMocks" || k === "useFakeTimers" || k === "useRealTimers") (bunVi as any)[k] = f;
 // (A file importing some names from vitest still uses the others as globals: Bun then defines none.)
 for (const k of ["describe", "it", "test", "expect", "beforeAll", "beforeEach", "afterAll", "afterEach"] as const) (globalThis as any)[k] ??= bunTest[k];
 const src = join(import.meta.dir, "..", "..", "src");

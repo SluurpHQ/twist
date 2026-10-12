@@ -66,8 +66,19 @@ export const vi = {
     accessors.push(() => (own ? Object.defineProperty(target, prop, own) : delete target[prop]));
     return m;
   },
-  useFakeTimers: () => jest.useFakeTimers(),
-  useRealTimers: () => jest.useRealTimers(),
+  // (setImmediate faked too, as Vitest's default: Bun's fake timers leave it real.)
+  useFakeTimers() {
+    jest.useFakeTimers();
+    if (!realImmediate) {
+      realImmediate = [globalThis.setImmediate, globalThis.clearImmediate];
+      (globalThis as any).setImmediate = (fn: (...a: any[]) => void, ...a: any[]) => setTimeout(fn, 0, ...a);
+      (globalThis as any).clearImmediate = (t: any) => clearTimeout(t);
+    }
+  },
+  useRealTimers() {
+    jest.useRealTimers();
+    if (realImmediate) [globalThis.setImmediate, globalThis.clearImmediate] = realImmediate as any, (realImmediate = null);
+  },
   advanceTimersByTime: (ms: number) => jest.advanceTimersByTime(ms),
   runAllTimers: () => jest.runAllTimers(),
   clearAllMocks: () => jest.clearAllMocks(),
@@ -76,9 +87,11 @@ export const vi = {
     while (accessors.length) accessors.pop()!();
   },
   // As Vitest's: a millisecond at a time, the promise work each timer releases run before the next.
+  // (And, as Vitest's, a turn of the real event loop after each: a macrotask the code took before the clock was faked
+  // runs too.)
   async advanceTimersByTimeAsync(ms: number) {
     await settle();
-    for (let i = 0; i < ms; i++) jest.advanceTimersByTime(1), await settle();
+    for (let i = 0; i < ms; i++) jest.advanceTimersByTime(1), await settle(), await realTurn();
   },
   runAllTimersAsync: async () => (jest.runAllTimers(), await Promise.resolve()),
   // A global replaced until unstubAllGlobals() puts each back as it was (absent ones removed).
@@ -94,6 +107,9 @@ export const vi = {
   },
 };
 const accessors: (() => void)[] = [];
+let realImmediate: [typeof setImmediate, typeof clearImmediate] | null = null;
+const loadImmediate = globalThis.setImmediate;
+const realTurn = () => new Promise<void>((ok) => loadImmediate(() => ok()));
 const stubbed = new Map<string, PropertyDescriptor | undefined>();
 /** The promise work queued now, and what it queues, run. */
 async function settle() {
