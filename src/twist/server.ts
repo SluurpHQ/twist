@@ -2,7 +2,7 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
+import { childIdCount, setChildIdCount, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
@@ -138,18 +138,18 @@ for (const f of [Portal, Dynamic]) __twist_mark(f);
 // (Their bodies read what they render: no strict-read scope; functions declared below are hoisted.)
 markBuiltin(Portal, Dynamic, Errored, NoHydration, Hydration, Loading, HydrationScript);
 
-export function dynamic<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
+export function dynamic<P>(source: () => any, options?: { static?: boolean; deferStream?: boolean }): (props: P) => any {
   return dynamicCore<P>(source, options, true);
 }
 
 /** `dynamic` for a source that only answers with components, never a tag name. */
-export function dynamicComponent<P>(source: () => any, options?: { static?: boolean }): (props: P) => any {
+export function dynamicComponent<P>(source: () => any, options?: { static?: boolean; deferStream?: boolean }): (props: P) => any {
   return dynamicCore<P>(source, options, false);
 }
 
 const COMPONENT_BINDING = Symbol.for("solid.component-binding");
 
-function dynamicCore<P>(source: () => any, options: { static?: boolean } | undefined, tags: boolean): (props: P) => any {
+function dynamicCore<P>(source: () => any, options: { static?: boolean; deferStream?: boolean } | undefined, tags: boolean): (props: P) => any {
   const make = (w: any, props: any) => {
     if (typeof w === "string") return tags ? ssrElement(w, props, undefined, true) : undefined;
     if (typeof w !== "function") return undefined;
@@ -163,7 +163,8 @@ function dynamicCore<P>(source: () => any, options: { static?: boolean } | undef
     return (props: any) => make(w, props);
   }
   // As the client's: the source's answer kept once, then a value and its rendering per instance.
-  const cached = createMemo(source);
+  // (deferStream: its answer holds the shell.)
+  const cached = createMemo(source, options?.deferStream ? ({ deferStream: true } as any) : undefined);
   return (props: any) => {
     const which = createMemo(() => cached());
     return createMemo(() => ({ t: html(make(which(), props), false) }));
@@ -268,8 +269,23 @@ export function HydrationScript(props: { nonce?: string; eventNames?: string[] }
 }
 
 /** On the server a client-only component is its fallback. */
-export function clientOnly<P extends object>(_load: () => Promise<any>, _options?: { lazy?: boolean; export?: string }) {
-  return (props: P & { fallback?: any }) => props.fallback;
+export function clientOnly<P extends object>(_load: () => Promise<any>, _options?: { lazy?: boolean; export?: string }, moduleUrl?: string) {
+  return (props: P & { fallback?: any }) => {
+    // (Its module, named by the bundler: plain link hints so the browser fetches it early — never the hydration map,
+    // as hydration does not need it; the fallback is what hydrates.)
+    const ctx = sharedConfig.context as any;
+    if (moduleUrl && ctx?.registerAsset && ctx.resolveAssets) {
+      const hint = (assets: any) => {
+        if (!assets) return;
+        for (const css of assets.css ?? []) ctx.registerAsset(typeof css === "string" ? "style" : "inline-style", css);
+        for (const p of assets.preloads ?? []) ctx.registerAsset("preload", p);
+        for (const js of assets.js ?? []) ctx.registerAsset("module", js);
+      };
+      const assets = ctx.resolveAssetsSync ? ctx.resolveAssetsSync(moduleUrl) : ctx.resolveAssets(moduleUrl);
+      assets && typeof assets.then === "function" ? assets.then(hint, () => {}) : hint(assets);
+    }
+    return props.fallback;
+  };
 }
 
 // ---------------------------------------------------------------- hydration keys
@@ -465,7 +481,8 @@ function element(el: Element_, keyed: boolean): string {
       continue;
     }
     const v = read(raw);
-    if (k === "children") kids = v;
+    // (A spread's children: templates of their own, each keyed as a hole's are.)
+    if (k === "children") kids = el.sources || hasSpread(el.props) ? keyedKids(v) : v;
     else if (k === "ref" || /^on[A-Z]/.test(k)) {
       if (slots) behaviors = spreadBehaviorPosition(behaviors, k, v, ctx.claims, 0, false);
       continue;
@@ -528,6 +545,9 @@ function propsOf(el: Element_): Record<string, any> {
 /** An element's children: elements written here are in its template; anything else is a hole. */
 /** Children read from an accessor, rendered where they are read (as their value would be). */
 const DYNAMIC_KIDS = Symbol("twist.ssr.dynamic-children");
+
+/** Elements given as values (not a template's own children): keyed, as Solid's templates each take an id. */
+const keyedKids = (v: any): any => (Array.isArray(v) ? Object.assign(v.map(keyedKids), { [OWN]: (v as any)[OWN] }) : v && v[EL] && v.keyed === undefined ? { ...v, keyed: true } : v);
 
 function children(c: any): string {
   if (c && c[DYNAMIC_KIDS]) {
@@ -872,6 +892,13 @@ let render: Render | null = null;
 const fragments = new WeakMap<object, (v: boolean) => void>();
 /** Loading boundaries being rendered (under one, a waiting hole shows the boundary's fallback instead). */
 let boundaries = 0;
+/** Marks a server <Loading> boundary's owner (what reads under it, on any later pass, is inside it). */
+const LOADING_OWNER = Symbol("twist.ssr.loading");
+setInsideLoading((o) => {
+  if (boundaries > 0) return true;
+  for (let x: any = o; x; x = x.parent) if (x[LOADING_OWNER]) return true;
+  return false;
+});
 let holeCount = 0;
 
 /**
@@ -948,6 +975,7 @@ async function filled(r: Render, s: string, pass?: () => void): Promise<string> 
 export function Loading(props: { fallback?: any; on?: unknown; children?: any }) {
   const parent = getOwner();
   const boundary = ownerUnder(parent);
+  (boundary as any)[LOADING_OWNER] = true;
   // (A group coordinates the boundaries directly inside it, not theirs.)
   const group = revealGroupOf(parent);
   if (group) setRevealGroup(boundary, null);

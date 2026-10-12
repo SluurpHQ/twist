@@ -586,6 +586,21 @@ const CLIENT_ONLY = { clientOnly: true };
 function clientOnly(): never {
   throw new NotReadyError(CLIENT_ONLY);
 }
+/** A client-only source read on a server: not ready — or, outside every <Loading> and with no loading value shown in
+ * its place, an error (nothing owns its position). */
+function clientHoleRead() {
+  if (!insideLoading(listener ?? owner) && !listener?.loadingWindow) {
+    const message =
+      `[ASYNC_OUTSIDE_LOADING_BOUNDARY] ssrSource: "client" read during SSR outside a <Loading> boundary — the server cannot ` +
+      `run this source, so a boundary must own the position's fallback. Wrap the read in <Loading>, or declare a ` +
+      `loadingValue/seedLoadingValue to render a provisional value instead.`;
+    emitDiagnostic({ code: "ASYNC_OUTSIDE_LOADING_BOUNDARY", kind: "async", severity: "error", message, data: { side: "server" } } as any);
+    throw new Error(message);
+  }
+}
+/** Whether a server render is inside a <Loading> now (the server's renderer says). */
+let insideLoading: (o: Owner | null) => boolean = () => true;
+export const setInsideLoading = (fn: (o: Owner | null) => boolean) => void (insideLoading = fn);
 /** Whether what is not ready is client-only content (the client renders it; nothing on the server will settle it). */
 export function isClientOnly(e: NotReadyError): boolean {
   const seen = new Set<unknown>();
@@ -628,7 +643,8 @@ export function holdsShell(e: NotReadyError): boolean {
   const find = (n: any): boolean => {
     if (!n || seen.has(n) || typeof n.then === "function") return false;
     seen.add(n);
-    if (n.deferStream && n.flight) return true;
+    // (Marked deferStream and waiting: on its own answer, or on what it reads.)
+    if (n.deferStream && (n.flight || !n.ready)) return true;
     if (n.waitsFor && n.waitsFor.source !== n && find(n.waitsFor.source)) return true;
     return (n.sources ?? []).some(find);
   };
@@ -1173,6 +1189,7 @@ export class Computation<T> extends Node<T> implements Owner {
     // Never had a value (a first load, or waiting on one): not ready. (Read directly in a strict scope, in the
     // browser: an error saying so — nothing would show it when it lands.)
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) {
+      if (serverRender && (this as any).ssrSource === "client") clientHoleRead();
       if (strictRead && !listener && !serverRender && process.env.NODE_ENV !== "production") pendingUntrackedRead(this);
       throw new NotReadyError(this);
     }
