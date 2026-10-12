@@ -655,7 +655,7 @@ async function foldFlightData(hooks, event, headers, outcome, context: any = {})
   for (const [source, hook] of hooks) {
     try {
       const slice = await hook(event, outcome);
-      if (slice !== undefined) folded.push([source, slice]);
+      if (slice !== undefined) folded.push([source, owned(slice)]);
     } catch (error) {
       console.error(`Error collecting flight data for source "${source}"`, error);
     }
@@ -677,6 +677,14 @@ async function foldFlightData(hooks, event, headers, outcome, context: any = {})
     }
   }
   return outcome.value === undefined ? { data } : { value: outcome.value, data };
+}
+/** A slice's promises, handled here: their failures reach the client through the payload, not as unhandled rejections. */
+function owned(slice, seen = new Set()) {
+  if (!slice || typeof slice !== "object" || seen.has(slice)) return slice;
+  seen.add(slice);
+  if (typeof slice.then === "function") slice.then(undefined, () => {});
+  else if (Array.isArray(slice) || Object.getPrototypeOf(slice) === Object.prototype) for (const value of Object.values(slice)) owned(value, seen);
+  return slice;
 }
 /** revalidateKeys, foldedHeaders (cookies after the mutation), targetUrl (where the page will be). */
 function digestOutcome(event, outcome) {

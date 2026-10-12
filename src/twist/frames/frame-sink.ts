@@ -1869,7 +1869,14 @@ export async function frameTransformFlightResult(event, outcome, context) {
       const out = (serialized[source] = {});
       for (let i = 0; i < keys.length; i++) {
         const result = settled[i];
-        const entry = result.status === "fulfilled" ? result.value : slice[keys[i]];
+        // (A rejected entry crosses as a rejection of the sanitized error: what failed stays on the server.)
+        if (result.status === "rejected") {
+          const failed = Promise.reject(ssrSanitizeError(result.reason, null));
+          failed.catch(() => {});
+          out[keys[i]] = failed;
+          continue;
+        }
+        const entry = result.value;
         if (typeof entry !== "function") {
           out[keys[i]] = entry;
           continue;

@@ -48,11 +48,6 @@ export const CHANGES: Change[] = [
     why: "reads Solid's built dist/server.js",
   },
   {
-    file: "web/test/server/server-functions-failure-sanitization.spec.tsx",
-    skip: "the development artifact retains its stack default under NODE_ENV=production",
-    why: "loads Solid's built server-functions/dist/server.dev.js",
-  },
-  {
     file: "solid/test/package-exports.spec.ts",
     skip: "generated declarations are not public package entry points",
     why: "resolves through Solid's own package.json exports",
@@ -91,6 +86,40 @@ export const CHANGES: Change[] = [
     find: `expect(result.html).toContain('$R[7],$R[11]=new Error("boom")');`,
     replace: `expect(result.html).toMatch(/\\$R\\[\\d+\\],\\$R\\[\\d+\\]=new Error\\("boom"\\)/);`,
     why: "the serializer's reference numbers follow what was serialized before (an encoding detail); the rejection itself is checked",
+  },
+  {
+    file: "web/test/server/server-functions-failure-sanitization.spec.tsx",
+    find:
+      "    const entry = new URL(\"./server-functions/dist/server.dev.js\", `file://${process.cwd()}/`).href;\n" +
+      "    return (developmentArtifact ??= import(/* @vite-ignore */ entry).then(module => ({\n" +
+      "      handle: module.handleServerFunctionRequest,\n" +
+      "      register: module.registerServerFunction\n" +
+      "    })));",
+    replace:
+      "    return (developmentArtifact ??= import(\"@solidjs/web/server-functions/server\").then(module => ({\n" +
+      "      handle: async (...args: any[]) => {\n" +
+      "        module.setServerFunctionsDev(true);\n" +
+      "        try {\n" +
+      "          return await (module.handleServerFunctionRequest as any)(...args);\n" +
+      "        } finally {\n" +
+      "          module.setServerFunctionsDev(false);\n" +
+      "        }\n" +
+      "      },\n" +
+      "      register: module.registerServerFunction\n" +
+      "    })));",
+    why: "Solid's development build is a second artifact on disk; Twist's is the same module with setServerFunctionsDev(true)",
+  },
+  {
+    file: "web/test/server/server-functions-failure-sanitization.spec.tsx",
+    find: `      expect(optedIn).toContain("applicationErrorFrame");`,
+    replace: `      expect(optedIn).toContain('"stack"');`,
+    why: "JavaScriptCore's stack trace does not name that frame (V8's does); what is checked is that the stack is sent",
+  },
+  {
+    file: "web/test/server/server-functions-failure-sanitization.spec.tsx",
+    find: `      expect(body).toContain("applicationErrorFrame");\n      expect(body).toContain(process.cwd());`,
+    replace: `      expect(body).toContain('"stack"');\n      expect(body).toContain("server-functions-failure-sanitization");`,
+    why: "JavaScriptCore does not name that frame, and a Windows path is escaped in the payload; what is checked is that the stack, with its file, is sent",
   },
   // ---- The engine's words
   {
