@@ -1178,11 +1178,14 @@ export class Signal<T> extends Node<T> {
     if (this.pending === NONE) writes.push(this);
     this.pending = next;
     if (acting) this.writtenIn = acting.tx;
+    else if (inPass && listener) this.writtenBy = listener;
     else if (!flushing && !tickTx) tickWrites.add(this);
     schedule();
   }
   /** The action whose transaction this write belongs to (held with it until the action ends). */
   declare writtenIn: Transaction | null;
+  /** The computation whose compute made this write (held with it, if its run is). */
+  declare writtenBy: Computation<any> | null;
   /** The pending write dropped (a subclass commits it its own way). */
   settle() {
     this.pending = NONE;
@@ -2905,6 +2908,28 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
         }
       }
     }
+  // A write from a compute this round held joins its hold.
+  for (const n of now) {
+    const by = n instanceof Signal ? n.writtenBy : null;
+    if (!by) continue;
+    (n as Signal<any>).writtenBy = null;
+    // (Its writer held, or reading what this round held.)
+    const t = [by.tx, ...by.sources.map((s) => s.tx)].find((t) => t && !t.root.done);
+    if (n.tx || !t || n.staged === NONE) continue;
+    const into = t.root;
+    hold(n, into);
+    held.add(n);
+    for (const c of downstream(n)) {
+      if (c.tx || (c.staged === NONE && !c.due)) continue;
+      if (c.kind === MEMO) hold(c, into);
+      else {
+        if (c.due) (c.due = false), remove(applies[c.kind as 1 | 2], c);
+        c.staged = NONE as any;
+        c.state = CLEAN;
+        c.mark(DIRTY);
+      }
+    }
+  }
   for (const n of now) if (!n.tx) n.promote();
   if (held.size) statusChanged();
 }
