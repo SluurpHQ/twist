@@ -311,6 +311,18 @@ export const CHANGES: Change[] = [
     why: "Solid's server streams a rejection template whose single space stays in the range; Twist's hands the content to the client with no template (its record is false), so nothing stray is left",
   },
   {
+    file: "web/test/server/loading-recreated-async-source-3734.spec.tsx",
+    find: `(name === "same promise" ? test : test.failing)("hand-written ssr()"`,
+    replace: `test("hand-written ssr()"`,
+    why: "Solid's known open half of #3734 (marked failing there): Twist's re-created memo reads its source through the render's shared pump, so every kind converges",
+  },
+  {
+    file: "web/test/server/ssr-stream.spec.tsx",
+    find: `    expect(full).toContain("<h4 _hk=10001>shown</h4>");\n`,
+    replace: `    expect(full).toContain("<h4 _hk=1001>shown</h4>");\n`,
+    why: "Twist's compiled condition memo is made where its JSX is (the content's next slot, 1000), not inside the hole's own scope as Solid's; the h4 takes the slot after it, the same on every pull (no leak), as the client claims it",
+  },
+  {
     file: "web/test/harness/scenarios.tsx",
     find: `  {\n    name: "ssr-element-sources",\n    App: SpreadSources,\n    expectedText: "srcstail",\n    adoptAll: true,\n    update: () => setSourcesLabel("TAIL"),\n    expectedTextAfterUpdate: "srcsTAIL",\n    stableSelector: "div, span, b"\n  },\n`,
     replace: ``,

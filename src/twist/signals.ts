@@ -670,6 +670,11 @@ type Tee<T> = [AsyncIterable<T>, AsyncIterable<T>, () => void];
 /** An answer that may be a source: the stream stays open until the source has ended, not only until it answered. */
 export const SOURCE_ANSWER = Symbol("twist.source-answer");
 const sourceAnswer = <P extends object>(p: P) => (((p as any)[SOURCE_ANSWER] = true), p);
+/** A server render's sharer: one pump per async source, a seat for each reader. */
+let serverSharer: ((source: AsyncIterable<any>) => AsyncIterable<any>) | null = null;
+export const setServerSharer = (fn: typeof serverSharer) => void (serverSharer = fn);
+/** A source others can read too (one that makes a new iterator each time), through the shared pump. */
+const shared = <T>(v: AsyncIterable<T>): AsyncIterable<T> => (serverSharer && typeof (v as any).next !== "function" ? serverSharer(v) : v);
 /** A source an async answer gave, split once: the same split however many passes read it. */
 const sourceTees = new WeakMap<object, Tee<any>>();
 const teeOf = (v: AsyncIterable<any>) => {
@@ -1773,7 +1778,7 @@ export class Computation<T> extends Node<T> implements Owner {
         }
         // (An async iterable's first step runs here: what it reads before its first await is tracked.)
         // (On a server, a slot answered on an earlier pass is not started again.)
-        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && (sourceTees.has(next as any) || (serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))))) next = primed(next as any) as T;
+        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && (sourceTees.has(next as any) || (serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))))) next = primed((serverRender ? shared(next as any) : next) as any) as T;
       }
       // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
       if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
@@ -2031,9 +2036,11 @@ export class Computation<T> extends Node<T> implements Owner {
     // (Split already, the client's reader gone out in an answer it was nested in: the same split.)
     tee ??= live ? undefined : sourceTees.get(iterable as object);
     const sent = !!tee;
-    const split = live ? null : (tee ?? teeSource(iterable));
+    // (A plain source read once more: through the render's shared pump, with every other reader of it here.)
+    const source = !tee ? shared(iterable) : iterable;
+    const split = live ? null : (tee ?? teeSource(source));
     if (live && tee) void tee[1][Symbol.asyncIterator]().return?.();
-    const it = (split ? split[0] : (tee?.[0] ?? iterable))[Symbol.asyncIterator]();
+    const it = (split ? split[0] : (tee?.[0] ?? source))[Symbol.asyncIterator]();
     // (A first step reading what is not ready: waited for, then failed not-ready — the render tries again with a fresh source.)
     const first = it.next().then(undefined, (e) => (e instanceof NotReadyError ? (settlesOf(e) ?? Promise.resolve()).then(() => Promise.reject(e)) : Promise.reject(e)));
     const close = () => void Promise.resolve(it.return?.()).catch(noop);
