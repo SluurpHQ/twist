@@ -2,7 +2,7 @@
 // registered by id; the first module run's registration is kept across edits, and an edit swaps in the new code where
 // its signature (or dependencies) changed: every instance of it draws again, its own state starting over, the rest of
 // the page as it is. A removed component, or a module that cannot be taken in place, is passed on to its importers.
-import { createMemo, createSignal, onCleanup, runWithOwner, untrack } from "./signals.ts";
+import { createMemo, createSignal, onCleanup, resetErrorHalt, runWithOwner, untrack } from "./signals.ts";
 import { __twist_mark, ownOf } from "./control.ts";
 
 declare const process: { env: Record<string, string | undefined> };
@@ -127,6 +127,8 @@ function patch(first: Registry, next: Registry): boolean {
     if (o.mounted && typeof C.id === "symbol" && typeof (o.component as any).id === "symbol") C.id = (o.component as any).id;
     o.signature = n.signature;
     o.dependencies = n.dependencies;
+    // (A system an uncaught error halted runs again: the edit is the fix.)
+    resetErrorHalt();
     o.update(() => C);
   }
   return true;
