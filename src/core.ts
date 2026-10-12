@@ -1178,14 +1178,16 @@ function serverTail(n: Node | null, limit?: Node | null): ReturnType<typeof desc
 }
 /** A client fiber with no server node for it: the rejected candidate, if any, on its tail. */
 function diffMissing(f: Fiber, candidate: Node | null) {
-  const e = diffScope()?.stop(f);
-  if (!e) return;
-  e.serverProps = null;
-  if (candidate) e.tail.push(describeServerNode(candidate));
+  if (process.env.NODE_ENV !== "production") {
+    const e = diffScope()?.stop(f);
+    if (!e) return;
+    e.serverProps = null;
+    if (candidate) e.tail.push(describeServerNode(candidate));
+  }
 }
 /** The diff's text, then the error told for the fiber where hydration stopped. */
 function mismatchError(scope: DiffScope | null, text: boolean): Error {
-  return new Error(failedMessage(text) + (scope ? describeDiff(scope) : ""));
+  return new Error(failedMessage(text) + (process.env.NODE_ENV !== "production" && scope ? describeDiff(scope) : ""));
 }
 const regions: Region[] = [];
 const regionIn = (host: Node) => {
@@ -1487,7 +1489,7 @@ function dehydratedAround(target: Node, roots: Set<object>): Fiber | null {
 /** The boundary's children hydrated inside its region: kept dehydrated if they suspend, drawn on the client if
  * they do not match. */
 function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comment }, draw: () => void) {
-  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, text: false, made: [], errored: undefined, diff: new DiffScope() };
+  const r: Region = { fiber: f, host, start: region.start, end: region.end, suspended: null, mismatch: false, text: false, made: [], errored: undefined, diff: process.env.NODE_ENV !== "production" ? new DiffScope() : (null as any) };
   const was = hydrating!.get(host);
   hydrating!.set(host, region.start.nextSibling);
   regions.push(r);
@@ -1497,8 +1499,11 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
     const left = !r.suspended ? nextServerNode(host) : null;
     if (left) {
       r.mismatch = true;
-      const e = r.diff.stop(f);
-      if (e) e.tail.push(...serverTail(left, region.end));
+      // (The diff is development's: React's production error has none.)
+      if (process.env.NODE_ENV !== "production") {
+        const e = r.diff.stop(f);
+        if (e) e.tail.push(...serverTail(left, region.end));
+      }
     }
   } finally {
     regions.pop();
@@ -2073,8 +2078,8 @@ function dropUnclaimed(host: Node, f: Fiber) {
   const limit = regionIn(host)?.end;
   let n = nextServerNode(host);
   if (n && n !== limit) {
-    const e = diffScope()?.stop(f);
-    if (e) e.tail.push(...serverTail(hydrating.has(host) ? hydrating.get(host)! : host.firstChild, limit));
+    const e = process.env.NODE_ENV !== "production" ? diffScope()?.stop(f) : null;
+    if (process.env.NODE_ENV !== "production" && e) e.tail.push(...serverTail(hydrating.has(host) ? hydrating.get(host)! : host.firstChild, limit));
   }
   while (n && n !== limit) {
     const next = n.nextSibling;
@@ -2283,8 +2288,8 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
         }
       }
     }
-    const differences = had ? serverDifferences(el, had, type, ns, props) : null;
-    if (differences) {
+    const differences = process.env.NODE_ENV !== "production" && had ? serverDifferences(el, had, type, ns, props) : null;
+    if (process.env.NODE_ENV !== "production" && differences) {
       const e = diffScope()?.entry(f);
       if (e) (e.serverProps = { ...(e.serverProps as any), ...differences }), (attrsDiffer = true);
     }
@@ -5028,7 +5033,7 @@ export function createRoot(container: Element | Document | DocumentFragment, opt
           // Attributes are told only where the markup matched: a mismatch draws the whole root anew.
           const scope = rootDiff;
           rootDiff = null;
-          if (attrsDiffer && !mismatched && scope) {
+          if (process.env.NODE_ENV !== "production" && attrsDiffer && !mismatched && scope) {
             const diff = describeDiff(scope);
             withFiber(firstDiffFiber(scope) as Fiber | null, () => console.error(HYDRATION_ATTRS_FORMAT, "https://react.dev/link/hydration-mismatch", diff));
           } else if (attrsDiffer && !mismatched) console.error(HYDRATION_ATTRS);

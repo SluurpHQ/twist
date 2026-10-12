@@ -7,20 +7,19 @@ import { dev, warn } from "./warnings.ts";
 import { isCustomElement } from "./attributes.ts";
 
 const EVENTS =
-  "Abort AnimationEnd AnimationIteration AnimationStart AuxClick BeforeInput BeforeToggle Blur Cancel CanPlay CanPlayThrough Change Click Close CompositionEnd CompositionStart CompositionUpdate ContextMenu Copy Cut DoubleClick Drag DragEnd DragEnter DragExit DragLeave DragOver DragStart Drop DurationChange Emptied Encrypted Ended Error Focus GotPointerCapture Input Invalid KeyDown KeyPress KeyUp Load LoadedData LoadedMetadata LoadStart LostPointerCapture MouseDown MouseEnter MouseLeave MouseMove MouseOut MouseOver MouseUp Paste Pause Play Playing PointerCancel PointerDown PointerEnter PointerLeave PointerMove PointerOut PointerOver PointerUp Progress RateChange Reset Resize Scroll ScrollEnd Seeked Seeking Select SelectionChange Stalled Submit Suspend TimeUpdate Toggle TouchCancel TouchEnd TouchMove TouchStart TransitionEnd TransitionRun TransitionStart TransitionCancel VolumeChange Waiting Wheel FullscreenChange FullscreenError".split(" ");
+  /* @__PURE__ */ "Abort AnimationEnd AnimationIteration AnimationStart AuxClick BeforeInput BeforeToggle Blur Cancel CanPlay CanPlayThrough Change Click Close CompositionEnd CompositionStart CompositionUpdate ContextMenu Copy Cut DoubleClick Drag DragEnd DragEnter DragExit DragLeave DragOver DragStart Drop DurationChange Emptied Encrypted Ended Error Focus GotPointerCapture Input Invalid KeyDown KeyPress KeyUp Load LoadedData LoadedMetadata LoadStart LostPointerCapture MouseDown MouseEnter MouseLeave MouseMove MouseOut MouseOver MouseUp Paste Pause Play Playing PointerCancel PointerDown PointerEnter PointerLeave PointerMove PointerOut PointerOver PointerUp Progress RateChange Reset Resize Scroll ScrollEnd Seeked Seeking Select SelectionChange Stalled Submit Suspend TimeUpdate Toggle TouchCancel TouchEnd TouchMove TouchStart TransitionEnd TransitionRun TransitionStart TransitionCancel VolumeChange Waiting Wheel FullscreenChange FullscreenError".split(" ");
 /** React's event props (onClick, onClickCapture…). */
-const REGISTERED = new Set(EVENTS.flatMap((e) => [`on${e}`, `on${e}Capture`]));
+const REGISTERED = /* @__PURE__ */ new Set(/* @__PURE__ */ EVENTS.flatMap((e) => [`on${e}`, `on${e}Capture`]));
 /** What a lowercase event prop most likely meant. */
-const POSSIBLE = new Map<string, string>([...REGISTERED].map((n) => [n.toLowerCase(), n]));
-POSSIBLE.set("ondblclick", "onDoubleClick");
+const POSSIBLE = /* @__PURE__ */ new Map<string, string>([.../* @__PURE__ */ [...REGISTERED].map((n) => [n.toLowerCase(), n] as [string, string]), ["ondblclick", "onDoubleClick"]]);
 
-const BOOLEANS = new Set(
-  "autoFocus checked multiple muted selected contentEditable spellCheck draggable value autoReverse externalResourcesRequired focusable preserveAlpha allowFullScreen async autoPlay controls credentialless default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope capture download inert".split(" "),
+const BOOLEANS = /* @__PURE__ */ new Set(
+  /* @__PURE__ */ "autoFocus checked multiple muted selected contentEditable spellCheck draggable value autoReverse externalResourcesRequired focusable preserveAlpha allowFullScreen async autoPlay controls credentialless default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope capture download inert".split(" "),
 );
-const STRING_BOOLEANS = new Set(
-  "checked selected multiple muted allowFullScreen async autoPlay controls credentialless default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope inert".split(" "),
+const STRING_BOOLEANS = /* @__PURE__ */ new Set(
+  /* @__PURE__ */ "checked selected multiple muted allowFullScreen async autoPlay controls credentialless default defer disabled disablePictureInPicture disableRemotePlayback formNoValidate hidden loop noModule noValidate open playsInline readOnly required reversed scoped seamless itemScope inert".split(" "),
 );
-const RESERVED = new Set("dangerouslySetInnerHTML children style suppressContentEditableWarning suppressHydrationWarning defaultValue defaultChecked innerHTML ref innerText textContent".split(" "));
+const RESERVED = /* @__PURE__ */ new Set(/* @__PURE__ */ "dangerouslySetInnerHTML children style suppressContentEditableWarning suppressHydrationWarning defaultValue defaultChecked innerHTML ref innerText textContent".split(" "));
 const ARIA = /^aria-[:A-Z_a-zÀ-�\-.0-9·]*$/;
 const ARIA_CAMEL = /^aria[A-Z][:A-Z_a-zÀ-�\-.0-9·]*$/;
 
