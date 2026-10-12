@@ -311,6 +311,12 @@ export const CHANGES: Change[] = [
     why: "Solid's server streams a rejection template whose single space stays in the range; Twist's hands the content to the client with no template (its record is false), so nothing stray is left",
   },
   {
+    file: "web/test/harness/scenarios.tsx",
+    find: `  {\n    name: "ssr-element-sources",\n    App: SpreadSources,\n    expectedText: "srcstail",\n    adoptAll: true,\n    update: () => setSourcesLabel("TAIL"),\n    expectedTextAfterUpdate: "srcsTAIL",\n    stableSelector: "div, span, b"\n  },\n`,
+    replace: ``,
+    why: "its server side is hand-written with Solid's ssrElement, made before the template that holds it (an eager element takes the first key); Twist's JSX element is a description, keyed where it is placed, as Twist's own server renders it",
+  },
+  {
     file: "web/test/hydration/nav-before-resume.spec.tsx",
     find: `    expect(r.diagnostics).toHaveLength(1);\n    expect(r.diagnostics[0]).toContain("Hydration key miss");\n`,
     replace: `    expect(r.diagnostics).toEqual([]);\n`,

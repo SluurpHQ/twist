@@ -32,6 +32,7 @@ import {
   Computation,
   startEffect,
   RENDER_EFFECT,
+  hydrationFlag,
 } from "./signals.ts";
 import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume } from "./hydration.ts";
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
@@ -1856,10 +1857,14 @@ export function clientOnly<P extends object>(load: () => Promise<any>, options: 
   return __twist_mark((props: P & { fallback?: any }) => {
     start();
     const rest = omit(props, "fallback" as any);
+    // (Hydrating: the fallback, as the server rendered it, until hydration is over.)
+    const hydrated = sharedConfig.hydrating ? hydrationFlag() : null;
     return createMemo(() => {
       const C = loaded();
-      return C ? callComponent(C, rest) : props.fallback;
-    });
+      // (The server rendered none of it: made, never claimed.)
+      return C && (!hydrated || hydrated()) ? clientOnlyRun(() => callComponent(C, rest)) : props.fallback;
+      // (No id of its own: the server, rendering only the fallback, made no owner here.)
+    }, { transparent: true });
   });
 }
 

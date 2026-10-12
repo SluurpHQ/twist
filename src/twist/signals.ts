@@ -392,7 +392,7 @@ export function servedSnapshot(current: unknown, snap: unknown): [unknown] | nul
 /** Never settles: a node not asked yet waits on it. */
 const UNASKED = { then() {} };
 /** Whether the hydrating pass is over, as a node made now sees it: false in its snapshot scope, true once released. */
-function hydrationFlag(): () => boolean {
+export function hydrationFlag(): () => boolean {
   const hydrated = new Signal(false, { ownedWrite: true });
   (hydrated as any).snapshots = true;
   hydrated.snapshot();
