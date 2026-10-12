@@ -4590,18 +4590,27 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
   let resetCount = 0;
   let resetSeen = 0;
   const reset = () => resets.write(++resetCount);
+  // What threw below it: a reset runs these again (as Solid's), the content staying alive behind the fallback; the
+  // content is made again only when it failed itself, or nothing below is known to have thrown.
+  const failedBelow = new Set<Computation<any>>();
   const doReset = () => {
     failed.value = NONE;
     view?.dispose();
     view = null;
     caughtBelow = false;
-    someUpstream(content, (n) => (n !== content && n.error !== NONE && n.mark(DIRTY), false));
-    content.mark(DIRTY);
+    const again = content.error !== NONE || !failedBelow.size ? [content] : [...failedBelow];
+    failedBelow.clear();
+    for (const c of again) {
+      if (c.disposed) continue;
+      someUpstream(c, (n) => (n !== c && n.error !== NONE && n.mark(DIRTY), false));
+      c.mark(DIRTY);
+    }
   };
   let caughtBelow = false;
   // The boundary: what under it throws comes here. Transparent, as its content takes the id it would.
   const boundary = new Root(owner, { transparent: true });
   (boundary as any).catch = (e: unknown, from?: Computation<any>) => {
+    if (from) failedBelow.add(from);
     // (What threw it, once it runs cleanly again: the error is over, the content shows again.)
     if (from)
       (from as any).recoverTo = () => {
@@ -4670,6 +4679,8 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
       return v;
     } catch (e) {
       if (e instanceof NotReadyError) throw e;
+      const by = throwerOf(e);
+      if (by instanceof Computation && by !== content) failedBelow.add(by);
       if (failed.value !== e) (failed.value = e), showError(e), reportCaught(e, m);
       return showFallback();
     }
