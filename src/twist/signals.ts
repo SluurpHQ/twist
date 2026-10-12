@@ -3295,7 +3295,8 @@ function heldRead<T>(n: Node<T>, held?: Transaction): T {
   if (l.revealingLane && n instanceof Computation && n.passLane === l.revealingLane) return n.staged as T;
   // (A lane's reveal shows its derivations over the parent's committed writes.)
   const outside = l.revealing === t ? !(n instanceof Computation) : l.tx?.root !== t;
-  if (!born && (l.kind === RENDER || l.verdictReader) && outside && !(l.ranAt === -1 && l.tx)) {
+  // (A re-armed boundary's fallback follows its frame: what reads it computes with it now and shows it at the commit.)
+  if (!born && (l.kind === RENDER || l.verdictReader) && outside && !(l.ranAt === -1 && l.tx) && !(n as any).followsFrame) {
     t.stale.add(l);
     l.staleRead = true;
     return n.value;
@@ -4616,8 +4617,28 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
           armed = true;
           // The frame the change is in, as it stands now that the flush has held what it holds.
           let frame: Transaction | null = null;
-          if (!ahead) for (const src of watch.sources) if (src.tx && !src.tx.done && src.tx.root.open) frame = src.tx.root;
-          if (frame) hold(shown, frame);
+          // (A plain write's frame only when what holds it derives from what `on` read: a write that merely joined the
+          // round's transaction leaves the fallback to show now, #3575.)
+          if (!ahead) for (const src of watch.sources) if (src.tx && !src.tx.done && (src.tx.root.open || derivesFrom(src.tx.root.flights, watch.sources))) frame = src.tx.root;
+          if (frame) hold(shown, frame), ((shown as any).followsFrame = true), endWith(frame, () => ((shown as any).followsFrame = false));
+          // (Development: what it waits on holds the frame from outside it too — its fallback can never be seen.)
+          if (process.env.NODE_ENV !== "production" && frame) {
+            let same: Computation<any> | null = null;
+            const inside = (o: Owner | null) => {
+              for (; o; o = o.parent) if (o === content || o === shown || o === watch) return true;
+              return false;
+            };
+            someUpstream(content, (n) => !!n.flight && !n.disposed && [...n.observers].some((o) => !inside(o)) && !!(same = n));
+            const name = (same as Computation<any> | null)?.name ?? "an async value";
+            if (same)
+              diagnose({
+                code: "LOADING_ON_OUTSIDE_HOLD",
+                kind: "async",
+                severity: "warn",
+                message: `[LOADING_ON_OUTSIDE_HOLD] A Loading boundary re-armed by its \`on\` waits on \`${name}\`, but \`${name}\` is also read outside it and holds the frame: the frame waits for it, so the fallback can never be seen. Move the outside read under the boundary. (Reading \`latest()\` in \`on\` shows the fallback now, beside the frame still held.)`,
+                data: { source: name },
+              });
+          }
           slot.draw.bump();
           schedule();
         });
@@ -4737,6 +4758,19 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
  * Whether something `root` shows is still loading: an async node in flight among what it, or anything it owns,
  * reads (upstream through memos).
  */
+/** Whether one of `flights` reads one of `sources`, directly or through memos. */
+function derivesFrom(flights: Set<Computation<any>>, sources: Node<any>[]): boolean {
+  const seen = new Set<Node<any>>();
+  const up = (n: Node<any>): boolean => {
+    if (seen.has(n)) return false;
+    seen.add(n);
+    if (sources.includes(n)) return true;
+    return n instanceof Computation && n.sources.some(up);
+  };
+  for (const f of flights) if (up(f)) return true;
+  return false;
+}
+
 function pendingUnder(root: Computation<any>): boolean {
   return someUpstream(root, (n) => !!n.flight && !n.disposed);
 }
