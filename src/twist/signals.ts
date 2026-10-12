@@ -561,7 +561,7 @@ export const attributionCore = {
   isEffect: (n: any): boolean => n instanceof Computation && n.kind !== MEMO,
   owned: (o: any): any[] => o.owned ?? [],
   isPlumbing: (n: any): boolean => !!n.plumbing,
-  isVerdict: (n: any): boolean => !!n.verdictReader,
+  isVerdict: (n: any): boolean => !!n.verdictReader || !!n._devWindows,
   /** A node showing a guess that is not one written (a lane's derivation). */
   isCompanion: (n: any): boolean => n.override !== NONE && !n.guessed,
   laneGuesses: (t: any): Node<any>[] => (t.lane ? [...t.lane.guessed.keys()] : t.parentTx ? [...t.guessed.keys()] : []),
@@ -1491,6 +1491,12 @@ export class Computation<T> extends Node<T> implements Owner {
     if (options?.equals !== undefined) this.equals = options.equals;
     if (options?.lazy) this.lazy = true;
     if ((options as any)?.sync) (this as any).sync = true;
+    // (Development tools' marks: HMR plumbing, wide by construction, superseding its own flights by design.)
+    if (process.env.NODE_ENV !== "production" && options) {
+      if ((options as any)._plumbing) ((this as any).plumbing = true), (this.name = undefined);
+      if ((options as any)._wide) (this as any).wide = true;
+      if ((options as any)._supersedes) (this as any).supersedes = true;
+    }
     if ((options as any)?.deferStream) (this as any).deferStream = true;
     if ((options as any)?.sourceFn) (this as any).sourceFn = (options as any).sourceFn;
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
@@ -1766,6 +1772,7 @@ export class Computation<T> extends Node<T> implements Owner {
     const create = this.ranAt === -1;
     (this as any).devChanged = false;
     (this as any).devGuess = false;
+    (this as any)._devWindows = 0;
     h.recomputeStart(this, create);
     try {
       this.runBody();
@@ -2988,6 +2995,7 @@ function mergeTx(from: Transaction, into: Transaction): Transaction {
   from = from.root;
   into = into.root;
   if (from === into || from.done || into.done) return into;
+  if (process.env.NODE_ENV !== "production" && attrHooks !== null) attrHooks.transitionMerged(into, from);
   from.merged = into;
   for (const n of from.nodes) into.nodes.add(n);
   for (const e of from.effects) into.effects.add(e);
@@ -3401,6 +3409,7 @@ function hold(n: Node, t: Transaction) {
   t = t.root;
   // (A transaction already committed holds nothing more.)
   if (n.tx === t || t.done) return;
+  if (process.env.NODE_ENV !== "production" && attrHooks !== null && flushing && !heldThisFlush.has(t)) pendingHolds.add(t);
   n.tx = t;
   t.nodes.add(n);
   // (A memo's first answer, held: nothing committed to serve outside the transaction until it commits.)
@@ -3411,6 +3420,10 @@ function hold(n: Node, t: Transaction) {
   }
 }
 
+/** Transactions a flush has told the attribution engine it holds, and those to tell once the round has decided
+ * (development). */
+const heldThisFlush = new Set<Transaction>();
+const pendingHolds = new Set<Transaction>();
 /** Whether a transaction is ready to commit (nothing in flight, no action still running in it). */
 function committable() {
   for (const t of transactions) if (committableTx(t)) return true;
@@ -3526,6 +3539,7 @@ function commitTransactions() {
     // A node still loading that nothing on screen reads (behind a fallback) leaves the hold: its answer commits on its
     // own when it lands.
     for (const n of t.nodes) if (n instanceof Computation && n.flight && !shownFlight(n)) (t.nodes.delete(n), (n.tx = null));
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null) attrHooks.transitionSettled(t);
     transactions.delete(t);
     t.done = true;
     for (const b of heldBoundaries.get(t) ?? []) b.release(t);
@@ -3586,6 +3600,11 @@ function drain() {
     settleRound();
     if (frameGuesses.length) settleFrameGuesses();
     commitTransactions();
+    // (What the round left holding: told before its effects run — its writes all in it by now.)
+    if (process.env.NODE_ENV !== "production" && pendingHolds.size) {
+      for (const t of pendingHolds) if (!t.done && !t.merged && !heldThisFlush.has(t) && attrHooks !== null) heldThisFlush.add(t), attrHooks.holdStart(t);
+      pendingHolds.clear();
+    }
     tellStatus();
     if (uncaught.length) throw uncaught.splice(0)[0];
     if (pendingErrors.length) for (const f of pendingErrors.splice(0)) f();
@@ -3650,9 +3669,13 @@ export function flush<T>(fn?: () => T): T {
   try {
     if (fn) result = fn();
     sweepUntracked();
-    if (outer !== null) outer.flushStart();
+    const told = outer !== null && (writes.length > 0 || landings.length > 0 || dirty.length > 0 || applies[RENDER].length > 0 || applies[EFFECT].length > 0 || guesses.length > 0 || guessWork.length > 0 || effectDrains.length > 0 || settledQueue.length > 0 || transactions.size > 0);
+    if (told) outer!.flushStart();
     drain();
-    if (outer !== null) outer.flushEnd();
+    if (outer !== null) {
+      if (heldThisFlush.size) heldThisFlush.clear(), outer.holdEnd();
+      if (told) outer.flushEnd();
+    }
   } catch (e) {
     halt(e);
     throw e;
@@ -3853,6 +3876,8 @@ export function isPending(fn: () => unknown): boolean {
   (probe as any).viaLatest = viaLatest;
   const outer = listener;
   if (outer) outer.track(status), (outer.verdictReader = true);
+  // (Development, an attribution engine installed: this run asked isPending — window 1.)
+  if (process.env.NODE_ENV !== "production" && outer && attrHooks !== null) (outer as any)._devWindows = ((outer as any)._devWindows ?? 0) | 1;
   // (Asked outside tracking in a strict scope: what it answers will not update there.)
   else if (strictRead) strictReadUntracked({ name: "isPending" } as Node<any>);
   verdictReading++;
@@ -3899,6 +3924,8 @@ let pendingInside: Transaction | null = null;
 /** `fn` read in the newest world: what is staged in a hold or in flight, ahead of what is shown. */
 export function latest<T>(fn: () => T): T {
   latestCalls++;
+  // (Development, an attribution engine installed: this run asked latest — window 2.)
+  if (process.env.NODE_ENV !== "production" && listener !== null && attrHooks !== null) (listener as any)._devWindows = ((listener as any)._devWindows ?? 0) | 2;
   verdictReading++;
   inPass++;
   // (Inside isPending: what it reads here is asked for its own work only.)
@@ -4148,15 +4175,19 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
         const wasListener = listener;
         acting = me;
         listener = null;
+        const h = process.env.NODE_ENV !== "production" ? attrHooks : null;
+        if (h !== null) h.actionStepStart(it, gen.name || undefined);
         try {
           r = (it as any)[method](input);
         } catch (e) {
           acting = was;
           listener = wasListener;
+          if (h !== null) h.actionStepEnd(it);
           return end(() => fail(e));
         }
         acting = was;
         listener = wasListener;
+        if (h !== null) h.actionStepEnd(it);
         // (The first step runs inside its caller: its writes show at the caller's flush.)
         if (r && !(r as any).done && typeof (r as any).then !== "function") first ? schedule() : settleStep();
         first = false;
@@ -4602,7 +4633,14 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   // The fallback, made once each time it shows (under an owner of its own, kept across the passes that show it).
   const outer = owner;
   let shownFallback: { value: F; dispose: () => void } | null = null;
+  // (Development, an attribution engine installed: told when its fallback starts and stops showing.)
+  let devShowing = false;
   const showFallback = (): F => {
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null && !devShowing) {
+      devShowing = true;
+      attrHooks.boundaryFallback(state, content, true, null);
+      if (!flushing) schedule();
+    }
     if (!shownFallback) runWithOwner(outer, () => createRoot((dispose) => void (shownFallback = { value: untrack(fallback), dispose }), X === undefined ? undefined : { id: X }));
     return shownFallback!.value;
   };
@@ -4641,6 +4679,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       }
       (shown as any).nextFallback = false;
       state.fresh = false;
+      if (process.env.NODE_ENV !== "production" && devShowing) (devShowing = false), attrHooks?.boundaryFallback(state, content, false);
       dropFallback();
       // Content shown: the slot leaves the order (shown is shown); the order looks again.
       if (slot.owner) {

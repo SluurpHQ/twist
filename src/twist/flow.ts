@@ -77,6 +77,7 @@ export function mapArray<T, U>(
     owners.forEach(end);
     fallbackOwner.forEach(end);
   });
+  // (Wide by construction: it reads every item of the list — development tools do not judge it for that.)
   return keepMemo(createMemo(() => {
     // Every item read here, tracked (a store list keeps its identity while its items move); mapped untracked.
     const source = (list() || []) as T[];
@@ -181,7 +182,7 @@ export function mapArray<T, U>(
       items = outItems;
       return (rows = sameRows(rows, out) ? rows : out);
     });
-  }));
+  }, { _wide: true } as any));
 }
 
 /** `fn(index)` for each index from `from` (0 unless given) up to `from + count`: rows kept, none diffed. */
