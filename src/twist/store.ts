@@ -556,6 +556,12 @@ function pendingHas(target: Raw, key: PropertyKey): boolean {
 const dirtyRecords = new Set<Record_>();
 
 /** The records written since `before` was taken, committed now (their readers told). */
+/** The live action whose optimistic edits show over `target`, if any. */
+function overlayHold(target: Raw): Transaction | null {
+  const o = records.get(target)?.overlay;
+  if (o) for (const { tx } of o.values()) if (tx && !tx.done && !tx.root.done && tx.root.open > 0) return tx.root;
+  return null;
+}
 function promoteWrites(before: Set<Record_>) {
   for (const r of [...dirtyRecords]) if (!before.has(r)) r.keys.commit();
 }
@@ -768,7 +774,7 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
 }
 
 /** A derive run: whether it is still the newest, and whether it has gone async; its drafts. */
-type Run = { live: boolean; async: boolean; returned?: boolean; stream?: boolean; drafts: WeakMap<object, any>; read?: () => unknown };
+type Run = { live: boolean; async: boolean; returned?: boolean; stream?: boolean; drafts: WeakMap<object, any>; read?: () => unknown; root?: Raw };
 
 /** `v`'s draft for a derive run: its writes dropped once a newer run has started, committed as made once it is async. */
 function runDraft<T>(v: T, run: Run): T {
@@ -784,7 +790,8 @@ function runDraft<T>(v: T, run: Run): T {
     const before = new Set(dirtyRecords);
     const ok = f();
     // (A transition waits on this run: its writes are that frame's, through the flush; else they show as made.)
-    const t = run.read && !run.stream ? flightTransaction(run.read()) : null;
+    // (Or an action keeps optimistic edits over the store: they fold into it, #3164.)
+    const t = (run.read && !run.stream ? flightTransaction(run.read()) : null) ?? (run.root ? overlayHold(run.root) : null);
     if (t) for (const r of dirtyRecords) !before.has(r) && (r.keys.writtenIn = t);
     else promoteWrites(before);
     return ok;
@@ -883,7 +890,10 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     const before = new Set(dirtyRecords);
     if (unwrap(v) !== v) linkFamily(target, unwrap(v) as Raw);
     into(target, contentOf(v), key);
-    promoteWrites(before);
+    // (Landing while an action keeps optimistic edits over it: folded into that action, revealed when it settles, #3164.)
+    const fold = overlayHold(target);
+    if (fold) for (const r of dirtyRecords) !before.has(r) && (r.keys.writtenIn = fold);
+    else promoteWrites(before);
   };
   // (On a server, its answer goes to the client as the state it made.)
   // (In the seed window the run wrote to its copy: that is the state it answers with.)
@@ -897,7 +907,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     if (run) run.live = false;
     // (Traced only, its answer the server's: what it writes is dropped.)
     if (isTracing()) return fn(runDraft(target, { live: false, async: false, drafts: new WeakMap() }) as T);
-    run = { live: true, async: false, drafts: new WeakMap(), read: () => memo };
+    run = { live: true, async: false, drafts: new WeakMap(), read: () => memo, root: target };
     let d = shadow ? draftOf(shadow) : runDraft(target, run);
     // Taking over the server's stream ("hybrid"): what it writes before its first yield repeats the server's state, and
     // goes to a copy; after that yield, to the store.
