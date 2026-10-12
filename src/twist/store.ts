@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, derivesIn, inPassNow, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -484,7 +484,7 @@ function inGuessWorld(r: Record_, t: Transaction | null): boolean {
 }
 function viewGet(target: Raw, key: PropertyKey): any {
   const o = shownGuess(target, key);
-  if (o) return o.v === DELETE ? undefined : o.v;
+  if (o) return noteGuessRead(o.tx), o.v === DELETE ? undefined : o.v;
   return rawGet(target, key);
 }
 function viewHas(target: Raw, key: PropertyKey): boolean {

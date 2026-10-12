@@ -1660,6 +1660,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.revealingLane !== this.laneOf) this.revealingLane = this.laneOf;
     if (this.laneOf) this.laneOf = null;
     if (this.staleRead) this.staleRead = false;
+    if ((this as any).readGuess) (this as any).readGuess = false;
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done) || ((s as any).writtenIn && !(s as any).writtenIn.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
@@ -1936,7 +1937,8 @@ export class Computation<T> extends Node<T> implements Owner {
       const shown = this.staleRead && this.heldOnly && this.applied !== NONE && this.equals !== false && this.equals(this.applied as T, next);
       if (!shown && (changed || this.applied === NONE || (this.equals === Object.is && !(this as any).statusOnly))) {
         // (An until() of an action reads the held world and answers now: never held itself.)
-        const joins = this.readHeld && !this.tx && !(this as any).insideTx ? this.readHeld : null;
+        // (One showing a store's guess shows it now: the guess is not held.)
+        const joins = this.readHeld && !this.tx && !(this as any).insideTx && !showsGuess(this) ? this.readHeld : null;
         // (Nothing reads an effect: staged only for a transaction to hold.)
         if (this.tx || joins || (flushing && transactions.size)) this.staged = next;
         else this.value = next;
@@ -2695,6 +2697,14 @@ export function flightTransaction(read: unknown): Transaction | null {
   return t && !t.done && !t.open && !t.lane && !t.parentTx ? t : null;
 }
 
+/** An effect's pass read a store's optimistic value: what it shows is the guess, not a held write. */
+export function noteGuessRead(tx: Transaction | null) {
+  const l = listener;
+  // (A bare guess only — one riding its store's refetch, no action's lane to wait for.)
+  if (l && l.kind !== MEMO && !(l as any).readGuess && (tx?.root as any)?.bare) (l as any).readGuess = true;
+}
+/** An effect showing a store's guess, over nothing held but derived stores' own computes: it shows now. */
+const showsGuess = (c: Computation<any>) => !!(c as any).readGuess && !c.sources.some((s) => s.tx && !s.tx.root.done && !(s as any).writes);
 /** Whether a derivation's pass is running now (it reads the staged world; an effect shows the screen). */
 export const inPassNow = () => inPass > 0 && (listener ?? untrackedBy)?.kind === MEMO;
 /** Whether the computation running now derives in `t`'s held world (what `t` commits to). */
@@ -2941,7 +2951,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     // (A first pass a fresh boundary caught read the committed world: it is the boundary's, not the tick's.)
     if (n instanceof Computation && !(n.staleRead && !n.readHeld && n.kind === MEMO))
       for (const s of n.sources) {
-        if (!s.tx || n.verdict?.has(s) || (n as any).insideTx) continue;
+        // (A derived store's own compute, read to bring it up to date: its keys are what is read.)
+        if (!s.tx || n.verdict?.has(s) || (n as any).insideTx || (s as any).writes) continue;
         if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld) s.tx.root.stale.add(n);
         else joins = outOfLane(s.tx.root);
       }
@@ -2980,7 +2991,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       }
       // (Made this flush by a pass of one of its lanes: the lane's work, revealed with it.)
       if (c.born === flushes && c.kind === MEMO && laneMade(c, t)) continue;
-      if ((c.staged !== NONE || c.due) && (c.kind === MEMO || !c.sources.every((s) => s.override !== NONE))) hold(c, t);
+      if ((c.staged !== NONE || c.due) && (c.kind === MEMO || (!c.sources.every((s) => s.override !== NONE) && !showsGuess(c)))) hold(c, t);
       if (c.flight) t.flights.add(c);
     }
   }
@@ -4690,6 +4701,8 @@ function overFlight(n: Node | undefined): Transaction | null {
     if (n.flight && !n.streamed) {
       const tx = newTransaction();
       tx.flights.add(n);
+      // (A bare guess riding a refetch: no action made it.)
+      (tx as any).bare = true;
       return tx;
     }
   }
