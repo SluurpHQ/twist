@@ -2970,7 +2970,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       for (const s of n.sources) {
         // (A derived store's own compute, read to bring it up to date: its keys are what is read.)
         if (!s.tx || n.verdict?.has(s) || (n as any).insideTx || (s as any).writes) continue;
-        if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld) s.tx.root.stale.add(n);
+        // (One never applied, made by a pass the transaction holds, has no frame to show: born held with it.)
+        if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld && !(n.applied === NONE && madeByHeld(n, s.tx.root))) s.tx.root.stale.add(n);
         else joins = outOfLane(s.tx.root);
       }
     const by = (n as any).writtenIn as Transaction | null;
@@ -3165,6 +3166,13 @@ function madeByLane(l: Computation<any>, t: Transaction): boolean {
     if (p.ranAt !== -1) return false;
   }
   return false;
+}
+
+/** Whether `c` was made by a computation `t` holds. */
+function madeByHeld(c: Computation<any>, t: Transaction): boolean {
+  let p: Owner | null = c.parent;
+  while (p && !(p instanceof Computation)) p = p.parent;
+  return !!p && (p as Computation<any>).tx?.root === t;
 }
 
 /** Whether a computation's value reaches the screen: an effect reads it, directly or through memos. */
