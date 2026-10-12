@@ -1331,7 +1331,8 @@ export class Computation<T> extends Node<T> implements Owner {
       } else {
         next = this.fn(this.current());
         // (An async iterable's first step runs here: what it reads before its first await is tracked.)
-        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function") next = primed(next as any) as T;
+        // (On a server, a slot answered on an earlier pass is not started again.)
+        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))) next = primed(next as any) as T;
       }
       // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
       if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
@@ -1514,7 +1515,8 @@ export class Computation<T> extends Node<T> implements Owner {
     this.streaming = false;
     this.settles = serverRender
       ? Promise.resolve(p).then(
-          (v) => void (answered.set(p as object, [true, v]), answers && id != null && answers.set(id, [true, v])),
+          // (A derived store's slot remembers its state, not the step's value: a re-created one adopts that.)
+          (v) => void (answered.set(p as object, [true, v]), answers && id != null && answers.set(id, [true, (this as any).writes && (this as any).answerOf ? (this as any).answerOf(v) : v])),
           (e) => void (answered.set(p as object, [false, e]), answers && id != null && answers.set(id, [false, e])),
         )
       : Promise.resolve(p).then(noop, noop);
