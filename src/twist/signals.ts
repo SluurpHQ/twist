@@ -1136,7 +1136,7 @@ abstract class Node<T = any> {
   }
   /** The staged value made the committed one. */
   promote() {
-    if (this.staged !== NONE) (this.value = this.staged as T), ((this as any).committed = true);
+    if (this.staged !== NONE) (this.value = this.staged as T), ((this as any).committed = true), (this as any).sources && ((this as any).frameSources = (this as any).sources);
     if (this.staged !== NONE) this.staged = NONE;
     if (this.tx) this.tx = null;
     if ((this as any).writtenIn) (this as any).writtenIn = null;
@@ -1935,7 +1935,7 @@ export class Computation<T> extends Node<T> implements Owner {
     // Derived from a held world: held with it (born held when it never committed a value).
     if (this.readHeld && !this.tx) hold(this, this.readHeld), first && ((this as any).bornHeld = true);
     if (flushing || this.tx) this.stage(next);
-    else (this.value = next), this.version++, clock++, ((this as any).committed = true);
+    else (this.value = next), this.version++, clock++, ((this as any).committed = true), ((this as any).frameSources = this.sources);
     // (Its first answer, come at once: what waited on it untracked runs again, as for an answer that landed.)
     if (first && this.untrackedReaders) this.rerunReaders();
   }
@@ -2702,7 +2702,10 @@ function decideTrims(parked: Transaction | null) {
       for (const d of dropped) c.sources.includes(d) || d.unsubscribe(c);
       continue;
     }
-    const keep = dropped.filter((d) => !c.sources.includes(d));
+    // (Only what the committed frame read: a source of a pass held in between, never shown, is let go.)
+    const frame = (c as any).frameSources as Node[] | undefined;
+    const keep = dropped.filter((d) => !c.sources.includes(d) && (!frame || frame.includes(d)));
+    for (const d of dropped) if (!keep.includes(d) && !c.sources.includes(d)) d.unsubscribe(c);
     c.sources = [...c.sources, ...keep];
     c.seen = [...c.seen, ...keep.map((d) => versions[dropped.indexOf(d)]!)];
   }
