@@ -2318,10 +2318,15 @@ function noOwnerEffect(effectType: string) {
   if (process.env.NODE_ENV !== "production") diagnose({ code: "NO_OWNER_EFFECT", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_EFFECT] Effects created outside a reactive context will never be disposed", data: { effectType } });
 }
 
-function applyMadeFirst(o: Owner) {
+function applyMadeFirst(o: Owner, by = o as Computation<any>) {
   for (const k of o.owned!) {
-    if (!(k instanceof Computation)) k.owned && applyMadeFirst(k);
-    else if ((k as any).applyFirst) ((k as any).applyFirst = false), k.runApply();
+    if (!(k instanceof Computation)) k.owned && applyMadeFirst(k, by);
+    else if ((k as any).applyFirst) {
+      (k as any).applyFirst = false;
+      // (Run again since it was made, a reader of what then changed: it takes its turn with the rest.)
+      if (k.ranAt > by.ranAt) applies[RENDER].push(k);
+      else k.runApply();
+    }
   }
 }
 
