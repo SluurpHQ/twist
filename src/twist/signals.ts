@@ -2341,13 +2341,19 @@ function handleError(c: Computation<any>, e: unknown) {
   if (c.onError) {
     const handler = c.onError;
     // (A handler that throws escalates: the nearest boundary, else the system halts.)
-    return void pendingErrors.push(() => {
-      try {
-        handler(e, () => c.cleanup?.());
-      } catch (e2) {
-        escalate(c, e2);
-      }
-    });
+    const run = () =>
+      void pendingErrors.push(() => {
+        try {
+          handler(e, () => c.cleanup?.());
+        } catch (e2) {
+          escalate(c, e2);
+        }
+      });
+    // (Raised in a held world: it fires when that transition commits, as the effect arm would.)
+    const heldBy = (s: Node) => [s.tx, (s as any).writtenIn as Transaction | null].find((t) => t && !t.root.done);
+    const tx = c.readHeld ?? c.tx ?? c.sources.map(heldBy).find(Boolean);
+    const held = tx && !tx.root.done ? tx.root : null;
+    return void (held ? endWith(held, run) : run());
   }
   // A plain effect's compute failing, with nothing to handle it: logged, the run skipped, the app goes on.
   if (c.kind === EFFECT && !c.tracked && !boundaryCatches(c, e)) return void console.error(e);
