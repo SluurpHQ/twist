@@ -1,6 +1,7 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
 declare const process: { env: Record<string, string | undefined> };
+const dev = process.env.NODE_ENV !== "production";
 import { createErrorBoundary, createLoadingBoundary, createMemo, createOwner, createRevealOrder, flatten, getOwner, peekNextChildId, runWithOwner, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
 import { LIVE, mapArray, merge, repeat } from "./flow.ts";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
@@ -179,8 +180,9 @@ export const Repeat = /* @__PURE__ */ builtin(function Repeat(props: { count: nu
 /** `children` while `when` holds, else `fallback`; function children get an accessor (the value, when keyed). */
 export const Show = /* @__PURE__ */ builtin(function Show<T>(props: { when: T | undefined | null | false; keyed?: boolean; fallback?: any; children: any }) {
   // The condition read once per change; what decides the branch is its truth (its value, when keyed).
-  const value = createMemo(() => props.when);
-  const branch = createMemo(() => (props.keyed ? value() : !!value()), { equals: Object.is });
+  // (Named as Solid's, in development: tools fold them into the <Show>.)
+  const value = createMemo(() => props.when, dev ? { name: "condition value" } : undefined);
+  const branch = createMemo(() => (props.keyed ? value() : !!value()), dev ? { equals: Object.is, name: "condition" } : { equals: Object.is });
   return createMemo(() => {
     const b = branch();
     if (!b) return props.fallback;
@@ -188,7 +190,7 @@ export const Show = /* @__PURE__ */ builtin(function Show<T>(props: { when: T | 
     // (Keyed, its children get the value: what they read of it in setup is a strict read, said as the Show's.)
     if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? b : narrowed("Show", () => !!untrack(branch), value)), props.keyed ? "<Show>" : undefined);
     return c;
-  });
+  }, dev ? { name: "value" } : undefined);
 });
 
 /** A branch's accessor: its value while the branch is the one shown, an error once it is not (a stale read). */

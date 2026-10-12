@@ -24,6 +24,7 @@
       "default": "./src/twist/jsx/client/jsx-dev-runtime.ts"
     },
     "./refresh": "./src/twist/refresh.ts",
+    "./performance-tracks": "./src/twist/performance-tracks.ts",
     "./bridge": {
       "node": "./src/twist/react-bridge-server.ts",
       "default": "./src/twist/react-bridge.ts"

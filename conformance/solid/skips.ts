@@ -228,6 +228,27 @@ afterEach(() => void (process.env.NODE_ENV = devEnv));`,
     why: "the production switch above runs before each test",
   },
   {
+    file: "web/test/performance-tracks.spec.tsx",
+    find: `container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));`,
+    replace: `container.querySelector("button")!.dispatchEvent(Object.defineProperty(new MouseEvent("click", { bubbles: true }), "timeStamp", { value: Date.now() }));`,
+    why: "the test DOM stamps events on the performance clock (here the test's own, read early); jsdom's epoch stamp, which the runtime discards, is set by hand",
+  },
+  {
+    file: "web/test/performance-tracks.spec.tsx",
+    skip: "a flow control's own nodes fold into its tag on the label; the runtime's name is a property",
+    why: "pins Solid's render root: its insert effect (labelled `effect`) and no node between it and the Show — Twist's root binding is built otherwise (the Show's own nodes fold as Solid's)",
+  },
+  {
+    file: "web/test/performance-tracks.spec.tsx",
+    skip: "enablePerformanceTracks is a no-op that touches neither the console nor the engine",
+    why: "imports Solid's built production artifact (performance-tracks/dist)",
+  },
+  {
+    file: "web/test/performance-tracks.spec.tsx",
+    skip: "the server conditions resolve to it under every posture: the tracks are a browser view",
+    why: "reads Solid's package.json export conditions",
+  },
+  {
     file: "web/test/interaction-provenance.spec.tsx",
     find: `expect(ev.timeStamp).toBeGreaterThan(performance.now()); // jsdom: Date.now()`,
     replace: `Object.defineProperty(ev, "timeStamp", { value: Date.now() });`,

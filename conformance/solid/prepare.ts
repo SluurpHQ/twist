@@ -103,6 +103,9 @@ await Bun.write(join(out, "web", "src", "client.js"), `export * from ${JSON.stri
 await Bun.write(join(out, "web", "src", "server.js"), `export * from ${JSON.stringify(twist("server.ts"))};\n`);
 // (Its render helpers and its browser stand-ins for the server's API: the client module has both.)
 for (const name of ["render.js", "server-mock.js"]) await Bun.write(join(out, "web", "src", name), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
+// (Its performance tracks, by their path.)
+mkdirSync(join(out, "web", "performance-tracks", "src"), { recursive: true });
+await Bun.write(join(out, "web", "performance-tracks", "src", "index.js"), `export * from ${JSON.stringify(twist("performance-tracks.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "reconcile.js"), `export { reconcileArrays as default } from ${JSON.stringify(twist("web.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "response.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "cookies.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);

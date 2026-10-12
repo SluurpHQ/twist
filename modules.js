@@ -36,6 +36,8 @@ export const SOLID = {
   "@sluurp/twist/jsx-dev-runtime": ["twist/jsx/client/jsx-dev-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
   "solid-js/refresh": ["twist/refresh.ts", "twist/refresh.ts"],
   "@sluurp/twist/refresh": ["twist/refresh.ts", "twist/refresh.ts"],
+  "@solidjs/web/performance-tracks": ["twist/performance-tracks.ts", "twist/performance-tracks.ts"],
+  "@sluurp/twist/performance-tracks": ["twist/performance-tracks.ts", "twist/performance-tracks.ts"],
   "@sluurp/twist/bridge": ["twist/react-bridge.ts", "twist/react-bridge-server.ts"],
 };
 

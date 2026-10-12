@@ -3654,7 +3654,8 @@ function trackFallback(
     // The wait is the enclosing recompute's cause's interaction — the read
     // that registered the pending source runs inside one — else the ambient.
     const causes = enclosingCauses();
-    const staged = transition ?? DRAIN;
+    // (Shown with no drain open — Twist applies a render made outside a flush at once: on screen now.)
+    const staged = transition ?? (openFlush !== null ? DRAIN : null);
     const open: OpenFallback = {
       at: now(),
       gen: trackingGen,
@@ -3665,6 +3666,10 @@ function trackFallback(
       staged
     };
     openFallbacks.set(boundary, open);
+    if (staged === null) {
+      for (const f of folds) f.fallback?.(boundary, tree, true);
+      return;
+    }
     const list = stagedFallbacks.get(staged);
     if (list === undefined) stagedFallbacks.set(staged, [open]);
     else list.push(open);

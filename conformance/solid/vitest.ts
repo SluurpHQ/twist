@@ -28,7 +28,17 @@ const settledFirst = (actual: any, kind: "rejects" | "resolves", negate = false)
       },
     },
   );
+const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// (Vitest's negated asymmetric matchers, as Bun's: a string not containing, not matching.)
+const negated = {
+  stringContaining: (s: string) => bunExpect.stringMatching(new RegExp(`^(?![\\s\\S]*${escaped(s)})`)),
+  stringMatching: (r: string | RegExp) => bunExpect.stringMatching(new RegExp(`^(?![\\s\\S]*(?:${typeof r === "string" ? escaped(r) : r.source}))`)),
+};
 export const expect: typeof bunExpect = new Proxy(bunExpect, {
+  get(target, key, receiver) {
+    if (key === "not") return negated;
+    return Reflect.get(target, key, receiver);
+  },
   apply(target, self, args) {
     const e = Reflect.apply(target, self, args);
     return new Proxy(e, {
@@ -84,9 +94,12 @@ export const vi = {
   useFakeTimers(config?: { toFake?: string[] }) {
     // (As Vitest's: with \`toFake\`, only what it names is faked — performance.now stays real unless it is named.)
     // (Bun fakes the clock natively — performance.now, hrtime — but not Date.now: the real one is read through it.)
+    // (A clock the test installed itself stays as it is.)
+    const before = performance.now;
     const base = performance.now();
     const baseDate = Date.now();
-    const realNow = config?.toFake && !config.toFake.includes("performance") ? () => base + (Date.now() - baseDate) : null;
+    const own = !Function.prototype.toString.call(before).includes("[native code]");
+    const realNow = config?.toFake && !config.toFake.includes("performance") ? (own ? before : () => base + (Date.now() - baseDate)) : null;
     jest.useFakeTimers();
     if (realNow) {
       nowBefore ??= Object.getOwnPropertyDescriptor(performance, "now")!;
