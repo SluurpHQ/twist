@@ -309,7 +309,8 @@ function decideSwaps() {
       endWith(t, () => drainParked(c as any));
     } else if (c.kind !== MEMO) effectDrains.push(c);
     // (A memo whose new pass waits on what is not ready yet: its frame stays shown, reacting, until a pass answers.)
-    else if ((c as any).pendingPass) for (const frame of (c as any).parked) dormant(frame, false);
+    // (Or whose new answer is still out, over one it committed: kept until it lands.)
+    else if ((c as any).pendingPass || (c.flight && !c.streaming && c.ready)) for (const frame of (c as any).parked) dormant(frame, false);
     else drainParked(c as any);
   }
 }
@@ -3610,6 +3611,8 @@ function drain() {
         if (lr) ((c as any).landRelease = undefined), lr.forEach((f) => f());
         if (mount && (mount as any).mount && !mount.done && !c.streaming && c.staged !== NONE && !c.tx) (hold(c, mount), ((c as any).bornHeld = true));
         if ((c as any).dropOnLanding) ((c as any).dropOnLanding = false), readersOf(c) || unread.add(c);
+        // (Its answer in: the frame it kept shown goes at the round.)
+        if ((c as any).parked && c.kind === MEMO && !c.flight) swaps.push(c);
       }
     if (guesses.length) installGuesses();
     if (guessWork.length)
