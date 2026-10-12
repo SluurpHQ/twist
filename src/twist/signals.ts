@@ -1390,6 +1390,16 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.kind === MEMO && this.renderCtx?.commitEpoch) this.epoch = this.renderCtx.commitEpoch();
     this.wake();
   }
+  /** Taking a value threw: that is its error now, its readers told. */
+  takeFailed(e: unknown) {
+    stampThrower(e, this);
+    this.error = e;
+    this.erredAt = cycle();
+    this.version++;
+    clock++;
+    for (const o of this.observers) o.mark(DIRTY);
+    statusChanged();
+  }
   /** A value it computed or that landed: staged (or committed outside a flush), its readers told if it changed. */
   take(next: T) {
     // A loading window's first answer is a first load: committed on arrival, whatever holds what re-asked it.
@@ -1404,21 +1414,21 @@ export class Computation<T> extends Node<T> implements Owner {
         this.onTake(next);
       } catch (e) {
         // (What it does with the value threw: its error, as the compute's would be.)
-        stampThrower(e, this);
-        this.error = e;
-        this.erredAt = cycle();
-        this.version++;
-        clock++;
-        for (const o of this.observers) o.mark(DIRTY);
-        return void statusChanged();
+        return this.takeFailed(e);
       }
     const first = !this.ready;
-    this.ready = true;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
     // (Compared already by the compute that made it: once.)
     const compared = comparedBy === this && comparedNow === now && comparedNext === next;
     comparedBy = null;
-    const changed = first || this.recovered || this.equals === false || !(compared ? comparedSame : this.equals(now, next));
+    let changed: boolean;
+    try {
+      changed = first || this.recovered || this.equals === false || !(compared ? comparedSame : this.equals(now, next));
+    } catch (e) {
+      // (Its comparator threw on what landed: its error, A3.)
+      return this.takeFailed(e);
+    }
+    this.ready = true;
     if (this.recovered) this.recovered = false;
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)

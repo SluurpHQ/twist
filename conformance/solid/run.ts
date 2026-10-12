@@ -17,7 +17,7 @@ const walk = (d: string) => {
 };
 for (const part of ["signals/tests", "solid/test", "web/test"]) walk(join(here, "solid-tests", part));
 
-type Row = { file: string; pass: number; fail: number; beyond?: number; internal?: number; note?: string };
+type Row = { file: string; pass: number; fail: number; beyond?: number; internal?: number; engine?: number; note?: string };
 /**
  * Tests that read Solid's private structures to pin their shape (a store target's node caches, a lane's bookkeeping
  * arrays, its built artifacts), not a behaviour another implementation could share: by file, the failing tests whose
@@ -28,6 +28,11 @@ const INTERNAL_TESTS: [RegExp, RegExp][] = [
   [/store\/projection-slot-release\.test\.ts$/, /./], // $TARGET.fam.live and the node tables
   [/signals\/tests\/lane-contract\.test\.ts$/, /does not grow its bookkeeping/], // a lane's _nodes array
   [/server\/server-diagnostics\.spec\.tsx$/, /the observe tier, in the built artifacts/], // dist/server.observe.js
+  [/signals\/tests\/superseded-flight-pending-source\.test\.ts$/, /./], // a node's _x._pendingSources and _inFlight
+];
+/** Tests whose only difference is an error message V8 words and JavaScriptCore (Bun's engine) words otherwise. */
+const ENGINE_TESTS: [RegExp, RegExp][] = [
+  [/signals\/tests\/equals-comparator-errors\.test\.ts$/, /sync recompute: boundary contains|async resolution: comparator throw|no boundary: halts loudly/],
 ];
 const rows: Row[] = [];
 /** What failed, by message: counted across files into errors.txt, with the files it came from. */
@@ -50,6 +55,11 @@ async function worker() {
     if (internal.length) {
       const n = [...out.matchAll(/^\(fail\) ([^\n]*)$/gm)].filter((m) => internal.some(([, name]) => name.test(m[1]!))).length;
       if (n) (row.fail -= n), (row.internal = n);
+    }
+    const engine = ENGINE_TESTS.filter(([file]) => file.test(rel));
+    if (engine.length) {
+      const n = [...out.matchAll(/^\(fail\) ([^\n]*)$/gm)].filter((m) => engine.some(([, name]) => name.test(m[1]!))).length;
+      if (n) (row.fail -= n), (row.engine = n);
     }
     // A file that did not load: why (an export Twist lacks, an internal module).
     // (A SyntaxError at a line's start: one in a dumped object is not why.)
@@ -80,7 +90,7 @@ for (const r of rows) if (r.note && INTERNAL.test(r.note)) r.note = "not ours: "
 const INTERNAL_MORE = /Export named '(\$DEVCOMP|_resetExternalSourceConfig)'|Cannot find module '(\.\.\/)+src\/(map|render|refresh\/index|server-mock)\.js'|Cannot find module 'solid-js\/internal\/|Cannot find module '@solidjs\/diagnostics'|[\\/]dist[\\/]/;
 for (const r of rows) if (r.note && !r.note.startsWith("not ours") && INTERNAL_MORE.test(r.note)) r.note = "not ours: " + r.note;
 // Files that test Solid's published build or its package layout (its dist, its export conditions).
-const BUILD = /(^|\/)(dist-[^/]*|exports-server-conditions)\.(test|spec)\.[jt]sx?$/;
+const BUILD = /(^|\/)(dist-[^/]*|exports-server-conditions|internal-surface)\.(test|spec)\.[jt]sx?$/;
 for (const r of rows) if (BUILD.test(r.file)) r.note = "not ours: Solid's published build";
 // The deprecated <Dynamic> wrapper (kept in 2.0 for Solid 1 code): left out of Twist, dynamic() replaces it.
 for (const r of rows) if (r.note && /Export named 'Dynamic'/.test(r.note)) r.note = "not ours: <Dynamic> (deprecated; dynamic() replaces it)";
@@ -91,14 +101,14 @@ for (const r of rows) {
   else if (!r.pass && /\._nextSub\b|\._subs\b/.test(src)) r.note = "not ours: reads Solid's graph fields";
 }
 const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
-const sum = (k: "pass" | "fail" | "beyond" | "internal") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + (r[k] ?? 0), 0);
+const sum = (k: "pass" | "fail" | "beyond" | "internal" | "engine") => rows.filter((r) => !r.note?.startsWith("not ours")).reduce((n, r) => n + (r[k] ?? 0), 0);
 const unloaded = rows.filter((r) => r.note && !r.note.startsWith("not ours"));
 const reasons = new Map<string, number>();
 for (const r of unloaded) reasons.set(r.note!, (reasons.get(r.note!) ?? 0) + 1);
 const md = [
   `# Solid's tests on Twist\n`,
   `${sum("pass")} pass, ${sum("fail")} fail, ${files.length} files (${unloaded.length} did not load, ${notOurs.length} test Solid's internals; ${sum("internal")} more tests in other files do)\n`,
-  `${sum("beyond")} more pass that Solid itself fails (its own \`.fails\` tests, pinning its known bugs)\n`,
+  `${sum("beyond")} more pass that Solid itself fails (its own \`.fails\` tests, pinning its known bugs); ${sum("engine")} differ only in an error message V8 words otherwise\n`,
   `## Why files did not load\n`,
   ...[...reasons].sort((a, b) => b[1] - a[1]).map(([why, n]) => `- ${n} × ${why}`),
   `\n## Files\n`,
