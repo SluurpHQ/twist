@@ -1,5 +1,6 @@
 // Lists and props helpers: mapArray (by identity, by position or by key), repeat, merge, omit.
 import { createMemo, keepMemo, ownerUnder, getOwner, runOwned, untrack, Signal, onCleanup, isFlushing, type Owner } from "./signals.ts";
+import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { $PROXY } from "./store.ts";
 
 type Accessor<T> = () => T;
@@ -57,7 +58,7 @@ function sameRows(a: unknown[], b: unknown[]) {
 export function mapArray<T, U>(
   list: Accessor<readonly T[] | null | undefined | false>,
   fn: (item: any, index: any) => U,
-  options: { keyed?: Keyed<T>; fallback?: () => U } = {},
+  options: { keyed?: Keyed<T>; fallback?: () => U; name?: string } = {},
 ): Accessor<U[]> {
   // Its rows under an owner of its own (one id where it sits, the rows' under it), as Solid's.
   const parent = ownerUnder(getOwner());
@@ -78,7 +79,9 @@ export function mapArray<T, U>(
     fallbackOwner.forEach(end);
   });
   // (Wide by construction: it reads every item of the list — development tools do not judge it for that.)
+  let self: Owner | null = null;
   return keepMemo(createMemo(() => {
+    self ??= getOwner();
     // Every item read here, tracked (a store list keeps its identity while its items move); mapped untracked.
     const source = (list() || []) as T[];
     const next = Array.from(source);
@@ -175,6 +178,15 @@ export function mapArray<T, U>(
         for (let k = undo.length - 1; k >= 0; k--) undo[k]!();
         throw e;
       }
+      // (Development, an attribution engine installed: rows let go of and made, told — a list that remakes rows for
+      // equivalent items is keyed by something unstable.)
+      if (process.env.NODE_ENV !== "production" && attrHooks !== null && made.length && made.length < next.length + 1) {
+        const removedItems: unknown[] = [];
+        for (let i = 0; i < keys.length; i++) if (!kept[i]) removedItems.push(typeof keyed === "function" ? untrack(items[i]!.read) : keys[i]);
+        const createdItems: unknown[] = [];
+        for (let j = 0; j < next.length; j++) if (made.includes(outOwners[j]!)) createdItems.push(next[j]);
+        if (removedItems.length) attrHooks.listChurn(self, removedItems, createdItems, next.length, typeof keyed === "function");
+      }
       for (let i = 0; i < keys.length; i++) if (!kept[i]) end(owners[i]!);
       keys = nextKeys;
       owners = outOwners;
@@ -182,7 +194,7 @@ export function mapArray<T, U>(
       items = outItems;
       return (rows = sameRows(rows, out) ? rows : out);
     });
-  }, { _wide: true } as any));
+  }, { _wide: true, ...(options.name ? { name: options.name } : {}) } as any));
 }
 
 /** `fn(index)` for each index from `from` (0 unless given) up to `from + count`: rows kept, none diffed. */

@@ -1177,6 +1177,8 @@ abstract class Node<T = any> {
           return (!inPass || this.staged === NONE ? this.value : this.staged) as T;
         }
       }
+      // (Development, an attribution engine installed: a guess read where it shows — a person saw it.)
+      if (process.env.NODE_ENV !== "production" && attrHooks !== null && listener !== null && (!lane || lane.done)) (this as any).devGuessShown = true;
       return this.override as T;
     }
     // A derivation a lane re-ran, read by an effect: the effect runs again at the lane's reveal.
@@ -1210,6 +1212,7 @@ abstract class Node<T = any> {
       for (const o of this.observers) if ((o as any).asksTruth) o.mark(DIRTY);
       // (One equal to the guess confirms it: nothing to re-derive.)
       if (landing && this instanceof Computation && !(this.equals !== false && this.equals(this.override as T, next))) {
+        if (process.env.NODE_ENV !== "production" && attrHooks !== null && (this as any).devGuessShown) ((this as any).devGuessShown = false), attrHooks.optimisticReverted(this, this.override, next, "superseded");
         (this as any).truthLanded = true;
         this.version++;
         // (A guess never shown is voided with its lane, which re-derives what read it.)
@@ -2965,6 +2968,8 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
   const lane = t.lane && !t.lane.done ? t.lane : (t.lane = newLane(t));
   (n as any).laneTx = lane;
   if (!lane.guessed.has(n)) lane.guessed.set(n, truthOf(n));
+  // (Development, an attribution engine installed: the truth the guess was made over.)
+  if (process.env.NODE_ENV !== "production" && attrHooks !== null && was === NONE) (n as any).devTruthAtGuess = truthOf(n);
   // It ends with the parent the lanes are of.
   let base = t;
   while (base.parentTx) base = base.parentTx.root;
@@ -2980,7 +2985,15 @@ function installGuess(n: Node, v: unknown, t: Transaction) {
       const guess = n.override;
       n.override = NONE;
       (n as any).truthLanded = false;
-      if (!(n as any).equals?.(n.value, guess)) n.bump();
+      const differs = !(n as any).equals?.(n.value, guess);
+      if (process.env.NODE_ENV !== "production" && attrHooks !== null && (n as any).devGuessShown) {
+        // (Reverted: the truth is what it was when guessed; superseded: it moved meanwhile.)
+        const truth = n.staged !== NONE ? n.staged : n.value;
+        const eq = (a: unknown, b: unknown) => (typeof (n as any).equals === "function" ? (n as any).equals(a, b) : Object.is(a, b));
+        if (!eq(truth, guess)) attrHooks.optimisticReverted(n, guess, truth, eq(truth, (n as any).devTruthAtGuess) ? "reverted" : "superseded");
+      }
+      (n as any).devGuessShown = false;
+      if (differs) n.bump();
     });
   }
   // What reads it: derivations re-run in the lane now; effects at the lane's reveal (none when what shows is the same).

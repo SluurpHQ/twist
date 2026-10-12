@@ -655,6 +655,47 @@ function stage(target: Raw, key: PropertyKey, value: any) {
 }
 
 
+/** Development, an attribution engine installed: containers a write replaced with a fresh one of the same kind (the
+ * spread-copy habit), with how many of their leaves stayed the same. */
+function reportReplaced(t: Raw, p: Map<PropertyKey, any>) {
+  for (const [key, v] of p) {
+    if (v === DELETE) continue;
+    const ov = unwrap(latestGet(t, key));
+    const nv = unwrap(v);
+    if (ov === null || nv === null || typeof ov !== "object" || typeof nv !== "object" || ov === nv) continue;
+    const isArr = Array.isArray(nv);
+    if (isArr !== Array.isArray(ov)) continue;
+    let total: number;
+    let unchanged = 0;
+    if (isArr) {
+      total = nv.length;
+      if (total > 10_000) continue;
+      const before = new Set<unknown>();
+      for (const item of ov as unknown[]) before.add(unwrap(item));
+      for (const item of nv) if (before.has(unwrap(item))) unchanged++;
+    } else {
+      const keys = Object.keys(nv);
+      total = keys.length;
+      if (total > 10_000) continue;
+      for (const k of keys) if (Object.is(unwrap((ov as any)[k]), unwrap((nv as any)[k]))) unchanged++;
+    }
+    attrHooks!.storeReplaced(`${devStorePath(t)}.${String(key)}`, isArr, total, unchanged, isArr ? (ov as unknown[]).length : Object.keys(ov).length, getOwner());
+  }
+}
+/** A store part's path for development tools: its store's name, then the keys down to it. */
+function devStorePath(target: Raw): string {
+  const keys: string[] = [];
+  const seen = new Set<Raw>([target]);
+  let r = target;
+  for (let p = parentOf.get(r); p && !seen.has(p); p = parentOf.get(r)) {
+    seen.add(p);
+    const own = records.get(p)?.own ?? p;
+    const key = Object.keys(own).find((k) => unwrap((own as any)[k]) === r);
+    keys.unshift(key ?? "?");
+    r = p;
+  }
+  return [storeNames.get(r) ?? "store", ...keys].join(".");
+}
 /** A record's pending writes applied to its backing object, each changed key's readers told (called by the flush). */
 export function commitRecord(r: Record_) {
   dirtyRecords.delete(r);
@@ -666,6 +707,7 @@ export function commitRecord(r: Record_) {
   let stagedShape = false;
   const lenBefore = Array.isArray(t) ? r.own.length : 0;
   const told = DEV?.hooks.onStoreNodeUpdate;
+  if (process.env.NODE_ENV !== "production" && attrHooks !== null) reportReplaced(t, p);
   for (const [key, v] of p) {
     // A new value of a key it has (not its length), on an object read through a store: staged on its node, as a signal's write (a hold keeps it off).
     const desc = Object.getOwnPropertyDescriptor(r.own, key);
@@ -727,7 +769,10 @@ const draftHandler: ProxyHandler<Raw> = {
     // (A frozen property: as it is.)
     const d = Reflect.getOwnPropertyDescriptor(own(target), key);
     if (d && !d.configurable && !d.writable) return v;
-    return draftOf(child(target, v));
+    const c = child(target, v);
+    // (Its store object, as a read through the store records it.)
+    if (isWrappable(c) && !parentOf.has(c)) parentOf.set(c, target);
+    return draftOf(c);
   },
   has: (target, key) => pendingHas(target, key),
   ownKeys: (target) => pendingKeys(target),
@@ -1462,6 +1507,11 @@ function revert(r: Record_, keys: PropertyKey[], tx: Transaction | null) {
     o.delete(key);
     const now = viewGet(t, key);
     if (had !== viewHas(t, key)) shape = true;
+    // (Development, an attribution engine installed: a guess someone read, taken off for a different truth.)
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null && !Object.is(before, now) && key !== "length") {
+      const n = r.nodes.get(key);
+      if (n && readersOf(n)) attrHooks.optimisticReverted(n, before, now, "reverted");
+    }
     if (!Object.is(before, now) || had !== viewHas(t, key)) r.nodes.get(key)?.bump();
   }
   if (!o.size) (r.overlay = null), liveOverlays--;
