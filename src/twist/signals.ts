@@ -1099,7 +1099,10 @@ abstract class Node<T = any> {
     if (!inPass || this.staged === NONE) return this.value;
     if (!this.tx) {
       // (An action's write not yet held, read through latest(): on that action's lane as a held one is.)
-      const w = verdictReading && listener ? ((this as any).writtenIn as Transaction | null | undefined)?.root : null;
+      const by = listener ? ((this as any).writtenIn as Transaction | null | undefined)?.root : null;
+      // (A first pass a lane's pass made: the screen — the action's write as committed — until that action commits.)
+      if (by && !by.done && madeByLane(listener!, by)) return by.stale.add(listener!), (listener!.staleRead = true), ((listener as any).screenPass = true), this.value;
+      const w = verdictReading ? by : null;
       return (w && !w.done ? heldRead(this, w) : this.staged) as T;
     }
     return heldRead(this);
@@ -3055,6 +3058,14 @@ function heldRead<T>(n: Node<T>, held?: Transaction): T {
     }
     return n.staged as T;
   }
+  // A first pass is its creator's (ruling A): made by a lane's pass, it sees the screen — the lane's parent's held
+  // write as committed — and derives again at that commit.
+  if (madeByLane(l, t)) {
+    t.stale.add(l);
+    l.staleRead = true;
+    (l as any).screenPass = true;
+    return n.value;
+  }
   // A first pass under a Loading that has not shown its content (a fresh mount): the boundary catches the hold —
   // its fallback shows, its content at the hold's commit (A29's boundary exemption).
   if (l.ranAt === -1 && !l.tx) {
@@ -3085,6 +3096,18 @@ function heldRead<T>(n: Node<T>, held?: Transaction): T {
   }
   l.readHeld = t;
   return n.staged as T;
+}
+
+/** Whether `l` is a first pass made by a pass of one of `t`'s lanes (a first pass is its creator's, ruling A). */
+function madeByLane(l: Computation<any>, t: Transaction): boolean {
+  if (l.ranAt !== -1 || l.tx || !t.lane) return false;
+  const laneOf = (x: Transaction | null | undefined) => (x && !x.done && x.root.parentTx?.root === t ? x : null);
+  for (let p = l.parent; p; p = p.parent) {
+    if (!(p instanceof Computation)) continue;
+    if (laneOf(p.passLane) || laneOf(p.readHeld) || laneOf(p.tx)) return true;
+    if (p.ranAt !== -1) return false;
+  }
+  return false;
 }
 
 /** Whether a computation's value reaches the screen: an effect reads it, directly or through memos. */
@@ -3551,7 +3574,8 @@ export function startEffect<T>(e: Computation<T>, options?: SignalOptions<T>) {
   }
   // (Unless scheduled, or made by a flush's pass while something could hold it: it applies with that flush.)
   if (kind === RENDER && !options?.schedule && e.due && !e.tx && e.error === NONE) {
-    if (flushing && (flights.size || transactions.size) && !madeByLeaver(e)) (e as any).applyFirst = true;
+    // (A first pass that read only the screen applies as made.)
+    if (flushing && (flights.size || transactions.size) && !madeByLeaver(e) && !(e as any).screenPass) (e as any).applyFirst = true;
     else remove(applies[RENDER], e), e.runApply();
   }
   schedule();
