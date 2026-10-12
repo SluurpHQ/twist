@@ -33,6 +33,7 @@ import {
   startEffect,
   RENDER_EFFECT,
   hydrationFlag,
+  runAgain,
 } from "./signals.ts";
 import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume } from "./hydration.ts";
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
@@ -1613,11 +1614,17 @@ function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): No
   } finally {
     content.catch = undefined;
   }
-  // Claimed: from here an error under it shows the fallback, made here (a reset makes the content anew).
+  // Claimed: from here an error under it shows the fallback, made here; the content stays alive behind it, and a reset
+  // runs again what threw (the content made anew only when what threw is not known).
   const [error, setError] = createSignal<unknown>(NO_ERROR, { equals: false });
   let shown: unknown = NO_ERROR;
   let fresh = false;
-  const caught = (e: unknown) => {
+  const failedBelow = new Set<Computation<any>>();
+  let unknownThrower = false;
+  let kept: Node[] | null = null;
+  const caught = (e: unknown, from?: Computation<any>) => {
+    if (from) failedBelow.add(from);
+    else unknownThrower = true;
     if (shown !== e) (shown = e), setError(() => e);
     return true;
   };
@@ -1634,13 +1641,29 @@ function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): No
     createMemo(() => {
       const e = error();
       if (e === NO_ERROR && !fresh) return nodes;
-      resetOwner(content);
+      // (What it shows now taken out: the content's nodes kept, to show again after a reset.)
+      const out: Node[] = [];
       for (let n = before ? before.nextSibling : parent.firstChild; n && n !== after; ) {
         const next = n.nextSibling;
+        out.push(n);
         (n as ChildNode).remove();
         n = next;
       }
-      if (e === NO_ERROR) return made(() => runWithOwner(content, () => untrack(() => props.children)));
+      kept ??= out;
+      if (e === NO_ERROR) {
+        fresh = false;
+        const again = unknownThrower || !failedBelow.size ? null : [...failedBelow];
+        failedBelow.clear();
+        unknownThrower = false;
+        const back = kept;
+        kept = null;
+        if (again) {
+          for (const c of again) untrack(() => runAgain(c));
+          return back;
+        }
+        resetOwner(content);
+        return made(() => runWithOwner(content, () => untrack(() => props.children)));
+      }
       const f = props.fallback;
       return made(() => untrack(() => erroredFallback(f, () => e, reset)));
     }),

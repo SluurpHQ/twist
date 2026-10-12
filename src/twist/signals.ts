@@ -4567,6 +4567,14 @@ export function createRevealOrder<T>(fn: () => T, options?: { order?: () => Reve
 /** Whether what is made under `o` hydrates with ids (an owner with one, outside NoHydration). */
 const hydratesUnder = (o: Owner | null) => o?.id != null && !o.context?.[Symbol.for("twist.no-hydrate")];
 
+/** A computation that failed run again, with what failed upstream of it (asked again: a source that fails anew shows
+ * its error). */
+export function runAgain(c: Computation<any>) {
+  if (c.disposed) return;
+  someUpstream(c, (n) => (n !== c && n.error !== NONE && n.mark(DIRTY), false));
+  c.mark(DIRTY);
+  schedule();
+}
 export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
   // Hydrating where the server caught an error: its content throws that error first (the server's fallback shows).
   if (sharedConfig.hydrating && hydratesUnder(owner)) {
@@ -4600,11 +4608,7 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
     caughtBelow = false;
     const again = content.error !== NONE || !failedBelow.size ? [content] : [...failedBelow];
     failedBelow.clear();
-    for (const c of again) {
-      if (c.disposed) continue;
-      someUpstream(c, (n) => (n !== c && n.error !== NONE && n.mark(DIRTY), false));
-      c.mark(DIRTY);
-    }
+    for (const c of again) runAgain(c);
   };
   let caughtBelow = false;
   // The boundary: what under it throws comes here. Transparent, as its content takes the id it would.
