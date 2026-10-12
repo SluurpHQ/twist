@@ -236,16 +236,17 @@ export const Loading = /* @__PURE__ */ builtin(function Loading(props: { fallbac
 export const Errored = /* @__PURE__ */ builtin(function Errored(props: { fallback: any; children: any }) {
   return createErrorBoundary(
     () => props.children,
-    // A function fallback is called with the error and reset (a fallback that declares no parameters cannot see the
-    // error: development tells it on the console).
-    (err, reset) => {
-      const f = props.fallback;
-      if (typeof f !== "function") return f;
-      if (f.length === 0 && !/\.\.\./.test(String(f).slice(0, String(f).indexOf(")") + 1))) console.error(untrack(err));
-      return f(err, reset);
-    },
+    (err, reset) => erroredFallback(props.fallback, err, reset),
   );
 });
+
+/** An Errored fallback for `err`: a function is called with the error and reset (one that declares no parameters cannot
+ * see the error: development tells it on the console). */
+export function erroredFallback(f: any, err: () => unknown, reset: () => void) {
+  if (typeof f !== "function") return f;
+  if (f.length === 0 && !/\.\.\./.test(String(f).slice(0, String(f).indexOf(")") + 1))) console.error(untrack(err));
+  return f(err, reset);
+}
 
 
 /** A component whose code loads when first rendered (its readers wait, as for any first load). */

@@ -311,6 +311,38 @@ export const CHANGES: Change[] = [
     why: "Solid's server streams a rejection template whose single space stays in the range; Twist's hands the content to the client with no template (its record is false), so nothing stray is left",
   },
   {
+    file: "web/test/hydration/slot-hydration-3567.spec.tsx",
+    find: `    if (scenario.knownGap) {\n`,
+    replace: `    if (scenario.knownGap) return;\n    if (scenario.knownGap) {\n`,
+    why: "pins Solid's known gap (keys permute, the server's button goes dead); Twist's client draws a bare function hole where it is placed and claims it by position, so the page hydrates aligned — every server node kept, the click works, nothing to warn about",
+  },
+  {
+    file: "web/test/server/slot-hydration-3567.spec.tsx",
+    find: `        expect(event.data).toMatchObject({ name: "renderHead", hole: 1 });\n`,
+    replace: `        expect(event.data).toMatchObject({ hole: 1 });\n`,
+    why: "Bun's transpiler drops the name a nested `const renderHead = () => …` would infer (Node keeps it), so the diagnostic names the function only where the engine does",
+  },
+  {
+    file: "web/test/server/slot-hydration-3567.spec.tsx",
+    find: `        expect(event.message).toContain("{renderHead()}");\n`,
+    replace: ``,
+    why: "Bun's transpiler drops the name a nested `const renderHead = () => …` would infer (Node keeps it), so the diagnostic names the function only where the engine does",
+  },
+  // Twist mints a live hole's id where its template's holes are evaluated (the article's title, then the boundary's
+  // body); Solid evaluates components eagerly, so the boundary's body mints first. The keys swap; the client reads
+  // Twist's own, so the protocol (digests, resume, transfers) is what is checked.
+  ...[
+    [`"lh:0"`, `"lh:@0"`],
+    [`"lh:1"`, `"lh:0"`],
+    [`"lh:@0"`, `"lh:1"`],
+    ["/<!--lh:0-->B1<!--lh:\\/0-->/", "/<!--lh:1-->B1<!--lh:\\/1-->/"],
+  ].map(([find, replace]) => ({
+    file: "web/test/server/frame-live-resume.spec.tsx",
+    find,
+    replace,
+    why: "live hole ids follow evaluation order: Twist's title hole mints before the boundary's body (Solid's eager components mint the body first)",
+  })),
+  {
     file: "signals/tests/createTrackedEffect.test.ts",
     find: `    expect(s()).toBe(1);\n    expect(seen).toEqual([0]);\n`,
     replace: `    expect(s()).toBe(1);\n    expect(seen).toEqual([0, 1]);\n`,

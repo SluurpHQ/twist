@@ -80,7 +80,7 @@ function described(spec: Spec, values: unknown[], at: { i: number }): any {
   const [tag, fixed, slots, kids] = spec;
   const props: Record<string, any> = {};
   for (const name of slots) props[name] = values[at.i++];
-  const children = kids.map((k) => (k === 0 ? values[at.i++] : typeof k === "string" ? (RAW_TEXT.has(tag) ? k : { t: k.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }) : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
+  const children = kids.map((k) => (k === 0 ? holeValue(spec, values, at) : typeof k === "string" ? (RAW_TEXT.has(tag) ? k : { t: k.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }) : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
   if (children.length > 1) ((children as any)[OWN] = true), (props.children = children);
   else if (children.length) props.children = children[0];
   let attrs = fixedAttrs.get(spec);
@@ -90,6 +90,33 @@ function described(spec: Spec, values: unknown[], at: { i: number }): any {
     fixedAttrs.set(spec, attrs);
   }
   return { [EL]: true, tag, props, attrs } as Element_;
+}
+/** A bare function at a template's hole (not compiled as dynamic): where it was registered, to check what it allocates. */
+const holeSites = new WeakMap<Function, { spec: Spec; hole: number; registered: number }>();
+/** Sites already reported (each once, however many times it renders). */
+const reportedSites = new WeakMap<Spec, Set<number>>();
+function holeValue(spec: Spec, values: unknown[], at: { i: number }) {
+  const v = values[at.i++];
+  if (process.env.NODE_ENV !== "production" && typeof v === "function" && !isDynamic(v) && !isChildren(v) && !holeSites.has(v)) {
+    const o = getOwner();
+    if (o) holeSites.set(v, { spec, hole: at.i, registered: childIdCount(o) });
+  }
+  return v;
+}
+/** A bare function hole that allocated ids on the enclosing scope (the client builds it where it was registered). */
+function unscopedHole(f: Function, before: number, after: number) {
+  const site = holeSites.get(f)!;
+  let done = reportedSites.get(site.spec);
+  if (done?.has(site.hole)) return;
+  (done ??= new Set()), reportedSites.set(site.spec, done), done.add(site.hole);
+  const name = f.name || "fn";
+  devCheck({
+    code: "UNSCOPED_HOLE_ALLOCATED_IDS",
+    kind: "render",
+    severity: "warn",
+    message: `[UNSCOPED_HOLE_ALLOCATED_IDS] A function placed as a hole, {${name}}, rendered content that took hydration ids from the enclosing scope, so its ids depend on when it was rendered. Call it in the hole instead ({${name}()}), which gives it a scope of its own.`,
+    data: { name, hole: site.hole, registered: site.registered, before, after },
+  });
 }
 function fixedPart(spec: Spec): { t: string } {
   let part = fixedHtml.get(spec);
@@ -665,6 +692,10 @@ function joined(parts: Part[]): string {
 function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, parts: Part[]) {
   for (let x of items) {
     let fn = viaFn;
+    // (A bare function hole: the enclosing scope's next id before it renders, to see whether it took any.)
+    const site = process.env.NODE_ENV !== "production" && typeof x === "function" && holeSites.has(x) ? (x as Function) : null;
+    const siteOwner = site ? (getOwner() as any) : null;
+    const siteBefore = siteOwner ? childIdCount(siteOwner) : 0;
     // A hole or a component beside other children: between markers the client claims it by.
     if (own && !viaFn && items.length > 1 && ((typeof x === "function" && !(x as any).$esc) || (x && x[COMP]))) {
       parts.push({ s: "<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, inTemplate)) + "<!--/-->", text: false, split: false });
@@ -718,6 +749,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
     else if (typeof x === "string" || typeof x === "number") parts.push({ s: typeof x === "string" ? escape(x) : String(x), text: true, split: !own || fn });
     else if (x[EL]) parts.push({ s: element(x, x.keyed ?? !(inTemplate && own && !fn)), text: false, split: false });
     else parts.push({ s: html(x, false), text: false, split: false });
+    if (siteOwner && childIdCount(siteOwner) !== siteBefore) unscopedHole(site!, siteBefore, childIdCount(siteOwner));
   }
 }
 

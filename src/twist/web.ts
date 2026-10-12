@@ -38,7 +38,7 @@ import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
 import { $PROXY, $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -1592,7 +1592,7 @@ function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): No
   const fallback = (e: unknown) => {
     at.next = start;
     const f = props.fallback;
-    return runWithOwner(output, () => claimHtml(typeof f === "function" ? f(() => e, () => {}) : f, false, at));
+    return runWithOwner(output, () => claimHtml(erroredFallback(f, () => e, () => {}), false, at));
   };
   // The server caught an error here: it sent it under the boundary's id, and rendered the fallback.
   const sent = (globalThis as any)._$HY?.r;
@@ -1650,7 +1650,7 @@ function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): No
       }
       if (e === NO_ERROR) return made(() => runWithOwner(content, () => untrack(() => props.children)));
       const f = props.fallback;
-      return made(() => untrack(() => (typeof f === "function" ? f(() => e, reset) : f)));
+      return made(() => untrack(() => erroredFallback(f, () => e, reset)));
     }),
   );
   bind(at.parent, read, at.next);
