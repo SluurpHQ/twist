@@ -1507,6 +1507,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (process.env.NODE_ENV !== "production" && options) {
       if ((options as any)._plumbing) ((this as any).plumbing = true), (this.name = undefined);
       if ((options as any)._wide) (this as any).wide = true;
+      if ((options as any)._rows) (this as any).rows = true;
       if ((options as any)._supersedes) (this as any).supersedes = true;
     }
     if ((options as any)?.deferStream) (this as any).deferStream = true;
@@ -1969,7 +1970,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.readHeld && firstPass && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = this.readHeld;
     this.state = CLEAN;
     this.ranAt = clock;
-    if (process.env.NODE_ENV !== "production" && this.sources.length >= GRAPH_SIZE_WARN_AT) noteFanIn(this, this.sources.length);
+    // (A list's rows memo reads each item by construction: the insert that resolves them is the fan-in told.)
+    if (process.env.NODE_ENV !== "production" && this.sources.length >= GRAPH_SIZE_WARN_AT && !(this as any).rows) noteFanIn(this, this.sources.length);
     if (threw !== NONE) {
       // Waiting on a first load upstream: still not ready (its readers wait too); the Loading above shows its fallback.
       if (threw instanceof NotReadyError) {
@@ -4781,7 +4783,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       if (e instanceof NotReadyError) return showFallback();
       throw e;
     }
-  }, X === undefined ? ({ transparent: true, equals: sameSide } as any) : ({ id: idUnder(), equals: sameSide } as any));
+    // (Wide by construction: it resolves each child it shows, #3739.)
+  }, X === undefined ? ({ transparent: true, equals: sameSide, _wide: true } as any) : ({ id: idUnder(), equals: sameSide, _wide: true } as any));
   if (order) {
     order.add(slot);
     if (owner) onCleanup(() => order.remove(slot));

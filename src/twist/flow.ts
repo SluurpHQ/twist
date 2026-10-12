@@ -195,7 +195,7 @@ export function mapArray<T, U>(
       items = outItems;
       return (rows = sameRows(rows, out) ? rows : out);
     });
-  }, { _wide: true, ...(options.name ? { name: options.name } : {}) } as any));
+  }, { _wide: true, _rows: true, ...(options.name ? { name: options.name } : {}) } as any));
 }
 
 /** `fn(index)` for each index from `from` (0 unless given) up to `from + count`: rows kept, none diffed. */
