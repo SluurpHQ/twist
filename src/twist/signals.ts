@@ -523,6 +523,61 @@ function clientCopy(v: any, seen = new Map<object, any>()): any {
  * Two readers of one async source: each value kept for the reader behind, the source asked once per value. A reader
  * let go of stops reading; the source is returned when both are, or when `close` is called.
  */
+/** How a derived store's patch batch applies (the store module's, registered there). */
+let patchApply: ((state: any, patches: any[]) => void) | null = null;
+export const setPatchApply = (fn: typeof patchApply) => void (patchApply = fn);
+const cloneState = (v: any) => (v === undefined || v === null || typeof v !== "object" ? v : typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
+/** A source's reader whose steps already buffered (a serialized stream's replay) answer at once, as sync thenables. */
+function bufferedReader(source: any): AsyncIterator<any> {
+  if (!source || source.__SEROVAL_STREAM__ !== true || typeof source.on !== "function") return source[Symbol.asyncIterator]();
+  const queue: IteratorResult<any>[] = [];
+  let failed: { e: unknown } | null = null;
+  let wake: (() => void) | null = null;
+  const push = (r: IteratorResult<any>) => (queue.push(r), wake && (wake(), (wake = null)));
+  source.on({
+    next: (value: any) => push({ done: false, value }),
+    throw: (e: unknown) => ((failed = { e }), wake && (wake(), (wake = null))),
+    return: () => push({ done: true, value: undefined }),
+  });
+  const answer = (): any => {
+    if (queue.length) {
+      const r = queue[0]!.done ? queue[0]! : queue.shift()!;
+      return { then: (ok: any) => (ok ? ok(r) : r) };
+    }
+    if (failed) {
+      const e = failed.e;
+      return { then: (_ok: any, fail: any) => (fail ? fail(e) : Promise.reject(e)) };
+    }
+    return null;
+  };
+  return {
+    next: () => answer() ?? new Promise((ok) => (wake = () => ok(undefined))).then(() => answer()),
+    return: (v?: any) => Promise.resolve({ done: true, value: v }),
+  } as AsyncIterator<any>;
+}
+/** A snapshot-then-patches stream as whole states (each a copy of its own: what is reconciled in is never changed). */
+function statesOf(source: AsyncIterable<any>, apply: (state: any, patches: any[]) => void): AsyncIterable<any> {
+  let state: any;
+  let first = true;
+  const it = bufferedReader(source);
+  const step = (r: IteratorResult<any>): IteratorResult<any> => {
+    if (r.done) return r;
+    if (first) (first = false), (state = cloneState(r.value));
+    else apply(state, r.value);
+    return { done: false, value: cloneState(state) };
+  };
+  const self: any = {
+    [Symbol.asyncIterator]: () => self,
+    // (A step answered at once — a buffered stream's — stays answered at once: hydration claims with it.)
+    next: () => {
+      const r: any = it.next();
+      if (!r || typeof r.then !== "function") return step(r);
+      return { then: (ok: any, fail: any) => r.then((x: any) => (ok ? ok(step(x)) : step(x)), fail) };
+    },
+    return: (v?: any) => (it.return ? it.return(v) : Promise.resolve({ done: true, value: v })),
+  };
+  return self;
+}
 /** `source` with its first step already asked (now, by the caller): the same values, its marks kept. */
 function primed<T>(source: AsyncIterable<T>): AsyncIterable<T> {
   const it = source[Symbol.asyncIterator]();
@@ -1340,6 +1395,8 @@ export class Computation<T> extends Node<T> implements Owner {
         // (A loading window's streamed answer: the server drew the loading value, so the claim does too; the answer
         // lands after, as a promise.)
         next = ref && typeof ref === "object" && ref.s === 1 && !(this.loadingWindow && typeof ref.then === "function") ? ref.v : ref;
+        // (A derived store's stream: its snapshot, then patch batches — each made a whole state again.)
+        if ((this as any).writes && patchApply && next && (next as any).__SEROVAL_STREAM__ === true) next = statesOf(next as any, patchApply) as T;
         // A stream the client goes on with ("hybrid"): once the server's answer has landed, its compute runs here,
         // quietly (its first yield repeats that answer).
         if ((this as any).ssrSource === "hybrid" && this.fn.constructor?.name === "AsyncGeneratorFunction") {
@@ -1518,9 +1575,11 @@ export class Computation<T> extends Node<T> implements Owner {
     // (On a server, an answer that is an async source streams: split now, the client's reader sent in its place.)
     // (A derived store's answer is reconciled into it: sent as the store's state once it lands.)
     if (serverRender && !streamed && (this as any).writes) {
+      // (Streaming: its snapshot, then a patch batch per change, as a source the response stays open for.)
+      const trail = (this as any).answerStream as AsyncIterable<unknown> | undefined;
       const answerOf = (this as any).answerOf as ((v: unknown) => unknown) | undefined;
-      const answer = answerOf ? Promise.resolve(p).then(answerOf) : p;
-      if (answerOf) (answer as Promise<unknown>).catch(noop);
+      const answer = trail ?? (answerOf ? Promise.resolve(p).then(answerOf) : p);
+      if (answerOf && !trail) (answer as Promise<unknown>).catch(noop);
       serverFly?.(this, answer);
     }
     else if (serverRender && !streamed) {
@@ -1624,6 +1683,20 @@ export class Computation<T> extends Node<T> implements Owner {
         );
       first.then((r) => (r.done || this.disposed ? release() : pump()), release);
       return this.fly(first.then((r: IteratorResult<T>) => r.value));
+    }
+    // (A streaming derived store: its later values landed too, each a patch batch to the client, until it ends.)
+    if ((this as any).answerStream) {
+      const pump = () =>
+        it.next().then(
+          (r) => {
+            if (this.disposed || r.done) return void (this as any).answerEnd?.();
+            landings.push([this, r.value]);
+            landNow();
+            pump();
+          },
+          () => (this as any).answerEnd?.(),
+        );
+      first.then((r) => (r.done ? (this as any).answerEnd?.() : pump()), () => (this as any).answerEnd?.());
     }
     // (Not split: read as before, its first value the answer.)
     if (!split) return this.fly(first.then((r: IteratorResult<T>) => r.value));

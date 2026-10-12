@@ -86,6 +86,12 @@ export const CHANGES: Change[] = [
     replace: `        type: expect.stringMatching(/^text\\/plain/),\n`,
     why: "Bun's File constructor itself writes text/plain as text/plain;charset=utf-8",
   },
+  {
+    file: "web/test/server/stream-hang-nested-loading-3478.spec.tsx",
+    find: `expect(result.html).toContain('$R[7],$R[11]=new Error("boom")');`,
+    replace: `expect(result.html).toMatch(/\\$R\\[\\d+\\],\\$R\\[\\d+\\]=new Error\\("boom"\\)/);`,
+    why: "the serializer's reference numbers follow what was serialized before (an encoding detail); the rejection itself is checked",
+  },
   // ---- The engine's words
   {
     file: "signals/tests/equals-comparator-errors.test.ts",

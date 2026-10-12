@@ -3,8 +3,9 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, type Transaction, useStoreMarks } from "./signals.ts";
-import { registerProjectionTrace } from "./container-trace.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, type Transaction, useStoreMarks } from "./signals.ts";
+import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
+import { createStream } from "../serial.js";
 
 export const $TARGET = Symbol("store-target");
 export const $PROXY = Symbol("store-proxy");
@@ -769,6 +770,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   const took = (v: unknown) => {
     // (On a server, what its source wrote before this answer is the state it answers with.)
     if (traced) promoteWrites(new Set()), queueMicrotask(changed);
+    // (Streaming on a server: the state, then what changed, for the client — after this landing is in.)
+    if (trail) queueMicrotask(() => trail.send());
     // (Each landing in the seed window: what the run wrote, committed whole.)
     commitShadow();
     if (v === undefined || typeof v === "number") return;
@@ -780,6 +783,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   // (On a server, its answer goes to the client as the state it made.)
   const answerOf = (v: unknown) => (v === undefined || typeof v === "number" ? snapshot(target) : v);
   let run: Run | null = null;
+  let trail: ReturnType<typeof stateTrail> | null = null;
   // (Its accessor, once made: a run's writes look up the transition waiting on its flight.)
   let memo: unknown = null;
   const m = createMemo(() => {
@@ -793,6 +797,12 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     let r = fn(d as T);
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
+    // (Streaming on a server: what the client is sent — its snapshot, then a patch batch per change.)
+    if (isServerRender() && r && typeof (r as any)[Symbol.asyncIterator] === "function" && typeof (r as any).then !== "function" && !trail) {
+      trail = stateTrail(() => plain(target, new Map()));
+      const self = getOwner() as any;
+      if (self) (self.answerStream = trail.stream), (self.answerEnd = trail.end);
+    }
     // An async derive's answers are reconciled as they land (its onTake): the memo flies on its promise or generator.
     if (r && (typeof (r as any).then === "function" || typeof (r as any)[Symbol.asyncIterator] === "function")) return (run.async = true), (run.stream = typeof (r as any).then !== "function"), r;
     // (A first answer at once: its writes are that answer.)
@@ -871,6 +881,34 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
 }
 
 // ---------------------------------------------------------------- reconcile, snapshot, deep
+
+setPatchApply(applyPatches);
+
+/** A store's state as a stream: its snapshot once, then the patches since the last one sent, until `end`. */
+function stateTrail(read: () => any) {
+  const stream = createStream();
+  let ended = false;
+  let last: any = undefined;
+  let sent = false;
+  return {
+    send() {
+      if (ended) return;
+      const now = JSON.parse(JSON.stringify(untrack(read)));
+      if (!sent) (sent = true), stream.next(now);
+      else {
+        const ops = diffPatches(last, now);
+        if (ops.length) stream.next(ops);
+      }
+      last = now;
+    },
+    end() {
+      if (ended) return;
+      ended = true;
+      stream.return(undefined);
+    },
+    stream,
+  };
+}
 
 /** New data diffed into a store's draft (or a part of it), keeping identity for entries with the same key. */
 export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = "id") {

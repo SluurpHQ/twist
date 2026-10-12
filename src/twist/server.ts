@@ -1650,7 +1650,7 @@ function awaitData<V>(r: Render, v: V, id?: string): V {
   return held(v, done);
 }
 // (A source counts only when it is the client's reader of one Twist split: anything else goes to the serializer as it is.)
-const isData = (v: any) => !!v && (typeof v.then === "function" || (typeof v[Symbol.asyncIterator] === "function" && !!v[SOURCE_ANSWER]));
+const isData = (v: any) => !!v && (typeof v.then === "function" || v.__SEROVAL_STREAM__ === true || (typeof v[Symbol.asyncIterator] === "function" && !!v[SOURCE_ANSWER]));
 /** An answer's value with `done` called once the sources inside it (plain objects' and arrays') have all ended. */
 function heldInside(x: any, done: () => void): any {
   let left = 1;
@@ -1675,6 +1675,8 @@ function heldInside(x: any, done: () => void): any {
 }
 /** `v` with `done` called once it has all come: a promise when it settles (or, answering with a source, when that ends). */
 function held(v: any, done: () => void): any {
+  // (A serialized stream: done when it returns or throws.)
+  if (v.__SEROVAL_STREAM__ === true) return v.on({ next() {}, throw: done, return: done }), v;
   if (typeof v.then === "function") return v.then((x: any) => (x && typeof x[Symbol.asyncIterator] === "function" ? held(x, done) : heldInside(x, done)), (e: unknown) => (done(), Promise.reject(e)));
   // (A source: done when it ends, fails or is let go of. Only the iterator method shows: what is serialized is the
   // source, not its reader's methods.)
