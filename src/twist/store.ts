@@ -781,7 +781,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     promoteWrites(before);
   };
   // (On a server, its answer goes to the client as the state it made.)
-  const answerOf = (v: unknown) => (v === undefined || typeof v === "number" ? snapshot(target) : v);
+  // (In the seed window the run wrote to its copy: that is the state it answers with.)
+  const answerOf = (v: unknown) => (v === undefined || typeof v === "number" ? snapshot(shadow ?? target) : v);
   let run: Run | null = null;
   let trail: ReturnType<typeof stateTrail> | null = null;
   // (Its accessor, once made: a run's writes look up the transition waiting on its flight.)

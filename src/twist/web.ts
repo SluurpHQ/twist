@@ -1400,8 +1400,27 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
       sharedConfig.hydrating = !!was;
     }
   };
-  if (record && typeof record.then === "function" && record.s !== 1) record.then(() => queueMicrotask(reveal), noopFn);
-  else if (record) queueMicrotask(reveal);
+  // Its content handed to the client (the record false, or failed): made here in the fallback's place, a live boundary.
+  const fresh = () => {
+    if (!release() || boundary.disposed) return void checkHydrationComplete();
+    const after = end ? end.nextSibling : null;
+    pl.remove();
+    end?.remove();
+    let shown = false;
+    runWithOwner(boundary, () => {
+      const read = createLoadingBoundary(
+        () => made(() => untrack(() => props.children)),
+        () => (shown ? props.fallback : ((shown = true), fallback)),
+        "on" in props ? { on: () => props.on } : undefined,
+      );
+      bind(host, read, after, undefined, undefined, fallback);
+    });
+    flush();
+    checkHydrationComplete();
+  };
+  const settled = (v: unknown) => queueMicrotask(v === false ? fresh : reveal);
+  if (record && typeof record.then === "function" && record.s !== 1 && record.s !== 2) record.then(settled, () => queueMicrotask(fresh));
+  else if (record) record.s === 2 ? queueMicrotask(fresh) : settled(record.v);
   return fallback;
 }
 
@@ -1431,10 +1450,18 @@ function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): No
     throw e;
   };
   let nodes: Node[];
+  const before = start ? start.previousSibling : at.parent.lastChild;
   try {
     nodes = runWithOwner(content, () => claimHtml(props.children, false, at));
   } catch (e) {
     if (e instanceof NotReadyError) throw e;
+    // (What the failed attempt made goes with it: its owners, and the nodes it put in before the server's.)
+    resetOwner(content);
+    for (let n = before ? before.nextSibling : at.parent.firstChild; n && n !== start; ) {
+      const next = n.nextSibling;
+      n.parentNode!.removeChild(n);
+      n = next;
+    }
     return fallback(e);
   } finally {
     content.catch = undefined;
@@ -1453,11 +1480,19 @@ function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): No
     shown = NO_ERROR;
     setError(NO_ERROR);
   };
+  // (Its range: bindings inside it change their own nodes, so what it held is what lies between these two.)
+  const after = at.next;
+  const parent = at.parent;
   const read = runWithOwner(output, () =>
     createMemo(() => {
       const e = error();
       if (e === NO_ERROR && !fresh) return nodes;
       resetOwner(content);
+      for (let n = before ? before.nextSibling : parent.firstChild; n && n !== after; ) {
+        const next = n.nextSibling;
+        (n as ChildNode).remove();
+        n = next;
+      }
       if (e === NO_ERROR) return made(() => runWithOwner(content, () => untrack(() => props.children)));
       const f = props.fallback;
       return made(() => untrack(() => (typeof f === "function" ? f(() => e, reset) : f)));

@@ -127,6 +127,12 @@ export const CHANGES: Change[] = [
     skip: "a compiled spread element's handler expressions never evaluate outside a server component",
     why: "Twist compiles one output for client and server, with React's semantics: a prop's expression is evaluated where its element renders (the server only binds no handler)",
   },
+  {
+    file: "web/test/harness/scenarios.tsx",
+    find: `    expectedTextStreamed: " widgettail",\n`,
+    replace: ``,
+    why: "Solid's server streams a rejection template whose single space stays in the range; Twist's hands the content to the client with no template (its record is false), so nothing stray is left",
+  },
   // ---- The engine's words
   {
     file: "signals/tests/equals-comparator-errors.test.ts",
