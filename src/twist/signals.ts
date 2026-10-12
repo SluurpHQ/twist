@@ -3574,6 +3574,9 @@ function commitTransactions() {
     for (const e of t.effects) if (e.due && !t.stale.has(e)) applies[e.kind as 1 | 2].push(e);
     for (const e of t.stale) {
       if (e.disposed) continue;
+      // (Held by another transaction too, still open: it shows this commit's world now, and that one's at its commit.)
+      const other = e.tx && !e.tx.root.done && e.tx.root !== t && !t.parentTx ? e.tx.root : null;
+      if (other) other.nodes.delete(e), other.effects.delete(e), (e.tx = null), other.stale.add(e);
       e.due && !e.tracked && ((e.due = false), (e.staged = NONE as any)), e.mark(DIRTY), ((e as any).fromCommit = true);
       // A lane revealed: its effects show it over the parent's world as committed (the parent's commit runs them again).
       if (t.parentTx && e.kind !== MEMO) (e.revealOf = t.parentTx.root), (e.laneOf = t);
