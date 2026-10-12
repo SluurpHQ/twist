@@ -1216,18 +1216,7 @@ function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof 
     // it waits for holds that transaction (the source stays pending until the new address's first content applies).
     // (Transparent: no ids of their own, so the server's memos and the client's keep the same ids.)
     const shown = createMemo<any>(() => value(), { equals: sameComponent, transparent: true } as any);
-    // (While the next answer is on its way, the mount stays at the address it has.)
-    const address = createMemo(
-      (prev: string | undefined) => {
-        try {
-          return bindingOf(value())?.address as string;
-        } catch (e) {
-          if (e instanceof NotReadyError && prev !== undefined) return prev;
-          throw e;
-        }
-      },
-      { transparent: true } as any,
-    );
+    const address = createMemo(() => bindingOf(value())?.address as string, { transparent: true } as any);
     return createMemo(() => {
       const c = shown();
       if (typeof c === "function") {

@@ -201,6 +201,11 @@ export const CHANGES: Change[] = [
   })),
   // ---- Solid's build
   {
+    file: "solid/test/internal-surface.spec.ts",
+    skipFile: true,
+    why: "reads Solid's generated type declarations (types/*.d.ts, made by its build) for the names its entries expose",
+  },
+  {
     file: "solid/test/server/server-diagnostics.spec.ts",
     skip: "tiers, in the built artifacts",
     why: "reads Solid's built dist/server*.js",

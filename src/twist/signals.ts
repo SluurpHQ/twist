@@ -2374,6 +2374,9 @@ function dropUnread() {
       continue;
     }
     m.detach();
+    // (A stream it reads is ended: nothing consumes it; read again, it starts anew.)
+    const close = m.closeStream;
+    if (close) (m.closeStream = null), close();
     m.state = DIRTY;
     drainParked(m as any);
   }
