@@ -477,8 +477,10 @@ function shownGuess(target: Raw, key: PropertyKey) {
 function inGuessWorld(r: Record_, t: Transaction | null): boolean {
   if (!t || t.done) return false;
   if (derivesIn(t)) return true;
+  // (Only while the folded writes are not held yet — the landing's own round; once held, reading them joins `t`.)
   const w = r.folded;
-  return inPassNow() && !!w && !w.root.done && w.root === t;
+  // (An array's arrangement only: a guessed row over a folded length would tear; a field guess stays lane work.)
+  return Array.isArray(r.target) && inPassNow() && !!w && !w.root.done && w.root === t && !r.keys.tx;
 }
 function viewGet(target: Raw, key: PropertyKey): any {
   const o = shownGuess(target, key);
@@ -581,13 +583,25 @@ const dirtyRecords = new Set<Record_>();
 /** The action a guess was made in (its lane's parent). */
 const actionOf = (tx: Transaction | null | undefined) => (tx ? (tx.parentTx ? tx.parentTx.root : tx.root) : null);
 /** The live action whose optimistic edits show over `target`, if any. */
-function overlayHold(target: Raw): Transaction | null {
-  const o = records.get(target)?.overlay;
-  if (o)
-    for (const { tx } of o.values()) {
+function overlayHold(target: Raw, seen = new Set<Raw>()): Transaction | null {
+  // (Nothing optimistic shown anywhere: nothing to fold into.)
+  if (!liveOverlays || seen.has(target)) return null;
+  seen.add(target);
+  const r = records.get(target);
+  if (!r) return null;
+  if (r.overlay)
+    for (const { tx } of r.overlay.values()) {
       const t = actionOf(tx);
       if (t && !t.done && t.open > 0) return t;
     }
+  // (Or anywhere in the tree under it: the landing replaces that too.)
+  for (const k of Reflect.ownKeys(r.own)) {
+    const v = r.own[k as any] && typeof r.own[k as any] === "object" ? child(target, r.own[k as any]) : null;
+    if (v && typeof v === "object" && records.has(v)) {
+      const t = overlayHold(v, seen);
+      if (t) return t;
+    }
+  }
   return null;
 }
 /** Whether the writes since `before` touch a key (or a key set) a live transaction holds. */

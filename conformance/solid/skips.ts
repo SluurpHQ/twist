@@ -12,6 +12,12 @@ export type Change = { file: string; why: string } & (
 export const CHANGES: Change[] = [
   // ---- Solid's private structures
   {
+    file: "signals/tests/store/optimistic-draft-visibility-3665.test.ts",
+    find: `      expect(afterWrite!.h).toEqual(["b"]); // the add's own presence override\n`,
+    replace: ``,
+    why: "reads the store target's private presence-node table ($TARGET.h); that enumerating births no nodes stays checked (afterEnumerate equals afterWrite)",
+  },
+  {
     file: "signals/tests/dormant-memo-chain-3554.test.ts",
     skip: "a lazy memo a cleanup reawakens while its owner's held children are torn down stays on the chain",
     why: "where Solid relinks a reawakened lazy memo in its private sibling list (_firstChild/_nextSibling); the drain itself is checked by the tests beside it",
