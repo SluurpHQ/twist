@@ -3336,7 +3336,8 @@ function commitTransactions() {
       continue;
     }
     // A flight nothing shows any more (its readers moved on) holds nothing.
-    for (const f of t.flights) if (!outstanding(f) || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
+    // (A bare guess rides its refetch to the landing, shown or not.)
+    for (const f of t.flights) if (!outstanding(f) || (f.kind === MEMO && !rendered(f) && !(t as any).bare)) t.flights.delete(f);
     // A flight in progress at any node it holds keeps it.
     // (And its guesses' own sources refetching: the guess lives until its own truth lands.)
     for (const src of (t as any).guessSources ?? []) {
