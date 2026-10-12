@@ -2090,6 +2090,15 @@ export class Computation<T> extends Node<T> implements Owner {
           return;
         }
         yielded = this.streamed = true;
+        // (A lazy memo nothing reads any more: the stream it kept open is closed as its value comes, nothing more pulled.)
+        if (!inRun && this.lazy && !readersOf(this)) {
+          this.flight = null;
+          flights.delete(this);
+          this.closeStream?.();
+          this.closeStream = null;
+          this.state = DIRTY;
+          return statusChanged();
+        }
         if (inRun) this.take(r.value);
         else landings.push([this, r.value]), landNow(), this.wake();
         // (Hydrating from the server's stream: only its first value in this pass.)
@@ -2271,6 +2280,11 @@ function dropUnread() {
     const m = unread.values().next().value!;
     unread.delete(m);
     if (m.disposed || readersOf(m)) continue;
+    // (In flight: its answer counts as a reader — kept, and let go of once it lands with nothing reading it.)
+    if (m.flight && !m.streaming) {
+      (m as any).dropOnLanding = true;
+      continue;
+    }
     m.detach();
     m.state = DIRTY;
     drainParked(m as any);
@@ -3171,6 +3185,7 @@ function drain() {
           landing = false;
         }
         if (mount && (mount as any).mount && !mount.done && !c.streaming && c.staged !== NONE && !c.tx) (hold(c, mount), ((c as any).bornHeld = true));
+        if ((c as any).dropOnLanding) ((c as any).dropOnLanding = false), readersOf(c) || unread.add(c);
       }
     if (guesses.length) installGuesses();
     if (guessWork.length)
@@ -3194,7 +3209,8 @@ function drain() {
     // (Status readers told this round compute again first: one apply, with the verdict as it ends.)
     if (applies[RENDER].length && !dirty.length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
     if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
-    if (settledQueue.length && !writes.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) for (const f of settledQueue.splice(0)) f();
+    // (In the effects' phase, after them: a write an effect just made is not settled yet, and not seen.)
+    if (settledQueue.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) for (const f of settledQueue.splice(0)) f();
     // Optimistic values written outside an action: shown for this flush, then the truth again.
     if ((ambient.length || ambientEnds.length) && !writes.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) {
       for (const n of ambient.splice(0)) n.override !== NONE && ((n.override = NONE), n.bump());
