@@ -106,6 +106,52 @@ export const CHANGES: Change[] = [
     skip,
     why: "a client-only memo and an error boundary made outside any render (a hand-set sharedConfig.context): Twist's server semantics, and these findings, apply inside renderToString/renderToStream, where the web server specs check them",
   })),
+  ...[
+    "Loading waits for assets alongside server data promise",
+    "Loading returns undefined when server data resolved but assets pending",
+    "Loading returns undefined when only assets pending (no server data)",
+    "rejected preload resumes a settled boundary instead of hanging",
+    "rejected preload with pending server data still resumes",
+    "Loading resumes ssrSource 'client' children after hydration mode turns off",
+    "Loading + createMemo: first value from async iterable available after resume",
+    "Loading + createMemo: direct read in children getter still works after fix",
+    "Loading + createProjection: patches streamed after first value",
+    "pending _fr waits then resumes hydration on resolve",
+    "rejected _fr resumes without hydrating serialized children",
+    "_fr with assets waits for both fragment and assets",
+    "plain id check takes precedence over _fr when both exist",
+    "_fr channel isolation: sibling boundaries with distinct root IDs",
+    "Loading resumes inner Errored under server-aligned owner IDs",
+    "Loading inner Errored reset recovers after hydrated server error",
+    "shell takeover delivers a first value that lands after a network gap",
+    "a live node in the shell reconnects when the root pass ends, before a slow boundary lands",
+    "a live node whose server value is still streaming waits for hydration's end",
+    "a live node with a loadingValue reconnects when the root pass ends, though its value still streams",
+    "a live node under a boundary reconnects when that boundary hydrates, not when the page does",
+  ].map((skip) => ({
+    file: "solid/test/client-hydration.spec.ts",
+    skip,
+    why: "hydrates <Loading> with no DOM, through a hand-set sharedConfig (has/load/gather): Solid's solid-js half resumes boundaries there; Twist's boundary hydration is its renderer's DOM claim (web.ts claimLoading), checked end to end by the web hydration specs",
+  })),
+  // (The same no-DOM <Loading> hydration, in other files.)
+  ...(
+    [
+      ["solid/test/hybrid-memo-handoff.spec.ts", "the handoff does not wait for hydration end (a streamed boundary still pending)"],
+      ["solid/test/hybrid-memo-handoff.spec.ts", "a promise-shaped compute has no handoff: the adopted answer lands and the client source is not run (#2993)"],
+      ["solid/test/hybrid-store-handoff.spec.ts", "the handoff does not wait for hydration end (a streamed boundary still pending)"],
+      ["solid/test/client-recovery-record.spec.ts", "a fragment that rejects while streaming: the fallback's wait and the fresh render"],
+      ["solid/test/client-recovery-record.spec.ts", "a fragment already rejected at hydration: no wait, a fresh render"],
+      ["solid/test/client-recovery-record.spec.ts", "with no listener the boundary still recovers, and nothing is recorded"],
+      ["solid/test/multi-root-hydration.spec.ts", "completing a second root does not mark hydration done while the first root is pending"],
+      ["solid/test/multi-root-hydration.spec.ts", "disposing a pending root releases its boundary count instead of holding hydration open"],
+      ["solid/test/hydration-state-api.spec.ts", "true in the root pass, false after it; per-boundary during a streamed resume"],
+      ["solid/test/hydration-latch.spec.ts", "after the root pass, a write reaches a shell node outside the pending boundary"],
+    ] as const
+  ).map(([file, skip]) => ({
+    file,
+    skip,
+    why: "hydrates <Loading> with no DOM, through a hand-set sharedConfig (has/load/gather): Solid's solid-js half resumes boundaries there; Twist's boundary hydration is its renderer's DOM claim (web.ts claimLoading), checked end to end by the web hydration specs",
+  })),
   // ---- Solid's build
   {
     file: "solid/test/server/server-diagnostics.spec.ts",

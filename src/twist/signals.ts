@@ -1653,13 +1653,23 @@ export class Computation<T> extends Node<T> implements Owner {
     try {
       // Hydrating: what the server sent under this node's id is its first answer. Its compute still runs, for what it
       // reads (so it runs again when that changes); what it answers now is set aside.
-      const sent = this.ranAt === -1 ? (sharedConfig.hydrating ? serverSent(this) : NONE) : (this as any).latched ? latchedSent(this) : NONE;
+      // (An adoption whose trace waited: the answer kept from the first run, taken now.)
+      const kept = (this as any).keptSent;
+      if (kept !== undefined) (this as any).keptSent = undefined;
+      const sent = kept !== undefined ? kept : this.ranAt === -1 ? (sharedConfig.hydrating ? serverSent(this) : NONE) : (this as any).latched ? latchedSent(this) : NONE;
 
       if (sent !== NONE) {
         const ref = sent as any;
         // (A stream the client goes on with runs here itself; anything else — "hybrid" of another shape is "server" —
         // is traced for what it reads.)
-        const traced = traceOnly(this.fn, this.current());
+        let traced: unknown;
+        try {
+          traced = traceOnly(this.fn, this.current());
+        } catch (e) {
+          // (What it reads is not ready: it waits, and takes the server's answer when it runs again.)
+          (this as any).keptSent = sent;
+          throw e;
+        }
         // ("hybrid" whose source is a stream: the client goes on with it once the server's answer is in.)
         const handsOff = (this as any).ssrSource === "hybrid" && !!traced && typeof (traced as any)[Symbol.asyncIterator] === "function" && typeof (traced as any).then !== "function";
         if (this.ranAt === -1 && !handsOff) (this as any).latched = true;
@@ -1684,8 +1694,10 @@ export class Computation<T> extends Node<T> implements Owner {
         // quietly (its first yield repeats that answer).
         // (When the pass that claims it ends: its snapshot scope released.)
         if (handsOff) {
-          const takeOver = () => !this.disposed && (((this as any).handoff = true), (this.quiet = true), this.mark(DIRTY), schedule());
-          if (ref && typeof ref.then === "function" && ref.s !== 1) ref.then(takeOver, noop);
+          // (Not when it went live already: a change it read ran the client source first.)
+          const takeOver = () => !this.disposed && !(this as any).live && (((this as any).handoff = true), (this.quiet = true), this.mark(DIRTY), schedule());
+          // (An answer landing later — still to come, or deferred by a loading window: the handoff follows its landing.)
+          if (ref && typeof ref.then === "function" && (ref.s !== 1 || this.loadingWindow)) ref.then(() => queueMicrotask(takeOver), noop);
           // (A streamed answer: once the server's stream has landed whole.)
           else if ((this as any).sentStream) (this as any).afterStream = takeOver;
           else if (this.inSnapshot && snapshotCapture) (this as any).onRelease = takeOver;
@@ -1693,6 +1705,7 @@ export class Computation<T> extends Node<T> implements Owner {
         }
       } else {
         const handoff = (this as any).handoff;
+        if (this.ranAt !== -1) (this as any).live = true;
         next = this.fn(this.current());
         // (Taking over the server's stream: its first yield repeats the server's answer, and is dropped.)
         if (handoff) {
@@ -4645,8 +4658,10 @@ function traceOnly(fn: (prev: any) => any, prev: any): unknown {
     }
     if (r && typeof r.then === "function") r.then(undefined, noop);
     return r;
-  } catch {
-    // What it read before it threw is tracked; the answer is the server's either way.
+  } catch (e) {
+    // What it read before it threw is tracked; the answer is the server's either way — unless a read is not ready: the
+    // trace waits for it.
+    if (e instanceof NotReadyError) throw e;
   } finally {
     g.fetch = fetchWas;
     g.Promise = PromiseWas;
@@ -4657,7 +4672,8 @@ function traceOnly(fn: (prev: any) => any, prev: any): unknown {
 /** The value the server sent for an async node (by its id, through the hydration's `has`/`load`), or NONE. */
 function serverSent(n: { id?: string; kind: number }): unknown {
   const sc = sharedConfig as any;
-  if (n.id == null || (n.kind !== MEMO && !(n as any).adopts) || (n as any).ownValue || !sc.has?.(n.id)) return NONE;
+  // (A transparent node takes its parent's id: nothing was sent for it.)
+  if (n.id == null || (n as any).transparent || (n.kind !== MEMO && !(n as any).adopts) || (n as any).ownValue || !sc.has?.(n.id)) return NONE;
   const v = sc.load(n.id);
   // ("$$f": a boundary's mark that its content is the client's, not an answer.)
   return v !== "$$f" ? v : NONE;
