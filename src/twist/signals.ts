@@ -1810,7 +1810,8 @@ export class Computation<T> extends Node<T> implements Owner {
       }
     }
     // (A first pass joining a hold makes the pass that created it part of the hold: membership is the tick's.)
-    if (this.readHeld && this.ranAt === -1 && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = this.readHeld;
+    const firstPass = this.ranAt === -1;
+    if (this.readHeld && firstPass && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = this.readHeld;
     this.state = CLEAN;
     this.ranAt = clock;
     if (threw !== NONE) {
@@ -1835,9 +1836,12 @@ export class Computation<T> extends Node<T> implements Owner {
           const b = boundaryOf(this);
           // (Under a boundary that has shown its content, waiting on a refetch a transition waits on: the pass is that
           // transition's — it runs again at the commit, and no fallback shows, #3540.)
-          const t = b && !b.fresh ? heldFlight(threw.source) : null;
-          if (t) t.stale.add(this), (this.staleRead = true);
-          else if (b) b.wait(this);
+          const t = b && !b.fresh ? waitedRefetch(threw.source) : null;
+          if (t) {
+            t.stale.add(this), (this.staleRead = true);
+            // (Made by the pass running now: that pass is the transition's too.)
+            if (firstPass && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = t;
+          } else if (b) b.wait(this);
           else if (this.kind === RENDER && enforcing) unhandledAsync(this);
         }
         return;
@@ -2648,24 +2652,30 @@ function downstream(n: Node, out = new Set<Computation<any>>()): Set<Computation
   return out;
 }
 
-/** A flight a transaction already waits on (a reveal over it shows the committed value and catches up). */
-function heldFlight(c: Computation<any>) {
-  return !!flightHolder(c);
-}
 /** The transaction waiting on `c`'s flight, if any. */
 function flightHolder(c: Computation<any>): Transaction | null {
   for (const t of transactions) if (t.flights.has(c)) return t;
   return null;
 }
-/** The transition waiting on the refetch `n` waits on (through what it is waiting for), if any. */
-function heldFlight(n: unknown, seen = new Set<Computation<any>>()): Transaction | null {
+/**
+ * The transition a pending read waits out, if any: one waiting on a refetch `n` waits on (through what it waits for),
+ * or one a first load born in it belongs to (that load is then part of what the transition waits for).
+ */
+function waitedRefetch(n: unknown, seen = new Set<Computation<any>>()): Transaction | null {
   if (!(n instanceof Computation) || seen.has(n)) return null;
   seen.add(n);
-  if (n.flight && n.ready) {
-    const t = flightHolder(n);
-    if (t && !t.root.done) return t.root;
+  if (n.flight) {
+    if (n.ready) {
+      const t = flightHolder(n);
+      if (t && !t.root.done) return t.root;
+    } else {
+      // (A first load born in a transition, or reading what one waits on.)
+      let t = (n.tx ?? n.readHeld)?.root ?? null;
+      for (let i = 0; !t && i < n.sources.length; i++) t = waitedRefetch(n.sources[i], seen);
+      if (t && !t.done) return t.flights.add(n), t;
+    }
   }
-  return heldFlight((n as any).waitsFor?.source, seen);
+  return waitedRefetch((n as any).waitsFor?.source, seen);
 }
 /** The transition waiting on the flight of the computation behind `read`, if any. */
 export function flightTransaction(read: unknown): Transaction | null {
