@@ -33,7 +33,7 @@ import {
   startEffect,
   RENDER_EFFECT,
 } from "./signals.ts";
-import { checkHydrationComplete, enableHydration, hydrationPaused, initBoundaryResume } from "./hydration.ts";
+import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume } from "./hydration.ts";
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
 import { $PROXY, $TARGET } from "./store.ts";
 export { isStatic };
@@ -1572,7 +1572,8 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
     const off = fr.subscribe((fid: string) => fid === id && (off(), reveal()));
   };
   const settled = (v: unknown) => queueMicrotask(v === false ? fresh : afterSwap);
-  if (record && typeof record.then === "function" && record.s !== 1 && record.s !== 2) record.then(settled, () => queueMicrotask(fresh));
+  // (Raced against the stream ending before it: a cut-off fragment renders fresh.)
+  if (record && typeof record.then === "function" && record.s !== 1 && record.s !== 2) Promise.race([record, fragmentAbort(id)]).then(settled, () => queueMicrotask(fresh));
   else if (record) record.s === 2 ? queueMicrotask(fresh) : settled(record.v);
   return fallback;
 }

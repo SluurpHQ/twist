@@ -197,14 +197,59 @@ function watchTruncation(hy: any) {
   document.addEventListener(
     "DOMContentLoaded",
     () => {
-      for (const key in hy.r ?? {}) {
+      if (!hy.r) return;
+      for (const key in hy.r) {
         if (key.length <= 3 || !key.endsWith("_fr")) continue;
         const ref = hy.r[key];
-        if (ref && typeof ref === "object" && !ref.s) truncated.add(key.slice(0, -3));
+        if (ref && typeof ref === "object" && !ref.s) markTruncated(hy, key.slice(0, -3));
       }
+      setTimeout(() => rejectTruncatedRefs(hy));
     },
     { once: true },
   );
+}
+/** Who waits on a fragment's record: told, rejected, when the stream ended before it. */
+const truncationRejectors = new Map<string, (e: unknown) => void>();
+/** A promise that rejects if fragment `id` was cut off with the stream (raced against its record). */
+export const fragmentAbort = (id: string) => new Promise<never>((_, reject) => truncationRejectors.set(id, reject));
+/** Fragment `id` will never arrive: its record rejected, what waits on it told. */
+function markTruncated(hy: any, id: string) {
+  if (truncated.has(id)) return;
+  truncated.add(id);
+  const err = new Error(`Hydration fragment "${id}" was truncated: the stream ended before its content arrived.`);
+  const ref = hy.r[id + "_fr"];
+  if (ref && typeof ref === "object") (ref.s = 2), (ref.v = err);
+  const reject = truncationRejectors.get(id);
+  if (reject) truncationRejectors.delete(id), reject(err);
+  for (const sub of revealSubs) sub(id);
+}
+/**
+ * Every serialized promise still pending when the stream ended: one a consumer already took (gone from the registry)
+ * is rejected through its resolver — its only channel left; one still in the registry is removed, so a later consumer
+ * computes afresh instead of adopting what never settles.
+ */
+function rejectTruncatedRefs(hy: any) {
+  const R = (globalThis as any).$R;
+  if (!R || typeof R !== "object") return;
+  let keys: Map<unknown, string> | undefined;
+  const sweep = (entry: any) => {
+    if (!entry || typeof entry !== "object" || typeof entry.f !== "function" || !entry.p || typeof entry.p.then !== "function" || entry.p.s) return;
+    if (!keys) {
+      keys = new Map();
+      for (const key in hy.r) keys.set(hy.r[key], key);
+    }
+    const key = keys.get(entry.p);
+    if (key !== undefined) return void delete hy.r[key];
+    const err = new Error("Hydration value was truncated: the stream ended before it settled.");
+    entry.f(err);
+    (entry.p.s = 2), (entry.p.v = err);
+    entry.p.then(undefined, () => {});
+  };
+  for (const key in R) {
+    const value = R[key];
+    if (Array.isArray(value)) for (const entry of value) sweep(entry);
+    else sweep(value);
+  }
 }
 
 /** Hydration's hooks on `sharedConfig`, and the ledger on `_$HY`. */
