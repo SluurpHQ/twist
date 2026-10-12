@@ -101,6 +101,8 @@ await Bun.write(join(out, "web", "src", "index.js"), `export * from ${JSON.strin
 // helpers, Twist's.)
 await Bun.write(join(out, "web", "src", "client.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "server.js"), `export * from ${JSON.stringify(twist("server.ts"))};\n`);
+// (Its render helpers and its browser stand-ins for the server's API: the client module has both.)
+for (const name of ["render.js", "server-mock.js"]) await Bun.write(join(out, "web", "src", name), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "reconcile.js"), `export { reconcileArrays as default } from ${JSON.stringify(twist("web.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "response.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "cookies.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);
@@ -112,6 +114,13 @@ await Bun.write(join(here, "dist", "server.js"), `export * from ${JSON.stringify
 // The signals package's core entry is its public core too.
 mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
 await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
+// (Its development module: the diagnostics channel's emit, report, owner path and console footer, Twist's.)
+await Bun.write(
+  join(out, "signals", "src", "core", "dev.js"),
+  `export { emitDiagnostic, ownerPath, reportDiagnostic, setConsoleFooter, GRAPH_SIZE_WARN_AT, GRAPH_SIZE_WARN_EVERY } from ${JSON.stringify(twist("diagnostics.ts"))};\nexport const asyncTailFlights = 0;\n`,
+);
+// (Its error module: the public not-ready error.)
+await Bun.write(join(out, "signals", "src", "core", "error.js"), `export { NotReadyError } from ${JSON.stringify(twist("index.ts"))};\n`);
 // Solid's client and server modules, by their paths: Twist's public entries.
 mkdirSync(join(out, "solid", "src", "client"), { recursive: true });
 mkdirSync(join(out, "solid", "src", "server"), { recursive: true });
@@ -133,9 +142,10 @@ const ours = twist("index.ts");
 for (const name of ["solid-js", "@solidjs/signals"]) {
   const dir = join(here, "node_modules", name);
   mkdirSync(dir, { recursive: true });
-  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js" } }));
+  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js", "./internal/container-trace": "./container-trace.js" } }));
   await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(ours)};\n`);
   await Bun.write(join(dir, "internal.js"), `export * from ${JSON.stringify(twist("internal.ts"))};\n`);
+  await Bun.write(join(dir, "container-trace.js"), `export * from ${JSON.stringify(twist("container-trace.ts"))};\n`);
 }
 // The web runtime, and the JSX runtime Bun's transform imports from it.
 const web = join(here, "..", "..", "src", "twist", "web.ts").split("\\").join("/");
@@ -156,6 +166,19 @@ for (const file of ["serializer.js", "serializer-decode.js"]) await Bun.write(jo
 // Server functions: Twist's modules at Solid's paths.
 for (const name of ["shared", "registry", "client", "server", "flash"])
   await Bun.write(join(out, "web", "server-functions", "src", name + ".js"), `export * from ${JSON.stringify(twist(`server-functions/${name}.ts`))};\n`);
+// (Specs that load the server functions' built tiers by path: Twist's one module for each tier.)
+for (const base of [join(out, "web", "server-functions", "dist"), join(here, "server-functions", "dist")]) {
+  mkdirSync(base, { recursive: true });
+  for (const side of ["client", "server"])
+    for (const tier of ["", ".dev", ".observe"]) await Bun.write(join(base, side + tier + ".js"), `export * from ${JSON.stringify(twist(`server-functions/${side}.ts`))};\n`);
+  // (The development tier's server: the same module, its handler answering with development fidelity.)
+  const server = JSON.stringify(twist("server-functions/server.ts"));
+  await Bun.write(
+    join(base, "server.dev.js"),
+    `export * from ${server};\nimport { handleServerFunctionRequest as handle, setServerFunctionsDev } from ${server};\n` +
+      `export async function handleServerFunctionRequest(...args) {\n  setServerFunctionsDev(true);\n  try {\n    return await handle(...args);\n  } finally {\n    setServerFunctionsDev(false);\n  }\n}\n`,
+  );
+}
 // Frames: Twist's port at Solid's paths.
 for (const name of ["client", "frame-client", "frame-container-plugin", "frame-transport", "tree-rewrite", "bind-tier", "regions-tier", "assets-tier", "wire-tier", "frame-sink", "server", "trace-tier"])
   await Bun.write(join(out, "web", "frames", "src", name + ".js"), `export * from ${JSON.stringify(twist(`frames/${name}.ts`))};\n`);

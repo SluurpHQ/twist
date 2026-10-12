@@ -24,8 +24,11 @@ let anyMarked = false;
 const suppressed = new WeakSet<Diagnostic>();
 const subjects = new WeakMap<Diagnostic, any>();
 
-/** The owner a subject is or belongs to. */
-const ownerOf = (subject: any) => (subject && ("parent" in subject || "owned" in subject) ? subject : (subject?.owner ?? null));
+/** The owner a subject is or belongs to (a signal: the owner it was made under). */
+const ownerOf = (subject: any) => (subject && ("parent" in subject || "owned" in subject) ? subject : (subject?.owner ?? subject?._owner ?? null));
+/** What a finding with no subject given is about: the owner running now (set by the reactive core). */
+let ambient: () => unknown = () => null;
+export const setAmbientSubject = (fn: () => unknown) => void (ambient = fn);
 
 export function isExcluded(subject: any): boolean {
   if (!anyMarked || !subject) return false;
@@ -48,8 +51,23 @@ export function ownerPath(subject: any): string[] | undefined {
   return path.length ? path.reverse() : undefined;
 }
 
+/** The footer added to each code's first console report (a pointer to more guidance), and the codes that had it. */
+let consoleFooter: ((event: Diagnostic) => string | undefined) | undefined;
+const footered = new Set<string>();
+/** Sets the console footer (undefined: none, and every code may have it again). */
+export function setConsoleFooter(footer: ((event: Diagnostic) => string | undefined) | undefined) {
+  consoleFooter = footer;
+  footered.clear();
+}
+/** The footer for this code's first report, once. */
+function takeFooter(entry: Diagnostic): string | undefined {
+  if (!consoleFooter || footered.has(entry.code)) return undefined;
+  footered.add(entry.code);
+  return consoleFooter(entry);
+}
+
 /** A finding on the structured channel (listeners, captures); returned, for the console step. */
-export function emitDiagnostic(event: Omit<Diagnostic, "sequence">, subject: unknown = null): Diagnostic {
+export function emitDiagnostic(event: Omit<Diagnostic, "sequence">, subject: unknown = ambient()): Diagnostic {
   const entry = { sequence: ++sequence, ...event } as Diagnostic;
   if (isExcluded(subject)) {
     suppressed.add(entry);
@@ -62,6 +80,12 @@ export function emitDiagnostic(event: Omit<Diagnostic, "sequence">, subject: unk
   if (subject != null) subjects.set(entry, subject);
   for (const l of listeners) l(entry, subject ?? undefined);
   for (const c of captures) c.push(entry);
+  // (An error thrown rather than reported: its footer follows it on the console, a microtask later.)
+  if (entry.severity === "error" && consoleFooter && !footered.has(entry.code))
+    queueMicrotask(() => {
+      const footer = takeFooter(entry);
+      if (footer) console.warn(footer);
+    });
   return entry;
 }
 
@@ -70,9 +94,43 @@ export function reportDiagnostic(entry: Diagnostic) {
   if (suppressed.has(entry)) return;
   let text = entry.message;
   if (entry.ownerPath) text += `\n  in ${entry.ownerPath.join(" › ")}`;
+  const footer = takeFooter(entry);
+  if (footer) text += `\n${footer}`;
   const element = subjects.get(entry)?._devElement;
   const args = element !== undefined ? [text, element] : [text];
   entry.severity === "error" ? console.error(...args) : console.warn(...args);
+}
+
+/** Graph-size warnings: from this many subscribers (or sources) up, again each time it has grown by the step. */
+export const GRAPH_SIZE_WARN_AT = 2000;
+export const GRAPH_SIZE_WARN_EVERY = 500;
+const graphSizeWarnedAt = new WeakMap<object, number>();
+function shouldWarnGraphSize(node: object, count: number) {
+  const last = graphSizeWarnedAt.get(node);
+  if (last !== undefined && count < last + GRAPH_SIZE_WARN_EVERY) return false;
+  graphSizeWarnedAt.set(node, count);
+  return true;
+}
+/** A change about to run `count` subscribers again (said once per node, until it grows). */
+export function noteFanOut(node: { name?: string }, count: number) {
+  if (!shouldWarnGraphSize(node, count)) return;
+  const name = node.name;
+  const message =
+    `[HUGE_FAN_OUT] ${name ? `Signal "${name}"` : "A signal"} changed with ${count} subscribers — ` +
+    `every one re-runs this flush. If many independent computations read the same value ` +
+    `(for example every row of a list comparing against one selected id), prefer a per-key ` +
+    `store or projection so only the items whose result flipped update.`;
+  reportDiagnostic(emitDiagnostic({ code: "HUGE_FAN_OUT", kind: "graph", severity: "warn", message, nodeName: name, ownerName: name, data: { count } }, node));
+}
+/** A run that tracked `count` distinct sources (said once per node, until it grows). */
+export function noteFanIn(node: { name?: string }, count: number) {
+  if (!shouldWarnGraphSize(node, count)) return;
+  const name = node.name;
+  const message =
+    `[HUGE_FAN_IN] ${name ? `Computation "${name}"` : "A computation"} tracked ${count} sources. ` +
+    `It will re-run when any of them change. Narrow the read or split the derivation so each ` +
+    `computation tracks only what it needs.`;
+  reportDiagnostic(emitDiagnostic({ code: "HUGE_FAN_IN", kind: "graph", severity: "warn", message, nodeName: name, ownerName: name, data: { count } }, node));
 }
 
 /** Emitted and reported: the common case. */

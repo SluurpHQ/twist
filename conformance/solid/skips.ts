@@ -201,10 +201,30 @@ export const CHANGES: Change[] = [
   })),
   // ---- Solid's build
   {
+    file: "signals/tests/diagnostics.test.ts",
+    skip: "links every diagnostic code to an existing guide section",
+    why: "reads Solid's source file core/dev.ts for its list of codes and their guide sections",
+  },
+  {
+    file: "signals/tests/untracked-read-after-await.test.ts",
+    skip: "releases a flight that never settles once its computation is disposed",
+    why: "counts entries in Solid's private registry of async tails (asyncTailFlights)",
+  },
+  {
     file: "web/test/server/server-trace.spec.tsx",
     find: `  prod = await load("dist/server.js");\n  observeWeb = await load("dist/server.observe.js");\n  observeFns = await load("server-functions/dist/server.observe.js");\n`,
     replace: `  prod = await import("@twist/web-server");\n  observeWeb = prod;\n  observeFns = await import("@solidjs/web/server-functions/server");\n`,
     why: "loads Solid's built tiers (dist/server*.js) beside its source: Twist has one server module, so the same one stands for each",
+  },
+  {
+    file: "web/test/server/server-observe-invocations.spec.tsx",
+    skip: "the production runtime never reports, even with a listener installed",
+    why: "Solid's prod build against its observe build: Twist has one build, which reports as the observe tier",
+  },
+  {
+    file: "web/test/server/server-observe-invocations.spec.tsx",
+    skip: "the emitter folds out of every prod server artifact and rides the observe/dev ones that invoke",
+    why: "reads Solid's built dist/ and frames/dist/ files for which tier carries the emitter",
   },
   {
     file: "web/test/server/server-trace.spec.tsx",

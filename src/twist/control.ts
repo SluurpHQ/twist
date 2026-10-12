@@ -23,6 +23,8 @@ export const setReactHost = (fn: typeof reactHost) => void (reactHost = fn);
  * A Solid-style component, marked; returned as one any React can call: React gets the bridge's host for it, Twist the
  * component itself (the mark holds it).
  */
+/** Marks a component a development tool may swap (solid-refresh's proxies look for it). */
+export const $DEVCOMP = Symbol("solid.devcomp");
 export function __twist_mark<T>(f: T, name?: string): T {
   if (typeof f !== "function") return f;
   const own = f as any;
@@ -78,6 +80,8 @@ export function createComponent<P>(Comp: (props: P) => any, props: P, name?: str
     throw new Error(
       `createComponent: expected a component function but got ${Comp === null ? "null" : typeof Comp}. A JSX tag resolved to a non-function value — check the import: a missing or misnamed export resolves to undefined.`,
     );
+  // (No props given: empty ones, as Solid's.)
+  if (!props) props = {} as P;
   const own = ownOf(Comp);
   // (Outside any owner: a plain call, nothing to label.)
   if (!getOwner()) return untrack(() => own(props));
@@ -163,7 +167,8 @@ export const Show = /* @__PURE__ */ builtin(function Show<T>(props: { when: T | 
     const b = branch();
     if (!b) return props.fallback;
     const c = props.children;
-    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? b : narrowed("Show", () => !!untrack(branch), value)));
+    // (Keyed, its children get the value: what they read of it in setup is a strict read, said as the Show's.)
+    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? b : narrowed("Show", () => !!untrack(branch), value)), props.keyed ? "<Show>" : undefined);
     return c;
   });
 });
@@ -219,7 +224,7 @@ export const Switch = /* @__PURE__ */ builtin(function Switch(props: { fallback?
     if (i < 0) return props.fallback;
     const m = matches()[i]!;
     const c = m.children;
-    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(m.keyed ? w : narrowed("Match", () => untrack(picked)[0] === i, values()[i]!)));
+    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(m.keyed ? w : narrowed("Match", () => untrack(picked)[0] === i, values()[i]!)), m.keyed ? "<Match>" : undefined);
     return c;
   });
 });

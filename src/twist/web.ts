@@ -39,7 +39,7 @@ import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
 import { $PROXY, $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback, $DEVCOMP } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -1220,6 +1220,8 @@ function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof 
     return createMemo(() => {
       const c = shown();
       if (typeof c === "function") {
+        // (In development, what it resolved to is marked as a component, as Solid's dynamic marks it.)
+        if (process.env.NODE_ENV !== "production") (c as any)[$DEVCOMP] = true;
         const binding = bindingOf(c);
         if (binding) return untrack(() => (binding.component as any)(props, address));
         return callInline(c, props);
@@ -1233,6 +1235,7 @@ function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof 
 function staticDynamic(c: any, tag?: typeof tagArm): (props: any) => any {
   if (c && typeof c.then === "function") throw new Error("dynamic(): a static source must resolve synchronously (to a component or a tag), not to a promise.");
   if (typeof c === "function") {
+    if (process.env.NODE_ENV !== "production") (c as any)[$DEVCOMP] = true;
     const binding = bindingOf(c);
     if (binding) return (props) => untrack(() => (binding.component as any)(props, () => binding.address));
     return (props) => callInline(c, props);

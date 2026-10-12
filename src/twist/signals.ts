@@ -8,7 +8,7 @@
 // flight lands. Writes on graphs no flight touches commit at once.
 declare const process: { env: Record<string, string | undefined> };
 
-import { diagnose, emitDiagnostic, ownerPath, reportDiagnostic } from "./diagnostics.ts";
+import { diagnose, emitDiagnostic, ownerPath, reportDiagnostic, setAmbientSubject, GRAPH_SIZE_WARN_AT, noteFanIn, noteFanOut } from "./diagnostics.ts";
 
 // Messages Solid's diagnostics carry, word for word (tools and tests match them).
 const OWNED_WRITE_MESSAGE =
@@ -57,6 +57,8 @@ export const DEV = process.env.NODE_ENV === "production" ? undefined : {
   report: reportDiagnostic,
   guideUrl: (code: string) => `${GUIDE_URL}#${code.toLowerCase()}`,
 };
+// (A finding with no subject given is about the owner running now.)
+setAmbientSubject(() => owner);
 /** A value (a signal, a store) recorded on the owner it was made under. */
 export function registerGraph(value: any, o: Owner | null) {
   // (For dev tools: nothing in production.)
@@ -487,6 +489,13 @@ export const throwerOf = (error: unknown): Owner | undefined =>
   error !== null && (typeof error === "object" || typeof error === "function") ? throwers.get(error as object) : undefined;
 
 export function runWithOwner<T>(o: Owner | null, fn: () => T): T {
+  if (process.env.NODE_ENV !== "production" && o && (o as any).disposed)
+    reportDiagnostic(
+      emitDiagnostic(
+        { code: "RUN_WITH_DISPOSED_OWNER", kind: "owner", severity: "warn", message: "[RUN_WITH_DISPOSED_OWNER] runWithOwner called with a disposed owner. Children created inside will never be disposed.", ownerId: o.id, ownerName: (o as any).name },
+        o,
+      ),
+    );
   return runOwned(o, fn as any);
 }
 /** runWithOwner, `fn` given its arguments (no closure needed to pass them). */
@@ -507,7 +516,11 @@ export function runOwned<A, B, T>(o: Owner | null, fn: (a: A, b: B) => T, a?: A,
 }
 
 export function onCleanup<T extends () => void>(fn: T): T {
-  if (inSettled) throw new Error("Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead");
+  if (inSettled) {
+    const message = "[CLEANUP_IN_FORBIDDEN_SCOPE] Cannot use onCleanup inside createTrackedEffect or onSettled; return a cleanup function instead";
+    if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "CLEANUP_IN_FORBIDDEN_SCOPE", kind: "lifecycle", severity: "error", message, ownerId: owner?.id, ownerName: (owner as any)?.name });
+    throw new Error(message);
+  }
   if (owner) (owner.cleanups ??= []).push(fn);
   else
     if (process.env.NODE_ENV !== "production") reportDiagnostic(
@@ -577,7 +590,7 @@ let untrackedBy: Computation<any> | null = null;
 /** The strict-read scope we are in (a component body's label), or none. */
 let strictRead: string | false = false;
 /** A read outside tracking in a strict scope: reported (a store's property read too). */
-export function checkStrictRead(n: { name?: string }) {
+export function checkStrictRead(n: { name?: string; store?: boolean }) {
   if (strictRead && !listener) strictReadUntracked(n as Node<any>);
 }
 function pendingUntrackedRead(n: Node<any>): never {
@@ -598,7 +611,8 @@ function strictReadUntracked(n: Node<any>) {
       `[STRICT_READ_UNTRACKED] Reactive value${named ? ` "${n.name}"` : ""} read directly in ` +
       `${strictRead} will not update. ` +
       `Move it into a tracking scope (JSX, a memo, or an effect's compute function).`,
-    data: { strictRead },
+    // (A store's property read: the property, as Solid's store reports it.)
+    data: (n as any).store ? { strictRead, property: n.name, source: "store" } : { strictRead },
     ownerName: (owner as any)?.name,
     nodeName: n.name,
   }, owner);
@@ -1063,6 +1077,11 @@ function dropReader(n: Node, o: Computation<any>) {
   if (r.length === 1) n.observers = NO_OBSERVERS;
   else r.splice(i, 1);
 }
+/** A change reaching very many readers: said (development). */
+function fanOut(n: Node) {
+  const count = readersOf(n);
+  if (count >= GRAPH_SIZE_WARN_AT) noteFanOut(n, count);
+}
 export const readersOf = (n: Node) => (Array.isArray(n.observers) ? n.observers.length : (n.observers as Set<Computation<any>>).size);
 /** What a computation has read, before its first run: nothing (shared, never written to). */
 const NOTHING_YET: readonly unknown[] = [];
@@ -1087,6 +1106,10 @@ abstract class Node<T = any> {
   declare height: number;
   get _name(): string {
     return this.name ?? (this instanceof Computation ? (this.kind === MEMO ? "computed" : "effect") : "signal");
+  }
+  /** Labelled as an owner is (a component's root labels itself so): its name. */
+  set _name(name: string) {
+    this.name = name;
   }
   /** Counts its changes: a reader compares it with the count it saw. */
   declare version: number;
@@ -1157,6 +1180,7 @@ abstract class Node<T = any> {
     const lane = this.tx && !this.tx.root.done && this.tx.root.parentTx ? this.tx.root : null;
     // (A snapshot's readers in their scope read the snapshot: not run again until the scope is released.)
     const snapped = snapshotCapture && (this as any).snap !== undefined && (this as any).snap !== NONE;
+    if (process.env.NODE_ENV !== "production") fanOut(this);
     for (const o of this.observers) {
       if (snapped && o.inSnapshot) o.snapshotStale = true;
       else lane && o.kind !== MEMO && !o.verdict?.has(this) ? lane.stale.add(o) : o.mark(DIRTY);
@@ -1181,6 +1205,7 @@ abstract class Node<T = any> {
   bump() {
     this.version++;
     clock++;
+    if (process.env.NODE_ENV !== "production") fanOut(this);
     for (const o of this.observers) o.mark(DIRTY);
   }
 }
@@ -1221,7 +1246,7 @@ export class Signal<T> extends Node<T> {
     snapshotSources!.add(this);
   }
   write(next: T) {
-    guardWrite(this.ownedWrite);
+    guardWrite(this.ownedWrite, this);
     if (snapshotCapture && (this as any).snapshots) this.snapshot();
     if (halted) notifyHalted();
     if (this.pending === NONE) writes.push(this);
@@ -1286,10 +1311,10 @@ const refreshables = new WeakMap<object, () => () => unknown>();
 export const refreshTarget = (target: object, memo: () => () => unknown) => void refreshables.set(target, memo);
 
 /** Writes in a reactive scope (a component body, a memo, a root being built) throw: they would re-run what read. */
-function guardWrite(allowed: boolean) {
+function guardWrite(allowed: boolean, node?: { name?: string }) {
   if (allowed || !owner || (owner as any).allowWrites) return;
   if (process.env.NODE_ENV !== "production") emitDiagnostic(
-    { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", kind: "write", severity: "error", message: OWNED_WRITE_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name, data: { operation: "setSignal" } },
+    { code: "REACTIVE_WRITE_IN_OWNED_SCOPE", kind: "write", severity: "error", message: OWNED_WRITE_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name, nodeName: node?.name, data: { operation: "setSignal" } },
     owner,
   );
   throw new Error(ownedWriteMessage(owner));
@@ -1380,7 +1405,11 @@ export class Computation<T> extends Node<T> implements Owner {
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
     ownerCreations++;
     super();
-    if ((owner as any)?.tracked) throw new Error("Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled");
+    if ((owner as any)?.tracked) {
+      const message = "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled";
+      if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "PRIMITIVE_IN_FORBIDDEN_SCOPE", kind: "lifecycle", severity: "error", message: "[PRIMITIVE_IN_FORBIDDEN_SCOPE] " + message, ownerId: owner!.id, ownerName: (owner as any).name });
+      throw new Error(message);
+    }
     if (inEffectCallback && !owner) primitiveInEffectCallback();
     this.parent = owner;
     this.context = owner?.context ?? null;
@@ -1413,6 +1442,7 @@ export class Computation<T> extends Node<T> implements Owner {
     else giveId(this, owner);
     if (options?.equals !== undefined) this.equals = options.equals;
     if (options?.lazy) this.lazy = true;
+    if ((options as any)?.sync) (this as any).sync = true;
     if ((options as any)?.deferStream) (this as any).deferStream = true;
     if ((options as any)?.sourceFn) (this as any).sourceFn = (options as any).sourceFn;
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
@@ -1603,6 +1633,9 @@ export class Computation<T> extends Node<T> implements Owner {
     } else if (foreignRead) foreignRead(this);
 
     if (this.error !== NONE) throw this.error;
+    // Refetching, read directly in a strict scope (a component body), in the browser: an error saying so — what it
+    // shows now is about to change, and nothing there would show the change.
+    if (this.flight && this.ready && !this.streaming && this.override === NONE && strictRead && !listener && !verdictReading && !serverRender && process.env.NODE_ENV !== "production") pendingUntrackedRead(this);
     // An authoritative reader asks the truth: a refetch with nothing landed for its question has none yet (A17).
     if (authoritative && !this.loadingWindow && this.flight && this.ready && !this.streaming && this.staged === NONE && this.override === NONE) throw new NotReadyError(this);
     // Never had a value (a first load, or waiting on one): not ready. (Read directly in a strict scope, in the
@@ -1803,6 +1836,7 @@ export class Computation<T> extends Node<T> implements Owner {
         const handoff = (this as any).handoff;
         if (this.ranAt !== -1) (this as any).live = true;
         next = this.fn(this.current());
+        if ((this as any).sync && process.env.NODE_ENV !== "production" && next && (typeof (next as any).then === "function" || typeof (next as any)[Symbol.asyncIterator] === "function")) syncGotAsync(this, typeof (next as any).then === "function");
         // (Taking over the server's stream: its first yield repeats the server's answer, and is dropped.)
         if (handoff) {
           (this as any).handoff = false;
@@ -1848,6 +1882,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.readHeld && firstPass && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = this.readHeld;
     this.state = CLEAN;
     this.ranAt = clock;
+    if (process.env.NODE_ENV !== "production" && this.sources.length >= GRAPH_SIZE_WARN_AT) noteFanIn(this, this.sources.length);
     if (threw !== NONE) {
       // Waiting on a first load upstream: still not ready (its readers wait too); the Loading above shows its fallback.
       if (threw instanceof NotReadyError) {
@@ -3705,6 +3740,15 @@ function madeByLeaver(e: Computation<any>) {
 export const RENDER_EFFECT = RENDER;
 
 export function createEffect<T>(compute: (prev?: T) => T, apply?: ((value: T, prev?: T) => void | (() => void)) | EffectBundle<T>, options?: SignalOptions<T>) {
+  if (process.env.NODE_ENV !== "production" && apply === undefined) {
+    const message =
+      "[MISSING_EFFECT_FN] createEffect requires both a compute function and an effect function. " +
+      "Use `createEffect(() => signal(), value => doWork(value))`. " +
+      "If you want a derived value, use `createMemo`. " +
+      "If you want a one-shot side effect, just call the function directly.";
+    emitDiagnostic({ code: "MISSING_EFFECT_FN", kind: "lifecycle", severity: "error", message });
+    throw new Error(message);
+  }
   effectOf(EFFECT, compute, apply, options);
 }
 
@@ -3737,9 +3781,9 @@ export function isPending(fn: () => unknown): boolean {
   try {
     fn();
   } catch (e) {
-    // Never loaded: nothing stale is shown, so not pending; a tracked reader waits for the first load like any.
-    // Untracked, it never throws; an error is no pending (#2790: an Errored fallback asking of the failed source).
-    if (outer && e instanceof NotReadyError) throw e;
+    // Never loaded: loading, not pending. Inside an owner (a component body too, #2928) it suspends like any read;
+    // outside one it never throws. An error is no pending (#2790: an Errored fallback asking of the failed source).
+    if ((outer || owner) && e instanceof NotReadyError) throw e;
   } finally {
     listener = outer;
     verdictReading--;
@@ -3819,6 +3863,11 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
     throw new Error(message);
   }
   if (!c || !(c instanceof Computation)) return Promise.resolve(typeof target === "function" ? untrack(target as () => T) : (target as T));
+  // Asked again from inside an owned scope (a component, a computation): not allowed, as a write there is not.
+  if (process.env.NODE_ENV !== "production" && owner && !(owner as any).allowWrites && !(owner as any).tracked && !(c as any).ownedWrite) {
+    emitDiagnostic({ code: "REACTIVE_WRITE_IN_OWNED_SCOPE", kind: "write", severity: "error", message: OWNED_REFRESH_MESSAGE, ownerId: owner.id, ownerName: (owner as any).name, nodeName: c.name, data: { operation: "refresh" } });
+    throw new Error(OWNED_REFRESH_MESSAGE);
+  }
   // (A reload declared with affects() is not quiet: its readers pend.)
   // (A re-ask over a question still unanswered stays as loud as that question.)
   c.quiet = !(c as any).declared && !(c.flight && !c.quiet);
@@ -4220,7 +4269,25 @@ function boundaryOf(c: Computation<any>): LoadingState | null {
 }
 
 /** `fn`'s value, or `fallback()` while what is under it waits on a first load. */
+/** A computation made `sync: true` that answered with a promise or an async iterable: refused, said. */
+function syncGotAsync(c: Computation<any>, thenable: boolean): never {
+  const message =
+    `[SYNC_NODE_RECEIVED_ASYNC] A computed/effect created with \`sync: true\` returned ` +
+    `${thenable ? "a Promise" : "an AsyncIterable"}. The value would be stored as-is and ` +
+    `never awaited in production; remove \`sync: true\` to use async-aware behavior, or ` +
+    `unwrap the value before returning.`;
+  emitDiagnostic({ code: "SYNC_NODE_RECEIVED_ASYNC", kind: "lifecycle", severity: "error", message, ownerId: c.id, ownerName: c.name });
+  throw new Error(message);
+}
+/** A boundary made with no owner: said (it is never disposed). */
+function noOwnerBoundary(boundaryType: "loading" | "error") {
+  if (process.env.NODE_ENV !== "production" && !owner)
+    reportDiagnostic(
+      emitDiagnostic({ code: "NO_OWNER_BOUNDARY", kind: "lifecycle", severity: "warn", message: "[NO_OWNER_BOUNDARY] Boundaries created outside a reactive context will never be disposed.", data: { boundaryType } }),
+    );
+}
 export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, options?: { on?: () => unknown }): () => T | F {
+  noOwnerBoundary("loading");
   const state = new LoadingState();
   state.mountRoot = !!(options as any)?.mountRoot;
   state.count.value = 0;
@@ -4325,7 +4392,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     shownFallback?.dispose();
     shownFallback = null;
   };
-  onCleanup(dropFallback);
+  if (owner) onCleanup(dropFallback);
   // (Fallback to content, or back, is a change even when both show the same value: what it shows is told then.)
   const sameSide = (a: unknown, b: unknown) => a === b && state.onFallback === (shown as any).nextFallback;
   // What shows: the fallback while something under it waits, else the content (its accessors read here, so a
@@ -4371,7 +4438,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   }, X === undefined ? ({ transparent: true, equals: sameSide } as any) : ({ id: idUnder(), equals: sameSide } as any));
   if (order) {
     order.add(slot);
-    onCleanup(() => order.remove(slot));
+    if (owner) onCleanup(() => order.remove(slot));
   }
   // What it makes (lazy children) is behind its fallback too, when that shows.
   (shown as any).shows = state;
@@ -4598,6 +4665,7 @@ export function runAgain(c: Computation<any>) {
   schedule();
 }
 export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
+  noOwnerBoundary("error");
   // Hydrating where the server caught an error: its content throws that error first (the server's fallback shows).
   if (sharedConfig.hydrating && hydratesUnder(owner)) {
     const sc = sharedConfig as any;

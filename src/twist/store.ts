@@ -389,6 +389,8 @@ const readHandler: ProxyHandler<Raw> = {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
     if (key === $TRACK) return trackAll(target), receiver;
+    // (A thenable probe — Promise.resolve(store), an await — asks for \`then\`: none, no read of the state.)
+    if (key === "then" && !viewHas(target, key)) return undefined;
     const desc = Object.getOwnPropertyDescriptor(own(target), key);
     // Getters run against the proxy, so what they read is tracked (a class's, on its prototype, too).
     if (desc?.get) return desc.get.call(receiver);
@@ -399,7 +401,7 @@ const readHandler: ProxyHandler<Raw> = {
       const o = overlaid(target, key);
       if (o === true) trackNode(node(target, key));
       else if (!o) node(target, key).read();
-    } else checkStrictRead({ name: typeof key === "string" ? key : undefined });
+    } else checkStrictRead({ name: typeof key === "string" ? key : undefined, store: true });
     let v = viewGet(target, key);
     const snaps = records.get(target)?.snaps;
     if (snaps?.has(key)) {
@@ -1035,6 +1037,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
       // Every read brings the derive up to date first (a key with an optimistic value shows it even before the
       // derive's first answer).
       if (k === $TARGET || k === $PROXY) return readHandler.get!(t, k, receiver);
+      // (A thenable probe asks for `then`: none, and the derive is not asked either.)
+      if (k === "then" && !viewHas(t, k)) return undefined;
       if (records.get(t)?.overlay?.has(k)) {
         try {
           m();
