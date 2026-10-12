@@ -1204,7 +1204,11 @@ abstract class Node<T = any> {
     (this as any).stagedAt = clock;
     if (!this.tx) staged.push(this);
     // (A write to a node a transaction holds enters it: the round's plain writes go with it, A34.)
-    else if (!(this instanceof Computation) && !this.tx.root.done) enteredTx ??= this.tx.root;
+    else if (!(this instanceof Computation) && !this.tx.root.done) {
+      enteredTx ??= this.tx.root;
+      // (Development, an attribution engine installed: this flush holds that transaction too.)
+      if (process.env.NODE_ENV !== "production" && attrHooks !== null && flushing && !heldThisFlush.has(this.tx.root)) pendingHolds.add(this.tx.root);
+    }
     // Shown through a guess: its readers see the guess, not this (no change for them); the guess's end tells them if
     // the truth differs. Its own answer landing ends the guess for derivations (A18): they derive from the truth now.
     if (this.override !== NONE) {
@@ -1293,8 +1297,9 @@ export class Signal<T> extends Node<T> {
   }
   write(next: T) {
     guardWrite(this.ownedWrite, this);
-    // (Told where it is made — its interaction or navigation still open — when it changes what the node would hold.)
-    if (process.env.NODE_ENV !== "production" && attrHooks !== null) {
+    // (Told where it is made — its interaction or navigation still open — when it changes what the node would hold; a
+    // store's key nodes are told by the store, where its writes are staged.)
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null && (this as any).record === undefined) {
       const now = (this.pending !== NONE ? this.pending : this.staged !== NONE ? this.staged : this.value) as T;
       if (this.equals === false || !this.equals(now, next)) attrHooks.write(this, now, next);
     }
@@ -1780,7 +1785,8 @@ export class Computation<T> extends Node<T> implements Owner {
     try {
       this.runBody();
     } finally {
-      h.recomputeEnd(this, create, !!(this as any).devChanged, !!(this as any).devGuess || !!this.passLane || !!this.revealingLane, !!this.tx || !!this.readHeld, !!this.tx);
+      // (A derived store's derive does its work on the store: never an unchanged run.)
+      h.recomputeEnd(this, create, !!(this as any).devChanged || !!(this as any).writes, !!(this as any).devGuess || !!this.passLane || !!this.revealingLane, !!this.tx || !!this.readHeld, !!this.tx);
     }
   }
   runBody() {
@@ -2144,7 +2150,7 @@ export class Computation<T> extends Node<T> implements Owner {
     let sync = true;
     let early: [boolean, unknown] | null = null;
     this.flight = flight;
-    if (process.env.NODE_ENV !== "production" && attrHooks !== null) attrHooks.flightStart(this, flight);
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null) attrHooks.flightStart(this, p as object);
     (process.env.NODE_ENV !== "production" && !serverRender ? watchAsyncTail(this, flight, p) : p).then(
       (v) => (sync ? (early = [true, v]) : this.flight === flight && this.land(v)),
       (e) => (sync ? (early = [false, e]) : this.flight === flight && this.fail(e)),
@@ -3421,8 +3427,9 @@ function newTransaction() {
 function hold(n: Node, t: Transaction) {
   t = t.root;
   // (A transaction already committed holds nothing more.)
-  if (n.tx === t || t.done) return;
+  if (t.done) return;
   if (process.env.NODE_ENV !== "production" && attrHooks !== null && flushing && !heldThisFlush.has(t)) pendingHolds.add(t);
+  if (n.tx === t) return;
   n.tx = t;
   t.nodes.add(n);
   // (A memo's first answer, held: nothing committed to serve outside the transaction until it commits.)

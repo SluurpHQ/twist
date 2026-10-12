@@ -378,6 +378,11 @@ export const CHANGES: Change[] = [
   },
   // ---- Twist's model
   {
+    file: "signals/tests/attribution-waterfall-eval.test.ts",
+    skip: "FINDING: one scope reading two async sources serializes them — and is caught",
+    why: "Solid computes a memo lazily, at its first read, so right's fetch waits for left's; Twist computes a memo when it is made, so both fetch side by side and there is no serialized chain to find",
+  },
+  {
     file: "web/test/server/frame-binding-slots.spec.tsx",
     skip: "a compiled spread element's handler expressions never evaluate outside a server component",
     why: "Twist compiles one output for client and server, with React's semantics: a prop's expression is evaluated where its element renders (the server only binds no handler)",

@@ -186,7 +186,12 @@ class KeyNode extends Signal<number> {
     this.record = record;
     this.key = key;
     // (Development, an attribution engine installed: named by its path — the store's name, then the key.)
-    if (process.env.NODE_ENV !== "production" && attrHooks !== null && key !== $TRACK) this.name = `${storeNames.get(storeRoot(record.target)) ?? "store"}.${String(key)}`;
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null && key !== $TRACK) {
+      const root = storeRoot(record.target);
+      this.name = `${storeNames.get(root) ?? "store"}.${String(key)}`;
+      // (Its owner is its store's: an observer's exclusion of that owner reaches it.)
+      (this as any)._owner = storeOwners.get(root) ?? null;
+    }
   }
   /** affects() marks on it: its own (a keyless mark's snapshot), and keyed ones on its key here or upstream. */
   declare private ownAffected: number;
@@ -642,7 +647,9 @@ function stage(target: Raw, key: PropertyKey, value: any) {
   // (Development, an attribution engine installed: a write that changes the key, told on its node where it is made.)
   if (process.env.NODE_ENV !== "production" && attrHooks !== null && key !== $TRACK) {
     const prev = pendingValue(target, key);
-    if (!Object.is(prev, value === DELETE ? undefined : value)) attrHooks.write(node(target, key), prev, value === DELETE ? undefined : value);
+    // (A key nothing has read has no node: nothing to explain to.)
+    const n = r.nodes.get(key);
+    if (n && !Object.is(prev, value === DELETE ? undefined : value)) attrHooks.write(n, prev, value === DELETE ? undefined : value);
   }
   // (Written while hydration keeps snapshots: the value it had, for readers in the scope.)
   if (userWrite && !r.snaps?.has(key) && takingSnapshots(() => void (r.snaps = null))) (r.snaps ??= new Map()).set(key, pendingValue(target, key));
@@ -679,7 +686,7 @@ function reportReplaced(t: Raw, p: Map<PropertyKey, any>) {
       if (total > 10_000) continue;
       for (const k of keys) if (Object.is(unwrap((ov as any)[k]), unwrap((nv as any)[k]))) unchanged++;
     }
-    attrHooks!.storeReplaced(`${devStorePath(t)}.${String(key)}`, isArr, total, unchanged, isArr ? (ov as unknown[]).length : Object.keys(ov).length, getOwner());
+    attrHooks!.storeReplaced(`${devStorePath(t)}.${String(key)}`, isArr, total, unchanged, isArr ? (ov as unknown[]).length : Object.keys(ov).length, storeOwners.get(storeRoot(t)) ?? null);
   }
 }
 /** A store part's path for development tools: its store's name, then the keys down to it. */
@@ -875,6 +882,10 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
   // (A plain store's options come second: `createStore(value, options)`.)
   const name = (seed as StoreOptions | undefined)?.name ?? options?.name;
   if (name) storeNames.set(given, name);
+  if (process.env.NODE_ENV !== "production") {
+    const o = getOwner();
+    if (o) storeOwners.set(given, o);
+  }
   // (A frozen object, or one with a locked property: behind a shell — no proxy invariant pins what it shows — written
   // to a copy.)
   const target = given && typeof given === "object" && (Array.isArray(given) || [Object.prototype, null].includes(Object.getPrototypeOf(given))) && (Object.isFrozen(given) || hasLockedKey(given)) ? shellOf(given) : given;
@@ -972,8 +983,9 @@ function shadowDraft(real: any, shallow: boolean) {
 const cloneState = (v: any) => (v === null || typeof v !== "object" ? v : typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
 
 type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean; ssrSource?: "server" | "hybrid" | "client"; name?: string };
-/** Stores given a name (development tools name their nodes by it). */
+/** Stores given a name (development tools name their nodes by it), and the owner each store was made under. */
 const storeNames = new WeakMap<object, string>();
+const storeOwners = new WeakMap<object, object>();
 
 /** A derived store's derive, by its root. */
 const derives = new WeakMap<object, () => unknown>();
@@ -982,6 +994,10 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   // (Seeded with another store: built on that store's object, live; else a family of its own.)
   const target = (unwrap(seed) !== seed ? unwrap(seed) : new Family().shell(seed, true)) as Raw;
   if (options?.name) storeNames.set(target, options.name);
+  if (process.env.NODE_ENV !== "production") {
+    const o = getOwner();
+    if (o) storeOwners.set(target, o);
+  }
   if (options?.shallow) markShallow(target);
   const key = options && "key" in options ? (options.key ?? null) : "id";
   // On a server, a projection's trace (what crosses a frame's border): told of each change, and of its source's end.
