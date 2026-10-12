@@ -24,6 +24,17 @@ if (!nodeEnv) {
       return was.apply(this, args);
     };
   }
+  // (As the DOM spec and jsdom: an attribute made by name has no prefix, its whole name its local name. happy-dom splits
+  // `_s:class` into prefix and `class`, which then shadows the element's own class.)
+  let docProto = Object.getPrototypeOf((globalThis as any).document);
+  while (docProto && !Object.hasOwn(docProto, "createAttribute")) docProto = Object.getPrototypeOf(docProto);
+  const createAttribute = docProto.createAttribute;
+  docProto.createAttribute = function (this: any, name: string) {
+    const a = createAttribute.call(this, name);
+    a[PropertySymbol.localName] = a[PropertySymbol.name];
+    a[PropertySymbol.prefix] = null;
+    return a;
+  };
 }
 import { PropertySymbol } from "happy-dom";
 import { readFileSync } from "node:fs";

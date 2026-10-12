@@ -30,7 +30,7 @@ export const enum Place {
   End,
   /** Before a comment of its own (`<!>`): next to text or another value, or last among several values. */
   Comment,
-  /** Before the element after it. */
+  /** Before the element or the text after it. */
   Before,
 }
 const placed = new WeakMap<Spec, Place[]>();
@@ -44,7 +44,7 @@ export function places(spec: Spec): Place[] {
     if (k !== 0 || kids.length === 1) return Place.End;
     const next = kids[i + 1];
     if (next === undefined) return values > 1 ? Place.Comment : Place.End;
-    return typeof next === "object" ? Place.Before : Place.Comment;
+    return typeof next === "object" || typeof next === "string" ? Place.Before : Place.Comment;
   });
   placed.set(spec, out);
   return out;

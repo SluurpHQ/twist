@@ -1269,6 +1269,11 @@ export class Computation<T> extends Node<T> implements Owner {
       const first = this.flight && this.ready && !(this as any).bornHeld && listener.kind === RENDER && !rendered(this);
       listener.track(this);
       if (first) for (const s of this.sources) if (s.tx && !s.tx.done) s.tx.root.flights.add(this);
+      // (Read by what a held pass made: the transaction that holds it waits on it too.)
+      if (!this.streaming && !this.loadingWindow && !verdictReading && (this.flight || (!this.ready && inFlight(this)))) {
+        const t = heldAbove(listener);
+        if (t && !t.flights.has(this)) t.flights.add(this), heldReads.add(this), statusChanged();
+      }
     } else if (foreignRead) foreignRead(this);
 
     if (this.error !== NONE) throw this.error;
@@ -2092,6 +2097,17 @@ function ownersFirst(c: Computation<any>) {
   if (chain) for (let i = chain.length - 1; i >= 0; i--) if (!chain[i]!.disposed) chain[i]!.update();
 }
 
+/** Flights a held pass's work read: the transaction waits on them while they, or what they wait on, are out. */
+const heldReads = new WeakSet<Computation<any>>();
+/** A transaction's flight still out: its own, or (read by a held pass) one upstream it waits on. */
+const outstanding = (f: Computation<any>) => !f.disposed && (!!f.flight || (heldReads.has(f) && inFlight(f)));
+
+/** The transaction holding a computation `c` was made under (an owner of it held), if any. */
+function heldAbove(c: Computation<any>): Transaction | null {
+  for (let o: Owner | null = c.parent; o; o = o.parent) if (o instanceof Computation && o.tx && !o.tx.done) return o.tx.root;
+  return null;
+}
+
 /** What isPending()/latest() readers follow: told whenever a hold or a flight starts or ends. */
 const status = new (class extends Node<number> {})();
 status.value = 0;
@@ -2382,7 +2398,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       if (c.kind !== MEMO ? c.applied !== NONE && !hidden(c) : rendered(c)) {
         const reveal = (r: Computation<any>, fresh: boolean) => {
           for (const s of r.sources) {
-            if (!(s instanceof Computation && s.flight && !s.streaming && !s.loadingWindow && !below.has(s) && !r.before.includes(s) && (fresh || r.born !== flushes))) continue;
+            if (!(s instanceof Computation && (s.flight || (fresh && !s.ready && inFlight(s))) && !s.streaming && !s.loadingWindow && !below.has(s) && !r.before.includes(s) && (fresh || r.born !== flushes))) continue;
             // (A flight another reveal already waits on: this one joins it, all complete at the landing; one a shown
             // reader waits on is carved out.)
             const by = flightHolder(s);
@@ -2438,7 +2454,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     parked ??= t.root;
     hold(n, t);
     held.add(n);
-    for (const s of revealed) t.flights.add(s);
+    for (const s of revealed) t.flights.add(s), heldReads.add(s);
     for (const c of below) {
       // (An effect that read only overrides shows them: a guess is not held. An until() of this action answers it now.)
       if ((c as any).insideTx?.root === t.root) continue;
@@ -2710,7 +2726,7 @@ function voidLane(l: Transaction) {
 
 /** A transaction with no flight left (and no action open): it commits this round. */
 function committableTx(t: Transaction) {
-  return !t.merged && !t.open && !(awaitingRound.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some((f) => f.flight && !f.disposed) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
+  return !t.merged && !t.open && !(awaitingRound.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some(outstanding) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
 }
 
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
@@ -2723,7 +2739,7 @@ function commitTransactions() {
       continue;
     }
     // A flight nothing shows any more (its readers moved on) holds nothing.
-    for (const f of t.flights) if (!f.flight || f.disposed || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
+    for (const f of t.flights) if (!outstanding(f) || (f.kind === MEMO && !rendered(f))) t.flights.delete(f);
     // A flight in progress at any node it holds keeps it.
     // (And its guesses' own sources refetching: the guess lives until its own truth lands.)
     for (const src of (t as any).guessSources ?? []) {
@@ -3036,7 +3052,8 @@ export function isPending(fn: () => unknown): boolean {
   const was = pendingInside;
   pendingInside = ((outer as any)?.insideTx as Transaction | null | undefined)?.root ?? null;
   try {
-    return reads.some((s) => (viaLatest.has(s) ? ownWork(s) : waiting(s)));
+    const r = reads.some((s) => (viaLatest.has(s) ? ownWork(s) : waiting(s)));
+    return r;
   } finally {
     pendingInside = was;
   }
@@ -3475,15 +3492,12 @@ function freshBoundary(c: Computation<any>): boolean {
   return !!b && b.fresh && !b.mountRoot;
 }
 
-/**
- * The Loading boundary a computation is under (found once: a boundary is set before what is under it is made). What
- * its output made (lazy children) is its content too.
- */
+/** The Loading boundary a computation is under (found once: a boundary is set before what is under it is made). */
 function boundaryOf(c: Computation<any>): LoadingState | null {
   if (c.boundary !== undefined) return c.boundary;
   let found: LoadingState | null = null;
   for (let o: Owner | null = c.parent; o; o = o.parent) {
-    const b = ((o as any).loading ?? (o as any).shows) as LoadingState | undefined;
+    const b = (o as any).loading as LoadingState | undefined;
     if (b) {
       found = b;
       break;

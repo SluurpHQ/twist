@@ -281,7 +281,8 @@ export function assign(node: Element, props: Record<string, any> | null | undefi
 const listenersOf = new WeakMap<Element, Map<unknown, Map<string, EventListener>>>();
 
 function assignOne(el: Element, name: string, value: any, prev: any, skipRef: boolean) {
-  if (name === "ref") return !skipRef && value && applyRef(value, el), value;
+  // (The same ref as last time: called once, not again.)
+  if (name === "ref") return value !== prev && !skipRef && value && applyRef(value, el), value;
   if (/^on[A-Z]/.test(name)) {
     // The same handler (a tuple too): nothing rebound.
     if (value === prev) return prev;
@@ -380,7 +381,6 @@ export function className(el: Element, value: any, prev?: any) {
   (el as any).$$cls = now;
   for (const c of before) if (!now.has(c)) el.classList.remove(c);
   for (const c of now) if (!before.has(c)) el.classList.add(c);
-  if (!el.classList.length) el.removeAttribute("class");
 }
 
 function classes(v: any, out = new Set<string>()): Set<string> {
