@@ -3040,6 +3040,10 @@ function mergeTx(from: Transaction, into: Transaction): Transaction {
 
 /** `t`, or the transaction it is a lane of. */
 const outOfLane = (t: Transaction): Transaction => (t.parentTx && !t.parentTx.root.done ? t.parentTx.root : t);
+/** Two actions' guesses on one key: their transactions settle together (#2899). */
+export function entangle(a: Transaction, b: Transaction) {
+  mergeTx(outOfLane(a), outOfLane(b));
+}
 
 /** Transactions with work that has not had a round yet (a new lane's, a voided lane's parent's): not committable while it waits to run. */
 const awaitingRound = new Set<Transaction>();

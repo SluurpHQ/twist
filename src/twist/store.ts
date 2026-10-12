@@ -4,7 +4,7 @@
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks, entangle } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -1531,6 +1531,9 @@ function install(r: Record_, tx: Transaction | null) {
   for (const [key, v] of g) {
     const before = viewGet(t, key);
     const had = viewHas(t, key);
+    // (Over another live action's guess on the same key: the two settle together.)
+    const prev = r.overlay?.get(key)?.tx;
+    if (prev && !prev.root.done && prev.root !== tx.root) entangle(prev, tx);
     (r.overlay ??= new Map()).set(key, { v, tx });
     mine.push(key);
     if (v === DELETE ? had : !had || !Object.is(before, v)) {
