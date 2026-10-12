@@ -4716,8 +4716,17 @@ function reportCaught(e: unknown, boundary: Owner) {
 }
 
 let idCount = 0;
-/** An id unique on this page. */
+/**
+ * An id unique on this page: rendered on a server, or hydrating, its owner's next child id (the same on both sides);
+ * made on the client alone, a counter's.
+ */
 export function createUniqueId(): string {
+  if (serverRender || sharedConfig.hydrating) {
+    if (!owner) throw new Error("createUniqueId cannot be used outside of a reactive context");
+    // (Under NoHydration nothing hydrates: no id is taken.)
+    if (sharedConfig.hydrating && owner.context?.[Symbol.for("twist.no-hydrate")]) return undefined as any;
+    return getNextChildId(owner);
+  }
   return "cl-" + idCount++;
 }
 

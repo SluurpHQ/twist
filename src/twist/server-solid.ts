@@ -289,3 +289,10 @@ export function isPending(fn: () => unknown) {
 }
 
 export const action = <F>(fn: F) => fn;
+
+/** An id unique on this page: its owner's next child id (what hydration takes again on the client). */
+export function createUniqueId(): string {
+  const o = getOwner();
+  if (!o) throw new Error("createUniqueId cannot be used outside of a reactive context");
+  return getNextChildId(o);
+}
