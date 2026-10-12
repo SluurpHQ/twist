@@ -3528,7 +3528,8 @@ function voidLane(l: Transaction) {
 
 /** A transaction with no flight left (and no action open): it commits this round. */
 function committableTx(t: Transaction) {
-  return !t.merged && !t.open && !(awaitingRound.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some(outstanding) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && !(n.streaming && n.streamed) && shownFlight(n));
+  // (A lane: a flight nothing shows any more holds nothing, as commitTransactions prunes it.)
+  return !t.merged && !t.open && !(awaitingRound.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some((f) => outstanding(f) && !(t.parentTx && f.kind === MEMO && !rendered(f))) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && !(n.streaming && n.streamed) && shownFlight(n));
 }
 
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
@@ -3573,6 +3574,7 @@ function commitTransactions() {
     heldBoundaries.delete(t);
     for (const n of t.nodes) n.promote();
     for (const end of t.ends.splice(0)) end();
+    if ((t as any).mount && heldSettled.length && !mountLoading()) settledQueue.push(...heldSettled.splice(0));
     // (An effect that also read this frame stale runs again now: what it held is dropped, one frame shows.)
     for (const e of t.effects) if (e.due && !t.stale.has(e)) applies[e.kind as 1 | 2].push(e);
     for (const e of t.stale) {
@@ -3651,7 +3653,11 @@ function drain() {
     if (applies[RENDER].length && !dirty.length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
     if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
     // (In the effects' phase, after them: a write an effect just made is not settled yet, and not seen.)
-    if (settledQueue.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) for (const f of settledQueue.splice(0)) f();
+    if (settledQueue.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) {
+      // (A mount still loading what it shows is not settled: its onSettled runs once that lands.)
+      if (mountLoading()) heldSettled.push(...settledQueue.splice(0));
+      else for (const f of settledQueue.splice(0)) f();
+    }
     // Optimistic values written outside an action: shown for this flush, then the truth again.
     if ((ambient.length || ambientEnds.length) && !writes.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) {
       for (const n of ambient.splice(0)) n.override !== NONE && ((n.override = NONE), n.bump());
@@ -5281,6 +5287,14 @@ export function createOptimistic<T>(value: T | ((prev?: T) => T), options?: Sign
 
 /** Callbacks for the next flush, once everything else in it is done. */
 const settledQueue: (() => void)[] = [];
+/** onSettled callbacks waiting for a mount's first loads. */
+const heldSettled: (() => void)[] = [];
+/** Whether a mount frame is still loading what something on screen waits on. */
+function mountLoading(): boolean {
+  for (const c of mountFlights) if (c.flight && !c.disposed && !c.tx && !flightHolder(c) && mountShown(c)) return true;
+  for (const t of transactions) if ((t as any).mount && !t.done) return true;
+  return false;
+}
 /** Inside an onSettled or tracked-effect callback: flush() and onCleanup() are not allowed there. */
 let inSettled = 0;
 
