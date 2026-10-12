@@ -525,15 +525,15 @@ const roots = new Set<Node>();
 const listening = new WeakMap<Node, Set<string>>();
 
 /** `onX` handlers: kept on the element, run by the root's listener as the event bubbles. */
-const eventKeys = new Map<string, string>();
+const eventKeys = new Map<string, [string, string]>();
 export function addEvent(el: Element, type: string, handler: any, delegate = true) {
   // Not delegated: a listener of its own on the element (a handler given as [fn, data] is called with data first).
   if (!delegate) return void el.addEventListener(type, listenerFor(handler));
   // (Where Solid keeps it: `_$$type`, a [fn, data] handler's data beside it.)
-  let key = eventKeys.get(type);
-  if (!key) eventKeys.set(type, (key = EVENT_KEY + type));
-  if (Array.isArray(handler)) ((el as any)[key] = handler[0]), ((el as any)[key + "Data"] = handler[1]);
-  else ((el as any)[key] = handler), delete (el as any)[key + "Data"];
+  let keys = eventKeys.get(type);
+  if (!keys) eventKeys.set(type, (keys = [EVENT_KEY + type, EVENT_KEY + type + "Data"]));
+  if (Array.isArray(handler)) ((el as any)[keys[0]] = handler[0]), ((el as any)[keys[1]] = handler[1]);
+  else if (((el as any)[keys[0]] = handler), (el as any)[keys[1]] !== undefined) (el as any)[keys[1]] = undefined;
   if (!delegated.has(type)) {
     delegated.add(type);
     for (const r of roots) listen(r, type);

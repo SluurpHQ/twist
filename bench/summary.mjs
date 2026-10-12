@@ -34,5 +34,16 @@ export function summary(profile, title) {
   // Its lines, by the samples taken in each (Chromium's positionTicks).
   const lines = new Map();
   for (const n of profile.nodes) if (label(n) === hot) for (const t of n.positionTicks ?? []) lines.set(`line ${t.line}`, (lines.get(`line ${t.line}`) ?? 0) + t.ticks);
-  return `${title}: ${count} samples\n-- self\n${top(self, 30)}\n-- total\n${top(total, 25)}\n-- ${hot} called from\n${top(callers, 5)}\n-- ${hot} by line\n${top(lines, 8)}`;
+  // UNDER=<function>: where its time goes (each callee's total within it, self included).
+  const under = new Map();
+  if (process.env.UNDER)
+    for (const id of profile.samples) {
+      const path = [];
+      for (let at = id; at != null; at = parent.get(at)) path.push(label(byId.get(at)));
+      const i = path.findIndex((l) => l.startsWith(process.env.UNDER + ":"));
+      if (i < 0) continue;
+      for (const k of new Set(path.slice(0, i + 1))) under.set(k, (under.get(k) ?? 0) + 1);
+    }
+  const below = process.env.UNDER ? `\n-- under ${process.env.UNDER}\n${top(under, 40)}` : "";
+  return `${title}: ${count} samples\n-- self\n${top(self, 30)}\n-- total\n${top(total, 25)}\n-- ${hot} called from\n${top(callers, 5)}\n-- ${hot} by line\n${top(lines, 8)}${below}`;
 }
