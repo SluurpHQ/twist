@@ -8,6 +8,7 @@
 // flight lands. Writes on graphs no flight touches commit at once.
 declare const process: { env: Record<string, string | undefined> };
 
+import { NO_READERS, NOTHING_YET, addReader, dropReader, noteRead, readersOf as kernelReaders } from "../kernel.js";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { diagnose, emitDiagnostic, ownerPath, reportDiagnostic, setAmbientSubject, GRAPH_SIZE_WARN_AT, noteFanIn, noteFanOut } from "./diagnostics.ts";
 
@@ -1103,31 +1104,14 @@ let flushes = 0;
 /** What signals and computations share: a committed value, a staged one, and who reads them. */
 /** A node's readers: a short list (most nodes have one or two), a set past a few. */
 type Readers = Computation<any>[] | Set<Computation<any>>;
-const NO_OBSERVERS: Readers = Object.freeze([]) as unknown as Computation<any>[];
-function addReader(n: Node, o: Computation<any>) {
-  const r = n.observers;
-  if (r === NO_OBSERVERS) return void (n.observers = [o]);
-  if (!Array.isArray(r)) return void r.add(o);
-  if (r.includes(o)) return;
-  if (r.length < 8) r.push(o);
-  else (n.observers = new Set(r)).add(o);
-}
-function dropReader(n: Node, o: Computation<any>) {
-  const r = n.observers;
-  if (!Array.isArray(r)) return void r.delete(o);
-  const i = r.indexOf(o);
-  if (i < 0) return;
-  if (r.length === 1) n.observers = NO_OBSERVERS;
-  else r.splice(i, 1);
-}
+// (The graph's lists are the kernel's, shared with the React side's signals.)
+const NO_OBSERVERS = NO_READERS as unknown as Readers;
 /** A change reaching very many readers: said (development). */
 function fanOut(n: Node) {
   const count = readersOf(n);
   if (count >= GRAPH_SIZE_WARN_AT) noteFanOut(n, count);
 }
-export const readersOf = (n: Node) => (Array.isArray(n.observers) ? n.observers.length : (n.observers as Set<Computation<any>>).size);
-/** What a computation has read, before its first run: nothing (shared, never written to). */
-const NOTHING_YET: readonly unknown[] = [];
+export const readersOf = (n: Node): number => kernelReaders(n);
 
 abstract class Node<T = any> {
   // (Assigned, not class fields: a define on every node made is slower.)
@@ -1593,12 +1577,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   track(source: Source) {
     if (verdictReading) (this.verdict ??= new Set()).add(source);
-    if (this.sources.includes(source)) return;
-    // (Its lists made by the first read, a source long: most have one, and a list pushed to grows to 17 places.)
-    if (this.sources === NOTHING_YET) (this.sources = [source]), (this.seen = [source.version]);
-    // (A second one: a list of two, not one grown to 17.)
-    else if (this.sources.length === 1) (this.sources = [this.sources[0]!, source]), (this.seen = [this.seen[0]!, source.version]);
-    else this.sources.push(source), this.seen.push(source.version);
+    if (!noteRead(this, source)) return;
     if (source.height >= this.height) this.height = source.height + 1;
     if (this.attached && !this.relinking?.has(source)) source.subscribe(this);
   }

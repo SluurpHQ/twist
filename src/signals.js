@@ -27,6 +27,8 @@
  * The state every copy of this module on the page shares: a hot update or a second bundle loads another copy, and
  * a signal made by one is read inside another's computed. One state, so the reads are recorded where they are asked.
  */
+import { NO_READERS, NOTHING_YET, addReader, dropReader, noteRead } from "./kernel.js";
+
 const S = (globalThis[Symbol.for("sluurp.signals")] ??= {
   /** What is running now (a computed or an effect), so reads can record themselves. */
   listener: null,
@@ -133,8 +135,6 @@ function mark(node) {
   }
 }
 
-/** Shared by every node that has read nothing (most effects): made its own on its first read. */
-const NO_SOURCES = new Map();
 /** Shared by nodes that own nothing: never written (an owner gets its own list). */
 const NONE = Object.freeze([]);
 
@@ -146,18 +146,16 @@ function track(source) {
     if (S.foreign) S.foreign(source);
     return;
   }
-  let sources = l.sources;
-  if (sources === NO_SOURCES) l.sources = sources = new Map();
-  else if (sources.has(source)) return;
-  sources.set(source, source.version);
-  source.observers.add(l);
+  if (noteRead(l, source)) addReader(source, l);
 }
 
 /** Whether anything `node` read last time has changed since (computeds among them brought up to date first). */
 function changed(node) {
-  for (const [source, version] of node.sources) {
+  const sources = node.sources;
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
     if (source.kind === COMPUTED) refresh(source);
-    if (source.version !== version) return true;
+    if (source.version !== node.seen[i]) return true;
   }
   return false;
 }
@@ -180,7 +178,8 @@ function run(node) {
   endChildren(node);
   endCleanups(node);
   const before = node.sources;
-  node.sources = NO_SOURCES;
+  node.sources = NOTHING_YET;
+  node.seen = NOTHING_YET;
   const previous = S.listener;
   const previousOwner = S.owner;
   S.listener = node;
@@ -190,7 +189,7 @@ function run(node) {
   } finally {
     S.listener = previous;
     S.owner = previousOwner;
-    if (before !== NO_SOURCES) for (const source of before.keys()) if (!node.sources.has(source)) source.observers.delete(node);
+    if (before !== NOTHING_YET) for (const source of before) if (!node.sources.includes(source)) dropReader(source, node);
   }
 }
 
@@ -198,8 +197,9 @@ function run(node) {
 function detach(node) {
   node.disposed = true;
   S.queue.delete(node);
-  for (const source of node.sources.keys()) source.observers.delete(node);
-  node.sources = NO_SOURCES;
+  for (const source of node.sources) dropReader(source, node);
+  node.sources = NOTHING_YET;
+  node.seen = NOTHING_YET;
   endChildren(node);
   endCleanups(node);
 }
@@ -210,7 +210,7 @@ function detach(node) {
  * Read by calling it; write with `.set(next)` or `.update(fn)`.
  */
 export function signal(initial) {
-  const node = { kind: SIGNAL, value: initial, version: 0, observers: new Set() };
+  const node = { kind: SIGNAL, value: initial, version: 0, observers: NO_READERS };
   const read = () => {
     track(node);
     return node.value;
@@ -280,7 +280,7 @@ function refresh(c) {
  */
 export function computed(fn, { equals } = {}) {
   const c = {
-    kind: COMPUTED, id: S.made++, loads: false, fn, value: undefined, version: 0, observers: new Set(), sources: NO_SOURCES,
+    kind: COMPUTED, id: S.made++, loads: false, fn, value: undefined, version: 0, observers: NO_READERS, sources: NOTHING_YET, seen: NOTHING_YET,
     stale: true, ran: false, disposed: false, owns: true, children: [], cleanups: [], error: undefined,
     busy: signal(false), failed: signal(undefined), settled: signal(false), asked: 0, first: true,
   };
@@ -534,7 +534,7 @@ export function effect(fn, second = {}) {
   // something long-lived once, behind a flag, is an ordinary thing to write
   // and would lose it on its next run.
   const e = {
-    kind: EFFECT, id: S.made++, fn, sources: NO_SOURCES, observers: null,
+    kind: EFFECT, id: S.made++, fn, sources: NOTHING_YET, seen: NOTHING_YET, observers: null,
     disposed: false, owns: second.owns === true, children: second.owns === true ? [] : NONE, cleanups: NONE,
   };
   const dispose = () => detach(e);
@@ -546,7 +546,7 @@ export function effect(fn, second = {}) {
     // Whoever is building this subtree is responsible for taking it apart. One that read nothing and
     // made nothing can never run again, and is not kept: the compiler wraps every expression that
     // might change, and most of them read no signal at all.
-    if (ran && !e.sources.size && !e.children.length && !e.cleanups.length) e.disposed = true;
+    if (ran && !e.sources.length && !e.children.length && !e.cleanups.length) e.disposed = true;
     else if (S.owner) S.owner.push(dispose);
   }
   return dispose;
@@ -638,8 +638,8 @@ const QUIET = { set() {} };
  */
 export function memo(fn) {
   const c = {
-    kind: COMPUTED, id: S.made++, loads: false, light: true, fn, value: undefined, version: 0, observers: new Set(),
-    sources: NO_SOURCES, stale: true, ran: false, disposed: false, owns: true, children: [], cleanups: [],
+    kind: COMPUTED, id: S.made++, loads: false, light: true, fn, value: undefined, version: 0, observers: NO_READERS,
+    sources: NOTHING_YET, seen: NOTHING_YET, stale: true, ran: false, disposed: false, owns: true, children: [], cleanups: [],
     error: undefined, busy: QUIET, failed: QUIET, settled: QUIET, asked: 0, first: true,
   };
   c.take = (next) => {
@@ -710,14 +710,14 @@ export function untrack(fn) {
  */
 export function readCount(fn) {
   const previous = S.listener;
-  const probe = { sources: new Map() };
+  const probe = { sources: NOTHING_YET, seen: NOTHING_YET };
   S.listener = probe;
   try {
     const value = fn();
-    return { value, count: probe.sources.size };
+    return { value, count: probe.sources.length };
   } finally {
     S.listener = previous;
-    for (const source of probe.sources.keys()) source.observers.delete(probe);
+    for (const source of probe.sources) dropReader(source, probe);
   }
 }
 
