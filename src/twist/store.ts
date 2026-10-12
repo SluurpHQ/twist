@@ -590,6 +590,16 @@ function overlayHold(target: Raw): Transaction | null {
     }
   return null;
 }
+/** Whether the writes since `before` touch a key (or a key set) a live transaction holds. */
+function writesHeldKey(before: Set<Record_>) {
+  const held = (n: KeyNode | undefined) => !!n?.tx && !n.tx.root.done;
+  for (const r of dirtyRecords) {
+    if (before.has(r)) continue;
+    if (held(r.keys)) return true;
+    for (const k of r.pending?.keys() ?? []) if (held(r.nodes.get(k))) return true;
+  }
+  return false;
+}
 function promoteWrites(before: Set<Record_>) {
   for (const r of [...dirtyRecords]) if (!before.has(r)) r.keys.commit();
 }
@@ -793,8 +803,9 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
     } finally {
       userWrite--;
     }
-    // A reconcile given to the setter: its diff visible at once (in an action, held with it like any write).
-    if (before && !isActing()) promoteWrites(before);
+    // A reconcile given to the setter: its diff visible at once (in an action, held with it like any write; one over a
+    // key a transaction holds proposes there, and rides it with the rest of the tick, A34).
+    if (before && !isActing() && !writesHeldKey(before)) promoteWrites(before);
   };
   const proxy = wrap(target) as T;
   registerGraph(proxy, getOwner());
@@ -1085,8 +1096,9 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
     } finally {
       pruning = false;
     }
-    // A reconcile's diff is visible as it returns (in an action, held with it like any write — an optimistic one shows).
-    if (!isActing() || guessWriting) promoteWrites(before);
+    // A reconcile's diff is visible as it returns (in an action, held with it like any write — an optimistic one shows;
+    // one over a key a transaction holds proposes there, riding it with the rest of the tick, A34).
+    if (guessWriting || (!isActing() && !writesHeldKey(before))) promoteWrites(before);
     return draft;
   };
   (apply as any)[RECONCILE] = true;
