@@ -116,6 +116,8 @@ mkdirSync(join(out, "solid", "src", "client"), { recursive: true });
 mkdirSync(join(out, "solid", "src", "server"), { recursive: true });
 for (const name of ["hydration", "flow", "component", "core", "container-trace"])
   await Bun.write(join(out, "solid", "src", "client", name + ".js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
+await Bun.write(join(out, "solid", "src", "client", "container-trace.js"), `export * from ${JSON.stringify(twist("container-trace.ts"))};\n`);
+await Bun.write(join(out, "solid", "src", "client", "core.js"), `export * from ${JSON.stringify(twist("index.ts"))};\nexport { createComponent as observedComponent } from ${JSON.stringify(twist("control.ts"))};\n`);
 // (With Twist's names for what Solid's server modules export besides its public API.)
 const serverInternals =
   `export { ssrHandleError, getProjectionTrace, shareAsyncIterable, runInServerComponentScope, NoHydrateContext } from ${JSON.stringify(twist("server-internal.ts"))};\n` +

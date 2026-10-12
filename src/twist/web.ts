@@ -1754,6 +1754,7 @@ export function readShallow<T>(v: T): T {
 // ---------------------------------------------------------------- head
 
 export { useHead } from "./head.ts";
+export { acquireAsset } from "./assets.ts";
 
 // ---------------------------------------------------------------- client-only components
 

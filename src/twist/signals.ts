@@ -291,6 +291,28 @@ function drainParked(c: { parked?: Owner[] | null }) {
 export function getOwner(): Owner | null {
   return owner;
 }
+/** A mount's window in which a render effect waiting with no Loading above is said (once per window, dev only). */
+let enforcing = false;
+let saidUnhandled = false;
+/** Opens or closes that window (for a mount that has no root boundary of its own). */
+export function enforceLoadingBoundary(on: boolean) {
+  enforcing = on;
+  if (on) saidUnhandled = false;
+}
+function unhandledAsync(c: Computation<any>) {
+  if (process.env.NODE_ENV === "production" || saidUnhandled) return;
+  saidUnhandled = true;
+  diagnose(
+    {
+      code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+      kind: "async",
+      severity: "warn",
+      message: "[ASYNC_OUTSIDE_LOADING_BOUNDARY] An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.",
+      ownerName: c.name,
+    } as any,
+    c,
+  );
+}
 /** The computation tracking reads now, or null. */
 export const getObserver = () => listener;
 
@@ -1499,7 +1521,11 @@ export class Computation<T> extends Node<T> implements Owner {
           // Waiting on one it read untracked: run again when that one answers.
           (p.untrackedReaders ??= new Map()).set(this, this.ranAt);
         }
-        if (this.kind !== MEMO) boundaryOf(this)?.wait(this);
+        if (this.kind !== MEMO) {
+          const b = boundaryOf(this);
+          if (b) b.wait(this);
+          else if (this.kind === RENDER && enforcing) unhandledAsync(this);
+        }
         return;
       }
       this.error = threw;

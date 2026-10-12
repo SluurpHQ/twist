@@ -27,6 +27,11 @@ export const CHANGES: Change[] = [
     why: "reads a node's private _x._pendingSources and _inFlight",
   },
   {
+    file: "signals/tests/store/utilities-no-proxy.test.ts",
+    skipFile: true,
+    why: "switches Solid onto its copy paths for platforms without Proxy by mocking its private constants module (SUPPORTS_PROXY); Twist requires Proxy and has no such paths",
+  },
+  {
     file: "signals/tests/lane-contract.test.ts",
     skip: "a long-lived lane does not grow its bookkeeping with every pass",
     why: "measures a lane's private _nodes array",
@@ -193,9 +198,9 @@ export const CHANGES: Change[] = [
   },
   {
     file: "web/test/hydration/nav-before-resume.spec.tsx",
-    find: `expect(r.diagnostics[0]).toContain("Hydration key miss");`,
-    replace: `expect(r.diagnostics[0]).toMatch(/Hydration key miss|unclaimed server-rendered node/);`,
-    why: "hydration ended by hand while a boundary is pending: Solid misclaims the boundary (a key miss); Twist renders it and reports the server nodes nothing claimed — the misuse is reported either way",
+    find: `    expect(r.diagnostics).toHaveLength(1);\n    expect(r.diagnostics[0]).toContain("Hydration key miss");\n`,
+    replace: `    expect(r.diagnostics).toEqual([]);\n`,
+    why: "hydration ended by hand while a boundary is pending: Solid misclaims the boundary (the key miss this pins); Twist resumes it from its own server's output with nothing misclaimed (the page ends right, as asserted above)",
   },
   {
     file: "web/test/server/spread-omit.spec.tsx",

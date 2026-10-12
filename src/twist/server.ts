@@ -371,6 +371,8 @@ function hydrationWriter(ctx: any) {
     },
   };
 }
+/** Nothing to take on a server (the client's read of what the server wrote). */
+export const takeHydrationValue = (_key: string): undefined => undefined;
 /** Whether what renders here hydrates: inside a render, outside NoHydration. */
 export const isHydratable = () => !!callerRender() && !isNoHydration();
 /** The hydration writer of the caller's render: by its owner, else its request's only render. */
