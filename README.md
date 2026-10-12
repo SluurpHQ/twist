@@ -40,6 +40,20 @@ bridge that lets each render the other; an app of one kind never loads it.
 The `examples/` folder has three apps, all on Twist: `vite-react` (a React app), `vite-solid` (a Solid app) and
 `vite-mixed` (a Solid app that uses React-style components, with their own state and hooks).
 
+## Development tools
+
+- **Hot reload.** While Vite serves the app, an edited Solid-style component is swapped in place: every instance of it
+  draws again with the new code, and the rest of the page keeps its state. A module that exports anything other than
+  components reloads its importers instead. It runs on Solid's refresh runtime API (`solid-js/refresh`, also
+  `@sluurp/twist/refresh`), so other bundler integrations that emit it work too.
+- **Why did this run.** `solid-js/attribution` records every re-run with the write, interaction or landing that caused
+  it, and reports wasted runs, wide scopes, waterfalls and long holds as development warnings.
+- **Performance tracks.** `enablePerformanceTracks()` from `@solidjs/web/performance-tracks` (or
+  `@sluurp/twist/performance-tracks`) paints those records in Chrome's Performance panel, in a "Solid" group: one track
+  each for interactions, propagation, effects, memos, async work, holds, navigations and server calls.
+
+All three are development-only: a production build leaves them out.
+
 ## Size and speed
 
 Measured with the keyed table of [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark), in
@@ -57,8 +71,9 @@ Chromium (milliseconds, lower is better; `bench/` in this repository):
 Twist is checked against React's and Solid's own test suites (`conformance/`):
 
 - React 19: 4,037 tests pass, 29 fail.
-- Solid 2: 6,001 tests pass, 1,001 fail (mostly Solid 2's newest async and transaction rules, and server streaming of
-  async iterators).
+- Solid 2: 8,411 tests pass, 110 fail. Most of the failures are Solid 2's newest rules for optimistic updates running
+  side by side, and for when a pending update holds what is on screen. Tests that only check Solid's private
+  structures or its own build files are left out, each with its reason (`conformance/solid/skips.ts`).
 
 ## Working on Twist
 
