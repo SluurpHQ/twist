@@ -1496,7 +1496,7 @@ export class Computation<T> extends Node<T> implements Owner {
           // Waiting on one it read untracked: run again when that one answers.
           (p.untrackedReaders ??= new Map()).set(this, this.ranAt);
         }
-        if (this.kind !== MEMO || !this.ready) boundaryOf(this)?.wait(this);
+        if (this.kind !== MEMO) boundaryOf(this)?.wait(this);
         return;
       }
       this.error = threw;
