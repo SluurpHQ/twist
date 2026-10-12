@@ -38,8 +38,15 @@ function drain() {
   endCallbacks = null;
   if (cbs) for (const cb of cbs) cb();
   setTimeout(() => {
+    const registry = (sharedConfig as any).registry as Map<string, Element> | undefined;
+    // (What the server rendered and nothing claimed, said: the browser rendered something else there.)
+    if (process.env.NODE_ENV !== "production" && registry?.size) {
+      const orphaned = [...registry.values()].filter((node) => node.isConnected);
+      if (orphaned.length)
+        console.warn(`Hydration completed with ${orphaned.length} unclaimed server-rendered node(s):\n` + orphaned.map((node) => `  ${node.outerHTML.slice(0, 100)}`).join("\n"));
+    }
     if ((globalThis as any)._$HY) (globalThis as any)._$HY.done = true;
-    (sharedConfig as any).registry?.clear();
+    registry?.clear();
   });
 }
 
