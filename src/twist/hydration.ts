@@ -1,7 +1,7 @@
 // Hydration's bookkeeping, as Solid's client/hydration.ts keeps it: when hydration is done, boundary holds, the claim
 // window, and the ledger of streamed fragments (`_$HY.fr`).
 declare const process: { env: Record<string, string | undefined> };
-import { clearSnapshots, closeHydrationScope, flush, getOwner, isDisposed, isFlushing, onCleanup, openHydrationScope, setSnapshotCapture, sharedConfig, type Owner } from "./signals.ts";
+import { installHydrationRuns, clearSnapshots, closeHydrationScope, flush, getOwner, isDisposed, isFlushing, onCleanup, openHydrationScope, setSnapshotCapture, sharedConfig, type Owner } from "./signals.ts";
 
 type Scope = { registry?: Map<string, object>; gather?: (key: string) => void };
 
@@ -255,6 +255,7 @@ function rejectTruncatedRefs(hy: any) {
 
 /** Hydration's hooks on `sharedConfig`, and the ledger on `_$HY`. */
 export function enableHydration() {
+  installHydrationRuns();
   const hy = (globalThis as any)._$HY;
   if (hy && !hy.fr) {
     if (!hy.f) hy.f = fragmentPolicy;

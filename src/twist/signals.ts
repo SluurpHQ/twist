@@ -1872,60 +1872,10 @@ export class Computation<T> extends Node<T> implements Owner {
     let next: T;
     let threw: unknown = NONE;
     try {
-      // Hydrating: what the server sent under this node's id is its first answer. Its compute still runs, for what it
-      // reads (so it runs again when that changes); what it answers now is set aside.
-      // (An adoption whose trace waited: the answer kept from the first run, taken now.)
-      const kept = (this as any).keptSent;
-      if (kept !== undefined) (this as any).keptSent = undefined;
-      // (Never answered yet, hydration still going: what the server sent may have arrived since its first run.)
-      const sent = kept !== undefined ? kept : this.ranAt === -1 ? (sharedConfig.hydrating ? serverSent(this) : NONE) : (this as any).latched ? latchedSent(this) : !this.ready && (sharedConfig as any).isHydrationInProgress?.() ? serverSent(this) : NONE;
-      if (sent !== NONE && this.ranAt !== -1 && !this.ready) (this as any).latched = true;
-
+      // Hydrating: what the server sent under this node's id is its first answer (hydrate() installs this).
+      const sent = hydrationRuns ? hydrationRuns.sent(this) : NONE;
       if (sent !== NONE) {
-        const ref = sent as any;
-        // (A stream the client goes on with runs here itself; anything else — "hybrid" of another shape is "server" —
-        // is traced for what it reads.)
-        let traced: unknown;
-        try {
-          traced = traceOnly(this.fn, this.current());
-        } catch (e) {
-          // (What it reads is not ready: it waits, and takes the server's answer when it runs again.)
-          (this as any).keptSent = sent;
-          throw e;
-        }
-        // ("hybrid" whose source is a stream: the client goes on with it once the server's answer is in.)
-        const handsOff = (this as any).ssrSource === "hybrid" && !!traced && typeof (traced as any)[Symbol.asyncIterator] === "function" && typeof (traced as any).then !== "function";
-        if (this.ranAt === -1 && !handsOff) (this as any).latched = true;
-        // A live source: the server's answer now; once hydration ends, the source itself, from that answer on.
-        if (traced && typeof traced === "object" && (traced as any)[LIVE_SOURCE]) {
-          const takeOver = () => !this.disposed && (((this as any).liveTakeover = true), this.mark(DIRTY), schedule());
-          const onEnd = (sharedConfig as any).onHydrationEnd;
-          onEnd ? onEnd(takeOver) : queueMicrotask(takeOver);
-        }
-        if (ref && typeof ref === "object" && ref.s === 2) {
-          if (typeof ref.then === "function") ref.then(undefined, noop);
-          throw ref.v;
-        }
-        // (A loading window's streamed answer: the server drew the loading value, so the claim does too; the answer
-        // lands after, as a promise.)
-        next = ref && typeof ref === "object" && ref.s === 1 && !(this.loadingWindow && typeof ref.then === "function") ? ref.v : ref;
-        // (The server's stream: its first value is what the server drew; what it buffered after comes later.)
-        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function") (this as any).sentStream = true;
-        // (A derived store's stream: its snapshot, then patch batches — each made a whole state again.)
-        if ((this as any).writes && patchApply && next && ((next as any).__SEROVAL_STREAM__ === true || (typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function"))) next = statesOf(next as any, patchApply) as T;
-        // A stream the client goes on with ("hybrid"): once the server's answer has landed, its compute runs here,
-        // quietly (its first yield repeats that answer).
-        // (When the pass that claims it ends: its snapshot scope released.)
-        if (handsOff) {
-          // (Not when it went live already: a change it read ran the client source first.)
-          const takeOver = () => !this.disposed && !(this as any).live && (((this as any).handoff = true), (this.quiet = true), this.mark(DIRTY), schedule());
-          // (An answer landing later — still to come, or deferred by a loading window: the handoff follows its landing.)
-          if (ref && typeof ref.then === "function" && (ref.s !== 1 || this.loadingWindow)) ref.then(() => queueMicrotask(takeOver), noop);
-          // (A streamed answer: once the server's stream has landed whole.)
-          else if ((this as any).sentStream) (this as any).afterStream = takeOver;
-          else if (this.inSnapshot && snapshotCapture) (this as any).onRelease = takeOver;
-          else queueMicrotask(takeOver);
-        }
+        next = hydrationRuns!.adopt(this, sent);
       } else {
         const handoff = (this as any).handoff;
         if (this.ranAt !== -1) (this as any).live = true;
@@ -1934,7 +1884,7 @@ export class Computation<T> extends Node<T> implements Owner {
         // (Taking over the server's stream: its first yield repeats the server's answer, and is dropped.)
         if (handoff) {
           (this as any).handoff = false;
-          if (!(this as any).writes && next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function") next = firstYieldDropped(next as any, undefined, this.current()) as T;
+          if (!(this as any).writes && next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function") next = hydrationRuns!.dropFirst(next as any, this.current()) as T;
         }
         // (A live source taking over from the server's answer: it resumes from what shows.)
         if ((this as any).liveTakeover) {
@@ -5652,4 +5602,71 @@ function serverSettles(c: Computation<any>, p: PromiseLike<any>): Promise<void> 
 let serverHooks: { preFly: typeof serverPreFly; stream: typeof serverStreamOf; settles: typeof serverSettles } | null = null;
 export function installServerStreams() {
   serverHooks = { preFly: serverPreFly, stream: serverStreamOf, settles: serverSettles };
+}
+
+/** Hydrating: what the server sent for `c` (NONE: nothing — it computes). */
+function hydrationSent(c: Computation<any>): unknown {
+  // Hydrating: what the server sent under the node's id is its first answer. Its compute still runs, for what it
+  // reads (so it runs again when that changes); what it answers now is set aside.
+  // (An adoption whose trace waited: the answer kept from the first run, taken now.)
+  const kept = (c as any).keptSent;
+  if (kept !== undefined) (c as any).keptSent = undefined;
+  // (Never answered yet, hydration still going: what the server sent may have arrived since its first run.)
+  const sent = kept !== undefined ? kept : c.ranAt === -1 ? (sharedConfig.hydrating ? serverSent(c) : NONE) : (c as any).latched ? latchedSent(c) : !c.ready && (sharedConfig as any).isHydrationInProgress?.() ? serverSent(c) : NONE;
+  if (sent !== NONE && c.ranAt !== -1 && !c.ready) (c as any).latched = true;
+  return sent;
+}
+/** The server's answer `sent` taken by `c` as its first, its compute traced for what it reads. */
+function hydrationAdopt(c: Computation<any>, sent: unknown): any {
+  let next: any;
+  const ref = sent as any;
+  // (A stream the client goes on with runs here itself; anything else — "hybrid" of another shape is "server" —
+  // is traced for what it reads.)
+  let traced: unknown;
+  try {
+    traced = traceOnly(c.fn, c.current());
+  } catch (e) {
+    // (What it reads is not ready: it waits, and takes the server's answer when it runs again.)
+    (c as any).keptSent = sent;
+    throw e;
+  }
+  // ("hybrid" whose source is a stream: the client goes on with it once the server's answer is in.)
+  const handsOff = (c as any).ssrSource === "hybrid" && !!traced && typeof (traced as any)[Symbol.asyncIterator] === "function" && typeof (traced as any).then !== "function";
+  if (c.ranAt === -1 && !handsOff) (c as any).latched = true;
+  // A live source: the server's answer now; once hydration ends, the source itself, from that answer on.
+  if (traced && typeof traced === "object" && (traced as any)[LIVE_SOURCE]) {
+    const takeOver = () => !c.disposed && (((c as any).liveTakeover = true), c.mark(DIRTY), schedule());
+    const onEnd = (sharedConfig as any).onHydrationEnd;
+    onEnd ? onEnd(takeOver) : queueMicrotask(takeOver);
+  }
+  if (ref && typeof ref === "object" && ref.s === 2) {
+    if (typeof ref.then === "function") ref.then(undefined, noop);
+    throw ref.v;
+  }
+  // (A loading window's streamed answer: the server drew the loading value, so the claim does too; the answer
+  // lands after, as a promise.)
+  next = ref && typeof ref === "object" && ref.s === 1 && !(c.loadingWindow && typeof ref.then === "function") ? ref.v : ref;
+  // (The server's stream: its first value is what the server drew; what it buffered after comes later.)
+  if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function") (c as any).sentStream = true;
+  // (A derived store's stream: its snapshot, then patch batches — each made a whole state again.)
+  if ((c as any).writes && patchApply && next && ((next as any).__SEROVAL_STREAM__ === true || (typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function"))) next = statesOf(next as any, patchApply) as any;
+  // A stream the client goes on with ("hybrid"): once the server's answer has landed, its compute runs here,
+  // quietly (its first yield repeats that answer).
+  // (When the pass that claims it ends: its snapshot scope released.)
+  if (handsOff) {
+    // (Not when it went live already: a change it read ran the client source first.)
+    const takeOver = () => !c.disposed && !(c as any).live && (((c as any).handoff = true), (c.quiet = true), c.mark(DIRTY), schedule());
+    // (An answer landing later — still to come, or deferred by a loading window: the handoff follows its landing.)
+    if (ref && typeof ref.then === "function" && (ref.s !== 1 || c.loadingWindow)) ref.then(() => queueMicrotask(takeOver), noop);
+    // (A streamed answer: once the server's stream has landed whole.)
+    else if ((c as any).sentStream) (c as any).afterStream = takeOver;
+    else if (c.inSnapshot && snapshotCapture) (c as any).onRelease = takeOver;
+    else queueMicrotask(takeOver);
+  }
+  return next;
+}
+/** A hydrating computation's part (installed by hydrate(): a client that only renders never carries it). */
+let hydrationRuns: { sent: typeof hydrationSent; adopt: typeof hydrationAdopt; dropFirst: (it: AsyncIterable<any>, quiet: unknown) => AsyncIterable<any> } | null = null;
+export function installHydrationRuns() {
+  hydrationRuns ??= { sent: hydrationSent, adopt: hydrationAdopt, dropFirst: (it, quiet) => firstYieldDropped(it, undefined, quiet) };
 }
