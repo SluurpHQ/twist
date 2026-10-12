@@ -6,6 +6,7 @@ type Scope = { registry?: Map<string, object>; gather?: (key: string) => void };
 
 let pendingBoundaries = 0;
 let hydrationDone = false;
+let doneValue = false;
 let endCallbacks: (() => void)[] | null = null;
 let hydratingValue = false;
 let claimOwner: Owner | null = null;
@@ -31,7 +32,7 @@ function onHydrationEnd(callback: () => void) {
 
 function drain() {
   if (hydrationDone) return;
-  hydrationDone = true;
+  hydrationDone = doneValue = true;
   // (Ended inside a flush: that flush carries on with what is left.)
   if (!isFlushing()) flush();
   const cbs = endCallbacks;
@@ -214,8 +215,18 @@ export function enableHydration() {
     set(v: boolean) {
       const was = hydratingValue;
       hydratingValue = v;
-      if (!was && v) hydrationDone = false;
+      if (!was && v) hydrationDone = doneValue = false;
       else if (was && !v) checkHydrationComplete();
+    },
+    configurable: true,
+    enumerable: true,
+  });
+  // Done: hydration over (set by hand, it ends hydration then: what waits for its end runs).
+  Object.defineProperty(sharedConfig, "done", {
+    get: () => doneValue,
+    set(v: boolean) {
+      doneValue = v;
+      if (v) drain();
     },
     configurable: true,
     enumerable: true,

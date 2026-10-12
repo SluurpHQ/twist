@@ -148,6 +148,12 @@ export const CHANGES: Change[] = [
     replace: ``,
     why: "Solid's server streams a rejection template whose single space stays in the range; Twist's hands the content to the client with no template (its record is false), so nothing stray is left",
   },
+  {
+    file: "web/test/hydration/nav-before-resume.spec.tsx",
+    find: `expect(r.diagnostics[0]).toContain("Hydration key miss");`,
+    replace: `expect(r.diagnostics[0]).toMatch(/Hydration key miss|unclaimed server-rendered node/);`,
+    why: "hydration ended by hand while a boundary is pending: Solid misclaims the boundary (a key miss); Twist renders it and reports the server nodes nothing claimed — the misuse is reported either way",
+  },
   // ---- The engine's words
   {
     file: "signals/tests/equals-comparator-errors.test.ts",
