@@ -138,11 +138,11 @@ export function noteFanIn(node: { name?: string }, count: number) {
 }
 
 /** Emitted and reported: the common case. */
-export const diagnose = (event: Omit<Diagnostic, "sequence">, subject: unknown = null) => {
+export function diagnose(event: Omit<Diagnostic, "sequence">, subject: unknown = null) {
   const entry = emitDiagnostic(event, subject);
   if (entry.severity !== "info") reportDiagnostic(entry);
   return entry;
-};
+}
 
 const diagnostics = {
   subscribe(listener: Listener) {

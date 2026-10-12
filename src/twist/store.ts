@@ -5,8 +5,7 @@ declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks, entangle, currentTick, setStoreTickWrite } from "./signals.ts";
-import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
-import { createStream } from "../serial.js";
+import { applyPatches, registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
 export const $PROXY = Symbol("store-proxy");
@@ -1107,7 +1106,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
   // (In the seed window the run wrote to its copy: that is the state it answers with.)
   const answerOf = (v: unknown) => (v === undefined || typeof v === "number" ? snapshot(shadow ?? target) : v);
   let run: Run | null = null;
-  let trail: ReturnType<typeof stateTrail> | null = null;
+  let trail: StateTrail | null = null;
   // (Its accessor, once made: a run's writes look up the transition waiting on its flight.)
   let memo: unknown = null;
   const m = createMemo(() => {
@@ -1127,7 +1126,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // (Streaming on a server: what the client is sent — its snapshot, then a patch batch per change.)
-    if (isServerRender() && options?.ssrSource !== "hybrid" && r && typeof (r as any)[Symbol.asyncIterator] === "function" && typeof (r as any).then !== "function" && !trail) {
+    if (stateTrail && isServerRender() && options?.ssrSource !== "hybrid" && r && typeof (r as any)[Symbol.asyncIterator] === "function" && typeof (r as any).then !== "function" && !trail) {
       trail = stateTrail(() => plain(target, new Map()));
       const self = getOwner() as any;
       if (self) (self.answerStream = trail.stream), (self.answerEnd = trail.end);
@@ -1232,31 +1231,10 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
 
 setPatchApply(applyPatches);
 
-/** A store's state as a stream: its snapshot once, then the patches since the last one sent, until `end`. */
-function stateTrail(read: () => any) {
-  const stream = createStream();
-  let ended = false;
-  let last: any = undefined;
-  let sent = false;
-  return {
-    send() {
-      if (ended) return;
-      const now = JSON.parse(JSON.stringify(untrack(read)));
-      if (!sent) (sent = true), stream.next(now);
-      else {
-        const ops = diffPatches(last, now);
-        if (ops.length) stream.next(ops);
-      }
-      last = now;
-    },
-    end() {
-      if (ended) return;
-      ended = true;
-      stream.return(undefined);
-    },
-    stream,
-  };
-}
+/** A store's state as a stream for the client (the server entry installs it: store-trail.ts). */
+type StateTrail = { send(): void; end(): void; stream: AsyncIterable<unknown> };
+let stateTrail: ((read: () => any) => StateTrail) | null = null;
+export const setStateTrail = (f: typeof stateTrail) => void (stateTrail = f);
 
 /** New data diffed into a store's draft (or a part of it), keeping identity for entries with the same key. */
 export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = "id") {

@@ -10,6 +10,7 @@ import { isNoHydration } from "./server.ts";
 import { devCheck, errorText } from "./request.ts";
 import { OBSERVE } from "./diagnostics.ts";
 import { serverSlots } from "./trace.ts";
+import "./store-trail.ts";
 
 // The process-wide trace-provider slot, there as soon as the server API loads (an observer installs before any render).
 if (OBSERVE) OBSERVE.server = serverSlots();

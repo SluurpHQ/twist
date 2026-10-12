@@ -913,13 +913,15 @@ const BINDING = { transparent: true } as any;
 /** A binding's options: transparent, named `tag.prop` as Solid's compiled bindings are (owner paths say where). */
 const bindingNamed = (el: Node, prop: string) => {
   // (Its name is for diagnostics: none in production.)
-  if (process.env.NODE_ENV === "production") return BINDING;
-  const tag = (el as Element).localName ?? "#fragment";
-  let byProp = bindingNames.get(tag);
-  if (!byProp) bindingNames.set(tag, (byProp = new Map()));
-  let o = byProp.get(prop);
-  if (!o) byProp.set(prop, (o = { ...BINDING, name: `${tag}.${prop}` }));
-  return o;
+  if (process.env.NODE_ENV !== "production") {
+    const tag = (el as Element).localName ?? "#fragment";
+    let byProp = bindingNames.get(tag);
+    if (!byProp) bindingNames.set(tag, (byProp = new Map()));
+    let o = byProp.get(prop);
+    if (!o) byProp.set(prop, (o = { ...BINDING, name: `${tag}.${prop}` }));
+    return o;
+  }
+  return BINDING;
 };
 /** A binding's options for a name (none: a plain binding), one object per name. */
 const bindingOptions = (name: string | null) => {

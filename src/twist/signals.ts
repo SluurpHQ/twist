@@ -30,7 +30,7 @@ const ownedWriteMessage = (o: Owner) => ((o as any).name ? `${OWNED_WRITE_MESSAG
 let inEffectCallback = false;
 
 /** TWIST_TRACE=1: a runaway loop reports itself (every 100,000 runs or rounds, with where it is). */
-const TRACE = !!(globalThis as any).process?.env?.TWIST_TRACE;
+const TRACE = process.env.NODE_ENV !== "production" && !!(globalThis as any).process?.env?.TWIST_TRACE;
 let runs = 0;
 let microFlushes = 0;
 const trace = (what: string) => console.error(`[twist] ${what}`, new Error().stack?.split("\n").slice(2, 9).join(" | "));
@@ -59,14 +59,15 @@ export const DEV = process.env.NODE_ENV === "production" ? undefined : {
   guideUrl: (code: string) => `${GUIDE_URL}#${code.toLowerCase()}`,
 };
 // (A finding with no subject given is about the owner running now.)
-setAmbientSubject(() => owner);
+if (process.env.NODE_ENV !== "production") setAmbientSubject(() => owner);
 /** A value (a signal, a store) recorded on the owner it was made under. */
 export function registerGraph(value: any, o: Owner | null) {
-  // (For dev tools: nothing in production.)
-  if (process.env.NODE_ENV === "production") return;
-  value._owner = o;
-  if (o) ((o as any)._signals ??= []).push(value);
-  DEV?.hooks.onGraph?.(value, o);
+  // (For dev tools: nothing in production — a block, not an early return, so a bundler drops what it uses.)
+  if (process.env.NODE_ENV !== "production") {
+    value._owner = o;
+    if (o) ((o as any)._signals ??= []).push(value);
+    DEV?.hooks.onGraph?.(value, o);
+  }
 }
 
 // ---------------------------------------------------------------- owners
@@ -454,18 +455,19 @@ export function enforceLoadingBoundary(on: boolean) {
   if (on) saidUnhandled = false;
 }
 function unhandledAsync(c: Computation<any>) {
-  if (process.env.NODE_ENV === "production" || saidUnhandled) return;
-  saidUnhandled = true;
-  diagnose(
-    {
-      code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
-      kind: "async",
-      severity: "warn",
-      message: "[ASYNC_OUTSIDE_LOADING_BOUNDARY] An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.",
-      ownerName: c.name,
-    } as any,
-    c,
-  );
+  if (process.env.NODE_ENV !== "production" && !saidUnhandled) {
+    saidUnhandled = true;
+    diagnose(
+      {
+        code: "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+        kind: "async",
+        severity: "warn",
+        message: "[ASYNC_OUTSIDE_LOADING_BOUNDARY] An async value was read outside a Loading boundary. The root mount will be deferred until all pending async settles.",
+        ownerName: c.name,
+      } as any,
+      c,
+    );
+  }
 }
 /** The computation tracking reads now, or null. */
 export const getObserver = () => listener;
@@ -1005,7 +1007,7 @@ function clientHoleRead() {
       `[ASYNC_OUTSIDE_LOADING_BOUNDARY] ssrSource: "client" read during SSR outside a <Loading> boundary — the server cannot ` +
       `run this source, so a boundary must own the position's fallback. Wrap the read in <Loading>, or declare a ` +
       `loadingValue/seedLoadingValue to render a provisional value instead.`;
-    emitDiagnostic({ code: "ASYNC_OUTSIDE_LOADING_BOUNDARY", kind: "async", severity: "error", message, data: { side: "server" } } as any);
+    if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "ASYNC_OUTSIDE_LOADING_BOUNDARY", kind: "async", severity: "error", message, data: { side: "server" } } as any);
     throw new Error(message);
   }
 }
@@ -1786,8 +1788,8 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   runIn() {
     // (Development, an attribution engine installed: told when it starts — its sources still the last run's — and ends.)
-    const h = attrHooks;
-    if (h === null || process.env.NODE_ENV === "production") return this.runBody();
+    const h = process.env.NODE_ENV !== "production" ? attrHooks : null;
+    if (h === null) return this.runBody();
     const create = this.ranAt === -1;
     (this as any).devChanged = false;
     (this as any).devGuess = false;
@@ -2031,7 +2033,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (next! && typeof (next as any).then === "function") return this.fly(next as any);
     if (next! && typeof (next as any)[Symbol.asyncIterator] === "function") {
       // (On a server, its first value is the answer: a render tried again reads it like a promise's.)
-      if (serverRender) return this.serverStream(next as any);
+      if (serverRender) return serverHooks!.stream(this, next as any);
       return this.stream(next as any);
     }
     if (this.flight) (this.flight = null), flights.delete(this);
@@ -2118,47 +2120,11 @@ export class Computation<T> extends Node<T> implements Owner {
    * thenable) is not in flight at all: its value is taken at once.
    */
   fly(p: PromiseLike<T>, streamed = false): void {
-    // On a server, a promise already settled answers at once (a render tried again reads what landed).
-    const answers = serverAnswers;
-    const id = (this as any).id as string | undefined;
-    const known = serverRender && !streamed ? answered.get(p as object) ?? (answers && id != null ? answers.get(id) : undefined) : undefined;
-    if (known) {
-      if (serverFly) {
-        // (A failure sent as a rejected promise, handled here so nothing reports it as unhandled.)
-        const failed = known[0] ? null : Promise.reject(known[1]);
-        failed?.catch(noop);
-        serverFly(this, failed ?? known[1]);
-      }
-      // (A source answered on an earlier pass: read as the stream it is, its client reader sent then.)
-      const tee = !streamed && known[0] && known[1] && typeof known[1] === "object" ? sourceTees.get(known[1] as object) : undefined;
-      if (tee) return this.serverStream(known[1] as any, tee);
-      return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
-    }
-    // (On a server, an answer that is an async source streams: split now, the client's reader sent in its place.)
-    // (A derived store's answer is reconciled into it: sent as the store's state once it lands.)
-    if (serverRender && !streamed && (this as any).writes) {
-      // (Streaming: its snapshot, then a patch batch per change, as a source the response stays open for.)
-      const trail = (this as any).answerStream as AsyncIterable<unknown> | undefined;
-      const answerOf = (this as any).answerOf as ((v: unknown) => unknown) | undefined;
-      const answer = trail ?? (answerOf ? Promise.resolve(p).then(answerOf) : p);
-      if (answerOf && !trail) (answer as Promise<unknown>).catch(noop);
-      serverFly?.(this, answer);
-    }
-    else if (serverRender && !streamed) {
-      const answer = sourceAnswer(Promise.resolve(p).then((v: any) => clientCopy(v)));
-      // (Its failure is the flight's, handled there: this copy is only what the client is sent.)
-      answer.catch(noop);
-      serverFly?.(this, answer);
-    }
+    // (On a server: what the render already knows, and what the client is sent — the server entry's.)
+    if (serverRender && serverHooks!.preFly(this, p, streamed)) return;
     const flight = {};
     this.streaming = false;
-    this.settles = serverRender
-      ? Promise.resolve(p).then(
-          // (A derived store's slot remembers its state, not the step's value: a re-created one adopts that.)
-          (v) => void (answered.set(p as object, [true, v]), answers && id != null && answers.set(id, [true, (this as any).writes && (this as any).answerOf ? (this as any).answerOf(v) : v])),
-          (e) => void (answered.set(p as object, [false, e]), answers && id != null && answers.set(id, [false, e])),
-        )
-      : Promise.resolve(p).then(noop, noop);
+    this.settles = serverRender ? serverHooks!.settles(this, p) : Promise.resolve(p).then(noop, noop);
     let sync = true;
     let early: [boolean, unknown] | null = null;
     this.flight = flight;
@@ -2191,85 +2157,6 @@ export class Computation<T> extends Node<T> implements Owner {
       hold(this, this.readHeld), this.readHeld.root.flights.add(this);
     }
     statusChanged();
-  }
-  /**
-   * On a server, an async iterable answers with its first value. Rendering a response that stays open (a frame's: its
-   * context commits), the values after it are taken too, each a commit the response sends on.
-   */
-  serverStream(iterable: AsyncIterable<T>, tee?: Tee<T>): void {
-    const ctx = sharedConfig.context as any;
-    // (A render tried again: the source, or the slot, answered on an earlier pass — its first value, its client
-    // reader sent then.)
-    const answers = serverAnswers;
-    const id = (this as any).id as string | undefined;
-    const known = !tee ? (answered.get(iterable as object) ?? (answers && id != null ? answers.get(id) : undefined)) : undefined;
-    if (known) return known[0] ? this.take(known[1] as T) : this.failNow(known[1]);
-    // As Solid reads a source on a server: in a live server component, or declared live outside a pumping scope, the
-    // first value and the source closed (the client connects for the rest); in a server component of a response that
-    // stays open, every value, each a commit; else the first value here, every value to the client.
-    const scoped = !!this.context?.[SERVER_COMPONENT_SCOPE];
-    const liveScope = !!this.context?.[LIVE_SERVER_COMPONENT_SCOPE];
-    const pumps = !!ctx?.commit && scoped && !liveScope;
-    // (A derived store's generator keeps its own way: its values are reconciled into the store, not sent as a source.)
-    const live = liveScope || pumps || !!(iterable as any)[LIVE_SOURCE] || !!(this as any).writes;
-    // (A plain one: two readers of the source, this render's and the client's. Already split when a promise answered
-    // with it: the client's reader went out then.)
-    // (Split already, the client's reader gone out in an answer it was nested in: the same split.)
-    tee ??= live ? undefined : sourceTees.get(iterable as object);
-    const sent = !!tee;
-    // (A plain source read once more: through the render's shared pump, with every other reader of it here.)
-    const source = !tee ? shared(iterable) : iterable;
-    const split = live ? null : (tee ?? teeSource(source));
-    if (live && tee) void tee[1][Symbol.asyncIterator]().return?.();
-    const it = (split ? split[0] : (tee?.[0] ?? source))[Symbol.asyncIterator]();
-    // (A first step reading what is not ready: waited for, then failed not-ready — the render tries again with a fresh source.)
-    const first = it.next().then(undefined, (e) => (e instanceof NotReadyError ? (settlesOf(e) ?? Promise.resolve()).then(() => Promise.reject(e)) : Promise.reject(e)));
-    const close = () => void Promise.resolve(it.return?.()).catch(noop);
-    this.closeStream = split ? () => (close(), split[2]()) : close;
-    if (liveScope || ((iterable as any)[LIVE_SOURCE] && !pumps)) {
-      first.then((r) => !r.done && close(), noop);
-      return this.fly(first.then((r: IteratorResult<T>) => r.value));
-    }
-    if (pumps) {
-      // The response stays open while the source can still yield (in a document, said after a while: it is live).
-      const release = openPumpHold(ctx, this, () => !this.disposed);
-      this.closeStream = () => (release(), close());
-      const pump = () =>
-        it.next().then(
-          (r) => {
-            if (this.disposed) return;
-            if (r.done) return release();
-            landings.push([this, r.value]);
-            landNow();
-            ctx.commit();
-            pump();
-          },
-          (e) => !this.disposed && (this.fail(e), ctx.commit(), release()),
-        );
-      first.then((r) => (r.done || this.disposed ? release() : pump()), release);
-      return this.fly(first.then((r: IteratorResult<T>) => r.value));
-    }
-    // (A streaming derived store: its later values landed too, each a patch batch to the client, until it ends.)
-    if ((this as any).answerStream) {
-      const pump = () =>
-        it.next().then(
-          (r) => {
-            if (this.disposed || r.done) return void (this as any).answerEnd?.();
-            landings.push([this, r.value]);
-            landNow();
-            pump();
-          },
-          () => (this as any).answerEnd?.(),
-        );
-      first.then((r) => (r.done ? (this as any).answerEnd?.() : pump()), () => (this as any).answerEnd?.());
-    }
-    // (Not split: read as before, its first value the answer.)
-    if (!split) return this.fly(first.then((r: IteratorResult<T>) => r.value));
-    // The client gets every value (its reader is the hydration record); this render, the first.
-    if (!sent) serverFly?.(this, split[1]);
-    first.then(close, noop);
-    first.then((r) => void answered.set(iterable as object, [true, r.value]), (e) => void answered.set(iterable as object, [false, e]));
-    return this.fly(first.then((r: IteratorResult<T>) => r.value), true);
   }
   /** Lets go of the iterator a stream reads (when it is disposed). */
   declare closeStream: (() => void) | null;
@@ -2369,7 +2256,7 @@ export class Computation<T> extends Node<T> implements Owner {
   land(v: T) {
     // (A source split for a server render: read as its stream, in that render.)
     const tee = v && typeof v === "object" ? sourceTees.get(v as object) : undefined;
-    if (tee) return void (this.scope ? this.scope.enter(() => this.serverStream(v as any, tee)) : this.serverStream(v as any, tee));
+    if (tee) return void (this.scope ? this.scope.enter(() => serverHooks!.stream(this, v as any, tee)) : serverHooks!.stream(this, v as any, tee));
     // (Answered with an async source: its values are the answer, read as they come.)
     if (!serverRender && v && typeof v === "object" && typeof (v as any)[Symbol.asyncIterator] === "function" && typeof (v as any).then !== "function") {
       const close = this.closeStream;
@@ -5632,4 +5519,137 @@ export function queueGuess(install: (tx: Transaction | null) => void, source?: (
 export function endWith(tx: Transaction | null, end: () => void) {
   if (tx && !tx.done) tx.ends.push(end);
   else ambientEnds.push(end), schedule();
+}
+
+/**
+ * On a server, an async iterable answers with its first value. Rendering a response that stays open (a frame's: its
+ * context commits), the values after it are taken too, each a commit the response sends on.
+ */
+function serverStreamOf<T>(c: Computation<T>, iterable: AsyncIterable<T>, tee?: Tee<T>): void {
+  const ctx = sharedConfig.context as any;
+  // (A render tried again: the source, or the slot, answered on an earlier pass — its first value, its client
+  // reader sent then.)
+  const answers = serverAnswers;
+  const id = (c as any).id as string | undefined;
+  const known = !tee ? (answered.get(iterable as object) ?? (answers && id != null ? answers.get(id) : undefined)) : undefined;
+  if (known) return known[0] ? c.take(known[1] as T) : c.failNow(known[1]);
+  // As Solid reads a source on a server: in a live server component, or declared live outside a pumping scope, the
+  // first value and the source closed (the client connects for the rest); in a server component of a response that
+  // stays open, every value, each a commit; else the first value here, every value to the client.
+  const scoped = !!c.context?.[SERVER_COMPONENT_SCOPE];
+  const liveScope = !!c.context?.[LIVE_SERVER_COMPONENT_SCOPE];
+  const pumps = !!ctx?.commit && scoped && !liveScope;
+  // (A derived store's generator keeps its own way: its values are reconciled into the store, not sent as a source.)
+  const live = liveScope || pumps || !!(iterable as any)[LIVE_SOURCE] || !!(c as any).writes;
+  // (A plain one: two readers of the source, c render's and the client's. Already split when a promise answered
+  // with it: the client's reader went out then.)
+  // (Split already, the client's reader gone out in an answer it was nested in: the same split.)
+  tee ??= live ? undefined : sourceTees.get(iterable as object);
+  const sent = !!tee;
+  // (A plain source read once more: through the render's shared pump, with every other reader of it here.)
+  const source = !tee ? shared(iterable) : iterable;
+  const split = live ? null : (tee ?? teeSource(source));
+  if (live && tee) void tee[1][Symbol.asyncIterator]().return?.();
+  const it = (split ? split[0] : (tee?.[0] ?? source))[Symbol.asyncIterator]();
+  // (A first step reading what is not ready: waited for, then failed not-ready — the render tries again with a fresh source.)
+  const first = it.next().then(undefined, (e) => (e instanceof NotReadyError ? (settlesOf(e) ?? Promise.resolve()).then(() => Promise.reject(e)) : Promise.reject(e)));
+  const close = () => void Promise.resolve(it.return?.()).catch(noop);
+  c.closeStream = split ? () => (close(), split[2]()) : close;
+  if (liveScope || ((iterable as any)[LIVE_SOURCE] && !pumps)) {
+    first.then((r) => !r.done && close(), noop);
+    return c.fly(first.then((r: IteratorResult<T>) => r.value));
+  }
+  if (pumps) {
+    // The response stays open while the source can still yield (in a document, said after a while: it is live).
+    const release = openPumpHold(ctx, c, () => !c.disposed);
+    c.closeStream = () => (release(), close());
+    const pump = () =>
+      it.next().then(
+        (r) => {
+          if (c.disposed) return;
+          if (r.done) return release();
+          landings.push([c, r.value]);
+          landNow();
+          ctx.commit();
+          pump();
+        },
+        (e) => !c.disposed && (c.fail(e), ctx.commit(), release()),
+      );
+    first.then((r) => (r.done || c.disposed ? release() : pump()), release);
+    return c.fly(first.then((r: IteratorResult<T>) => r.value));
+  }
+  // (A streaming derived store: its later values landed too, each a patch batch to the client, until it ends.)
+  if ((c as any).answerStream) {
+    const pump = () =>
+      it.next().then(
+        (r) => {
+          if (c.disposed || r.done) return void (c as any).answerEnd?.();
+          landings.push([c, r.value]);
+          landNow();
+          pump();
+        },
+        () => (c as any).answerEnd?.(),
+      );
+    first.then((r) => (r.done ? (c as any).answerEnd?.() : pump()), () => (c as any).answerEnd?.());
+  }
+  // (Not split: read as before, its first value the answer.)
+  if (!split) return c.fly(first.then((r: IteratorResult<T>) => r.value));
+  // The client gets every value (its reader is the hydration record); c render, the first.
+  if (!sent) serverFly?.(c, split[1]);
+  first.then(close, noop);
+  first.then((r) => void answered.set(iterable as object, [true, r.value]), (e) => void answered.set(iterable as object, [false, e]));
+  return c.fly(first.then((r: IteratorResult<T>) => r.value), true);
+}
+
+/** On a server, before a flight: an answer an earlier pass got is taken (true: nothing flies); what the client is sent
+ * for this one goes out. */
+function serverPreFly(c: Computation<any>, p: PromiseLike<any>, streamed: boolean): boolean {
+  const answers = serverAnswers;
+  const id = (c as any).id as string | undefined;
+  const known = serverRender && !streamed ? answered.get(p as object) ?? (answers && id != null ? answers.get(id) : undefined) : undefined;
+  if (known) {
+    if (serverFly) {
+      // (A failure sent as a rejected promise, handled here so nothing reports it as unhandled.)
+      const failed = known[0] ? null : Promise.reject(known[1]);
+      failed?.catch(noop);
+      serverFly(c, failed ?? known[1]);
+    }
+    // (A source answered on an earlier pass: read as the stream it is, its client reader sent then.)
+    const tee = !streamed && known[0] && known[1] && typeof known[1] === "object" ? sourceTees.get(known[1] as object) : undefined;
+    if (tee) return serverStreamOf(c, known[1] as any, tee), true;
+    return known[0] ? c.take(known[1] as any) : c.failNow(known[1]), true;
+  }
+  // (On a server, an answer that is an async source streams: split now, the client's reader sent in its place.)
+  // (A derived store's answer is reconciled into it: sent as the store's state once it lands.)
+  if (serverRender && !streamed && (c as any).writes) {
+    // (Streaming: its snapshot, then a patch batch per change, as a source the response stays open for.)
+    const trail = (c as any).answerStream as AsyncIterable<unknown> | undefined;
+    const answerOf = (c as any).answerOf as ((v: unknown) => unknown) | undefined;
+    const answer = trail ?? (answerOf ? Promise.resolve(p).then(answerOf) : p);
+    if (answerOf && !trail) (answer as Promise<unknown>).catch(noop);
+    serverFly?.(c, answer);
+  }
+  else if (serverRender && !streamed) {
+    const answer = sourceAnswer(Promise.resolve(p).then((v: any) => clientCopy(v)));
+    // (Its failure is the flight's, handled there: c copy is only what the client is sent.)
+    answer.catch(noop);
+    serverFly?.(c, answer);
+  }
+  return false;
+}
+/** On a server, when a flight settles: its answer kept for a retried render (by promise, and by the node's id). */
+function serverSettles(c: Computation<any>, p: PromiseLike<any>): Promise<void> {
+  const answers = serverAnswers;
+  const id = (c as any).id as string | undefined;
+  return Promise.resolve(p).then(
+    // (A derived store's slot remembers its state, not the step's value: a re-created one adopts that.)
+    (v) => void (answered.set(p as object, [true, v]), answers && id != null && answers.set(id, [true, (c as any).writes && (c as any).answerOf ? (c as any).answerOf(v) : v])),
+    (e) => void (answered.set(p as object, [false, e]), answers && id != null && answers.set(id, [false, e])),
+  );
+}
+
+/** The server's part of a computation's async work (installed by the server entry: a client bundle never carries it). */
+let serverHooks: { preFly: typeof serverPreFly; stream: typeof serverStreamOf; settles: typeof serverSettles } | null = null;
+export function installServerStreams() {
+  serverHooks = { preFly: serverPreFly, stream: serverStreamOf, settles: serverSettles };
 }
