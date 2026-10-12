@@ -2595,6 +2595,11 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
   seen.add(n);
   // (Never committed a value, a first load or born in a hold: nothing stale is shown.)
   if (n instanceof Computation && (!n.ready || (n as any).bornHeld) && n.override === NONE) return false;
+  // (A guess its own truth beneath already equals: final, A24.)
+  if (n.override !== NONE) {
+    const truth = truthOf(n);
+    if (truth !== NONE && ((n as any).equals?.(truth, n.override) ?? Object.is(truth, n.override))) return false;
+  }
   // A derived store's compute: store-wide pending is only its own async work; held for what is downstream, each leaf
   // it wrote answers for itself (A22).
   // (Held by an action still running: what it shows is not final either.)
