@@ -1399,6 +1399,9 @@ export class Computation<T> extends Node<T> implements Owner {
     owner = this;
     listener = this;
     strictRead = false;
+    // (Its own reads are its own: a status probe that pulled it does not make them status reads.)
+    const prevVerdict = verdictReading;
+    verdictReading = 0;
     inPass++;
     let next: T;
     let threw: unknown = NONE;
@@ -1445,6 +1448,7 @@ export class Computation<T> extends Node<T> implements Owner {
       owner = prevOwner;
       listener = prevListener;
       strictRead = prevStrict;
+      verdictReading = prevVerdict;
       inPass--;
       if (relinking) this.relinking = null;
       if (relinking) {
@@ -2565,7 +2569,11 @@ function heldRead<T>(n: Node<T>, held?: Transaction): T {
 function rendered(c: Computation<any>, seen = new Set<Computation<any>>()): boolean {
   if (seen.has(c)) return false;
   seen.add(c);
-  for (const o of c.observers) if (o.kind !== MEMO ? !hidden(o) : !hidden(o) && rendered(o, seen)) return true;
+  for (const o of c.observers) {
+    // (A memo that only asks whether it is pending derives from its status, not its value.)
+    if (o.kind === MEMO && o.verdict?.has(c)) continue;
+    if (o.kind !== MEMO ? !hidden(o) : !hidden(o) && rendered(o, seen)) return true;
+  }
   return false;
 }
 
