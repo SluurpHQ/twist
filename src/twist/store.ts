@@ -724,7 +724,7 @@ export function createProjection<T extends object>(fn: (draft: T) => T | void | 
   return derivedStore(fn, seed, options, false)[0];
 }
 
-type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean };
+type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean; ssrSource?: "server" | "hybrid" | "client" };
 
 /** A derived store's derive, by its root. */
 const derives = new WeakMap<object, () => unknown>();
@@ -799,7 +799,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // (Streaming on a server: what the client is sent — its snapshot, then a patch batch per change.)
-    if (isServerRender() && r && typeof (r as any)[Symbol.asyncIterator] === "function" && typeof (r as any).then !== "function" && !trail) {
+    if (isServerRender() && options?.ssrSource !== "hybrid" && r && typeof (r as any)[Symbol.asyncIterator] === "function" && typeof (r as any).then !== "function" && !trail) {
       trail = stateTrail(() => plain(target, new Map()));
       const self = getOwner() as any;
       if (self) (self.answerStream = trail.stream), (self.answerEnd = trail.end);
@@ -831,7 +831,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     promoteWrites(before);
     // The same answer each run: readers are told by the keys that changed, not by the derive having run.
     return 0;
-  }, { writes: true, onTake: took, ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
+  }, { writes: true, onTake: took, ...(options?.ssrSource ? { ssrSource: options.ssrSource, sourceFn: fn } : {}), ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   memo = m;
   derives.set(target, m);
   const proxy = new Proxy(target, {

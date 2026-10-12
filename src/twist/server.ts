@@ -1670,6 +1670,11 @@ function sendAnswer(node: any, answer: unknown) {
   const id = node?.id as string | undefined;
   if (!r?.serializer || id == null || isNoHydration() || !sharedConfig.context || r.written.has(id)) return;
   r.written.add(id);
+  // (A stream the client goes on with: the server answers with its first value only, the client's iteration the rest.)
+  if (node?.ssrSource === "hybrid" && answer && typeof (answer as any)[Symbol.asyncIterator] === "function" && typeof (answer as any).then !== "function") {
+    const it = (answer as any)[Symbol.asyncIterator]();
+    answer = Promise.resolve(it.next()).then((step: IteratorResult<unknown>) => (it.return?.(), step.value));
+  }
   r.serializer.write(id, awaitData(r, answer, id));
 }
 /** A value still to come (a promise, or an async source's values): the stream stays open until it has all been written. */

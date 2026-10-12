@@ -1099,6 +1099,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (options?.equals !== undefined) this.equals = options.equals;
     if (options?.lazy) this.lazy = true;
     if ((options as any)?.deferStream) (this as any).deferStream = true;
+    if ((options as any)?.sourceFn) (this as any).sourceFn = (options as any).sourceFn;
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
     // Client-only, on a server: never ready there (its boundary hands it to the client).
     if (serverRender && (options as any)?.ssrSource === "client") this.fn = clientOnly;
@@ -1412,7 +1413,10 @@ export class Computation<T> extends Node<T> implements Owner {
       const sent = this.ranAt === -1 && sharedConfig.hydrating ? serverSent(this) : NONE;
       if (sent !== NONE) {
         const ref = sent as any;
-        if ((this as any).ssrSource !== "hybrid") traceOnly(this.fn, this.current());
+        // (A stream the client goes on with runs here itself; anything else — "hybrid" of another shape is "server" —
+        // is traced for what it reads.)
+        const handsOff = (this as any).ssrSource === "hybrid" && ((this as any).sourceFn ?? this.fn).constructor?.name === "AsyncGeneratorFunction";
+        if (!handsOff) traceOnly(this.fn, this.current());
         if (ref && typeof ref === "object" && ref.s === 2) {
           if (typeof ref.then === "function") ref.then(undefined, noop);
           throw ref.v;
@@ -1424,7 +1428,7 @@ export class Computation<T> extends Node<T> implements Owner {
         if ((this as any).writes && patchApply && next && (next as any).__SEROVAL_STREAM__ === true) next = statesOf(next as any, patchApply) as T;
         // A stream the client goes on with ("hybrid"): once the server's answer has landed, its compute runs here,
         // quietly (its first yield repeats that answer).
-        if ((this as any).ssrSource === "hybrid" && this.fn.constructor?.name === "AsyncGeneratorFunction") {
+        if (handsOff) {
           const takeOver = () => !this.disposed && ((this.quiet = true), this.mark(DIRTY), schedule());
           ref && typeof ref.then === "function" && ref.s !== 1 ? ref.then(takeOver, noop) : queueMicrotask(takeOver);
         }
@@ -2961,6 +2965,8 @@ function writableMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): [Acce
     },
     options,
   );
+  // (The function it wraps, for what is asked of its shape: an async generator's stream hands off to the client.)
+  (m as any).sourceFn = fn;
   if (!m.lazy) m.run();
   const set: Setter<T> = (next) => {
     const v = typeof next === "function" ? (next as (prev: T) => T)(m.current() as T) : next;
