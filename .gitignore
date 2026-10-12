@@ -8,5 +8,6 @@ conformance/errors.txt
 conformance/solid/errors.txt
 conformance/report.json
 conformance/solid/report.json
+conformance/solid/failures.txt
 examples/*/dist/
 npm/
