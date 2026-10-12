@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -750,8 +750,8 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
     } finally {
       userWrite--;
     }
-    // A reconcile given to the setter: its diff visible at once.
-    if (before) promoteWrites(before);
+    // A reconcile given to the setter: its diff visible at once (in an action, held with it like any write).
+    if (before && !isActing()) promoteWrites(before);
   };
   const proxy = wrap(target) as T;
   registerGraph(proxy, getOwner());
@@ -1029,13 +1029,15 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
     } finally {
       pruning = false;
     }
-    // A reconcile's diff is visible as it returns.
-    promoteWrites(before);
+    // A reconcile's diff is visible as it returns (in an action, held with it like any write — an optimistic one shows).
+    if (!isActing() || guessWriting) promoteWrites(before);
     return draft;
   };
   (apply as any)[RECONCILE] = true;
   return apply;
 }
+/** Inside an optimistic store's setter (its writes show at once, whatever holds). */
+let guessWriting = 0;
 /** In reconcile() (not a derived store's landing): a keyed subtree nobody reads is swapped whole. */
 let pruning = false;
 /** Marks a reconcile function: given to a setter, its diff is visible as the setter returns. */
@@ -1392,10 +1394,12 @@ export function createOptimisticStore<T extends object>(init: T | ((draft: T) =>
   const set: StoreSetter<T> = (fn) => {
     const was = guessSource;
     guessSource = derive;
+    guessWriting++;
     try {
       write(fn);
     } finally {
       guessSource = was;
+      guessWriting--;
     }
   };
   const write: StoreSetter<T> = (fn) => {

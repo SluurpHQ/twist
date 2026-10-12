@@ -520,6 +520,8 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string): T {
   if (!listener && !strictRead && !strictReadLabel) return fn();
   const prev = listener;
   const prevStrict = strictRead;
+  const prevOuter = untrackedBy;
+  if (prev) untrackedBy = prev;
   listener = null;
   strictRead = strictReadLabel || false;
   try {
@@ -527,8 +529,11 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string): T {
   } finally {
     listener = prev;
     strictRead = prevStrict;
+    untrackedBy = prevOuter;
   }
 }
+/** The computation whose run an untrack() is inside: what a held value read untracked there is judged by. */
+let untrackedBy: Computation<any> | null = null;
 
 /** The strict-read scope we are in (a component body's label), or none. */
 let strictRead: string | false = false;
@@ -1201,6 +1206,8 @@ export const isAuthoritative = () => authoritative > 0;
 
 /** Whether a flush is running (a write staged now is promoted by it). */
 export const isFlushing = () => flushing > 0;
+/** Whether an action's step is running (its writes are held with its transaction). */
+export const isActing = () => !!acting;
 
 /** `n` tracked by what reads now, its value not read (a store key shown through an optimistic overlay). */
 /** Whether an isPending()/latest() probe is reading. */
@@ -2842,7 +2849,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
 function heldRead<T>(n: Node<T>, held?: Transaction): T {
   const t = held ?? n.tx!.root;
   if (t.done) return n.staged as T;
-  const l = listener;
+  // (Read untracked in a pass: as the computation running sees it.)
+  const l = listener ?? (inPass ? untrackedBy : null);
   if (!l) return n.staged as T;
   if (l.tracked) return n.value;
   const born = (n as any).bornHeld;
