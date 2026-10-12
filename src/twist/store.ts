@@ -1171,7 +1171,8 @@ function into(target: Raw, next: Raw, key: string | ((v: any) => any) | null) {
 
 /** `next` (what to hold) diffed into `target`; `fresh`: its values put in as they are (nothing merged into what was there). */
 function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) | null, fresh = false) {
-  const d = draftOf(target);
+  // (In an optimistic setter: through its guesses, tentative like any write there.)
+  const d = guessWriting ? guessDraftOf(target) : draftOf(target);
   // (A shallow store's values are leaves: each slot replaced by reference, by position or by key.)
   if (shallowTargets.has(target)) {
     markRawIngest(next);
