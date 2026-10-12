@@ -234,8 +234,23 @@ export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, opt
 /** Marks a view whose keys can change (read each time). */
 export const LIVE = Symbol("twist.live");
 
+/** A view's source for a key (merge, omit): what the key's descriptor is read off. */
+const leaves = new WeakMap<object, (k: PropertyKey) => object | undefined>();
+
+/** A key's descriptor where it lives: through views to the object that holds it (undefined when none does). */
+export function leafDescriptor(props: object, key: PropertyKey): PropertyDescriptor | undefined {
+  for (let leaf = leaves.get(props); leaf; leaf = leaves.get(props)) {
+    const next = leaf(key);
+    if (!next) return undefined;
+    props = next;
+  }
+  return Object.getOwnPropertyDescriptor(props, key);
+}
+
 export function merge<T extends object[]>(...sources: T): any {
-  const list = sources.filter((s) => s != null);
+  // (A function source is one memo: called once per change, however many keys are read.)
+  const owned = !!getOwner();
+  const list = sources.filter((s) => s != null).map((s) => (owned && typeof s === "function" && !(s as any)[LIVE] ? createMemo(s as any) : s));
   const view: any = {};
   const keys = new Set<PropertyKey>();
   // (A function source is read for its object, keys and values alike.)
@@ -279,6 +294,9 @@ export function merge<T extends object[]>(...sources: T): any {
       set: ignoreWrite,
     });
   }
+  leaves.set(view, (k) => {
+    for (let i = list.length - 1; i >= 0; i--) if (k in list[i]) return list[i];
+  });
   return view;
 }
 
@@ -295,11 +313,12 @@ export function omit<T extends object, K extends keyof T>(props: T, ...keys: (K 
     if (skip.has(k) || rules.some((r) => r(k))) continue;
     Object.defineProperty(view, k, { enumerable: true, configurable: true, get: () => (props as any)[k], set: ignoreWrite });
   }
+  leaves.set(view, (k) => (k in view ? props : undefined));
   return view;
 }
 
 /** Whether a prop is a plain value (not a getter that follows something): a source read once, then. */
 export function isStatic(props: object, key: PropertyKey): boolean {
-  const d = Object.getOwnPropertyDescriptor(props, key);
+  const d = leafDescriptor(props, key);
   return !d || !d.get;
 }

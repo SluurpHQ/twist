@@ -27,13 +27,14 @@ import {
   createOwner,
   ownerUnder,
   peekNextChildId,
+  resetOwner,
   Computation,
   startEffect,
   RENDER_EFFECT,
 } from "./signals.ts";
 import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./hydration.ts";
-import { merge, omit, isStatic } from "./flow.ts";
-import { $TARGET } from "./store.ts";
+import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
+import { $PROXY, $TARGET } from "./store.ts";
 export { isStatic };
 import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode } from "./control.ts";
 
@@ -457,10 +458,11 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
   if (skipChildren || skip?.("children")) return;
   if (claimingChildren) return void claims!.children(untrack(() => props.children), { parent: el, next: el.firstChild });
   // Plain data children: put in once, no effect for them.
-  const plain = !Array.isArray(props) && typeof props !== "function" ? untrack(() => Object.getOwnPropertyDescriptor(props, "children")) : undefined;
+  const plain = !Array.isArray(props) && typeof props !== "function" ? untrack(() => leafDescriptor(props, "children")) : undefined;
   if (plain && !plain.get) return void insertHosted(el, plain.value, null, undefined, undefined, name && `${name}.children`);
-  // (An object without them: nothing to insert. A source that is called is read only by the effect.)
-  if (!plain && !Array.isArray(props) && typeof props !== "function" && !untrack(() => Object.hasOwn(props, "children"))) return;
+  // (An object without them: nothing to insert. A source that is called is read only by the effect; a store or a live
+  // view can grow them later.)
+  if (!plain && !Array.isArray(props) && typeof props !== "function" && !(props as any)[LIVE] && !($PROXY in props) && !untrack(() => Object.hasOwn(props, "children"))) return;
   insertHosted(el, () => {
     const sources = sourcesOf(props);
     for (let i = sources.length - 1; i >= 0; i--) if (Object.hasOwn(sources[i], "children")) return sources[i].children;
@@ -1428,13 +1430,55 @@ function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): No
   content.catch = (e: unknown) => {
     throw e;
   };
+  let nodes: Node[];
   try {
-    return runWithOwner(content, () => claimHtml(props.children, false, at));
+    nodes = runWithOwner(content, () => claimHtml(props.children, false, at));
   } catch (e) {
     if (e instanceof NotReadyError) throw e;
     return fallback(e);
   } finally {
     content.catch = undefined;
+  }
+  // Claimed: from here an error under it shows the fallback, made here (a reset makes the content anew).
+  const [error, setError] = createSignal<unknown>(NO_ERROR, { equals: false });
+  let shown: unknown = NO_ERROR;
+  let fresh = false;
+  const caught = (e: unknown) => {
+    if (shown !== e) (shown = e), setError(() => e);
+    return true;
+  };
+  content.catch = caught;
+  const reset = () => {
+    fresh = true;
+    shown = NO_ERROR;
+    setError(NO_ERROR);
+  };
+  const read = runWithOwner(output, () =>
+    createMemo(() => {
+      const e = error();
+      if (e === NO_ERROR && !fresh) return nodes;
+      resetOwner(content);
+      if (e === NO_ERROR) return made(() => runWithOwner(content, () => untrack(() => props.children)));
+      const f = props.fallback;
+      return made(() => untrack(() => (typeof f === "function" ? f(() => e, reset) : f)));
+    }),
+  );
+  bind(at.parent, read, at.next);
+  return nodes;
+}
+const NO_ERROR = Symbol("twist.no-error");
+
+/** `fn` run as a fresh render, not a claim (nothing of what it makes is in the page). */
+function made<T>(fn: () => T): T {
+  const was = hydrating;
+  const wasShared = sharedConfig.hydrating;
+  hydrating = null;
+  sharedConfig.hydrating = false;
+  try {
+    return fn();
+  } finally {
+    hydrating = was;
+    sharedConfig.hydrating = wasShared;
   }
 }
 

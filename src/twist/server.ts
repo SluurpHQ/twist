@@ -2102,6 +2102,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
         data: { reason, pendingFragments: r.waiting.size, shellFlushed: shellSent },
       });
     dispose?.();
+    // (The serializer stops too: its close is what reaches a source it still reads.)
+    (r.serializer as any)?.close?.();
     if (end) for (const w of sinks) close(w);
     finished();
   };
@@ -2172,15 +2174,15 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     pipeTo(ws: WritableStream<any>) {
       const writer = ws.getWriter();
       const enc = new TextEncoder();
-      // A writable that errors (a reader cancelled, the transport gone): the response is abandoned.
-      const gone = () => abandon(false, "abandoned", "consumer");
-      writer.closed.catch(gone);
-      return new Promise<void>((ok) =>
+      return new Promise<void>((ok) => {
+        // A writable that errors (a reader cancelled, the transport gone): the response is abandoned, the pipe done.
+        const gone = () => (abandon(false, "abandoned", "consumer"), ok());
+        writer.closed.catch(gone);
         this.pipe({
           write: (c) => void writer.write(enc.encode(c)).catch(gone),
           end: () => void writer.close().then(ok, () => ok()),
-        }),
-      );
+        });
+      });
     },
     /** The response as a web stream (`new Response(stream.readable)`); cancelled, the render is abandoned. */
     get readable() {
