@@ -367,6 +367,42 @@ export const CHANGES: Change[] = [
     why: "Solid's known open half of #3734 (marked failing there): Twist's re-created memo reads its source through the render's shared pump, so every kind converges",
   },
   {
+    file: "web/test/consistency/generic/replay.spec.tsx",
+    find: `  test.failing(`,
+    replace: `  test(`,
+    why: "Solid's red pins of the generic hydration harness (C19, C1, C9, E: its own laws, marked failing until Solid fixes them): Twist keeps every one",
+  },
+  {
+    file: "signals/tests/loading-fallback-in-flush-3540.test.ts",
+    find: `  it.failing(\n    "a boundary mounted by a pass that joined the hold appears at its commit, no fallback",`,
+    replace: `  it(\n    "a boundary mounted by a pass that joined the hold appears at its commit, no fallback",`,
+    why: "pinned failing for Solid's own boundary pass (it still runs its fallback first); Twist's boundary mounted by the held pass appears at the commit, as the test rules",
+  },
+  {
+    file: "signals/tests/loading-fallback-in-flush-3540.test.ts",
+    find: `      (source === "flight" ? it.failing : it)(`,
+    replace: `      it(`,
+    why: "pinned failing for Solid's fallback flash at the commit in flight; Twist's boundary mounted by the hold shows none, at top level or nested",
+  },
+  {
+    file: "signals/tests/direction-rule-probe.test.ts",
+    find: `it.failing(\n  "same tick, two mounts outside a flush: the hold lands at its release, before the pages' first loads",`,
+    replace: `it(\n  "same tick, two mounts outside a flush: the hold lands at its release, before the pages' first loads",`,
+    why: "a direction-rule probe Solid fails (marked failing there): Twist's hold lands at its release, before both pages load",
+  },
+  {
+    file: "web/test/consistency/generic/preload-hold.spec.tsx",
+    find: `  test.failing(\n    "a click on the deferred root during its wait is lost once the wrong done drained the queue",`,
+    replace: `  test(\n    "a click on the deferred root during its wait is lost once the wrong done drained the queue",`,
+    why: "Solid's red pin (GH5, its bootstrap stops capturing once done drains): Twist's click on the deferred root is replayed when the root hydrates",
+  },
+  {
+    file: "web/test/hydration/container-trace-hold-id-determinism.spec.tsx",
+    find: `  test.failing(\n    "a keyed sibling after the frame claims the server's node (frames-rulings 3.4)",`,
+    replace: `  test(\n    "a keyed sibling after the frame claims the server's node (frames-rulings 3.4)",`,
+    why: "Solid's parity bug pinned failing (frames-rulings 3.4): Twist's client consumes the ids the server did, so the keyed sibling after the frame claims its node",
+  },
+  {
     file: "web/test/server/ssr-stream.spec.tsx",
     find: `    expect(full).toContain("<h4 _hk=10001>shown</h4>");\n`,
     replace: `    expect(full).toContain("<h4 _hk=1001>shown</h4>");\n`,
