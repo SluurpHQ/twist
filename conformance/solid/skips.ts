@@ -78,6 +78,12 @@ export const CHANGES: Change[] = [
     why: "probes Solid's private backing ($TARGET.v / .pb); read through the store instead — an ambient read serves the committed value",
   },
   {
+    file: "web/test/hydration/eager-jsx-falsy-show.spec.tsx",
+    find: `      expect(warn.mock.calls.some(args => String(args[0]).includes("Hydration key miss"))).toBe(\n        true\n      );`,
+    replace: `      expect(warn.mock.calls.some(args => String(args[0]).includes("Hydration key miss"))).toBe(\n        false\n      );`,
+    why: "Solid builds the hidden branch's JSX eagerly, detached, and reports its key miss; Twist describes JSX and builds it where it is shown — the subtree hydrates complete with no miss to report",
+  },
+  {
     file: "signals/tests/lane-contract.test.ts",
     skip: "a long-lived lane does not grow its bookkeeping with every pass",
     why: "measures a lane's private _nodes array",

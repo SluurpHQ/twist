@@ -1684,7 +1684,9 @@ export class Computation<T> extends Node<T> implements Owner {
       // (An adoption whose trace waited: the answer kept from the first run, taken now.)
       const kept = (this as any).keptSent;
       if (kept !== undefined) (this as any).keptSent = undefined;
-      const sent = kept !== undefined ? kept : this.ranAt === -1 ? (sharedConfig.hydrating ? serverSent(this) : NONE) : (this as any).latched ? latchedSent(this) : NONE;
+      // (Never answered yet, hydration still going: what the server sent may have arrived since its first run.)
+      const sent = kept !== undefined ? kept : this.ranAt === -1 ? (sharedConfig.hydrating ? serverSent(this) : NONE) : (this as any).latched ? latchedSent(this) : !this.ready && (sharedConfig as any).isHydrationInProgress?.() ? serverSent(this) : NONE;
+      if (sent !== NONE && this.ranAt !== -1 && !this.ready) (this as any).latched = true;
 
       if (sent !== NONE) {
         const ref = sent as any;
