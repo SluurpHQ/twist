@@ -33,7 +33,7 @@ const FAILED = Symbol("failed"), FAILED_AGAIN = Symbol("failed again");
 export type Fiber = {
   kind: number;
   type: any;
-  key: string;
+  key: Key;
   props: any;
   parent: Fiber | null;
   children: Fiber[];
@@ -299,11 +299,11 @@ function bindText(f: Fiber, sig: () => any) {
 }
 
 /** A child's key among its siblings, and the fiber kind it makes. */
-export function keyOf(c: any, i: number) {
-  return c && typeof c === "object" && c.key != null ? "k" + c.key : (indexKeys[i] ??= "i" + i);
+/** A child's key among its siblings: the key it was given (a string), or its place (a number: the two never meet). */
+export function keyOf(c: any, i: number): Key {
+  return c && typeof c === "object" && c.key != null ? String(c.key) : i;
 }
-/** Position keys, made once (a fiber per child would otherwise hold a string of its own). */
-const indexKeys: string[] = [];
+export type Key = string | number;
 
 export function typeOf(c: any): any {
   if (typeof c === "string" || typeof c === "number" || typeof c === "bigint" || typeof c === "function") return TEXT_NODE;
@@ -527,7 +527,7 @@ function reappear(f: Fiber, layoutOnly = false) {
   const each = (x: Fiber) => {
     // (Not the children a waiting boundary keeps hidden: they come back when it shows them.)
     const waiting = x.type === SUSPENSE && x.pending!.peek() > 0;
-    for (const c of x.children) if (!(c as any).hidden && !(waiting && c.key === "kc")) each(c);
+    for (const c of x.children) if (!(c as any).hidden && !(waiting && c.key === "c")) each(c);
     // (Shown again: the fragments above it take it back, the nearest first.)
     if (fragmentRefs && (x.kind === HOST || x.kind === TEXT) && x.dom) for (const inst of fragmentsAbove(x as any)) inst._childAdded(x.dom);
     if (x.kind === COMP) {
@@ -603,7 +603,7 @@ const ROOT_NAME = { displayName: "Root" };
 
 /** Old children by key: those passed over in line, and those from `from` on. */
 function keyMap(old: Fiber[], from: number, skipped: Fiber[] | null) {
-  const m = new Map<string, Fiber>();
+  const m = new Map<Key, Fiber>();
   if (skipped) for (const f of skipped) m.set(f.key, f);
   for (let j = from; j < old.length; j++) m.set(old[j]!.key, old[j]!);
   return m;
@@ -615,7 +615,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   if (holds) for (const h of holds.splice(0)) release(h);
   // The old ones matched in order while their keys line up; from the first that does not, looked up by key.
   let lineAt = 0;
-  let byKey: Map<string, Fiber> | null = null;
+  let byKey: Map<Key, Fiber> | null = null;
   // (Old ones passed over in line, gone from the list unless asked for later.)
   let skipped: Fiber[] | null = null;
   // (Whether a kept one came out of line, or after a new one: then something moves.)
@@ -625,7 +625,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   // While hydrating, the children so far: a mismatch's diff prints the siblings before it.
   if (hydrating && (process.env.NODE_ENV !== "production" && dev())) (parent as any).building = next;
   // Duplicate keys only warn: looked for in development.
-  const seenKeys = (process.env.NODE_ENV !== "production" && dev()) ? new Set<string>() : null;
+  const seenKeys = (process.env.NODE_ENV !== "production" && dev()) ? new Set<Key>() : null;
   let i = 0;
   // A thenable child the parent suspended at (the children after it not drawn).
   let stoppedAt: unknown = null;
@@ -669,7 +669,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     }
     const key = keyOf(c, i++);
     if (seenKeys) {
-      if (key[0] === "k" && seenKeys.has(key)) duplicateKey(key.slice(1));
+      if (typeof key === "string" && seenKeys.has(key)) duplicateKey(key);
       seenKeys.add(key);
     }
     const type = typeOf(c);
@@ -679,7 +679,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     const had = lined ?? (old.length ? (byKey ?? ((byKey = keyMap(old, lineAt, skipped)), (lineAt = old.length), byKey)).get(key) : undefined);
     if (had && (had.type === type || sameFamily(had.type, type)) && !had.dead) {
       if (lined) lineAt++;
-      else (byKey as Map<string, Fiber> | null)!.delete(key), (keptOutOfLine = true);
+      else (byKey as Map<Key, Fiber> | null)!.delete(key), (keptOutOfLine = true);
       if (madeNew) keptOutOfLine = true;
       update(had, c);
       next.push(had);
@@ -695,7 +695,7 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
     }
   }
   // What it had and did not reach: kept as it was, in its place, when it stopped at a suspending child; else let go.
-  const left: Map<string, Fiber> | null = byKey ?? (lineAt < old.length || skipped ? keyMap(old, lineAt, skipped) : null);
+  const left: Map<Key, Fiber> | null = byKey ?? (lineAt < old.length || skipped ? keyMap(old, lineAt, skipped) : null);
   if (stoppedAt && left) for (const f of old) if (left.get(f.key) === f) next.push(f), left.delete(f.key);
   if (left) for (const f of left.values()) unmount(f, true);
   // The same children in the same order (most updates): the list it had kept. Else one its own size (a list pushed to
@@ -971,7 +971,7 @@ function effectsOf(f: Fiber, phase: "insertion" | "layout" | "passive"): (() => 
 class FiberNode {
   declare kind: number;
   declare type: any;
-  declare key: string;
+  declare key: Key;
   declare props: any;
   declare parent: Fiber | null;
   declare children: Fiber[];
@@ -998,7 +998,7 @@ class FiberNode {
   declare layout: (() => void)[] | undefined;
   declare passive: (() => void)[] | undefined;
   declare unbind: (() => void) | undefined;
-  constructor(kind: number, type: any, key: string, props: any, parent: Fiber | null, ns: string | null, root: RootState) {
+  constructor(kind: number, type: any, key: Key, props: any, parent: Fiber | null, ns: string | null, root: RootState) {
     this.kind = kind;
     this.type = type;
     this.key = key;
@@ -1017,7 +1017,7 @@ class FiberNode {
 }
 Object.assign(FiberNode.prototype, { dead: false, committed: false, placed: false, strict: false, again: false, draws: 0 });
 
-function fiber(kind: number, type: any, key: string, props: any, parent: Fiber): Fiber {
+function fiber(kind: number, type: any, key: Key, props: any, parent: Fiber): Fiber {
   const f = new FiberNode(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber;
   if (nextTree) (f.tree = nextTree), (nextTree = null);
   if (nextOwner) Object.defineProperty(f, "owner", { value: nextOwner, enumerable: false }), (nextOwner = null);
@@ -2118,7 +2118,7 @@ function behindComponents(f: Fiber, tag: string): boolean {
   return false;
 }
 
-function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before: Node | null): Fiber {
+function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: Node | null): Fiber {
   if (type === TEXT_NODE) {
     const f = fiber(TEXT, type, key, c, parent);
     const text = typeof c === "function" ? textOf(untrack(c)) : "" + c;
@@ -2811,7 +2811,7 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       // (The time a fallback is shown: retries are put in place no sooner than the throttle after it.)
       if (waiting && !last?.waiting) layoutQueue.push(() => void (!fb.dead && fb.pending!.peek() && (lastFallbackAt = now())));
       layoutQueue.push(() => {
-        const kept = fb.children.find((c) => c.key === "kc");
+        const kept = fb.children.find((c) => c.key === "c");
         // (Shown again only what it hid itself: a hidden Activity around may hide the same nodes.)
         if (!kept || !!(fb as any).keptHidden === waiting) return;
         (fb as any).keptHidden = waiting;
@@ -3743,7 +3743,7 @@ function prewarm() {
     for (const f of lone) if (!f.dead) renderAgain(f);
     for (const s of list) {
       if (s.dead || !s.pending!.peek()) continue;
-      const kept = s.children.find((c) => c.key === "kc");
+      const kept = s.children.find((c) => c.key === "c");
       if (kept) {
         // Its children are still there (hidden): what suspended in them renders again, its output dropped.
         const waiting: Fiber[] = [];
