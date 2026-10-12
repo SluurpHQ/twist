@@ -2718,6 +2718,8 @@ let enteredTx: Transaction | null = null;
 let frameTx: Transaction | null = null;
 /** The first action opened since the last flush: guesses written outside an action in that tick join it. */
 let tickTx: Transaction | null = null;
+/** The hold the passes outside a flush in this tick joined (one per tick: what a later one reads merges into it). */
+let passTx: Transaction | null = null;
 /** Signals written in this tick, outside any flush or action, before its first action opened: that action holds them with it. */
 const tickWrites = new Set<Node>();
 /** Guesses written outside an action and over no hold yet: decided once the flush has parked (or not). */
@@ -3042,6 +3044,13 @@ function heldRead<T>(n: Node<T>, held?: Transaction): T {
     t.stale.add(l);
     l.staleRead = true;
     return n.value;
+  }
+  // (A pass outside a flush: the tick is one frame — a second hold it reads merges into the first, A29.)
+  if (!flushing && !t.parentTx) {
+    const p = passTx && !passTx.done ? passTx.root : null;
+    passTx = p && p !== t ? mergeTx(t, p) : t;
+    l.readHeld = passTx;
+    return n.staged as T;
   }
   l.readHeld = t;
   return n.staged as T;
@@ -3375,7 +3384,7 @@ export function flush<T>(fn?: () => T): T {
     throw e;
   } finally {
     flushing--;
-    if (!flushing) (frameTx = tickTx = null), tickWrites.clear();
+    if (!flushing) (frameTx = tickTx = passTx = null), tickWrites.clear();
     if (!flushing) DEV?.hooks.onUpdate?.();
     // A refresh counts for the flush it was asked in.
     if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
