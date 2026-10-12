@@ -2268,9 +2268,11 @@ export class Computation<T> extends Node<T> implements Owner {
   runApply() {
     if (!this.due || this.disposed) return;
     // (Behind a fallback, after its first: it waits for the reveal.)
-    if ((this.applied !== NONE || this.kind === EFFECT) && !this.tracked) {
+    // (A first apply too, when the pass that made it waits there: it shows with it.)
+    const p = this.parent;
+    if (!this.tracked && (this.applied !== NONE || this.kind === EFFECT || (p instanceof Computation && p.due))) {
       const b = behindFallback(this);
-      if (b) return void b.heldRuns.add(this);
+      if (b && (this.applied !== NONE || this.kind === EFFECT || b.heldRuns.has(p as Computation<any>))) return void b.heldRuns.add(this);
     }
     if (this.tracked) {
       this.due = false;
