@@ -2563,7 +2563,7 @@ function shownInitialized(c: Computation<any>): boolean {
     // (A reader that has shown something: a memo with a value, an effect that applied one.)
     if (!(o instanceof Computation) || (o.kind === MEMO ? !o.ready : o.applied === NONE)) continue;
     const b = ((o as any).loading as LoadingState | undefined) ?? boundaryOf(o);
-    if (b && !b.fresh && !b.mountRoot) return true;
+    if (b && !b.fresh) return true;
   }
   return false;
 }
@@ -3614,7 +3614,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     // (A boundary that has not shown its content, or was reset, catches what waits now: its fallback shows at once.)
     if (state.fresh) state.onFallback = true;
     if (slot.owner && slot.gated) return slot.collapsed ? (dropFallback(), undefined as any) : showFallback();
-    if (c === NOT_READY || state.waiting.size || state.heldBy.size) return showFallback();
+    // (A mount, once on screen, never goes back: what waits under it later is held, not hidden.)
+    if (c === NOT_READY || (!(state.mountRoot && !state.fresh) && (state.waiting.size || state.heldBy.size))) return showFallback();
     try {
       const v = resolveChildren(c);
       // Re-armed: the fallback until what it shows has landed (looked at again whenever something stops loading: an
