@@ -1583,9 +1583,10 @@ export class Computation<T> extends Node<T> implements Owner {
       throw new NotReadyError(this);
     }
     // A fresh derivation reading a flight a transaction waits on suspends on it (A15).
-    // (A resolve() reading one this read itself set off: its last answer, stale while it revalidates.)
+    // (A resolve() reading one this read itself set off, or a quiet re-ask its action marked: its last answer, stale
+    // while it revalidates — the mark still gates the commit.)
     // (A first pass shown under a Loading that has not shown its content: the boundary catches it, its fallback shows.)
-    if (listener && (listener.kind === MEMO || ((listener as any).resolving && flewBefore) || (listener.kind === RENDER && freshBoundary(listener))) && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && !this.loadingWindow && !this.streaming) throw new NotReadyError(this);
+    if (listener && (listener.kind === MEMO || ((listener as any).resolving && flewBefore && !(this.quiet && (this as any).affected)) || (listener.kind === RENDER && freshBoundary(listener))) && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && !this.loadingWindow && !this.streaming) throw new NotReadyError(this);
     // Born held: nothing committed to serve outside a pass.
     if ((this as any).bornHeld && !inPass && this.override === NONE) throw new NotReadyError(this);
     return this.current();
