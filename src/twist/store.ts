@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -1020,6 +1020,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     return 0;
   }, { writes: true, onTake: took, ...(options?.ssrSource ? { ssrSource: options.ssrSource, sourceFn: fn } : {}), ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   memo = m;
+  // (It holds the store's state across runs: never torn down for being read with nothing subscribed.)
+  if (writable) keepMemo(m as any);
   derives.set(target, m);
   // (Its draft dies with its owner: a late write after that is dropped.)
   const o = getOwner() as any;
@@ -1037,6 +1039,11 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
           if (!(e instanceof NotReadyError)) throw e;
         }
       } else m();
+      // (Read untracked outside a flush: this tick's own write shows, as the derive's does — #3576.)
+      if (!isTracking() && !isFlushing() && records.get(t)?.pending?.has(k)) {
+        const v = snapshotGet(t, k);
+        return isWrappable(v) ? wrap(child(t, v)) : v;
+      }
       return readHandler.get!(t, k, receiver);
     },
     ownKeys(t) {
