@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, derivesIn, inPassNow, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -34,6 +34,8 @@ class Record_ {
   own: Raw;
   /** Whether `own` is its private copy yet. */
   copied = false;
+  /** The action a landing under its optimism was folded into (#3164): in that action's world its guesses are gone. */
+  folded: Transaction | null = null;
   /** Values its keys had before a write while hydration keeps snapshots (what readers in the scope still see). */
   snaps: Map<PropertyKey, any> | null = null;
   constructor(public target: Raw) {
@@ -354,8 +356,11 @@ export const unwrap = <T>(v: T): T => ((v as any)?.[$TARGET] ?? v);
 
 /** Whether `key` shows an optimistic guess. (A probe asking whether it is final: only while it differs from the truth beneath, A24.) */
 function overlaid(target: Raw, key: PropertyKey) {
-  const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
+  const r = isAuthoritative() ? undefined : records.get(target);
+  const o = r?.overlay?.get(key);
   if (!o) return false;
+  // (A truth folded into the guess's own action under it: read as held — in that world the guess is gone.)
+  if (inGuessWorld(r!, actionOf(o.tx))) return false;
   if (isVerdictReading() && (o.v === DELETE ? !latestHas(target, key) : latestHas(target, key) && Object.is(o.v, latestGet(target, key)))) return "final";
   return true;
 }
@@ -459,13 +464,29 @@ function frozen(target: Raw, key: PropertyKey, value?: unknown): boolean {
 }
 
 /** What a key shows: its optimistic value if one is installed, else the committed value. */
+/** An optimistic value the reader sees: not to one asking the truth, nor in the world its action commits to (where the
+ * edit is gone). */
+function shownGuess(target: Raw, key: PropertyKey) {
+  if (isAuthoritative()) return undefined;
+  const r = records.get(target);
+  const o = r?.overlay?.get(key);
+  return o && !inGuessWorld(r!, actionOf(o.tx)) ? o : undefined;
+}
+/** Whether the reader sees `r` as action `t` commits it: deriving in `t`'s held world, or in a pass while `r`'s
+ * writes are folded into `t` (#3164). */
+function inGuessWorld(r: Record_, t: Transaction | null): boolean {
+  if (!t || t.done) return false;
+  if (derivesIn(t)) return true;
+  const w = r.folded;
+  return inPassNow() && !!w && !w.root.done && w.root === t;
+}
 function viewGet(target: Raw, key: PropertyKey): any {
-  const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
+  const o = shownGuess(target, key);
   if (o) return o.v === DELETE ? undefined : o.v;
   return rawGet(target, key);
 }
 function viewHas(target: Raw, key: PropertyKey): boolean {
-  const o = isAuthoritative() ? undefined : records.get(target)?.overlay?.get(key);
+  const o = shownGuess(target, key);
   if (o) return o.v !== DELETE;
   return rawHas(target, key);
 }
@@ -473,7 +494,8 @@ function viewKeys(target: Raw): (string | symbol)[] {
   const overlay = isAuthoritative() ? null : records.get(target)?.overlay;
   if (!overlay?.size) return rawKeys(target);
   const keys = new Set<string | symbol>(rawKeys(target));
-  for (const [k, o] of overlay) o.v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+  const r = records.get(target)!;
+  for (const [k, o] of overlay) if (!inGuessWorld(r, actionOf(o.tx))) o.v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
   if (Array.isArray(target)) {
     const len = viewGet(target, "length");
     for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
@@ -556,10 +578,16 @@ function pendingHas(target: Raw, key: PropertyKey): boolean {
 const dirtyRecords = new Set<Record_>();
 
 /** The records written since `before` was taken, committed now (their readers told). */
+/** The action a guess was made in (its lane's parent). */
+const actionOf = (tx: Transaction | null | undefined) => (tx ? (tx.parentTx ? tx.parentTx.root : tx.root) : null);
 /** The live action whose optimistic edits show over `target`, if any. */
 function overlayHold(target: Raw): Transaction | null {
   const o = records.get(target)?.overlay;
-  if (o) for (const { tx } of o.values()) if (tx && !tx.done && !tx.root.done && tx.root.open > 0) return tx.root;
+  if (o)
+    for (const { tx } of o.values()) {
+      const t = actionOf(tx);
+      if (t && !t.done && t.open > 0) return t;
+    }
   return null;
 }
 function promoteWrites(before: Set<Record_>) {
@@ -791,8 +819,9 @@ function runDraft<T>(v: T, run: Run): T {
     const ok = f();
     // (A transition waits on this run: its writes are that frame's, through the flush; else they show as made.)
     // (Or an action keeps optimistic edits over the store: they fold into it, #3164.)
-    const t = (run.read && !run.stream ? flightTransaction(run.read()) : null) ?? (run.root ? overlayHold(run.root) : null);
-    if (t) for (const r of dirtyRecords) !before.has(r) && (r.keys.writtenIn = t);
+    const flight = run.read && !run.stream ? flightTransaction(run.read()) : null;
+    const t = flight ?? (run.root ? overlayHold(run.root) : null);
+    if (t) for (const r of dirtyRecords) !before.has(r) && ((r.keys.writtenIn = t), !flight && (r.folded = t));
     else promoteWrites(before);
     return ok;
   };
@@ -892,7 +921,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     into(target, contentOf(v), key);
     // (Landing while an action keeps optimistic edits over it: folded into that action, revealed when it settles, #3164.)
     const fold = overlayHold(target);
-    if (fold) for (const r of dirtyRecords) !before.has(r) && (r.keys.writtenIn = fold);
+    if (fold) for (const r of dirtyRecords) !before.has(r) && ((r.keys.writtenIn = fold), (r.folded = fold));
     else promoteWrites(before);
   };
   // (On a server, its answer goes to the client as the state it made.)

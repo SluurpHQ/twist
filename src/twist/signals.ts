@@ -2695,6 +2695,15 @@ export function flightTransaction(read: unknown): Transaction | null {
   return t && !t.done && !t.open && !t.lane && !t.parentTx ? t : null;
 }
 
+/** Whether a derivation's pass is running now (it reads the staged world; an effect shows the screen). */
+export const inPassNow = () => inPass > 0 && (listener ?? untrackedBy)?.kind === MEMO;
+/** Whether the computation running now derives in `t`'s held world (what `t` commits to). */
+export function derivesIn(t: Transaction | null | undefined): boolean {
+  if (!t || t.done || !inPass) return false;
+  const l = listener ?? untrackedBy;
+  return !!l && (l.readHeld?.root === t.root || l.tx?.root === t.root);
+}
+
 /** A write over a derivation another transaction holds is not a proposal: the derivation runs again over it (#3612). */
 export function rederiveHeld(read: unknown) {
   const c = accessors.get(read as any);
