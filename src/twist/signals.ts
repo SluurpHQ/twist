@@ -625,7 +625,7 @@ function openPumpHold(ctx: any, node: Owner, alive: () => boolean): () => void {
     cap = setTimeout(() => {
       cap = undefined;
       if (released || !alive()) return;
-      if (process.env.NODE_ENV !== "production") emitDiagnostic(
+      if (process.env.NODE_ENV !== "production") reportDiagnostic(emitDiagnostic(
         {
           code: "SSR_UNDECLARED_LIVE_SOURCE",
           kind: "ssr",
@@ -635,7 +635,7 @@ function openPumpHold(ctx: any, node: Owner, alive: () => boolean): () => void {
           data: { afterMs: UNDECLARED_LIVE_SOURCE_MS },
         },
         node,
-      );
+      ));
     }, UNDECLARED_LIVE_SOURCE_MS);
     cap.unref?.();
   }
