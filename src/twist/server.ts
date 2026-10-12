@@ -303,9 +303,16 @@ export function ssrStyleProperties(...entries: any[]): string {
 
 export const ssrStyleProperty = (name: string, value: any) => ssrStyleProperties(name, value);
 
+/** Markup that may hold the page's `</head>` (an html or head element, raw markup with one): the render looks for it at
+ * the end; a fragment's string is never searched (on a long page, the search alone was as costly as the render). */
+function markHead(raw?: string) {
+  const ctx = sharedConfig.context as any;
+  if (ctx && !ctx.headMarkup && (raw === undefined || raw.includes("</head>"))) ctx.headMarkup = true;
+}
 /** A template with holes: the strings with each hole rendered between them (finished HTML). */
 export function ssr(template: string[] | string, ...nodes: any[]): { t: string } {
-  if (typeof template === "string") return { t: template };
+  if (typeof template === "string") return markHead(template), { t: template };
+  for (const t of template) markHead(t);
   let out = template[0] ?? "";
   for (let i = 1; i < template.length; i++) out += html(nodes[i - 1], false) + template[i];
   return { t: out };
@@ -553,6 +560,7 @@ function element(el: Element_, keyed: boolean): string {
     if (!TAG_NAME.test(tag)) throw new Error(`"${tag}" is not a valid tag name`);
     validTags.add(tag);
   }
+  if (tag === "html" || tag === "head") markHead();
   // The key first: what the props read is the element's, after it.
   let out = "<" + tag + (keyed ? ssrHydrationKey() : "");
   const all = propsOf(el);
@@ -598,7 +606,7 @@ function element(el: Element_, keyed: boolean): string {
       continue;
     }
     // Content props: the markup, the text, a textarea's value.
-    else if (k === "innerHTML") content = v == null ? "" : String(v);
+    else if (k === "innerHTML") markHead((content = v == null ? "" : String(v)));
     else if (k === "textContent" || (tag === "textarea" && (k === "value" || (k === "defaultValue" && content === undefined)))) content = escape(String(v ?? ""));
     // A select's value is no attribute: the matching option is marked selected.
     else if (tag === "select" && k === "value") chosen = v;
@@ -924,7 +932,9 @@ const DATA = Symbol("data");
 function withHeadAssets(html: string, tracking: AssetTracking, h: HeadRegistry | null, nonce?: Nonce, onHead?: (head: string) => void): string {
   // (A head the page wrote as text, not rendered: no slot was filled, its tags go with the links.)
   const parts = h && !h.placed ? shellHeadParts(h) : null;
-  const at = html.indexOf("</head>");
+  // (Searched only where a head can be: outside a render's context, always.)
+  const ctx = sharedConfig.context as any;
+  const at = !ctx || ctx.headMarkup || h?.placed ? html.indexOf("</head>") : -1;
   if (at === -1) {
     onHead?.((parts ? parts.prelude + (parts.title != null ? `<title data-dh="title">${escape(parts.title)}</title>` : "") + parts.html : "") + renderHeadAssets(tracking, nonce));
     return html;
