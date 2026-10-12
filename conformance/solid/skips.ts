@@ -32,6 +32,28 @@ export const CHANGES: Change[] = [
     why: "switches Solid onto its copy paths for platforms without Proxy by mocking its private constants module (SUPPORTS_PROXY); Twist requires Proxy and has no such paths",
   },
   {
+    file: "signals/tests/store/overlay-rebuild-3689.test.ts",
+    skipFile: true,
+    why: "reads a store's private backing ($TARGET.v) to check when Solid rebuilds it",
+  },
+  {
+    file: "signals/tests/store/deep-chained-view.test.ts",
+    skip: "does not create a second view target for a row the walk reaches",
+    why: "reads a view's private family map ($TARGET.fam)",
+  },
+  {
+    file: "signals/tests/posture-store-parity.test.ts",
+    find: `    expect(((s as any)[$TARGET].n ?? {}).n).toBeUndefined();\n`,
+    replace: ``,
+    why: "reads a store's private node table ($TARGET.n)",
+  },
+  {
+    file: "signals/tests/posture-store-parity.test.ts",
+    find: `      expect(((s as any)[$TARGET].h ?? {}).k).toBeUndefined();\n`,
+    replace: ``,
+    why: "reads a store's private has-node table ($TARGET.h)",
+  },
+  {
     file: "signals/tests/lane-contract.test.ts",
     skip: "a long-lived lane does not grow its bookkeeping with every pass",
     why: "measures a lane's private _nodes array",

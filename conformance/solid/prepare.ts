@@ -37,7 +37,8 @@ function applyChanges(rel: string, t: string): string {
     if (c.file !== rel) continue;
     used.add(c);
     const note = `/* Twist: ${c.why} */ `;
-    if ("skipFile" in c) t = t.replace(/(^|[^.\w])(describe|it|test)(\.each\([^)]*\))?\(/g, (_m, pre, fn, each) => `${pre}${note}${fn}.skip${each ?? ""}(`);
+    // (A whole file skipped: one skipped test in its place, so what it imports need not exist.)
+    if ("skipFile" in c) return `import { test } from "@twist/vitest";\ntest.skip(${JSON.stringify("Twist: " + c.why)}, () => {});\n`;
     else if ("skip" in c) {
       const title = c.skip.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const re = new RegExp(`(^|[^.\\w])(describe|it|test)\\((["'\`])${title}\\3`, "g");
@@ -125,6 +126,8 @@ const serverInternals =
   `export const ownerId = (o) => o.id;\n`;
 for (const name of ["index", "flow", "hydration", "shared", "signals"])
   await Bun.write(join(out, "solid", "src", "server", name + ".js"), `export * from ${JSON.stringify(twist("server-solid.ts"))};\n` + serverInternals);
+mkdirSync(join(out, "signals", "src", "store"), { recursive: true });
+await Bun.write(join(out, "signals", "src", "store", "store.js"), `export * from ${JSON.stringify(twist("store.ts"))};\n`);
 const ours = twist("index.ts");
 // And by package name: packages that are ours (Bun's resolver finds packages; a plugin cannot invent them).
 for (const name of ["solid-js", "@solidjs/signals"]) {

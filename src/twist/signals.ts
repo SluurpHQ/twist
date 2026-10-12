@@ -291,6 +291,34 @@ function drainParked(c: { parked?: Owner[] | null }) {
 export function getOwner(): Owner | null {
   return owner;
 }
+export type ExternalSource = { track: (prev: any) => any; dispose: () => void };
+export type ExternalSourceConfig = { factory: (fn: (prev: any) => any, trigger: () => void) => ExternalSource; untrack?: <T>(fn: () => T) => T };
+/** Another reactive library tracked along: each computation runs through its tracker, which triggers it again. */
+let externalSource: { factory: ExternalSourceConfig["factory"]; untrack: <T>(fn: () => T) => T } | null = null;
+/** Computations made from now on track an external reactive library's reads too (a later call wraps the earlier). */
+export function enableExternalSource(config: ExternalSourceConfig) {
+  const { factory, untrack = (fn) => fn() } = config;
+  const prev = externalSource;
+  externalSource = prev
+    ? {
+        factory(fn, trigger) {
+          const inner = prev.factory(fn, trigger);
+          const outer = factory((x) => inner.track(x), trigger);
+          return {
+            track: (x) => outer.track(x),
+            dispose() {
+              outer.dispose();
+              inner.dispose();
+            },
+          };
+        },
+        untrack: (fn) => prev.untrack(() => untrack(fn)),
+      }
+    : { factory, untrack };
+}
+/** External tracking off again (for tests). */
+export const _resetExternalSourceConfig = () => void (externalSource = null);
+
 /** A mount's window in which a render effect waiting with no Loading above is said (once per window, dev only). */
 let enforcing = false;
 let saidUnhandled = false;
@@ -401,6 +429,11 @@ function remove<T>(list: T[], item: T) {
  * will not update, and says so.
  */
 export function untrack<T>(fn: () => T, strictReadLabel?: string): T {
+  // (An external reactive library's reads are untracked with it.)
+  if (externalSource) {
+    const inner = fn;
+    fn = () => externalSource!.untrack(inner);
+  }
   if (!listener && !strictRead && !strictReadLabel) return fn();
   const prev = listener;
   const prevStrict = strictRead;
@@ -1100,6 +1133,8 @@ export class Computation<T> extends Node<T> implements Owner {
   declare due: boolean;
   /** A tracked effect (createTrackedEffect): its single function runs in the effect phase. */
   declare tracked: boolean;
+  /** Its tracker of an external reactive library (enableExternalSource). */
+  declare ext: ExternalSource | null;
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
     ownerCreations++;
     super();
@@ -1110,6 +1145,10 @@ export class Computation<T> extends Node<T> implements Owner {
     this.order = ids++;
     this.kind = kind;
     this.fn = fn;
+    if (externalSource) {
+      const ext = (this.ext = externalSource.factory(fn, () => void (!this.disposed && (this.mark(DIRTY), schedule()))));
+      this.fn = ext.track;
+    }
     this.state = DIRTY;
     this.sources = this.before = NOTHING_YET as Source[];
     this.born = flushes;
@@ -1254,6 +1293,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.flight) (this.flight = null), flights.delete(this);
     const c = this.cleanup;
     if (c) (this.cleanup = undefined), c();
+    if (this.ext) this.ext.dispose(), (this.ext = null);
   }
   /** Something it read changed (DIRTY), or may have through a memo (CHECK): queued, and its readers told. */
   mark(state: number) {
@@ -1960,7 +2000,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, windowAnswer: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { ext: null, readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, windowAnswer: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {

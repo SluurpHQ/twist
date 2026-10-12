@@ -274,8 +274,16 @@ function latestKeys(target: Raw): (string | symbol)[] {
  * Whether a value is wrapped in a store proxy (as Solid 2): plain objects, arrays, objects with no prototype, and class
  * instances that are plain records (not DOM nodes, dates, maps…); never a frozen one.
  */
+/** Values never made stores: served as they are, tracked by reference where they sit. */
+const raws = new WeakSet<object>();
+export function markRaw<T extends object>(v: T): T {
+  raws.add(v);
+  return v;
+}
+
 export function isWrappable(v: any): v is Raw {
   if (v == null || typeof v !== "object" || Object.isFrozen(v)) return false;
+  if (raws.has(v)) return false;
   if (v[$PROXY]) return false;
   const proto = Object.getPrototypeOf(v);
   if (proto === Object.prototype || proto === null || Array.isArray(v)) return true;

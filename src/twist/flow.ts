@@ -300,6 +300,11 @@ export function merge<T extends object[]>(...sources: T): any {
   return view;
 }
 
+/** Views whose keys follow a source that can gain or lose keys. */
+const liveKeys = new WeakSet<object>();
+/** Whether `o`'s keys are fixed for its lifetime: a plain object, or a view over plain ones (not a store, nor a view over a function or a store). */
+export const hasStaticKeys = (o: object) => !(o as any)[LIVE] && !($PROXY in o) && !liveKeys.has(o);
+
 /** A view's setter: a write to it is ignored. */
 const ignoreWrite = () => {};
 
@@ -314,6 +319,7 @@ export function omit<T extends object, K extends keyof T>(props: T, ...keys: (K 
     Object.defineProperty(view, k, { enumerable: true, configurable: true, get: () => (props as any)[k], set: ignoreWrite });
   }
   leaves.set(view, (k) => (k in view ? props : undefined));
+  if (!hasStaticKeys(props)) liveKeys.add(view);
   return view;
 }
 
