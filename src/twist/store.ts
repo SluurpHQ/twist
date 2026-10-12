@@ -87,6 +87,14 @@ class Family {
     return t;
   }
 }
+/** Whether `v` has a property it cannot reconfigure (an array's length aside). */
+function hasLockedKey(v: object): boolean {
+  for (const k of Reflect.ownKeys(v)) {
+    if (k === "length" && Array.isArray(v)) continue;
+    if (Object.getOwnPropertyDescriptor(v, k)?.configurable === false) return true;
+  }
+  return false;
+}
 /** An empty object standing in for `v` as a proxy's target, holding `v` until the first write. */
 function shellOf(v: Raw): Raw {
   const t = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
@@ -728,8 +736,9 @@ function asyncStoreSetter(): never {
 export function createStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: StoreOptions): [T, StoreSetter<T>] {
   if (typeof init === "function") return derivedStore(init as any, seed ?? ({} as T), options, true) as [T, StoreSetter<T>];
   const given = unwrap(init) as Raw;
-  // (A frozen object: behind a shell, written to an unfrozen copy.)
-  const target = given && typeof given === "object" && Object.isFrozen(given) && (Array.isArray(given) || [Object.prototype, null].includes(Object.getPrototypeOf(given))) ? shellOf(given) : given;
+  // (A frozen object, or one with a locked property: behind a shell — no proxy invariant pins what it shows — written
+  // to a copy.)
+  const target = given && typeof given === "object" && (Array.isArray(given) || [Object.prototype, null].includes(Object.getPrototypeOf(given))) && (Object.isFrozen(given) || hasLockedKey(given)) ? shellOf(given) : given;
   if ((seed as any)?.shallow ?? options?.shallow) {
     if (unwrap(init) !== init) throw new Error("createStore({ shallow }): value is already a store proxy");
     if (records.has(target) && !shallowTargets.has(target)) throw new Error("createStore({ shallow }): value is already tracked as a deep store");

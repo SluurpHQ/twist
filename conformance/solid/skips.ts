@@ -72,6 +72,12 @@ export const CHANGES: Change[] = [
     why: "pins Solid's doubled pending frame at the refetch landing (its comment: a frame count this control is not about); the verdict reading true after the window, then the landing, is checked",
   },
   {
+    file: "signals/tests/store/fold-scheduling.test.ts",
+    find: `  const committed = () => ((store as any)[$TARGET].pb ?? (store as any)[$TARGET].v).n;\n  const committedBase = () => (store as any)[$TARGET].v.n;\n`,
+    replace: `  const committed = () => (store as any).n;\n  const committedBase = committed;\n`,
+    why: "probes Solid's private backing ($TARGET.v / .pb); read through the store instead — an ambient read serves the committed value",
+  },
+  {
     file: "signals/tests/lane-contract.test.ts",
     skip: "a long-lived lane does not grow its bookkeeping with every pass",
     why: "measures a lane's private _nodes array",
