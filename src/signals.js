@@ -533,11 +533,19 @@ export function effect(fn, second = {}) {
   // this effect ends. A plain effect does not, because an effect that starts
   // something long-lived once, behind a flag, is an ordinary thing to write
   // and would lose it on its next run.
+  const e = effectNode(fn, second.owns === true);
+  return () => detach(e);
+}
+
+/**
+ * An effect as its node, for a runtime that keeps many (one a component): `fn` runs as the node's method, so one
+ * function can serve them all, reading what it is for from `this.of`. `endEffect(node)` ends it.
+ */
+export function effectNode(fn, owns = false, of = null) {
   const e = {
     kind: EFFECT, id: S.made++, fn, sources: NOTHING_YET, seen: NOTHING_YET, observers: null,
-    disposed: false, owns: second.owns === true, children: second.owns === true ? [] : NONE, cleanups: NONE,
+    disposed: false, owns, children: owns ? [] : NONE, cleanups: NONE, of,
   };
-  const dispose = () => detach(e);
   let ran = false;
   try {
     run(e);
@@ -547,9 +555,14 @@ export function effect(fn, second = {}) {
     // made nothing can never run again, and is not kept: the compiler wraps every expression that
     // might change, and most of them read no signal at all.
     if (ran && !e.sources.length && !e.children.length && !e.cleanups.length) e.disposed = true;
-    else if (S.owner) S.owner.push(dispose);
+    else if (S.owner) S.owner.push(() => detach(e));
   }
-  return dispose;
+  return e;
+}
+
+/** An effect made by `effectNode` ended. */
+export function endEffect(node) {
+  detach(node);
 }
 
 /**

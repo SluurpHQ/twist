@@ -75,6 +75,16 @@ export function effect(fn: () => void, options?: { owns?: boolean }): () => void
  * work and reads nothing reactively.
  */
 export function effect<T>(compute: () => T, apply: (value: T, previous: T | undefined) => void): () => void;
+/**
+ * An effect as its node, for a runtime that keeps many (one a component): `fn` runs as the node's method, so one
+ * function can serve them all, reading what it is for from `this.of`. `endEffect(node)` ends it.
+ */
+export function effectNode<O>(fn: (this: EffectNode<O>) => void, owns?: boolean, of?: O): EffectNode<O>;
+/** An effect made by `effectNode` ended. */
+export function endEffect(node: EffectNode<any>): void;
+export interface EffectNode<O> {
+  readonly of: O;
+}
 
 /**
  * Run `fn`, collecting every effect it creates, and hand back a disposer

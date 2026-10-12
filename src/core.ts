@@ -2,7 +2,7 @@
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 declare const process: { env: Record<string, string | undefined> };
-import { effect, flush as flushSignals, holdFlushes, onBatch, runWithOwner, signal, untrack } from "./signals.js";
+import { effect, effectNode, endEffect, type EffectNode, flush as flushSignals, holdFlushes, onBatch, runWithOwner, signal, untrack } from "./signals.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
@@ -48,7 +48,7 @@ export type Fiber = {
   // A component: how it renders, its hooks, the effect it renders in.
   render?: (f: Fiber, props: any) => any;
   hooks?: any[];
-  stop?: () => void;
+  stop?: EffectNode<Fiber>;
   out?: any;
   inst?: any;
   tick?: Sig<number>;
@@ -300,8 +300,10 @@ function bindText(f: Fiber, sig: () => any) {
 
 /** A child's key among its siblings, and the fiber kind it makes. */
 export function keyOf(c: any, i: number) {
-  return c && typeof c === "object" && c.key != null ? "k" + c.key : "i" + i;
+  return c && typeof c === "object" && c.key != null ? "k" + c.key : (indexKeys[i] ??= "i" + i);
 }
+/** Position keys, made once (a fiber per child would otherwise hold a string of its own). */
+const indexKeys: string[] = [];
 
 export function typeOf(c: any): any {
   if (typeof c === "string" || typeof c === "number" || typeof c === "bigint" || typeof c === "function") return TEXT_NODE;
@@ -696,19 +698,19 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
   const left: Map<string, Fiber> | null = byKey ?? (lineAt < old.length || skipped ? keyMap(old, lineAt, skipped) : null);
   if (stoppedAt && left) for (const f of old) if (left.get(f.key) === f) next.push(f), left.delete(f.key);
   if (left) for (const f of left.values()) unmount(f, true);
-  parent.children = next;
+  // The same children in the same order (most updates): the list it had kept. Else one its own size (a list pushed to
+  // has room for 17).
+  let same = next.length === old.length;
+  for (let j = 0; same && j < next.length; j++) if (next[j] !== old[j]) same = false;
+  parent.children = same ? old : next.slice();
   if ((parent as any).building) (parent as any).building = undefined;
   // In order, back to front: each node before the one after it, moved only when it is not already there.
   // Taking over server markup, nodes are claimed or made in place: nothing to move.
   if (hydrating) return;
   // All new, or the old ones kept in line with the new ones after them: each was put in place as it was made.
   if (!keptOutOfLine && !((parent as any).singleton && host.nodeName === "BODY") && intoOf(parent, host) === host) return;
-  // The same children in the same order (most updates): nothing moves.
-  if (next.length === old.length) {
-    let same = true;
-    for (let j = 0; j < next.length; j++) if (next[j] !== old[j]) (same = false), (j = next.length);
-    if (same) return;
-  }
+  // The same children in the same order: nothing moves.
+  if (same) return;
   // What moves: new children, and kept ones outside the longest run still in their old order (that run stays; React
   // keeps only those after the last one placed, so a swap moves every row between the two, where this moves two).
   // The others stay where they are (other nodes may sit between them, as a sibling portal's in the same container).
@@ -959,6 +961,13 @@ const fresh: Fiber[] = [];
  */
 /** No children yet: one list for every fiber (a fiber's list is replaced, never changed in place). */
 const NO_FIBERS: Fiber[] = [];
+/** A render's effects, or a component's hooks, before there are any: shared, never written to. */
+const NO_EFFECTS = Object.freeze([]) as unknown as (() => void)[];
+/** A fiber's list of effects of one phase for this render, its own from the first. */
+function effectsOf(f: Fiber, phase: "insertion" | "layout" | "passive"): (() => void)[] {
+  const l = f[phase]!;
+  return l === NO_EFFECTS ? (f[phase] = []) : l;
+}
 class FiberNode {
   declare kind: number;
   declare type: any;
@@ -980,7 +989,7 @@ class FiberNode {
   declare tree: TreeContext | undefined;
   declare render: ((f: Fiber, props: any) => any) | undefined;
   declare hooks: any[] | undefined;
-  declare stop: (() => void) | undefined;
+  declare stop: EffectNode<Fiber> | undefined;
   declare out: any;
   declare inst: any;
   declare tick: Sig<number> | undefined;
@@ -1273,7 +1282,7 @@ function drawBoundary(f: Fiber, host: Node, before: Node | null) {
     f.children = [];
     reconcile(f, toList(f.props?.children), host, before);
   } else {
-    f.stop?.();
+    if (f.stop) endEffect(f.stop);
     f.children = [];
     start(f, host, before);
   }
@@ -2343,7 +2352,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
   }
   const f = fiber(COMP, type, key, props, parent);
   f.render = renderer(type, f);
-  f.hooks = [];
+  f.hooks = NO_EFFECTS;
   // In a render that can stop between components: drawn when the work loop reaches it, where it is then.
   if (work && work.deferring) {
     work.units.splice(work.at++, 0, () => !f.dead && start(f, hostParentOf(f), nextDomAfter(f)));
@@ -2661,7 +2670,7 @@ function unmount(f: Fiber, removeDom: boolean) {
   if (f.type === VIEW_TRANSITION && f.committed) viewTransitionUnmounted(f);
   if (!f.committed) {
     // Never committed: nothing ran for it, nothing to undo.
-    f.stop?.();
+    if (f.stop) endEffect(f.stop);
     for (const c of f.children) unmount(c, false);
     return;
   }
@@ -2670,7 +2679,7 @@ function unmount(f: Fiber, removeDom: boolean) {
   // (Tagged with the fiber, for the time a Profiler above it is told.)
   const later = (fn: () => void) => (inRender ? (profilersMounted && ((fn as any).owner = f), deletions.push(fn)) : fn());
   if (f.kind === COMP) {
-    f.stop?.();
+    if (f.stop) endEffect(f.stop);
     const inst = f.inst;
     later(() => {
       if (inst && (f as any).classRef != null) lifecycle(f, () => clearRef(f, (f as any).classRef));
@@ -2750,6 +2759,12 @@ function clearRef(f: Fiber, ref: any) {
 
 
 /** How a component type renders: functions, classes, forwardRef, memo, lazy, Consumer, Suspense. */
+// Renders shared by every fiber of a kind (a fiber's type is what it renders; a new type gets its render again).
+const renderFunction = (f: Fiber, props: any) => f.type(props);
+const renderMemo = (f: Fiber, props: any) => f.type.type(props);
+const renderMemoElement = (f: Fiber, props: any) => createElement(f.type.type, props);
+const renderLazy = (f: Fiber, props: any) => createElement(readLazy(f.type._payload), props);
+const renderConsumer = (f: Fiber, props: any) => props.children(readContext(f, f.type._context));
 function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
   if (typeof type === "function") {
     if (type.prototype?.isReactComponent) {
@@ -2768,7 +2783,7 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
       const n = type.displayName || type.name || "Component";
       warn(`The <${n} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${n} to extend React.Component instead.`, "render-not-extended:" + n);
     }
-    return (_f, props) => type(props);
+    return renderFunction;
   }
   if (type === SUSPENSE) {
     f.pending = signal(0);
@@ -2827,12 +2842,12 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
     case MEMO:
       f.compare = type.compare ?? shallowEqual;
       return typeof type.type === "function" && !type.type.prototype?.isReactComponent
-        ? (_f, props) => type.type(props)
-        : (_f, props) => createElement(type.type, props);
+        ? renderMemo
+        : renderMemoElement;
     case LAZY:
-      return (_f, props) => createElement(readLazy(type._payload), props);
+      return renderLazy;
     case CONSUMER:
-      return (fb, props) => props.children(readContext(fb, type._context));
+      return renderConsumer;
   }
   const error = invalidType(type);
   // Naming the component whose render made the element, as React does (in development).
@@ -2842,21 +2857,35 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
 }
 
 
+/** Where a component's first draw puts it: read by its effect's first run, which runs as the effect is made. */
+let firstHost: Node | undefined;
+let firstBefore: Node | null = null;
+/** A component's effect (one function for all: its fiber is the node's `of`). */
+function drawComponent(this: EffectNode<Fiber>) {
+  const f = this.of;
+  const host = firstHost;
+  firstHost = undefined;
+  if (f.tick) f.tick();
+  if (f.dead) return;
+  // Placed where asked the first time; after, where it is.
+  if (host) draw(f, host, firstBefore);
+  else draw(f);
+}
+
 /** The component's effect started, rendering it now into `host` before `before`. */
 function start(f: Fiber, host?: Node, before?: Node | null) {
-  // Placed where asked the first time; after, where it is.
-  let first = !!host;
-  f.stop = effect(() => {
-    if (f.tick) f.tick();
-    if (f.dead) return;
-    if (first) (first = false), draw(f, host!, before ?? null);
-    else draw(f);
-  });
+  firstHost = host;
+  firstBefore = before ?? null;
+  try {
+    f.stop = effectNode(drawComponent, false, f);
+  } finally {
+    firstHost = undefined;
+  }
 }
 
 /** Drawn again now with new props: a fresh effect, so what it reads is tracked as its own. */
 function restart(f: Fiber) {
-  f.stop?.();
+  if (f.stop) endEffect(f.stop);
   start(f, hostParentOf(f), nextDomAfter(f));
 }
 
@@ -2903,9 +2932,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   const began = profilersMounted ? now() : 0;
   const outerNested = nestedTime;
   nestedTime = 0;
-  f.insertion = [];
-  f.layout = [];
-  f.passive = [];
+  f.insertion = f.layout = f.passive = NO_EFFECTS;
   let out: any;
   const prevCurrent = current;
   const prevAt = hookAt;
@@ -2920,18 +2947,14 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
       if (!(f as any).again && (f as any).strict && f.render !== renderClass && typeof f.type === "function" && (process.env.NODE_ENV !== "production" && dev())) {
         // StrictMode: rendered once more, its hooks as the first render left them (React's double render).
         hookAt = 0;
-        f.insertion = [];
-        f.layout = [];
-        f.passive = [];
+        f.insertion = f.layout = f.passive = NO_EFFECTS;
         out = replaying(() => f.render!(f, f.props));
       }
       if (!(f as any).again) break;
       if (pass >= 24) throw new Error("Too many re-renders. React limits the number of renders to prevent an infinite loop.");
       // Again, with what this render set: its hooks from the top, the effects it asked for asked again.
       hookAt = 0;
-      f.insertion = [];
-      f.layout = [];
-      f.passive = [];
+      f.insertion = f.layout = f.passive = NO_EFFECTS;
     }
   } catch (e) {
     // An update that suspends: what was on the page stays (React
@@ -2993,9 +3016,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     (f as any).redo = false;
     for (const c of f.children) unmount(c, true);
     f.children = [];
-    f.insertion = [];
-    f.layout = [];
-    f.passive = [];
+    f.insertion = f.layout = f.passive = NO_EFFECTS;
     // Mounting: mounted again; updating: updated again, with the error's state.
     if (!f.committed && f.type.getDerivedStateFromError) f.inst.__remount = true;
     current = f;
@@ -3049,6 +3070,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     layoutQueue.push(...f.layout);
     passiveQueue.push(...f.passive);
   }
+  f.insertion = f.layout = f.passive = NO_EFFECTS;
   if (depth === 1 && inBatch) {
     const seg = batchSegments[batchSegments.length - 1];
     if (seg?.f === f) (seg.layout[1] = layoutQueue.length), (seg.passive[1] = passiveQueue.length);
@@ -3203,11 +3225,11 @@ function renderClass(f: Fiber, withRef: any) {
     inst.state = apply(inst.state, props)[0];
     const out = strictTwice(f, () => classRender(inst), true);
     propsReassigned(C, inst, props);
-    if (inst.componentDidMount) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidMount()));
+    if (inst.componentDidMount) effectsOf(f, "layout").push(() => !f.dead && lifecycle(f, () => inst.componentDidMount()));
     (f as any).classRef = ref;
     const done = inst.__done?.splice(0);
-    if (done?.length) f.layout!.push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
-    if (ref != null) f.layout!.push(() => !f.dead && setRef(f, ref, inst));
+    if (done?.length) effectsOf(f, "layout").push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
+    if (ref != null) effectsOf(f, "layout").push(() => !f.dead && setRef(f, ref, inst));
     return out;
   }
   const prevProps = inst.props;
@@ -3215,7 +3237,7 @@ function renderClass(f: Fiber, withRef: any) {
   const prevCtx = inst.context;
   const prevRef = (f as any).classRef;
   // Its ref attached after its other layout work (pushed last, below), the old one let go first.
-  const attach = prevRef !== ref && ref != null ? () => f.layout!.push(() => setRef(f, ref, inst)) : null;
+  const attach = prevRef !== ref && ref != null ? () => effectsOf(f, "layout").push(() => setRef(f, ref, inst)) : null;
   if (prevRef !== ref) {
     (f as any).classRef = ref;
     if (prevRef != null) deletions.push(() => clearRef(f, prevRef));
@@ -3233,7 +3255,7 @@ function renderClass(f: Fiber, withRef: any) {
     inst.context = ctx;
     // Its setState callbacks are called even so (React's).
     const skipped = inst.__done?.splice(0);
-    if (skipped?.length) f.layout!.push(() => lifecycle(f, () => skipped.forEach((cb: any) => callCallback(cb, inst))));
+    if (skipped?.length) effectsOf(f, "layout").push(() => lifecycle(f, () => skipped.forEach((cb: any) => callCallback(cb, inst))));
     attach?.();
     return KEEP;
   }
@@ -3246,9 +3268,9 @@ function renderClass(f: Fiber, withRef: any) {
   const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
   if (inst.getSnapshotBeforeUpdate) checkSnapshot(C, snapshot);
   propsReassigned(C, inst, props);
-  if (inst.componentDidUpdate) f.layout!.push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
+  if (inst.componentDidUpdate) effectsOf(f, "layout").push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
-  if (done?.length) f.layout!.push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
+  if (done?.length) effectsOf(f, "layout").push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
   attach?.();
   return out;
 }
@@ -3756,9 +3778,7 @@ function renderAgain(f: Fiber) {
   const was = { current, hookAt, insertion: f.insertion, layout: f.layout, passive: f.passive };
   current = f;
   hookAt = 0;
-  f.insertion = [];
-  f.layout = [];
-  f.passive = [];
+  f.insertion = f.layout = f.passive = NO_EFFECTS;
   try {
     untrack(() => f.render!(f, f.props));
   } catch {
@@ -4008,6 +4028,8 @@ function hook<T>(make: () => T): T {
   }
   const hooks = f.hooks!;
   const i = hookAt++;
+  // (Its first: a list of one, not one pushed to with room for 17.)
+  if (hooks === NO_EFFECTS) return (f.hooks = [insideHook(make)])[0];
   if (i >= hooks.length) hooks.push(insideHook(make));
   return hooks[i];
 }
@@ -4302,7 +4324,7 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
   if (!h.first && deps && !depsChanged(h.deps, deps)) return;
   h.phase = phase;
   h.create = create;
-  f[phase]!.push(() => {
+  effectsOf(f, phase).push(() => {
     if (f.dead) return;
     h.ranIn = renderSerial;
     h.first = false;
@@ -4554,7 +4576,7 @@ function scheduleRefresh(root: RefreshRoot, update: { updatedFamilies: Set<any>;
           for (const c of f.children) unmount(c, true);
           f.children = [];
           for (const h of f.hooks ?? []) if (h?.cleanup) lifecycle(f, h.cleanup);
-          f.hooks = [];
+          f.hooks = NO_EFFECTS;
           f.inst = undefined;
         }
         f.render = renderer(f.type, f);
