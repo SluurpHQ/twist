@@ -33,7 +33,7 @@ import {
   startEffect,
   RENDER_EFFECT,
 } from "./signals.ts";
-import { checkHydrationComplete, enableHydration, initBoundaryResume } from "./hydration.ts";
+import { checkHydrationComplete, enableHydration, hydrationPaused, initBoundaryResume } from "./hydration.ts";
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
 import { $PROXY, $TARGET } from "./store.ts";
 export { isStatic };
@@ -1054,14 +1054,15 @@ function portal(props: { mount?: Node; children?: any }) {
 /** `fn` run as when not hydrating: what it makes is new, nothing of the server's claimed. */
 function clientOnlyRun<T>(fn: () => T): T {
   const was = hydrating;
-  const shared = sharedConfig.hydrating;
+  const window = sc.windowOpen;
   hydrating = null;
-  sharedConfig.hydrating = false;
+  // (A claim window open around it is not this: made, not described.)
+  sc.windowOpen = false;
   try {
-    return fn();
+    return hydrationPaused(fn);
   } finally {
     hydrating = was;
-    sharedConfig.hydrating = shared;
+    sc.windowOpen = window;
   }
 }
 

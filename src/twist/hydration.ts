@@ -82,6 +82,26 @@ export function initBoundaryResume(o: Owner, id: string): () => boolean {
   return release;
 }
 
+/** `fn` run as if not hydrating (what it makes is new): no pass ends, nothing settles meanwhile. */
+export function hydrationPaused<T>(fn: () => T): T {
+  if (!installed) {
+    const was = sharedConfig.hydrating;
+    sharedConfig.hydrating = false;
+    try {
+      return fn();
+    } finally {
+      sharedConfig.hydrating = was;
+    }
+  }
+  const was = hydratingValue;
+  hydratingValue = false;
+  try {
+    return fn();
+  } finally {
+    hydratingValue = was;
+  }
+}
+
 /** `fn` claiming server-rendered DOM under `o`: the keys under `id` gathered, `scope`'s registry for its span. */
 function hydrateWindow<T>(id: string | undefined, fn: () => T, scope?: Scope, o: Owner | null = getOwner()): T {
   const prevRegistry = (sharedConfig as any).registry;
