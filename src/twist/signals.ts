@@ -2713,6 +2713,8 @@ export function resetErrorHalt() {
 }
 
 const byOrder = (a: Computation<any>, b: Computation<any>) => a.height - b.height || a.order - b.order;
+/** Effects apply in the order they were made, as Solid's queue keeps them. */
+const byCreation = (a: Computation<any>, b: Computation<any>) => a.order - b.order;
 
 /** The computations that own `c`, brought up to date first (top-down): one that runs again disposes `c`. */
 function ownersFirst(c: Computation<any>) {
@@ -3668,8 +3670,8 @@ function drain() {
         if (left) (c as any).leftHold = false;
         if ((c as any).parked && (!c.tx || left)) drainParked(c as any);
       }
-    if (applies[RENDER].length && !dirty.length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
-    if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
+    if (applies[RENDER].length && !dirty.length) for (const e of applies[RENDER].splice(0).sort(byCreation)) e.runApply();
+    if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byCreation)) e.runApply();
     // (In the effects' phase, after them: a write an effect just made is not settled yet, and not seen.)
     if (settledQueue.length && !dirty.length && !applies[RENDER].length && !applies[EFFECT].length) {
       // (A mount still loading what it shows is not settled: its onSettled runs once that lands.)
