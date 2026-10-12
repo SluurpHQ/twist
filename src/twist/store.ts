@@ -1232,7 +1232,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
 setPatchApply(applyPatches);
 
 /** A store's state as a stream for the client (the server entry installs it: store-trail.ts). */
-type StateTrail = { send(): void; end(): void; stream: AsyncIterable<unknown> };
+type StateTrail = { send(): void; end(): void; stream: unknown };
 let stateTrail: ((read: () => any) => StateTrail) | null = null;
 export const setStateTrail = (f: typeof stateTrail) => void (stateTrail = f);
 

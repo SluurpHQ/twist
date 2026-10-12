@@ -82,7 +82,7 @@ export {
 export { REVALIDATE_HEADER } from "../response.ts";
 
 /** Development builds: warnings about open live connections over HTTP/1. */
-const IS_DEV = true;
+const IS_DEV = process.env.NODE_ENV !== "production";
 /** The call's observation rides the per-call options to the send (lifted off before the init is built). */
 const CALL_OBSERVATION = Symbol("solid.CallObservation");
 

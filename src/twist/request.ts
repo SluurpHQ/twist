@@ -78,7 +78,7 @@ export function getTraceContext() {
 const SAFE_ERROR = Symbol.for("solid.SafeError");
 const SERVER_ERRORS = Symbol.for("solid-js/server/errors");
 const GENERIC_SERVER_ERROR_MESSAGE = "Internal Server Error";
-const IS_DEV = true;
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 export interface ServerErrorSite {
   kind: "render" | "server-function" | "request";

@@ -22,12 +22,15 @@ const rows: Row[] = [];
 /** What failed, by message: counted across files into errors.txt, with the files it came from. */
 const errors = new Map<string, { n: number; files: Set<string> }>();
 const count = (out: string, word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}$`, "m").exec(out)?.[1] ?? 0);
+// COVERAGE=<dir>: each test file's coverage of src/ as lcov, in a folder of its own there.
+let covered = 0;
+const coverage = () => (process.env.COVERAGE ? ["--coverage", "--coverage-reporter=lcov", `--coverage-dir=${process.env.COVERAGE}/${covered++}`] : []);
 const queue = [...files];
 async function worker() {
   for (let f = queue.shift(); f; f = queue.shift()) {
     const rel = relative(here, f).replace(/\\/g, "/");
     // JavaScriptCore's watchdog ends runaway synchronous code (a loop no test timeout can interrupt) after 10 s.
-    const p = Bun.spawn([process.execPath, "test", "./" + rel, "--timeout", "2000"], { cwd: here, stdout: "pipe", stderr: "pipe", env: { ...process.env, BUN_JSC_watchdog: "10000" } });
+    const p = Bun.spawn([process.execPath, "test", "./" + rel, "--timeout", "2000", ...coverage()], { cwd: here, stdout: "pipe", stderr: "pipe", env: { ...process.env, BUN_JSC_watchdog: "10000" } });
     const timer = setTimeout(() => p.kill(), 30_000);
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
     clearTimeout(timer);

@@ -9,8 +9,9 @@ import { isAsyncValue } from "./client.ts";
 // Own copies: the marker constants and the dev-only shape finders.
 import { SLOT_MARKER, SLOT_TEXT, shapeOf, slotShapeFinding } from "./frame-client.ts";
 
-// Build-time literal (see diagnostics.ts): dev-only guidance folds out of
-const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
+declare const process: { env: Record<string, string | undefined> };
+// Development only: guidance folds out of production builds.
+const IS_DEV = process.env.NODE_ENV !== "production";
 
 // === The marker grammar's readers ===
 

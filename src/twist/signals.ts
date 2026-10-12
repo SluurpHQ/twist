@@ -2975,9 +2975,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       }
     // (An effect never applied, made by a pass a transaction holds: it has no frame to show — born held with it.)
     if (n instanceof Computation && n.kind !== MEMO && n.applied === NONE && !joins) {
-      let p: Owner | null = n.parent;
-      while (p && !(p instanceof Computation)) p = p.parent;
-      const pt = (p as Computation<any> | null)?.tx?.root;
+      const pt = makerOf(n)?.tx?.root;
       if (pt && !pt.done && !pt.parentTx) joins = pt;
     }
     const by = (n as any).writtenIn as Transaction | null;
@@ -3180,9 +3178,7 @@ function madeByLane(l: Computation<any>, t: Transaction): boolean {
 
 /** Whether `c` was made by a computation `t` holds. */
 function madeByHeld(c: Computation<any>, t: Transaction): boolean {
-  let p: Owner | null = c.parent;
-  while (p && !(p instanceof Computation)) p = p.parent;
-  return !!p && (p as Computation<any>).tx?.root === t;
+  return makerOf(c)?.tx?.root === t;
 }
 
 /** Whether a computation's value reaches the screen: an effect reads it, directly or through memos. */
@@ -3709,16 +3705,19 @@ export function releaseIfConstant(e: Computation<any>) {
 /** Made by a render effect's pass while its last frame is still parked with cleanups of its owners not run yet. */
 function madeOverFrame(e: Computation<any>) {
   if (!parkedRenders) return false;
-  let p: Owner | null = e.parent;
-  while (p && !(p instanceof Computation)) p = p.parent;
-  const parked = p && (p as Computation<any>).kind === RENDER ? ((p as any).parked as Owner[] | null) : null;
+  const p = makerOf(e);
+  const parked = p?.kind === RENDER ? ((p as any).parked as Owner[] | null) : null;
   const cleans = (o: Owner): boolean => !!o.cleanups?.length || !!o.owned?.some(cleans);
   return !!parked?.some(cleans);
 }
 function madeByLeaver(e: Computation<any>) {
-  let p: Owner | null = e.parent;
+  return !!(makerOf(e) as any)?.leftHold;
+}
+/** The computation whose run made `o` (through the plain owners between). */
+function makerOf(o: Owner): Computation<any> | null {
+  let p = o.parent;
   while (p && !(p instanceof Computation)) p = p.parent;
-  return !!(p as any)?.leftHold;
+  return p;
 }
 export const RENDER_EFFECT = RENDER;
 
@@ -5050,13 +5049,6 @@ const guesses: [Node, unknown, Transaction | null][] = [];
 const ambient: Node[] = [];
 /** What undoes optimistic store writes made outside an action, at the end of their flush. */
 const ambientEnds: (() => void)[] = [];
-
-/** `end` run when the optimistic writes being made now are undone: at their action's end, or at the flush's. */
-export function onGuessEnd(end: () => void) {
-  const tx = acting?.tx.root;
-  if (tx && !tx.done) tx.ends.push(end);
-  else ambientEnds.push(end), schedule();
-}
 
 /** Outside an action: the hold already on `n`, or its own refetch still unanswered (a guess shown until it lands). */
 function overFlight(n: Node | undefined): Transaction | null {

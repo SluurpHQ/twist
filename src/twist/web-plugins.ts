@@ -84,26 +84,6 @@ export const AbortSignalPlugin = /* @__PURE__ */ createPlugin({
 	}
 });
 
-export const BlobPlugin = /* @__PURE__ */ createPlugin({
-	tag: "seroval-plugins/web/Blob",
-	test(value) {
-		if (typeof Blob === "undefined") return false;
-		return value instanceof Blob;
-	},
-	parse: { async async(value, ctx) {
-		return {
-			type: await ctx.parse(value.type),
-			buffer: await ctx.parse(await value.arrayBuffer())
-		};
-	} },
-	serialize(node, ctx) {
-		return "new Blob([" + ctx.serialize(node.buffer) + "],{type:" + ctx.serialize(node.type) + "})";
-	},
-	deserialize(node, ctx) {
-		return new Blob([ctx.deserialize(node.buffer)], { type: ctx.deserialize(node.type) });
-	}
-});
-
 function createCustomEventOptions(current) {
 	return {
 		detail: current.detail,
@@ -346,46 +326,6 @@ export const HeadersPlugin = /* @__PURE__ */ createPlugin({
 	},
 	deserialize(node, ctx) {
 		return new Headers(ctx.deserialize(node.value));
-	}
-});
-
-export const ImageDataPlugin = /* @__PURE__ */ createPlugin({
-	tag: "seroval-plugins/web/ImageData",
-	test(value) {
-		if (typeof ImageData === "undefined") return false;
-		return value instanceof ImageData;
-	},
-	parse: {
-		sync(value, ctx) {
-			return {
-				data: ctx.parse(value.data),
-				width: ctx.parse(value.width),
-				height: ctx.parse(value.height),
-				options: ctx.parse({ colorSpace: value.colorSpace })
-			};
-		},
-		async async(value, ctx) {
-			return {
-				data: await ctx.parse(value.data),
-				width: await ctx.parse(value.width),
-				height: await ctx.parse(value.height),
-				options: await ctx.parse({ colorSpace: value.colorSpace })
-			};
-		},
-		stream(value, ctx) {
-			return {
-				data: ctx.parse(value.data),
-				width: ctx.parse(value.width),
-				height: ctx.parse(value.height),
-				options: ctx.parse({ colorSpace: value.colorSpace })
-			};
-		}
-	},
-	serialize(node, ctx) {
-		return "new ImageData(" + ctx.serialize(node.data) + "," + ctx.serialize(node.width) + "," + ctx.serialize(node.height) + "," + ctx.serialize(node.options) + ")";
-	},
-	deserialize(node, ctx) {
-		return new ImageData(ctx.deserialize(node.data), ctx.deserialize(node.width), ctx.deserialize(node.height), ctx.deserialize(node.options));
 	}
 });
 

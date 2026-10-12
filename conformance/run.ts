@@ -26,10 +26,13 @@ const rows: Row[] = [];
 const errors = new Map<string, number>();
 const count = (out: string, word: string) => Number(new RegExp(`^\\s*(\\d+) ${word}$`, "m").exec(out)?.[1] ?? 0);
 
+// COVERAGE=<dir>: each test file's coverage of src/ as lcov, in a folder of its own there.
+let covered = 0;
+const coverage = () => (process.env.COVERAGE ? ["--coverage", "--coverage-reporter=lcov", `--coverage-dir=${process.env.COVERAGE}/${covered++}`] : []);
 const queue = [...files];
 async function worker() {
   for (let f = queue.shift(); f; f = queue.shift()) {
-    const p = Bun.spawn([process.execPath, "test", "./" + relative(here, f).replace(/\\/g, "/"), "--timeout", "2000"], { cwd: here, stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawn([process.execPath, "test", "./" + relative(here, f).replace(/\\/g, "/"), "--timeout", "2000", ...coverage()], { cwd: here, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => p.kill(), 30_000);
     const out = (await new Response(p.stdout).text()) + (await new Response(p.stderr).text());
     clearTimeout(timer);

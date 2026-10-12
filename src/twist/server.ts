@@ -6,8 +6,7 @@ import { childIdCount, setChildIdCount, keyOwnerOf, idScope, idPlace, createMemo
 installServerStreams();
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
-import { headerScript, hydrationSerializer } from "./serialize.ts";
-import { createHydrationSerializer } from "./serialization.ts";
+import { createHydrationSerializer, getLocalHeaderScript as headerScript } from "./serialization.ts";
 import { __twist_mark, markBuiltin, renderComponent, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
 // (Solid's server API by name: a star export of server-solid would bring this module's Loading, Errored… back to it.)
@@ -928,7 +927,7 @@ type Render = {
   shellSent: boolean;
   /** What the client hydrates with, as script text not yet sent. */
   data: string;
-  serializer: ReturnType<typeof hydrationSerializer> | null;
+  serializer: ReturnType<typeof createHydrationSerializer> | null;
   /** Keys already written, and answers still to come (the stream ends after them). */
   written: Set<string>;
   pendingData: number;

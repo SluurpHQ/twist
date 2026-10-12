@@ -48,8 +48,9 @@ tierLoaders.bind = () => import("./bind-tier.ts");
 // The live wire tier (frames savings pass §3 row C2): what a `live()`
 tierLoaders.wire = () => import("./wire-tier.ts");
 
-// Build-time literal (see diagnostics.ts): dev-only guidance folds out of prod.
-const IS_DEV = "_SOLID_DEV_" as unknown as boolean;
+declare const process: { env: Record<string, string | undefined> };
+// Development only: guidance folds out of production builds.
+const IS_DEV = process.env.NODE_ENV !== "production";
 // This import must resolve to the SHARED built instance, not a bundled
 import { configureServerFunctionsClient } from "../server-functions/client.ts";
 // The seroval codec is the frames client's heaviest dependency (~6 kB gz
