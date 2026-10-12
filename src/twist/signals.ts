@@ -3391,6 +3391,8 @@ function drain() {
         } finally {
           landing = false;
         }
+        const lr = (c as any).landRelease as (() => void)[] | undefined;
+        if (lr) ((c as any).landRelease = undefined), lr.forEach((f) => f());
         if (mount && (mount as any).mount && !mount.done && !c.streaming && c.staged !== NONE && !c.tx) (hold(c, mount), ((c as any).bornHeld = true));
         if ((c as any).dropOnLanding) ((c as any).dropOnLanding = false), readersOf(c) || unread.add(c);
       }
@@ -4881,7 +4883,10 @@ export function affects(target: unknown, key?: PropertyKey) {
 function markAffected(nodes: Node[], tx: Transaction | null, holder?: Node) {
   for (const n of nodes) (n as any).affected = ((n as any).affected ?? 0) + 1;
   statusChanged();
+  let released = false;
   const release = () => {
+    if (released) return;
+    released = true;
     for (const n of nodes) (n as any).affected--;
     statusChanged();
   };
@@ -4889,7 +4894,10 @@ function markAffected(nodes: Node[], tx: Transaction | null, holder?: Node) {
   // Outside an action: to the flush's end, or (a marked node's answer in flight: a declared reload) to its landing.
   endWith(null, () => {
     const flying = [holder, ...nodes].find((n) => n instanceof Computation && n.flight) as Computation<any> | undefined;
-    flying?.settles ? flying.settles.then(release, release) : release();
+    if (!flying?.settles) return release();
+    // (Released as the answer lands, in that flush; the promise covers a failure.)
+    ((flying as any).landRelease ??= []).push(release);
+    flying.settles.then(release, release);
   });
 }
 function invalidAffects(detail: string): never {
