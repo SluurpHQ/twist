@@ -3698,6 +3698,13 @@ export function startEffect<T>(e: Computation<T>, options?: SignalOptions<T>) {
   }
   schedule();
 }
+/** An effect whose first run read nothing and left nothing to undo: written once, out of the graph (a constant hole). */
+export function releaseIfConstant(e: Computation<any>) {
+  if (e.sources !== NOTHING_YET || e.due || e.tx || e.flight || e.error !== NONE || e.owned || e.cleanups || e.ext || e.state !== CLEAN || (e as any).applyFirst) return;
+  const p = e.parent;
+  if (p?.owned) remove(p.owned, e);
+  e.disposed = true;
+}
 /** Made by a render effect's pass that left a hold: it shows the committed frame, applied as made. */
 /** Made by a render effect's pass while its last frame is still parked with cleanups of its owners not run yet. */
 function madeOverFrame(e: Computation<any>) {

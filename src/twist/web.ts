@@ -31,6 +31,7 @@ import {
   keyOwnerOf,
   Computation,
   startEffect,
+  releaseIfConstant,
   RENDER_EFFECT,
   hydrationFlag,
   runAgain,
@@ -790,6 +791,8 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
   if (claimed) b.first = claimed;
   if (host) b.host = host;
   startEffect(b);
+  // (A template hole that read nothing: written once. Spread's children keep their effect, as Solid's do.)
+  if (name === undefined) releaseIfConstant(b);
   return b;
 }
 /** Bindings whose first value was pending as they were claimed (counted: a marked range keeps its nodes for them). */
