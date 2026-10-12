@@ -3730,14 +3730,19 @@ export function action<A extends unknown[], R>(gen: (...args: A) => Generator<an
       const step = (method: "next" | "throw", input?: unknown) => {
         let r: IteratorResult<any, R> | Promise<IteratorResult<any, R>>;
         const was = acting;
+        // (An action's body is no computation's: untracked, whoever resumed it.)
+        const wasListener = listener;
         acting = me;
+        listener = null;
         try {
           r = (it as any)[method](input);
         } catch (e) {
           acting = was;
+          listener = wasListener;
           return end(() => fail(e));
         }
         acting = was;
+        listener = wasListener;
         // (The first step runs inside its caller: its writes show at the caller's flush.)
         if (r && !(r as any).done && typeof (r as any).then !== "function") first ? schedule() : settleStep();
         first = false;
