@@ -553,12 +553,15 @@ function properties(ctx, depth, o) {
   return { k, v };
 }
 
+/** An error's own place properties in JavaScriptCore (Bun, Safari). */
+const ENGINE_PLACES = new Set(["line", "column", "sourceURL", "originalLine", "originalColumn"]);
 function errorOptions(e, features) {
   const named = ERROR_NAMES[errorIndex(e)];
   let options = e.name !== named ? { name: e.name } : e.constructor.name !== named ? { name: e.constructor.name } : {};
   for (const name of Object.getOwnPropertyNames(e)) {
     if (name === "name" || name === "message") continue;
-    if (name === "stack" && !(features & Feature.ErrorPrototypeStack)) continue;
+    // (Where the stack is not sent, neither are the places some engines keep on the error: line, column, file.)
+    if ((name === "stack" || ENGINE_PLACES.has(name)) && !(features & Feature.ErrorPrototypeStack)) continue;
     options[name] = e[name];
   }
   return options;

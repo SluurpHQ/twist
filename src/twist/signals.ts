@@ -3044,8 +3044,8 @@ export function resolve<T>(fn: () => T): Promise<T> {
 
 export type Context<T> = ((props: { value: T; children?: any }) => any) & { id: symbol; defaultValue: T | undefined };
 
-export function createContext<T>(defaultValue?: T, _options?: { name?: string }): Context<T> {
-  const id = Symbol("context");
+export function createContext<T>(defaultValue?: T, options?: { name?: string }): Context<T> {
+  const id = Symbol(options?.name ?? "context");
   const Provider = ((props: { value: T; children?: any }) => {
     // On its own owner (its own scope), and on the component's (what it returns is rendered there, as when hydrating).
     if (owner?.transparent) owner.context = { ...owner.context, [id]: props.value };
@@ -3069,7 +3069,7 @@ export class ContextNotFoundError extends Error {
 export function useContext<T>(context: Context<T>): T {
   const ctx = owner?.context;
   if (ctx && context.id in ctx) return ctx[context.id] as T;
-  if (context.defaultValue === undefined) throw new ContextNotFoundError();
+  if (context.defaultValue === undefined) throw notFound(context, ctx);
   return context.defaultValue;
 }
 
@@ -3077,8 +3077,19 @@ export function getContext<T>(context: Context<T>, o: Owner | null = owner): T {
   if (!o) throw new NoOwnerError();
   const ctx = o.context;
   if (ctx && context.id in ctx) return ctx[context.id] as T;
-  if (context.defaultValue === undefined) throw new ContextNotFoundError();
+  if (context.defaultValue === undefined) throw notFound(context, ctx);
   return context.defaultValue;
+}
+
+/** A context with no value where it is read (inside a server component: why, and what to do instead). */
+function notFound(context: Context<any>, ctx: Record<symbol, unknown> | null | undefined): Error {
+  if (!ctx?.[SERVER_COMPONENT_SCOPE]) return new ContextNotFoundError();
+  const name = context.id.description !== "context" ? context.id.description : undefined;
+  return new Error(
+    `Context${name ? ` "${name}"` : ""} cannot be read inside a server component. ` +
+      "Server components render standalone on refetches and mutations, so app-level providers do not cross the boundary. " +
+      "Pass the value as an argument, render the provider inside the server component, or read per-request state via getRequestEvent().",
+  );
 }
 
 export function setContext<T>(context: Context<T>, value?: T, o: Owner | null = owner) {

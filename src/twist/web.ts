@@ -9,6 +9,7 @@ import {
   createLoadingBoundary,
   createMemo,
   isAccessor,
+  resetErrorHalt,
   createEffect,
   createRenderEffect,
   createRoot,
@@ -903,6 +904,8 @@ function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
 /** `code()` put in `element`, kept current; answers a function that takes it away. */
 export function render(code: () => any, element: Element | ShadowRoot | Document, _init?: unknown, options?: { onError?: (error: unknown, context: unknown) => void }) {
   if (!element) throw new Error("The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document.");
+  // A fresh mount is a new app: in development, scheduling revives after an earlier halt (playgrounds, hot reload).
+  if (process.env.NODE_ENV !== "production") resetErrorHalt();
   roots.add(element);
   for (const t of delegated) listen(element, t);
   let disposer: (() => void) | undefined;

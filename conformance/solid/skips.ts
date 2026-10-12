@@ -68,6 +68,12 @@ export const CHANGES: Change[] = [
     skip: "a re-evaluated runtime shares the registry the seam's GET writes to (#3346)",
     why: "needs Vitest's vi.resetModules, which Bun's runner has no counterpart for",
   },
+  {
+    file: "web/test/server/server-functions-http-hygiene.spec.tsx",
+    find: `for (const method of ["OPTIONS", "FROB"])`,
+    replace: `for (const method of ["OPTIONS"])`,
+    why: "Bun's Request turns a method it does not know (FROB) into GET, so that request is never made",
+  },
   // ---- The engine's words
   {
     file: "signals/tests/equals-comparator-errors.test.ts",

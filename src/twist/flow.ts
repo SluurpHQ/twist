@@ -259,6 +259,9 @@ export function merge<T extends object[]>(...sources: T): any {
       has: (_t, k) => k === LIVE || find(k) !== undefined,
       ownKeys: () => ordered(),
       getOwnPropertyDescriptor: (_t, k) => (find(k) ? { enumerable: true, configurable: true, get: () => find(k)?.[k] } : undefined),
+      // (A view: writes to it are ignored.)
+      set: () => true,
+      deleteProperty: () => true,
     });
   }
   // Each key where its winning (last) source puts it.
@@ -273,10 +276,14 @@ export function merge<T extends object[]>(...sources: T): any {
           if (k in s) return s[k];
         }
       },
+      set: ignoreWrite,
     });
   }
   return view;
 }
+
+/** A view's setter: a write to it is ignored. */
+const ignoreWrite = () => {};
 
 /** A view of `props` without the given keys (read where used). */
 export function omit<T extends object, K extends keyof T>(props: T, ...keys: (K | ((k: PropertyKey) => boolean))[]): Omit<T, K> {
@@ -286,7 +293,7 @@ export function omit<T extends object, K extends keyof T>(props: T, ...keys: (K 
   const view: any = {};
   for (const k of Reflect.ownKeys(props)) {
     if (skip.has(k) || rules.some((r) => r(k))) continue;
-    Object.defineProperty(view, k, { enumerable: true, configurable: true, get: () => (props as any)[k] });
+    Object.defineProperty(view, k, { enumerable: true, configurable: true, get: () => (props as any)[k], set: ignoreWrite });
   }
   return view;
 }
