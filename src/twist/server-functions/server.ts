@@ -666,7 +666,8 @@ async function foldFlightData(hooks, event, headers, outcome, context: any = {})
   if (context.transformFlightResult) {
     const transformed = await context.transformFlightResult(event, { value: outcome.value, data }, context);
     if (transformed !== undefined) {
-      const owned = ownResponse(transformed);
+      // (Copied, its body teed: the integration may keep the Response it built and serve it again.)
+      const owned = ownResponse(transformed instanceof Response && !transformed.bodyUsed ? transformed.clone() : transformed);
       for (const cookie of headers.getSetCookie()) owned.headers.append("Set-Cookie", cookie);
       headers.forEach((value, key) => {
         if (key !== "set-cookie" && !owned.headers.has(key)) owned.headers.set(key, value);

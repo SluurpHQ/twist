@@ -353,7 +353,7 @@ export function getHeadersAndBody(body: any): { headers?: Record<string, string>
       return { headers: { [BODY_FORMAT_HEADER]: BodyFormat.File }, body: formData };
     }
     case body instanceof Blob:
-      return { headers: { [BODY_FORMAT_HEADER]: BodyFormat.Blob }, body };
+      return { headers: { ...(body.type ? { "Content-Type": body.type } : {}), [BODY_FORMAT_HEADER]: BodyFormat.Blob }, body };
     case body instanceof ArrayBuffer:
       return { headers: { [BODY_FORMAT_HEADER]: BodyFormat.ArrayBuffer }, body };
     case body instanceof Uint8Array:
@@ -384,8 +384,10 @@ export async function extractBody(source: Request | Response, codecOptions?: JSO
     case format === BodyFormat.URLSearchParams:
     case contentType && contentType.startsWith("application/x-www-form-urlencoded"):
       return new URLSearchParams(await source.text());
-    case format === BodyFormat.Blob:
-      return await source.blob();
+    case format === BodyFormat.Blob: {
+      const blob = await source.blob();
+      return blob.type || !contentType ? blob : new Blob([blob], { type: contentType });
+    }
     case format === BodyFormat.ArrayBuffer:
       return await source.arrayBuffer();
     case format === BodyFormat.Uint8Array:

@@ -2064,9 +2064,15 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     }
   };
   // (A request aborted after the shell: a disconnect, the sink not touched again; before it, the response ends.)
-  options.signal?.addEventListener("abort", () => abandon(!shellSent, "abandoned", "signal"), { once: true });
-  // (Aborted before it began: no event will come.)
+  // (Ended quietly by its owner — a frame response cut at a bound — is no abandonment to report.)
+  const onAbort = () => abandon(!shellSent, "abandoned", (options.signal as any).reason?.quiet ? undefined : "signal");
+  // (Aborted before it began: no event will come, none listened for.)
   if (options.signal?.aborted) abandon(true);
+  else if (options.signal) {
+    options.signal.addEventListener("abort", onAbort, { once: true });
+    // (Let go of once the response is over: the request's signal outlives it.)
+    void all.then(() => options.signal!.removeEventListener("abort", onAbort));
+  }
   let readable: ReadableStream<Uint8Array> | null = null;
   const failed = shellReady.then(
     async (s) => {
