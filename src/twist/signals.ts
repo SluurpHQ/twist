@@ -1115,7 +1115,7 @@ abstract class Node<T = any> {
   }
   /** The staged value made the committed one. */
   promote() {
-    if (this.staged !== NONE) this.value = this.staged as T;
+    if (this.staged !== NONE) (this.value = this.staged as T), ((this as any).committed = true);
     if (this.staged !== NONE) this.staged = NONE;
     if (this.tx) this.tx = null;
     if ((this as any).writtenIn) (this as any).writtenIn = null;
@@ -1383,6 +1383,7 @@ export class Computation<T> extends Node<T> implements Owner {
     // A declared first paint: born committed with it; its first flight is quiet (never pending, never held).
     if (options && "loadingValue" in options) {
       (this as any).declaredLoading = true;
+      (this as any).committed = true;
       this.value = options.loadingValue as T;
       this.ready = true;
       this.loadingWindow = true;
@@ -1900,7 +1901,7 @@ export class Computation<T> extends Node<T> implements Owner {
     // Derived from a held world: held with it (born held when it never committed a value).
     if (this.readHeld && !this.tx) hold(this, this.readHeld), first && ((this as any).bornHeld = true);
     if (flushing || this.tx) this.stage(next);
-    else (this.value = next), this.version++, clock++;
+    else (this.value = next), this.version++, clock++, ((this as any).committed = true);
   }
   /**
    * An answer still to come: in flight until it lands. A thenable that answers while `then` is called (a sync
@@ -3053,6 +3054,8 @@ function hold(n: Node, t: Transaction) {
   if (n.tx === t || t.done) return;
   n.tx = t;
   t.nodes.add(n);
+  // (A memo's first answer, held: nothing committed to serve outside the transaction until it commits.)
+  if (n instanceof Computation && n.kind === MEMO && !(n as any).committed && n.staged !== NONE) (n as any).bornHeld = true;
   if (n instanceof Computation && n.due) {
     t.effects.add(n);
     remove(applies[n.kind as 1 | 2], n);
