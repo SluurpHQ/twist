@@ -8,6 +8,7 @@ import {
   flush,
   createLoadingBoundary,
   createMemo,
+  isAccessor,
   createEffect,
   createRenderEffect,
   createRoot,
@@ -375,8 +376,9 @@ export function className(el: Element, value: any, prev?: any) {
 }
 
 function classes(v: any, out = new Set<string>()): Set<string> {
-  if (!v) return out;
+  if (v == null || typeof v === "boolean" || v === "") return out;
   if (typeof v === "string") for (const c of v.split(/\s+/)) c && out.add(c);
+  else if (typeof v === "number") out.add(String(v));
   else if (Array.isArray(v)) for (const x of v) classes(x, out);
   else if (typeof v === "object") for (const k of Object.keys(v)) if (v[k]) classes(k, out);
   return out;
@@ -457,10 +459,10 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
   const plain = !Array.isArray(props) && typeof props !== "function" ? untrack(() => Object.getOwnPropertyDescriptor(props, "children")) : undefined;
   if (plain && !plain.get) return void insertHosted(el, plain.value, null, undefined, undefined, name && `${name}.children`);
   // (An object without them: nothing to insert. A source that is called is read only by the effect.)
-  if (!plain && !Array.isArray(props) && typeof props !== "function" && !untrack(() => "children" in props)) return;
+  if (!plain && !Array.isArray(props) && typeof props !== "function" && !untrack(() => Object.hasOwn(props, "children"))) return;
   insertHosted(el, () => {
     const sources = sourcesOf(props);
-    for (let i = sources.length - 1; i >= 0; i--) if ("children" in sources[i]) return sources[i].children;
+    for (let i = sources.length - 1; i >= 0; i--) if (Object.hasOwn(sources[i], "children")) return sources[i].children;
   }, null, undefined, undefined, name && `${name}.children`);
 }
 
@@ -515,6 +517,10 @@ function listen(root: Node, type: string) {
 const containers = new Map<Node, Node>();
 /** The next node an event bubbles to: up the DOM, except from a portal's content: on from where the portal sits. */
 const bubbleFrom = (node: any): Node | null => node._$host ?? node.parentNode;
+/** A node's logical host (a portal's place in the tree, for events): read live from `host`. */
+function tagHost(n: Node, host: () => Node | null) {
+  if (Object.getOwnPropertyDescriptor(n, "_$host")?.get !== host) Object.defineProperty(n, "_$host", { get: host, configurable: true });
+}
 
 const EVENT_KEY = "_$$";
 
@@ -554,7 +560,13 @@ let claims: { html: typeof claimHtml; list: typeof claimList; children: typeof c
 const claimedNodes = new WeakMap<object, Node[]>();
 const claimedBy = (d: object, nodes: Node[]) => (claimedNodes.set(d, nodes), nodes);
 
-function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
+function nodesOf(value: any, out: Node[], reuse: Node[], top = true): Node[] {
+  if (value === "" && top) {
+    // (Text emptied: the node it showed in stays, empty.)
+    const old = reuse.find((n) => n.nodeType === 3);
+    if (old) ((old as Text).data !== "" && ((old as Text).data = "")), out.push(old);
+    return out;
+  }
   if (value == null || value === true || value === false || value === "") return out;
   if ((value as Node).nodeType) return out.push(value), out;
   const claimed = typeof value === "object" && claimedNodes.get(value);
@@ -569,7 +581,7 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
       const v = value[i];
-      v && v.nodeType ? out.push(v) : nodesOf(v, out, reuse);
+      v && v.nodeType ? out.push(v) : nodesOf(v, out, reuse, false);
     }
     return out;
   }
@@ -597,7 +609,12 @@ function nodesOf(value: any, out: Node[], reuse: Node[]): Node[] {
  * `value` put in `parent` (before `marker`, else at the end), kept current when it can change. Lists move by the
  * longest run still in order; nodes kept stay.
  */
-export function insert(parent: Node, value: any, marker: Node | null = null, initial?: Node[], options?: { name?: string }) {
+export function insert(parent: Node, value: any, marker?: Node | null, initial?: Node[] | string | number, options?: { name?: string; host?: () => Node | null }) {
+  // (A marker given, null included: a slot among siblings, its place held when it shows nothing.)
+  const slot = marker !== undefined;
+  marker ??= null;
+  // (The text it shows now, given as such: what the parent holds.)
+  if (initial != null && !Array.isArray(initial)) initial = marker === null ? [...parent.childNodes] : [];
   // In a claim window over server nodes: claimed where they are.
   if (claims && initial?.length && sharedConfig.hydrating && (!sc.isClaiming || sc.isClaiming())) {
     const was = hydrating;
@@ -613,7 +630,10 @@ export function insert(parent: Node, value: any, marker: Node | null = null, ini
       hydrating = was;
     }
   }
-  insertHosted(parent, value, marker, initial, undefined, options?.name ?? null);
+  // (A plain function: run in a memo of its own, as Solid's insert, so what it returns changing inside — a memo in it —
+  // does not run it again.)
+  if (typeof value === "function" && !isAccessor(value)) value = createMemo(value, { transparent: true, name: options?.name ?? "effect" });
+  insertHosted(parent, value, marker, initial, options?.host, options?.name ?? null, slot);
 }
 
 /** Whether a value is nodes made outside the page (not one of them in it). */
@@ -635,7 +655,7 @@ function cleanupFragment(id: string) {
 }
 
 /** `insert`, with each node told its portal host. */
-function insertHosted(parent: Node, value: any, marker: Node | null, initial?: Node[], host?: () => Node | null, name?: string | null) {
+function insertHosted(parent: Node, value: any, marker: Node | null, initial?: Node[], host?: () => Node | null, name?: string | null, slot = false) {
   // Children given as a list: static ones put in place; a part that can change, bound where it sits (before an empty
   // anchor of its own when more follows it).
   if (Array.isArray(value) && value.some((v) => typeof v === "function")) {
@@ -643,7 +663,7 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
     value.forEach((v, i) => {
       if (typeof v !== "function" || i === last) return insertHosted(parent, v, marker, i === last ? initial : undefined, host, name);
       const anchor = document.createTextNode("");
-      if (host) (anchor as any)._$host = host();
+      if (host) tagHost(anchor, host);
       parent.insertBefore(anchor, marker);
       bind(parent, v, anchor, undefined, host, undefined, name);
     });
@@ -651,7 +671,8 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
   }
   if (typeof value !== "function") {
     const next = nodesOf(value, [], initial ?? []);
-    if (host) for (const n of next) (n as any)._$host = host();
+    if (slot && !next.length) next.push(document.createTextNode(""));
+    if (host) for (const n of next) tagHost(n, host);
     if (initial?.length) reconcile(parent, initial, next, marker);
     else for (const n of next) parent.insertBefore(n, marker);
     return;
@@ -749,7 +770,7 @@ function bindingApply(this: Binding, v: any) {
     }
     if (!current.length) {
       const n = (this.text = document.createTextNode(t));
-      if (this.host) (n as any)._$host = this.host();
+      if (this.host) tagHost(n, this.host);
       parent.insertBefore(n, end);
       return;
     }
@@ -758,7 +779,7 @@ function bindingApply(this: Binding, v: any) {
   if (text) this.text = null;
   // (What it makes, a description drawn late, belongs where the binding was made.)
   const next = runWithOwner(this.parent, () => untrack(() => nodesOf(v, [], current)));
-  if (this.host) for (const n of next) (n as any)._$host = this.host();
+  if (this.host) for (const n of next) tagHost(n, this.host);
   reconcile(parent, current, next, end);
   this.nodes = next;
 }
@@ -822,6 +843,9 @@ function resolveDeep(v: any): any {
   return out;
 }
 
+/** `parent`'s nodes `a` turned into `b` with the fewest moves, in place (Solid's reconcileArrays). */
+export const reconcileArrays = (parent: Node, a: Node[], b: Node[]) => reconcile(parent, a, b, a.length ? a[a.length - 1]!.nextSibling : null);
+
 function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
   // The old nodes are all the parent holds and none stays: emptied at once (as Solid clears), the new ones put in.
   if (end === null && old.length > 1 && parent.firstChild === old[0] && parent.lastChild === old[old.length - 1] && parent.childNodes.length === old.length && !next.some((n) => n.parentNode === parent)) {
@@ -878,24 +902,35 @@ function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
 
 /** `code()` put in `element`, kept current; answers a function that takes it away. */
 export function render(code: () => any, element: Element | ShadowRoot | Document, _init?: unknown, options?: { onError?: (error: unknown, context: unknown) => void }) {
+  if (!element) throw new Error("The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document.");
   roots.add(element);
   for (const t of delegated) listen(element, t);
-  let disposer!: () => void;
-  createRoot((dispose) => {
-    disposer = dispose;
-    // (What a boundary under it catches is told here first, over the page's own hook.)
-    if (options?.onError) (getOwner() as any)[ROOT_ERROR_HOOK] = options.onError;
-    // Held as a whole while what it shows first waits on a first load (no half-made page): a boundary with no fallback.
-    insert(element, createLoadingBoundary(code, () => undefined, { mountRoot: true } as any));
-  });
-  // Rendered by the time render returns.
-  flush();
+  let disposer: (() => void) | undefined;
+  try {
+    createRoot((dispose) => {
+      disposer = dispose;
+      // (What a boundary under it catches is told here first, over the page's own hook.)
+      if (options?.onError) (getOwner() as any)[ROOT_ERROR_HOOK] = options.onError;
+      // Held as a whole while what it shows first waits on a first load (no half-made page): a boundary with no fallback.
+      insert(element, createLoadingBoundary(code, () => undefined, { mountRoot: true } as any));
+    });
+    // Rendered by the time render returns.
+    flush();
+  } catch (e) {
+    // (Failed to start: nothing of it stays — its scope disposed, the element no longer a root.)
+    disposer?.();
+    roots.delete(element);
+    throw e;
+  }
   return () => {
-    disposer();
+    disposer!();
     roots.delete(element);
     (element as Element).textContent = "";
   };
 }
+
+/** The element if render() or hydrate() made it a root its delegated events are handled at. */
+export const getDelegatedRoot = (element: Node) => (roots.has(element as any) ? element : undefined);
 
 /** A node rendered elsewhere (document.body unless `mount` is given); its events still reach this root. */
 export const Portal = /* @__PURE__ */ builtin(function Portal(props: { mount?: Node; children?: any }) {
@@ -1525,6 +1560,9 @@ function describeSiblings(parent: Element, mismatch: Node | null, tag: string, m
   return `<${p}>${start > 0 ? "..." : ""}${tags}${end < children.length ? "..." : ""}</${p}>`;
 }
 
+/** A derived value, as compiled code makes one (Solid's `memo`). */
+export const memo = <T>(fn: () => T): (() => T) => createMemo(() => fn());
+
 /** A render effect, as compiled code makes one (its options' name is for development tools). */
 export function effect<T>(compute: (prev?: T) => T, apply: (v: T, prev?: T) => void, options?: { name?: string }) {
   // (The compiled name, Solid's sourceNames.bindings, on its node.)
@@ -1537,7 +1575,7 @@ export function effect<T>(compute: (prev?: T) => T, apply: (v: T, prev?: T) => v
  */
 export function readShallow<T>(v: T): T {
   if (!v || typeof v !== "object") return v;
-  if (Array.isArray(v)) return (v.some((x) => x && typeof x === "object" && (x as any)[$TARGET]) ? v.map(readShallow) : v) as T;
+  if (Array.isArray(v)) return v.map(readShallow) as T;
   if (!(v as any)[$TARGET]) return v;
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(v)) out[k] = (v as any)[k];

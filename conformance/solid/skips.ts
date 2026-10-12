@@ -37,6 +37,37 @@ export const CHANGES: Change[] = [
     skip: "the observe tier, in the built artifacts",
     why: "reads Solid's built dist/server.observe.js",
   },
+  {
+    file: "web/test/lowercase-on-attribute.spec.tsx",
+    skip: "LOWERCASE_EVENT_ATTRIBUTE, in the built artifacts",
+    why: "reads Solid's built dist/web.dev.js",
+  },
+  {
+    file: "web/test/server/server-boundary-records.spec.tsx",
+    skip: "tiers, in the built artifacts",
+    why: "reads Solid's built dist/server.js",
+  },
+  {
+    file: "web/test/server/server-functions-failure-sanitization.spec.tsx",
+    skip: "the development artifact retains its stack default under NODE_ENV=production",
+    why: "loads Solid's built server-functions/dist/server.dev.js",
+  },
+  {
+    file: "solid/test/package-exports.spec.ts",
+    skip: "generated declarations are not public package entry points",
+    why: "resolves through Solid's own package.json exports",
+  },
+  // ---- The test harness
+  {
+    file: "web/test/delegated-event-cross-runtime.spec.tsx",
+    skip: "the two instances share no module state",
+    why: "loads Solid's client source twice (?copy=2) for two module instances; here both paths are one Twist module",
+  },
+  {
+    file: "web/test/server/server-functions-registry-reload.spec.tsx",
+    skip: "a re-evaluated runtime shares the registry the seam's GET writes to (#3346)",
+    why: "needs Vitest's vi.resetModules, which Bun's runner has no counterpart for",
+  },
   // ---- The engine's words
   {
     file: "signals/tests/equals-comparator-errors.test.ts",

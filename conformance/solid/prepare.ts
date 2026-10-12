@@ -98,6 +98,7 @@ await Bun.write(join(out, "web", "src", "index.js"), `export * from ${JSON.strin
 // helpers, Twist's.)
 await Bun.write(join(out, "web", "src", "client.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "server.js"), `export * from ${JSON.stringify(twist("server.ts"))};\n`);
+await Bun.write(join(out, "web", "src", "reconcile.js"), `export { reconcileArrays as default } from ${JSON.stringify(twist("web.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "response.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "cookies.js"), `export * from ${JSON.stringify(twist("response.ts"))};\n`);
 // (Specs that read the document's swap script from Solid's server source: Twist's, under Solid's name.)

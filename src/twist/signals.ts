@@ -901,6 +901,8 @@ const RENDER = 2;
 
 type Source = Node<any>;
 const accessors = new WeakMap<Function, Computation<any>>();
+/** Whether `f` reads a signal or memo of its own (not a plain function). */
+export const isAccessor = (f: unknown) => typeof f === "function" && accessors.has(f);
 
 /** The equals verdict a compute reached on what it answers (take() asks it once). */
 let comparedBy: Computation<any> | null = null;

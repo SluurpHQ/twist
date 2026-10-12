@@ -74,7 +74,7 @@ function described(spec: Spec, values: unknown[], at: { i: number }): any {
   const [tag, fixed, slots, kids] = spec;
   const props: Record<string, any> = {};
   for (const name of slots) props[name] = values[at.i++];
-  const children = kids.map((k) => (k === 0 ? values[at.i++] : typeof k === "string" ? k : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
+  const children = kids.map((k) => (k === 0 ? values[at.i++] : typeof k === "string" ? (RAW_TEXT.has(tag) ? k : { t: k.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }) : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
   if (children.length > 1) ((children as any)[OWN] = true), (props.children = children);
   else if (children.length) props.children = children[0];
   let attrs = fixedAttrs.get(spec);
@@ -693,7 +693,7 @@ export function ssrAttribute(name: string, value: any): string {
 }
 
 export function ssrClassName(value: any): string {
-  if (value == null || value === false) return "";
+  if (value == null || typeof value === "boolean") return "";
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map(ssrClassName).filter(Boolean).join(" ");
   if (typeof value === "object") return Object.keys(value).filter((k) => value[k]).join(" ");
