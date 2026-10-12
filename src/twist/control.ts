@@ -277,7 +277,7 @@ export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
 }
 
 
-const NO_HYDRATE = Symbol("no-hydrate");
+const NO_HYDRATE = Symbol.for("twist.no-hydrate");
 /** Whether what renders here hydrates: under an owner, outside NoHydration. */
 export const isHydratable = () => {
   const o = getOwner() as any;

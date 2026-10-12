@@ -1,6 +1,6 @@
 // Hydration's bookkeeping, as Solid's client/hydration.ts keeps it: when hydration is done, boundary holds, the claim
 // window, and the ledger of streamed fragments (`_$HY.fr`).
-import { flush, getOwner, isDisposed, isFlushing, onCleanup, sharedConfig, type Owner } from "./signals.ts";
+import { clearSnapshots, closeHydrationScope, flush, getOwner, isDisposed, isFlushing, onCleanup, openHydrationScope, setSnapshotCapture, sharedConfig, type Owner } from "./signals.ts";
 
 type Scope = { registry?: Map<string, object>; gather?: (key: string) => void };
 
@@ -33,6 +33,7 @@ function onHydrationEnd(callback: () => void) {
 function drain() {
   if (hydrationDone) return;
   hydrationDone = doneValue = true;
+  clearSnapshots();
   // (Ended inside a flush: that flush carries on with what is left.)
   if (!isFlushing()) flush();
   const cbs = endCallbacks;
@@ -215,8 +216,14 @@ export function enableHydration() {
     set(v: boolean) {
       const was = hydratingValue;
       hydratingValue = v;
-      if (!was && v) hydrationDone = doneValue = false;
-      else if (was && !v) checkHydrationComplete();
+      if (!was && v) {
+        hydrationDone = doneValue = false;
+        setSnapshotCapture(true);
+        openHydrationScope();
+      } else if (was && !v) {
+        closeHydrationScope();
+        checkHydrationComplete();
+      }
     },
     configurable: true,
     enumerable: true,

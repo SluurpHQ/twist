@@ -319,6 +319,72 @@ export function enableExternalSource(config: ExternalSourceConfig) {
 /** External tracking off again (for tests). */
 export const _resetExternalSourceConfig = () => void (externalSource = null);
 
+// ---------------------------------------------------------------- snapshots (hydration)
+// While hydrating, what derives in the hydrating tree reads the values its signals had when made: a write during the
+// pass (an effect, a value restored from storage) is held for it, and lands when its scope is released (the pass
+// ends). The page claimed is the page the server rendered.
+
+let snapshotCapture = false;
+/** Signals holding a snapshot, cleared when hydration is over. */
+let snapshotSources: Set<Signal<any>> | null = null;
+/** The hydrating tree's root, a snapshot scope from its first computation until the pass ends. */
+let snapshotRoot: Owner | null = null;
+/** Snapshots taken from now on (signals made, and written, keep the value they had). */
+export function setSnapshotCapture(on: boolean) {
+  snapshotCapture = on;
+  if (on) snapshotSources ??= new Set();
+}
+/** What derives under `o` from now on reads snapshots. */
+export function markSnapshotScope(o: Owner) {
+  (o as any).snapshotScope = true;
+}
+/** `o`'s scope over: what read a snapshot that has moved on runs again. */
+export function releaseSnapshotScope(o: Owner) {
+  (o as any).snapshotScope = false;
+  releaseScope(o);
+  schedule();
+}
+function releaseScope(o: Owner) {
+  for (const c of o.owned ?? []) {
+    // (A scope of its own is released on its own.)
+    if ((c as any).snapshotScope) continue;
+    if (c instanceof Computation) {
+      c.inSnapshot = false;
+      if (c.snapshotStale) (c.snapshotStale = false), c.mark(DIRTY);
+    }
+    releaseScope(c);
+  }
+}
+/** Every snapshot dropped, capture off: signals read as they are again. */
+export function clearSnapshots() {
+  if (snapshotSources) for (const s of snapshotSources) s.snap = NONE;
+  snapshotSources = null;
+  snapshotCapture = false;
+}
+/** Never settles: a node not asked yet waits on it. */
+const UNASKED = { then() {} };
+/** `fn` once the hydrating pass is over; until then, a question not asked (the flag reads false in the scope). */
+function hydrationGate<T>(fn: (prev?: T) => T): (prev?: T) => T {
+  const hydrated = new Signal(false, { ownedWrite: true });
+  (hydrated as any).snapshots = true;
+  hydrated.snapshot();
+  hydrated.write(true);
+  return (prev) => (hydrated.read() ? fn(prev) : (UNASKED as T));
+}
+
+/** The hydrating pass begins: its root is found at its first computation. */
+export const openHydrationScope = () => void (snapshotRoot = null);
+/** The hydrating pass ends: its root's scope released. */
+export function closeHydrationScope() {
+  const o = snapshotRoot;
+  snapshotRoot = null;
+  if (o) releaseSnapshotScope(o);
+}
+function inSnapshotScope(o: Owner | null): boolean {
+  for (; o; o = o.parent) if ((o as any).snapshotScope) return true;
+  return false;
+}
+
 /** A mount's window in which a render effect waiting with no Loading above is said (once per window, dev only). */
 let enforcing = false;
 let saidUnhandled = false;
@@ -987,10 +1053,23 @@ export class Signal<T> extends Node<T> {
       if (strictRead) strictReadUntracked(this);
       if (foreignRead) foreignRead(this);
     }
+    if (this.snap !== NONE && listener?.inSnapshot && snapshotCapture) {
+      if (!Object.is(this.current(), this.snap)) listener.snapshotStale = true;
+      return this.snap as T;
+    }
     return this.current();
+  }
+  /** Its value when the hydrating pass first saw it (a user signal, while snapshots are taken). */
+  declare snap: T | typeof NONE;
+  /** The value it has now kept as its snapshot (once). */
+  snapshot() {
+    if (this.snap !== NONE) return;
+    this.snap = this.current();
+    snapshotSources!.add(this);
   }
   write(next: T) {
     guardWrite(this.ownedWrite);
+    if (snapshotCapture && (this as any).snapshots) this.snapshot();
     if (halted) notifyHalted();
     if (this.pending === NONE) writes.push(this);
     this.pending = next;
@@ -1015,6 +1094,7 @@ export class Signal<T> extends Node<T> {
     this.stage(next);
   }
 }
+Object.assign(Signal.prototype, { snap: NONE, snapshots: false });
 
 /** Inside until()'s predicate: the authoritative reader, which never sees optimism (A17). */
 let authoritative = 0;
@@ -1135,6 +1215,10 @@ export class Computation<T> extends Node<T> implements Owner {
   declare tracked: boolean;
   /** Its tracker of an external reactive library (enableExternalSource). */
   declare ext: ExternalSource | null;
+  /** Made in a snapshot scope: it reads snapshots until the scope is released. */
+  declare inSnapshot: boolean;
+  /** It read a snapshot that has moved on: it runs again when its scope is released. */
+  declare snapshotStale: boolean;
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
     ownerCreations++;
     super();
@@ -1145,6 +1229,14 @@ export class Computation<T> extends Node<T> implements Owner {
     this.order = ids++;
     this.kind = kind;
     this.fn = fn;
+    if (snapshotCapture) {
+      if (!snapshotRoot && sharedConfig.hydrating && owner) {
+        let top = owner;
+        while (top.parent) top = top.parent;
+        markSnapshotScope((snapshotRoot = top));
+      }
+      if (inSnapshotScope(owner)) this.inSnapshot = true;
+    }
     if (externalSource) {
       const ext = (this.ext = externalSource.factory(fn, () => void (!this.disposed && (this.mark(DIRTY), schedule()))));
       this.fn = ext.track;
@@ -1168,6 +1260,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if ((options as any)?.ssrSource) (this as any).ssrSource = (options as any).ssrSource;
     // Client-only, on a server: never ready there (its boundary hands it to the client).
     if (serverRender && (options as any)?.ssrSource === "client") this.fn = clientOnly;
+    // Client-only, hydrating: not asked until the pass ends (the server rendered its loading value, or a fallback).
+    else if ((options as any)?.ssrSource === "client" && sharedConfig.hydrating && this.inSnapshot && hydratesUnder(owner)) this.fn = hydrationGate(this.fn);
     // Its compute writes (a store's derive): not run while it takes the server's answer.
     if ((options as any)?.writes) (this as any).writes = true;
     // (What it does with each answer, and what a client is sent for one: set before its first run.)
@@ -2000,7 +2094,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { ext: null, readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, windowAnswer: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { inSnapshot: false, snapshotStale: false, ext: null, readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, windowAnswer: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
@@ -3009,6 +3103,9 @@ export type SourceAccessor<T> = Accessor<T>;
 export function createSignal<T>(value: T | ((prev?: T) => T), options?: SignalOptions<T>): [Accessor<T>, Setter<T>] {
   if (typeof value === "function") return writableMemo(value as (prev?: T) => T, options);
   const s = new Signal(value as T, options);
+  // (A user's signal: what the hydrating pass reads of it is kept.)
+  (s as any).snapshots = true;
+  if (snapshotCapture) s.snapshot();
   registerGraph(s, owner);
   const set: Setter<T> = (next) => {
     const v = typeof next === "function" ? (next as (prev: T) => T)(s.pending !== NONE ? (s.pending as T) : s.staged !== NONE ? (s.staged as T) : s.value) : next;
@@ -3976,7 +4073,25 @@ export function createRevealOrder<T>(fn: () => T, options?: { order?: () => Reve
 }
 
 /** `fn`'s value, or `fallback(error, reset)` once something under it throws. */
+/** Whether what is made under `o` hydrates with ids (an owner with one, outside NoHydration). */
+const hydratesUnder = (o: Owner | null) => o?.id != null && !o.context?.[Symbol.for("twist.no-hydrate")];
+
 export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => unknown, reset: () => void) => F): () => T | F {
+  // Hydrating where the server caught an error: its content throws that error first (the server's fallback shows).
+  if (sharedConfig.hydrating && hydratesUnder(owner)) {
+    const sc = sharedConfig as any;
+    const id = peekNextChildId(owner!);
+    const err = sc.has?.(id) ? sc.load(id) : undefined;
+    if (err !== undefined) {
+      const inner = fn;
+      let first = true;
+      fn = () => {
+        if (!first) return inner();
+        first = false;
+        throw err;
+      };
+    }
+  }
   const failed = new Signal<unknown>(NONE, { ownedWrite: true, equals: false });
   // Reset: the content made again, and what failed upstream of it asked again (a source that fails anew shows its error).
   const reset = () => {
@@ -4004,6 +4119,8 @@ export function createErrorBoundary<T, F>(fn: () => T, fallback: (error: () => u
   if (boundary.context?.[REVEAL]) boundary.context = { ...boundary.context, [REVEAL]: undefined };
   // The content: made once (again only when what its making reads changes, or at a reset), apart from what it shows.
   const content: Computation<T> = runWithOwner(boundary, () => new Computation<T>(MEMO, () => fn(), { name: "children" }));
+  // (What the server sent under its id is the boundary's error, not a value of the content.)
+  (content as any).ownValue = true;
   // What the fallback shows: built once per error under the boundary, kept current with what it reads.
   let view: Computation<F> | null = null;
   let viewFor: unknown = NONE;
@@ -4420,7 +4537,7 @@ function traceOnly(fn: (prev: any) => any, prev: any): unknown {
 /** The value the server sent for an async node (by its id, through the hydration's `has`/`load`), or NONE. */
 function serverSent(n: { id?: string; kind: number }): unknown {
   const sc = sharedConfig as any;
-  if (n.id == null || n.kind !== MEMO || !sc.has?.(n.id)) return NONE;
+  if (n.id == null || n.kind !== MEMO || (n as any).ownValue || !sc.has?.(n.id)) return NONE;
   const v = sc.load(n.id);
   // ("$$f": a boundary's mark that its content is the client's, not an answer.)
   return v !== "$$f" ? v : NONE;
