@@ -684,6 +684,9 @@ const draftHandler: ProxyHandler<Raw> = {
     if (key === $TARGET) return target;
     if (key === $PROXY) return receiver;
     if ((key === "constructor" || key === "__proto__") && !Object.hasOwn(own(target), key) && !records.get(target)?.pending?.has(key)) return undefined;
+    // (An accessor the object carries stays live: read through the draft, so it sees what this draft wrote.)
+    const acc = records.get(target)?.pending?.has(key) ? undefined : Object.getOwnPropertyDescriptor(own(target), key);
+    if (acc?.get) return acc.get.call(receiver);
     const v = pendingValue(target, key);
     if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(own(target), key)) return v;
     // (A frozen property: as it is.)
@@ -699,9 +702,12 @@ const draftHandler: ProxyHandler<Raw> = {
     if (base?.get || base?.set) return { ...base, configurable: Reflect.getOwnPropertyDescriptor(target, key)?.configurable ?? true };
     return shownDesc(target, key, pendingValue(target, key));
   },
-  set(target, key, value) {
+  set(target, key, value, receiver) {
     // (No reaching the prototype through a draft: __proto__ is not written; constructor and prototype are plain keys.)
     if (key === "__proto__") return true;
+    // (An accessor the object carries: its setter runs now, through the draft.)
+    const acc = records.get(target)?.pending?.has(key) ? undefined : Object.getOwnPropertyDescriptor(own(target), key);
+    if (acc?.set) return acc.set.call(receiver ?? draftOf(target), value), true;
     const raw = unwrap(value);
     if (Array.isArray(target) && key === "length") {
       const before = pendingValue(target, "length");
@@ -761,7 +767,13 @@ function replaceInto(target: Raw, next: any, d: any = draftOf(target)) {
     return;
   }
   for (const k of Reflect.ownKeys(d)) if (!(k in src)) delete d[k];
-  for (const k of Reflect.ownKeys(src)) d[k] = src[k];
+  for (const k of Reflect.ownKeys(src)) {
+    const desc = Object.getOwnPropertyDescriptor(src, k)!;
+    // (An accessor it carries is adopted as one, live; a value over an accessor replaces it, not set through it.)
+    if (desc.get || desc.set) Object.defineProperty(d, k, desc);
+    else if (Object.getOwnPropertyDescriptor(own(target), k)?.set) Object.defineProperty(d, k, { value: desc.value, writable: true, enumerable: desc.enumerable, configurable: true });
+    else d[k] = src[k];
+  }
 }
 
 export type StoreSetter<T> = (fn: ((draft: T) => T | void) | Partial<T>) => void;
