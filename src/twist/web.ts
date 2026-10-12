@@ -3,7 +3,7 @@
 // node by an effect of its own; components run once. Written from Solid 2's design (RFCs 03 and 07) and its tests,
 // not its code.
 declare const process: { env: Record<string, string | undefined> };
-import { diagnose } from "./diagnostics.ts";
+import { diagnose, OBSERVE } from "./diagnostics.ts";
 import {
   flush,
   createLoadingBoundary,
@@ -270,6 +270,8 @@ function set(el: Element, name: string, value: any) {
     // (A binding takes no id: the server makes none for it.)
     const b = new PropBinding(RENDER_EFFECT, propCompute, bindingNamed(el, name));
     b.el = el;
+    // (Development: the element it writes, shown beside a finding about it.)
+    if (process.env.NODE_ENV !== "production") (b as any)._devElement = el;
     b.prop = name;
     b.source = value;
     if (hydrating) b.adopt = true;
@@ -557,7 +559,35 @@ const BUBBLING = new Set(
 
 /** A handler as a DOM listener: [fn, data] calls fn(data, event). */
 function listenerFor(handler: any): EventListener {
-  return Array.isArray(handler) ? (e) => handler[0].call(e.currentTarget, handler[1], e) : typeof handler === "function" ? handler : (e) => handler?.handleEvent?.(e);
+  const l: EventListener = Array.isArray(handler) ? (e) => handler[0].call(e.currentTarget, handler[1], e) : typeof handler === "function" ? handler : (e) => handler?.handleEvent?.(e);
+  // (Development: run as the interaction the event is, so what it writes is told as that interaction's.)
+  return process.env.NODE_ENV !== "production" ? function (this: unknown, e: Event) { return dispatchAsInteraction(e, () => (l as any).call(this, e)); } : l;
+}
+
+/** `button#next "Next →"`, `input[name=q]`, `a "Docs"` — what the user hit. */
+function describeEventTarget(target: any): string | undefined {
+  if (!target || typeof target.tagName !== "string") return undefined;
+  const tag = target.tagName.toLowerCase();
+  let out = tag;
+  if (target.id) out += `#${target.id}`;
+  else if (typeof target.name === "string" && target.name) out += `[name=${target.name}]`;
+  if (tag !== "input" && tag !== "textarea" && tag !== "select") {
+    const text = (target.textContent || "").trim().replace(/\s+/g, " ");
+    if (text) out += ` "${text.length > 30 ? text.slice(0, 29) + "…" : text}"`;
+  }
+  return out;
+}
+/** When the browser made the event, on the performance clock (none when its clock is another). */
+function interactionStart(e: Event): number | undefined {
+  const at = e.timeStamp;
+  return typeof at === "number" && at >= 0 && at <= performance.now() ? at : undefined;
+}
+/**
+ * Runs `fn` as a handler of the DOM event `e`, inside the interaction the runtime opens for `e` (development tools
+ * then tell what it writes as that interaction's). For listeners the runtime did not attach; in production, `fn()`.
+ */
+export function dispatchAsInteraction<T>(e: Event, fn: () => T): T {
+  return process.env.NODE_ENV !== "production" && OBSERVE ? OBSERVE.attribution.withInteraction({ type: e.type, target: describeEventTarget(e.target), at: interactionStart(e), event: e }, fn) : fn();
 }
 
 /** The event names compiled code says it needs. */
@@ -571,7 +601,7 @@ function listen(root: Node, type: string) {
   if (types.has(type)) return;
   types.add(type);
   // (A portal's mount outside every root listens for the root its portal is in: events go on there.)
-  root.addEventListener(type, (e) => dispatch(e, containers.get(root) ?? root));
+  root.addEventListener(type, (e) => (process.env.NODE_ENV !== "production" ? dispatchAsInteraction(e, () => dispatch(e, containers.get(root) ?? root)) : dispatch(e, containers.get(root) ?? root)));
 }
 
 /** Portal mounts outside every render root → the root their portal sits in. */

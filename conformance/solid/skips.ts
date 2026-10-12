@@ -201,6 +201,22 @@ export const CHANGES: Change[] = [
   })),
   // ---- Solid's build
   {
+    file: "web/test/client-records.spec.tsx",
+    skip: "the emitters fold out of the prod client artifacts and ride the observe and dev ones",
+    why: "reads Solid's built server-functions/dist and frames/dist client files for which tier carries the emitters",
+  },
+  {
+    file: "web/test/client-records.spec.tsx",
+    skip: "every client artifact had its flags replaced — an unreplaced literal is a truthy string",
+    why: "reads Solid's built client files for its build flags",
+  },
+  {
+    file: "web/test/interaction-provenance.spec.tsx",
+    find: `expect(ev.timeStamp).toBeGreaterThan(performance.now()); // jsdom: Date.now()`,
+    replace: `Object.defineProperty(ev, "timeStamp", { value: Date.now() });`,
+    why: "the test DOM stamps events on the performance clock; the epoch stamp jsdom gives is set by hand",
+  },
+  {
     file: "signals/tests/diagnostics.test.ts",
     skip: "links every diagnostic code to an existing guide section",
     why: "reads Solid's source file core/dev.ts for its list of codes and their guide sections",

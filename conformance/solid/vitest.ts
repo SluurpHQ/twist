@@ -43,6 +43,20 @@ export const expect: typeof bunExpect = new Proxy(bunExpect, {
 // expect.soft: as expect (the first failure ends the test).
 (expect as any).soft ??= expect;
 export const vi = {
+  // As Vitest's: the callback tried until it does not throw (or its promise does not reject), then its value.
+  async waitFor<T>(callback: () => T | Promise<T>, options?: number | { timeout?: number; interval?: number }): Promise<T> {
+    const timeout = typeof options === "number" ? options : (options?.timeout ?? 1000);
+    const interval = typeof options === "number" ? 50 : (options?.interval ?? 50);
+    const end = Date.now() + timeout;
+    for (;;) {
+      try {
+        return await callback();
+      } catch (e) {
+        if (Date.now() >= end) throw e;
+        await new Promise((r) => setTimeout(r, interval));
+      }
+    }
+  },
   // (Vitest's `mock.instances` holds each call's `this`; Bun's only for `new`: its `contexts` are that.)
   fn(impl?: (...a: any[]) => any) {
     const m: any = mock(function (this: any, ...a: any[]) {
@@ -67,8 +81,17 @@ export const vi = {
     return m;
   },
   // (setImmediate faked too, as Vitest's default: Bun's fake timers leave it real.)
-  useFakeTimers() {
+  useFakeTimers(config?: { toFake?: string[] }) {
+    // (As Vitest's: with \`toFake\`, only what it names is faked — performance.now stays real unless it is named.)
+    // (Bun fakes the clock natively — performance.now, hrtime — but not Date.now: the real one is read through it.)
+    const base = performance.now();
+    const baseDate = Date.now();
+    const realNow = config?.toFake && !config.toFake.includes("performance") ? () => base + (Date.now() - baseDate) : null;
     jest.useFakeTimers();
+    if (realNow) {
+      nowBefore ??= Object.getOwnPropertyDescriptor(performance, "now")!;
+      Object.defineProperty(performance, "now", { value: realNow, configurable: true, writable: true });
+    }
     if (!realImmediate) {
       realImmediate = [globalThis.setImmediate, globalThis.clearImmediate];
       (globalThis as any).setImmediate = (fn: (...a: any[]) => void, ...a: any[]) => setTimeout(fn, 0, ...a);
@@ -77,6 +100,7 @@ export const vi = {
   },
   useRealTimers() {
     jest.useRealTimers();
+    if (nowBefore) Object.defineProperty(performance, "now", nowBefore), (nowBefore = null);
     if (realImmediate) [globalThis.setImmediate, globalThis.clearImmediate] = realImmediate as any, (realImmediate = null);
   },
   advanceTimersByTime: (ms: number) => jest.advanceTimersByTime(ms),
@@ -108,6 +132,7 @@ export const vi = {
 };
 const accessors: (() => void)[] = [];
 let realImmediate: [typeof setImmediate, typeof clearImmediate] | null = null;
+let nowBefore: PropertyDescriptor | null = null;
 const loadImmediate = globalThis.setImmediate;
 const realTurn = () => new Promise<void>((ok) => loadImmediate(() => ok()));
 const stubbed = new Map<string, PropertyDescriptor | undefined>();
