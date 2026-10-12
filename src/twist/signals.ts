@@ -266,8 +266,11 @@ function dispose(o: Owner) {
   o.disposed = true;
   // (Death takes a parked frame with it: first, as its commit would have retired it.)
   if ((o as any).parked) drainParked(o as any);
+  // (Counted without a finally, as Solid's: a cleanup that throws leaves it raised, healed a microtask later.)
+  disposalDepth++;
   disposeOwned(o);
   if (o instanceof Computation) o.end();
+  disposalDepth--;
 }
 
 /** A memo's last frame, kept by a rerun until the swap: it goes when the node commits (or its owner does). */
@@ -569,16 +572,20 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string): T {
     const inner = fn;
     fn = () => externalSource!.untrack(inner);
   }
-  if (!listener && !strictRead && !strictReadLabel) return fn();
+  // (Development, an async compute in flight: an explicit untrack is a read meant untracked — counted, not said.)
+  const counted = process.env.NODE_ENV !== "production" && tailFlights.size > 0;
+  if (!listener && !strictRead && !strictReadLabel && !counted) return fn();
   const prev = listener;
   const prevStrict = strictRead;
   const prevOuter = untrackedBy;
   if (prev) untrackedBy = prev;
   listener = null;
   strictRead = strictReadLabel || false;
+  if (counted) untrackDepth++;
   try {
     return fn();
   } finally {
+    if (counted) untrackDepth--;
     listener = prev;
     strictRead = prevStrict;
     untrackedBy = prevOuter;
@@ -1230,6 +1237,7 @@ export class Signal<T> extends Node<T> {
     else {
       if (strictRead) strictReadUntracked(this);
       if (foreignRead) foreignRead(this);
+      if (process.env.NODE_ENV !== "production" && tailFlights.size) postAwaitRead(this, this, undefined, this.name, false);
     }
     if (this.snap !== NONE && listener?.inSnapshot && snapshotCapture) {
       if (!Object.is(this.current(), this.snap)) listener.snapshotStale = true;
@@ -1630,7 +1638,11 @@ export class Computation<T> extends Node<T> implements Owner {
         const t = heldAbove(listener);
         if (t && !t.flights.has(this)) t.flights.add(this), heldReads.add(this), statusChanged();
       }
-    } else if (foreignRead) foreignRead(this);
+    } else {
+      if (foreignRead) foreignRead(this);
+      // (One never loaded throws instead, and is reported when it does; a derived store's own derive is not its state.)
+      if (process.env.NODE_ENV !== "production" && tailFlights.size && !(this as any).writes) postAwaitRead(this, this, undefined, this.name, !this.ready && this.override === NONE);
+    }
 
     if (this.error !== NONE) throw this.error;
     // Refetching, read directly in a strict scope (a component body), in the browser: an error saying so — what it
@@ -2066,7 +2078,7 @@ export class Computation<T> extends Node<T> implements Owner {
     let sync = true;
     let early: [boolean, unknown] | null = null;
     this.flight = flight;
-    p.then(
+    (process.env.NODE_ENV !== "production" && !serverRender ? watchAsyncTail(this, flight, p) : p).then(
       (v) => (sync ? (early = [true, v]) : this.flight === flight && this.land(v)),
       (e) => (sync ? (early = [false, e]) : this.flight === flight && this.fail(e)),
     );
@@ -4269,6 +4281,144 @@ function boundaryOf(c: Computation<any>): LoadingState | null {
 }
 
 /** `fn`'s value, or `fallback()` while what is under it waits on a first load. */
+// ---------------------------------------------------------------- reads after an await (development)
+
+// An async compute's promise is consumed by a uniquely named async function, so the engine's async stack carries a
+// `__solidAsyncCompute_<id>` frame on every read in the compute's continuation: a read there with no owner, of what
+// the computation did not read before its first await, will not re-run it — said once per computation and source.
+let tailFlightId = 0;
+const tailFlights = new Map<number, { c: WeakRef<Computation<any>>; flight: WeakRef<object> }>();
+const warnedTailReads = new WeakMap<object, WeakMap<object, Set<PropertyKey | undefined>>>();
+const TAIL_FRAME = /^__solidAsyncCompute_(\d+)$/;
+let nextTailSweep = 64;
+let disposalDepth = 0;
+let untrackDepth = 0;
+let disposalHealQueued = false;
+let windowFlight: number | undefined;
+
+type TailRunner = (p: PromiseLike<unknown>, done: () => void, ok: (v: unknown) => unknown, fail: (e: unknown) => unknown) => Promise<unknown>;
+/** The awaiting function for an id, named for it. (Compiled once per id: some engines name an async frame only by a
+ * function's declared name, not a computed one; ids come back once their flight settles.) */
+const tailRunners: TailRunner[] = [];
+const freeTailIds: number[] = [];
+function tailRunner(id: number): TailRunner {
+  let run = tailRunners[id];
+  if (run) return run;
+  const name = `__solidAsyncCompute_${id}`;
+  try {
+    run = new Function(`return async function ${name}(p, done, ok, fail) { let v; try { v = await p; } catch (e) { done(); return fail(e); } done(); return ok(v); }`)() as TailRunner;
+  } catch {
+    // (No code made at run time here: a computed name, which engines that read it still see.)
+    run = ({
+      async [name](p: PromiseLike<unknown>, done: () => void, ok: (v: unknown) => unknown, fail: (e: unknown) => unknown) {
+        let v: unknown;
+        try {
+          v = await p;
+        } catch (e) {
+          done();
+          return fail(e);
+        }
+        done();
+        return ok(v);
+      },
+    } as any)[name] as TailRunner;
+  }
+  return (tailRunners[id] = run);
+}
+function watchAsyncTail<T>(c: Computation<any>, flight: object, p: PromiseLike<T>): PromiseLike<T> {
+  if (!(p instanceof Promise) || p.constructor !== Promise) return p;
+  return {
+    then(onFulfilled: (v: T) => unknown, onRejected: (e: unknown) => unknown) {
+      const id = freeTailIds.pop() ?? ++tailFlightId;
+      // (Retired before settling: what the landing itself reads stays quiet; the id free again.)
+      const done = () => void (tailFlights.delete(id), freeTailIds.push(id));
+      if (tailFlights.size >= nextTailSweep) sweepTailFlights();
+      tailFlights.set(id, { c: new WeakRef(c), flight: new WeakRef(flight) });
+      tailRunner(id)(p, done, onFulfilled as (v: unknown) => unknown, onRejected);
+      return undefined as any;
+    },
+  } as PromiseLike<T>;
+}
+function sweepTailFlights() {
+  for (const [id, { c, flight }] of tailFlights) {
+    const node = c.deref();
+    const current = flight.deref();
+    if (!node || !current || node.flight !== current) tailFlights.delete(id);
+  }
+  nextTailSweep = Math.max(64, tailFlights.size * 2);
+}
+/** Whether an async compute is in flight (development): only then are reads after an await looked for. */
+export const watchingTails = () => tailFlights.size > 0;
+/** An untracked read: said when it runs in an async compute's continuation, after its await. */
+export function postAwaitRead(dep: object | undefined, holder: object, key: PropertyKey | undefined, nodeName: string | undefined, throwsPending: boolean) {
+  // (A continuation resumes with no owner; what Solid runs on its stack — effect callbacks, cleanups, an action's
+  // body — reads imperatively by design.)
+  if (!tailFlights.size || owner !== null || inEffectCallback || acting || untrackDepth !== 0) return;
+  if (disposalDepth !== 0) {
+    if (!disposalHealQueued) (disposalHealQueued = true), queueMicrotask(() => ((disposalHealQueued = false), (disposalDepth = 0)));
+    return;
+  }
+  // (One stack capture per microtask window answers "none on the stack"; a found one is captured afresh each read.)
+  let id = windowFlight;
+  if (id === undefined) (id = windowFlight = attributedFlight()), queueMicrotask(() => void (windowFlight = undefined));
+  else if (id !== 0) id = attributedFlight();
+  if (id === 0) return;
+  const entry = tailFlights.get(id);
+  const c = entry?.c.deref();
+  if (!c || throwsPending || c === dep) return;
+  const flight = entry!.flight.deref();
+  if (!flight || c.flight !== flight) return;
+  if (dep !== undefined && c.sources.includes(dep as Source)) return;
+  let byHolder = warnedTailReads.get(c);
+  if (!byHolder) warnedTailReads.set(c, (byHolder = new WeakMap()));
+  let keys = byHolder.get(holder);
+  if (!keys) byHolder.set(holder, (keys = new Set()));
+  if (keys.has(key)) return;
+  keys.add(key);
+  reportDiagnostic(
+    emitDiagnostic(
+      {
+        code: "UNTRACKED_READ_AFTER_AWAIT",
+        kind: "async",
+        severity: "warn",
+        message:
+          `[UNTRACKED_READ_AFTER_AWAIT] ${nodeName ? `"${nodeName}"` : "A reactive value"} was ` +
+          `first read after an \`await\` in an async computation, so it is not a dependency: ` +
+          `the computation will not re-run when it changes. Read it before the first \`await\`, ` +
+          `or wrap the read in untrack() if a one-time value is intended.`,
+        ownerId: c.id,
+        ownerName: c.name,
+        nodeName,
+      },
+      c,
+    ),
+  );
+}
+/** The innermost compute continuation on the async stack (its tail flight's id), or 0. */
+function attributedFlight(): number {
+  const E = Error as any;
+  if (!E.captureStackTrace) return 0;
+  const prevPrepare = E.prepareStackTrace;
+  const prevLimit = E.stackTraceLimit;
+  const target: { stack?: unknown } = {};
+  let sites: unknown;
+  E.prepareStackTrace = (_: unknown, callSites: unknown) => callSites;
+  E.stackTraceLimit = 50;
+  try {
+    E.captureStackTrace(target, attributedFlight);
+    sites = target.stack;
+  } finally {
+    E.prepareStackTrace = prevPrepare;
+    E.stackTraceLimit = prevLimit;
+  }
+  if (!Array.isArray(sites)) return 0;
+  for (const site of sites) {
+    const match = TAIL_FRAME.exec(site.getFunctionName?.() ?? "");
+    if (match) return +match[1]!;
+  }
+  return 0;
+}
+
 /** A computation made `sync: true` that answered with a promise or an async iterable: refused, said. */
 function syncGotAsync(c: Computation<any>, thenable: boolean): never {
   const message =

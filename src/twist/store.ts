@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -403,6 +403,9 @@ const readHandler: ProxyHandler<Raw> = {
       else if (!o) node(target, key).read();
     } else checkStrictRead({ name: typeof key === "string" ? key : undefined, store: true });
     let v = viewGet(target, key);
+    // (Read untracked after an await in an async compute: said once per store, naming the first field read so — a
+    // method it inherits is no state.)
+    if (process.env.NODE_ENV !== "production" && watchingTails() && !isTracking() && !(!desc && typeof v === "function")) postAwaitRead(records.get(target)?.nodes.get(key), storeRoot(target), undefined, typeof key === "string" ? key : undefined, false);
     const snaps = records.get(target)?.snaps;
     if (snaps?.has(key)) {
       const s = servedSnapshot(v, snaps.get(key));
@@ -538,6 +541,14 @@ function leaf(target: Raw, key: PropertyKey, v: any) {
 setStoreAncestors(storeAncestors);
 /** A nested object's store object it was read from. */
 const parentOf = new WeakMap<object, Raw>();
+/** The store a part belongs to (its outermost object). */
+function storeRoot(target: Raw): Raw {
+  let r = target;
+  // (A store holding itself somewhere: its parents go round; the walk stops where it began.)
+  const seen = new Set<Raw>([r]);
+  for (let p = parentOf.get(r); p && !seen.has(p); p = parentOf.get(r)) seen.add((r = p));
+  return r;
+}
 /** The store objects a nested store's node lies under, nearest first (what refresh() re-asks). */
 export function* storeAncestors(proxy: object): Generator<object> {
   for (let r = parentOf.get(unwrap(proxy) as object); r; r = parentOf.get(r)) yield r;
