@@ -4620,15 +4620,20 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
           // (A plain write's frame only when what holds it derives from what `on` read: a write that merely joined the
           // round's transaction leaves the fallback to show now, #3575.)
           if (!ahead) for (const src of watch.sources) if (src.tx && !src.tx.done && (src.tx.root.open || derivesFrom(src.tx.root.flights, watch.sources))) frame = src.tx.root;
-          if (frame) hold(shown, frame), ((shown as any).followsFrame = true), endWith(frame, () => ((shown as any).followsFrame = false));
+          const inside = (o: Owner | null) => {
+            for (; o; o = o.parent) if (o === content || o === shown || o === watch) return true;
+            return false;
+          };
+          if (frame) {
+            hold(shown, frame), ((shown as any).followsFrame = true), endWith(frame, () => ((shown as any).followsFrame = false));
+            // The frame no longer waits on what only its content reads: the boundary does (its fallback shows meanwhile).
+            for (const f of frame.flights) if ([...f.observers].every((o) => inside(o))) frame.flights.delete(f);
+          }
           // (Development: what it waits on holds the frame from outside it too — its fallback can never be seen.)
           if (process.env.NODE_ENV !== "production" && frame) {
             let same: Computation<any> | null = null;
-            const inside = (o: Owner | null) => {
-              for (; o; o = o.parent) if (o === content || o === shown || o === watch) return true;
-              return false;
-            };
-            someUpstream(content, (n) => !!n.flight && !n.disposed && [...n.observers].some((o) => !inside(o)) && !!(same = n));
+            const outsideRead = (n: Computation<any>) => !!n.flight && !n.disposed && [...n.observers].some((o) => !inside(o)) && !!(same = n);
+            someUpstream(content, outsideRead) || someUpstream(shown, outsideRead);
             const name = (same as Computation<any> | null)?.name ?? "an async value";
             if (same)
               diagnose({
