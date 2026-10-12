@@ -2496,7 +2496,8 @@ function ownersFirst(c: Computation<any>) {
 /** Flights a held pass's work read: the transaction waits on them while they, or what they wait on, are out. */
 const heldReads = new WeakSet<Computation<any>>();
 /** A transaction's flight still out: its own, or (read by a held pass) one upstream it waits on. */
-const outstanding = (f: Computation<any>) => !f.disposed && (!!f.flight || (heldReads.has(f) && inFlight(f)));
+// (A stream counts as landed from its first value.)
+const outstanding = (f: Computation<any>) => !f.disposed && ((!!f.flight && !(f.streaming && f.streamed)) || (heldReads.has(f) && inFlight(f)));
 
 /** The transaction holding a computation `c` was made under (an owner of it held), if any. */
 function heldAbove(c: Computation<any>): Transaction | null {
@@ -3141,7 +3142,7 @@ function voidLane(l: Transaction) {
 
 /** A transaction with no flight left (and no action open): it commits this round. */
 function committableTx(t: Transaction) {
-  return !t.merged && !t.open && !(awaitingRound.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some(outstanding) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && shownFlight(n));
+  return !t.merged && !t.open && !(awaitingRound.has(t) && dirty.length) && !laneBlocks(t) && ![...t.flights].some(outstanding) && ![...t.nodes].some((n) => n instanceof Computation && n.flight && !(n.streaming && n.streamed) && shownFlight(n));
 }
 
 /** Transactions whose flights have all landed (and whose actions ended): committed, their effects applied. */
@@ -3163,7 +3164,7 @@ function commitTransactions() {
       const f = flightAt(c);
       if (f) t.flights.add(f);
     }
-    for (const n of t.nodes) if (n instanceof Computation && n.flight && shownFlight(n)) t.flights.add(n);
+    for (const n of t.nodes) if (n instanceof Computation && n.flight && !(n.streaming && n.streamed) && shownFlight(n)) t.flights.add(n);
     if (t.flights.size || t.open || (awaitingRound.has(t) && dirty.length)) continue;
     // (A guess written in it still to install.)
     if (guesses.some((g) => g[2]?.root === t)) continue;

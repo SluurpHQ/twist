@@ -189,6 +189,11 @@ export const CHANGES: Change[] = [
     why: "reads Solid's built dist/server*.js",
   },
   {
+    file: "signals/tests/treeshake.test.ts",
+    skipFile: true,
+    why: "bundles Solid's own src/ modules with Vite and checks which of its module files shake out and its byte ceilings",
+  },
+  {
     file: "web/test/server/server-diagnostics.spec.tsx",
     skip: "the observe tier, in the built artifacts",
     why: "reads Solid's built dist/server.observe.js",
