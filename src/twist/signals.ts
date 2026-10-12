@@ -4348,12 +4348,13 @@ function traceOnly(fn: (prev: any) => any, prev: any): unknown {
   }
 }
 
-/** The value the server sent for an async node (in `_$HY.r` by its id), or NONE. */
+/** The value the server sent for an async node (by its id, through the hydration's `has`/`load`), or NONE. */
 function serverSent(n: { id?: string; kind: number }): unknown {
-  if (n.id == null || n.kind !== MEMO) return NONE;
-  const r = (globalThis as any)._$HY?.r;
+  const sc = sharedConfig as any;
+  if (n.id == null || n.kind !== MEMO || !sc.has?.(n.id)) return NONE;
+  const v = sc.load(n.id);
   // ("$$f": a boundary's mark that its content is the client's, not an answer.)
-  return r && n.id in r && r[n.id] !== "$$f" ? r[n.id] : NONE;
+  return v !== "$$f" ? v : NONE;
 }
 export const isHydrating = () => sharedConfig.hydrating && (!(sharedConfig as any).isClaiming || (sharedConfig as any).isClaiming());
 export { enableHydration } from "./hydration.ts";

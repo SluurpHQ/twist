@@ -111,6 +111,12 @@ await Bun.write(join(here, "dist", "server.js"), `export * from ${JSON.stringify
 // The signals package's core entry is its public core too.
 mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
 await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
+// Solid's client and server modules, by their paths: Twist's public entries.
+mkdirSync(join(out, "solid", "src", "client"), { recursive: true });
+mkdirSync(join(out, "solid", "src", "server"), { recursive: true });
+for (const name of ["hydration", "flow", "component", "core", "container-trace"])
+  await Bun.write(join(out, "solid", "src", "client", name + ".js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
+for (const name of ["index", "flow", "hydration", "shared", "signals"]) await Bun.write(join(out, "solid", "src", "server", name + ".js"), `export * from "@twist/solid-server";\n`);
 const ours = twist("index.ts");
 // And by package name: packages that are ours (Bun's resolver finds packages; a plugin cannot invent them).
 for (const name of ["solid-js", "@solidjs/signals"]) {

@@ -154,6 +154,18 @@ export const CHANGES: Change[] = [
     replace: `expect(r.diagnostics[0]).toMatch(/Hydration key miss|unclaimed server-rendered node/);`,
     why: "hydration ended by hand while a boundary is pending: Solid misclaims the boundary (a key miss); Twist renders it and reports the server nodes nothing claimed — the misuse is reported either way",
   },
+  {
+    file: "web/test/server/spread-omit.spec.tsx",
+    find: `import { viewOf, type MergeView, type OmitView } from "solid-js/internal";\n`,
+    replace: ``,
+    why: "viewOf reads a merge/omit view's private key table (Solid's internals)",
+  },
+  {
+    file: "web/test/server/spread-omit.spec.tsx",
+    find: `    expect((viewOf(rest) as OmitView).table).toBe(0);\n    expect((viewOf(merged) as MergeView).table).toBe(0);\n`,
+    replace: ``,
+    why: "(with the change above: the view's private table)",
+  },
   // ---- The engine's words
   {
     file: "signals/tests/equals-comparator-errors.test.ts",

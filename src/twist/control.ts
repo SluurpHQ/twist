@@ -271,9 +271,18 @@ export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
 }
 
 
+const NO_HYDRATE = Symbol("no-hydrate");
+/** Whether what renders here hydrates: under an owner, outside NoHydration. */
+export const isHydratable = () => {
+  const o = getOwner() as any;
+  return !!o && !o.context?.[NO_HYDRATE];
+};
+
 /** Its children are not hydrated: what the server rendered stays as it is. */
 export const NoHydration = /* @__PURE__ */ builtin(function NoHydration(props: { children?: any }) {
-  return sharedConfig.hydrating ? undefined : props.children;
+  const o = createOwner() as any;
+  o.context = { ...o.context, [NO_HYDRATE]: true };
+  return runWithOwner(o, () => (sharedConfig.hydrating ? undefined : props.children));
 });
 
 /** Its children hydrate again (inside NoHydration). */

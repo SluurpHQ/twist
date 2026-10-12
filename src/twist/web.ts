@@ -45,6 +45,26 @@ import { inOrder } from "../shared/in-order.ts";
 import { MATH_NS, MATH_TAGS, SVG_NS, SVG_TAGS, Place, expand, hasHoles, places, type Spec } from "./tags.ts";
 
 export { createRoot, untrack, getOwner, flatten, merge, omit };
+
+/**
+ * Solid's `template(html)`: markup parsed once, a copy made each call (flag 1: imported, for a custom element's
+ * document; 2: the inside of an outer element). A document shell cannot be made this way: hydrate() adopts it.
+ */
+export function template(html: string, flag?: number): (() => Node) & { _html: string } {
+  let node: Node | undefined;
+  const create = () => {
+    if (process.env.NODE_ENV !== "production" && /^<(html|head|body)[\s>]/i.test(html))
+      throw new Error(
+        "Document shell templates (<html>, <head>, <body>) cannot be client-created: a <template> parse strips those tags. Render this component through hydrate(), where the document shell already exists.",
+      );
+    const t = document.createElement("template");
+    t.innerHTML = html;
+    return flag === 2 ? t.content.firstChild!.firstChild! : t.content.firstChild!;
+  };
+  const fn: any = flag === 1 ? () => document.importNode((node ??= create()), true) : () => (node ??= create()).cloneNode(true);
+  fn._html = flag === 2 ? html.replace(/^<[^>]+>/, "") : html;
+  return fn;
+}
 export const isServer = false;
 
 // ---------------------------------------------------------------- jsx

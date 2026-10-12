@@ -2,7 +2,7 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, keyOwnerOf, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
+import { childIdCount, setChildIdCount, keyOwnerOf, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly, onCleanup, renderContextOf } from "./signals.ts";
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
@@ -15,7 +15,7 @@ export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
-import { commitResponseStub, deriveHead, devCheck, getRequestEvent, setRequestErrorHook, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
+import { commitResponseStub, deriveHead, devCheck, getRequestEvent, peekRequestEvent, setRequestErrorHook, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
 import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
@@ -337,6 +337,52 @@ export const isNoHydration = () => {
   const marked = (getOwner() as any)?.context?.[NO_HYDRATE];
   return marked !== undefined ? marked : noHydration > 0;
 };
+
+/** The renders of each request under way: an owner-less caller reaches its request's only one. */
+const eventRenders = new WeakMap<object, Set<any>>();
+/** A render's root claims its context: reached through its owners, and through its request, until it is disposed. */
+function claimRender(ctx: any) {
+  ctx.rooted = true;
+  ctx.writer = hydrationWriter(ctx);
+  const event = peekRequestEvent();
+  let renders = event && eventRenders.get(event);
+  if (event && !renders) eventRenders.set(event, (renders = new Set()));
+  renders?.add(ctx);
+  onCleanup(() => {
+    ctx.rooted = false;
+    renders?.delete(ctx);
+  });
+}
+/** The render the caller's owner belongs to, while its root lives. */
+function callerRender() {
+  const ctx = renderContextOf(getOwner());
+  return ctx?.rooted ? ctx : undefined;
+}
+/** Keyed values for the client to take (`takeHydrationValue`): the first write of a key wins, while the render is open. */
+function hydrationWriter(ctx: any) {
+  const keys = new Set<string>();
+  return {
+    async: !!ctx.async,
+    write(key: string, value: unknown, options?: { deferStream?: boolean }) {
+      if (!ctx.rooted || keys.has(key)) return false;
+      ctx.serialize(key, value, options?.deferStream);
+      keys.add(key);
+      return true;
+    },
+  };
+}
+/** Whether what renders here hydrates: inside a render, outside NoHydration. */
+export const isHydratable = () => !!callerRender() && !isNoHydration();
+/** The hydration writer of the caller's render: by its owner, else its request's only render. */
+export function getHydrationWriter() {
+  let ctx = callerRender();
+  if (!ctx) {
+    const event = peekRequestEvent();
+    const renders = event && eventRenders.get(event);
+    if (renders?.size === 1) [ctx] = renders;
+  }
+  return ctx?.writer;
+}
 
 /** Its children render with no hydration keys (they will not be hydrated). */
 export function NoHydration(props: { children?: any }) {
@@ -1884,8 +1930,12 @@ export function renderToString(code: () => any, options: { renderId?: string; no
   let data = "";
   const serializer = options.noHydrate ? null : createHydrationSerializer({ scopeId: options.renderId, onData: (p: string) => void (data += p + ";"), onDone() {}, onError: serializeFailed(options.onError) });
   const written = new Set<string>();
+  // (Closed with the render: a late write is dropped.)
+  let closed = false;
   ctx.serialize = (id: string, v: unknown) => {
-    if (!serializer || written.has(id) || (v && typeof (v as any).then === "function")) return;
+    if (closed) return;
+    if (v && typeof (v as any).then === "function") throw new Error(`Cannot serialize async value in renderToString (id: ${id}). Use renderToStream for async data.`);
+    if (!serializer || written.has(id)) return;
     written.add(id);
     serializer.write(id, v);
   };
@@ -1899,6 +1949,7 @@ export function renderToString(code: () => any, options: { renderId?: string; no
       registerEntryAssets(ctx, options.manifest);
       return createRoot(
         (dispose) => {
+          claimRender(ctx);
           try {
             // (No head rendered: no page to look through for one.)
             const page = fillHead(html(code(), false), head!, false) as string;
@@ -1923,6 +1974,7 @@ export function renderToString(code: () => any, options: { renderId?: string; no
   } finally {
     head = wasHead;
     stringCtx = wasCtx;
+    closed = true;
     record?.settle(outcome, 0);
   }
 }
@@ -2123,6 +2175,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       (d) => {
         dispose = d;
         root = getOwner();
+        claimRender(r.ctx);
       },
       { id: options.renderId ?? "" },
     );

@@ -6,7 +6,7 @@ import { __twist_mark } from "./control.ts";
 import { isNoHydration } from "./server.ts";
 
 export * from "./index.ts";
-export { NoHydration, Hydration, Loading, Errored } from "./server.ts";
+export { NoHydration, Hydration, Loading, Errored, isHydratable } from "./server.ts";
 
 type Opts = { defer?: boolean };
 
