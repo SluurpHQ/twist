@@ -255,6 +255,7 @@ function parkFrame(c: Computation<any>) {
   c.owned = null;
   c.cleanups = null;
   if ((c as any)._signals) (c as any)._signals = undefined;
+  if (!(c as any).parked && c.kind === RENDER) parkedRenders++;
   ((c as any).parked ??= []).push(frame);
   // (Not run again before the round decides: past it, a frame left showing reacts again.)
   dormant(frame, true);
@@ -295,10 +296,13 @@ function dormant(o: Owner, on: boolean) {
   }
 }
 /** Its parked frames let go: children first, later registrations before earlier, each frame once. */
+/** Render effects with a parked frame (none: no first apply waits on one). */
+let parkedRenders = 0;
 function drainParked(c: { parked?: Owner[] | null }) {
   const p = c.parked;
   if (!p) return;
   c.parked = null;
+  if ((c as any).kind === RENDER) parkedRenders--;
   for (let i = p.length - 1; i >= 0; i--) disposeOwned(p[i]!);
 }
 export function getOwner(): Owner | null {
@@ -3659,6 +3663,7 @@ export function startEffect<T>(e: Computation<T>, options?: SignalOptions<T>) {
 /** Made by a render effect's pass that left a hold: it shows the committed frame, applied as made. */
 /** Made by a render effect's pass while its last frame is still parked with cleanups of its owners not run yet. */
 function madeOverFrame(e: Computation<any>) {
+  if (!parkedRenders) return false;
   let p: Owner | null = e.parent;
   while (p && !(p instanceof Computation)) p = p.parent;
   const parked = p && (p as Computation<any>).kind === RENDER ? ((p as any).parked as Owner[] | null) : null;
@@ -4176,6 +4181,11 @@ function boundaryOf(c: Computation<any>): LoadingState | null {
     const b = (o as any).loading as LoadingState | undefined;
     if (b) {
       found = b;
+      break;
+    }
+    // (A computation above that looked already: its answer is this one's.)
+    if (o instanceof Computation && o.boundary !== undefined) {
+      found = o.boundary;
       break;
     }
   }
