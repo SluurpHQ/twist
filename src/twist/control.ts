@@ -1,7 +1,7 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
 declare const process: { env: Record<string, string | undefined> };
-import { createErrorBoundary, createLoadingBoundary, createMemo, createOwner, createRevealOrder, flatten, getOwner, runWithOwner, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
+import { createErrorBoundary, createLoadingBoundary, createMemo, createOwner, createRevealOrder, flatten, getOwner, peekNextChildId, runWithOwner, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
 import { LIVE, mapArray, merge, repeat } from "./flow.ts";
 
 // ---------------------------------------------------------------- marks from the pass
@@ -249,31 +249,59 @@ export const Errored = /* @__PURE__ */ builtin(function Errored(props: { fallbac
 
 
 /** A component whose code loads when first rendered (its readers wait, as for any first load). */
-export function lazy<P>(load: () => Promise<{ default: (props: P) => any }>) {
-  let loaded: ((props: P) => any) | null = null;
-  let loading: Promise<(props: P) => any> | null = null;
+export function lazy<P>(fn: () => Promise<any>, options?: { export?: string }, moduleUrl?: string) {
+  if (typeof options === "string")
+    throw new Error("lazy() moduleUrl moved to the third argument: lazy(fn, options?, moduleUrl?). Pass { export } options second, or undefined.");
+  const exportName = options?.export;
+  const pick = (mod: any) => (exportName ? mod[exportName] : mod.default);
+  let comp: (() => (props: P) => any) | undefined;
+  let p: Promise<any> | undefined;
   // The import, shared by every instance; a failed one is not kept (the next render or preload asks again).
-  const start = () =>
-    (loading ??= load().then(
-      (m) => (loaded = m.default),
-      (e) => {
-        loading = null;
-        throw e;
-      },
-    ));
+  const load = () => {
+    if (p) return p;
+    const cur = (p = fn());
+    cur.then(
+      (mod) => void (comp = () => pick(mod)),
+      () => void (p === cur && (p = undefined)),
+    );
+    return cur;
+  };
   const Comp = (props: P) => {
-    if (loaded) return callComponent(loaded, props);
-    // Not loaded yet: an async memo of the component (its readers wait, as for any first load), then rendered.
+    // Hydrating: the module the server rendered with, preloaded under this place's id, renders at once.
+    if (sharedConfig.hydrating) comp = preloaded(comp, moduleUrl, exportName);
+    let local = comp;
+    // Not loaded yet: an async memo of the component (its readers wait, as for any first load).
     // (Its code holds a stream's shell: a page never streams the fallback of a module still loading.)
-    const which = createMemo<(props: P) => any>(() => (loaded ?? start()) as any, { deferStream: true } as any);
+    if (!local) load(), (local = createMemo(() => load().then(pick), { deferStream: true } as any) as () => (props: P) => any);
     return createMemo(() => {
-      const C = which();
-      return callComponent(C, props);
+      const C = (comp || local)();
+      return C ? callComponent(C, props) : "";
     });
   };
   const marked = __twist_mark(Comp);
-  (marked as any).preload = () => start();
-  return marked;
+  (marked as any).preload = load;
+  (marked as any).moduleUrl = moduleUrl;
+  return marked as typeof marked & { preload: () => Promise<any>; moduleUrl?: string };
+}
+
+/** The component of the module preloaded for this place (`_$HY.modules` by its id), else what is known already. */
+function preloaded<C>(comp: (() => C) | undefined, moduleUrl: string | undefined, exportName: string | undefined): (() => C) | undefined {
+  const o = getOwner();
+  const key = o && o.id != null ? peekNextChildId(o) : undefined;
+  const cached = key != null ? (globalThis as any)._$HY?.modules?.[key] : undefined;
+  if (cached) {
+    const component = exportName ? cached[exportName] : cached.default;
+    if (typeof component !== "function")
+      throw new Error(
+        `lazy() (hydration id "${key}") preloaded a module whose "${exportName ?? "default"}" export is not a component. lazy() hydrates synchronously from the preloaded module; select a named export with the { export } option, or re-export the component as the module's default. Wrappers that pick an export at runtime inside the import thunk are not supported.`,
+      );
+    return () => component;
+  }
+  if (!comp && moduleUrl)
+    throw new Error(
+      `lazy() module "${moduleUrl}" (hydration id "${key}") was not preloaded before hydration: the server serialized no client entry for it. Check the server log for "Asset manifest returned no client assets for module" — the manifest passed to renderToStream/renderToString did not answer for this moduleUrl (a key that does not match the client manifest, or a manifest built for different output). If the server did register it, the server and client hydration id namespaces are misaligned.`,
+    );
+  return comp;
 }
 
 

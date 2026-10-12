@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -732,6 +732,27 @@ export function createProjection<T extends object>(fn: (draft: T) => T | void | 
   return derivedStore(fn, seed, options, false)[0];
 }
 
+/** A draft whose writes go to a copy until `activate`, then to `real`. */
+function shadowDraft(real: any, shallow: boolean) {
+  // (A shallow store's leaves are its own values: copied as they are.)
+  const raw = plain(unwrap(real) as Raw, new Map());
+  const copy = !shallow ? cloneState(raw) : Array.isArray(raw) ? raw.slice() : { ...raw };
+  let live = false;
+  const at = () => (live ? real : copy);
+  return {
+    proxy: new Proxy(copy, {
+      get: (_t, k) => at()[k],
+      set: (_t, k, v) => Reflect.set(at(), k, v),
+      deleteProperty: (_t, k) => Reflect.deleteProperty(at(), k),
+      has: (_t, k) => k in at(),
+      ownKeys: () => Reflect.ownKeys(at()),
+      getOwnPropertyDescriptor: (_t, k) => Object.getOwnPropertyDescriptor(at(), k),
+    }),
+    activate: () => void (live = true),
+  };
+}
+const cloneState = (v: any) => (v === null || typeof v !== "object" ? v : typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
+
 type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean; ssrSource?: "server" | "hybrid" | "client" };
 
 /** A derived store's derive, by its root. */
@@ -801,9 +822,14 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     // (Traced only, its answer the server's: what it writes is dropped.)
     if (isTracing()) return fn(runDraft(target, { live: false, async: false, drafts: new WeakMap() }) as T);
     run = { live: true, async: false, drafts: new WeakMap(), read: () => memo };
-    const d = shadow ? draftOf(shadow) : runDraft(target, run);
+    let d = shadow ? draftOf(shadow) : runDraft(target, run);
+    // Taking over the server's stream ("hybrid"): what it writes before its first yield repeats the server's state, and
+    // goes to a copy; after that yield, to the store.
+    const handoff = options?.ssrSource === "hybrid" && (getOwner() as any)?.handoff ? shadowDraft(d, !!options?.shallow) : null;
+    if (handoff) d = handoff.proxy;
     const before = new Set(dirtyRecords);
     let r = fn(d as T);
+    if (handoff && r && typeof (r as any)[Symbol.asyncIterator] === "function" && typeof (r as any).then !== "function") r = firstYieldDropped(r as any, handoff.activate, undefined) as any;
     ++runs;
     if (traced && r && typeof (r as any)[Symbol.asyncIterator] === "function") (streaming = true), (r = endsWith(r as any) as any);
     // (Streaming on a server: what the client is sent — its snapshot, then a patch batch per change.)
