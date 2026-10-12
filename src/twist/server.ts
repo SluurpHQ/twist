@@ -2,7 +2,7 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
+import { childIdCount, setChildIdCount, keyOwnerOf, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly } from "./signals.ts";
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
@@ -56,7 +56,7 @@ const COMP = Symbol("twist.ssr.component");
 /** Whether `v` is markup made here and not rendered yet (Twist's JSX describes; html() renders). */
 export const isServerNode = (v: any) => !!v && typeof v === "object" && (v[EL] === true || v[COMP] === true);
 
-type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; skip?: (k: string) => boolean; attrs?: string; sources?: boolean };
+type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; owner?: any; skip?: (k: string) => boolean; attrs?: string; sources?: boolean };
 type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string, any> };
 
 export const Fragment = (props: { children?: unknown }) => props.children;
@@ -66,7 +66,12 @@ export const Fragment = (props: { children?: unknown }) => props.children;
  * fixed part as its HTML (rendered the first time). Static attributes after one set at run time: the JSX itself, so
  * attributes keep their order.
  */
-export const __twist_t = (spec: Spec) => (values: unknown[]) => described(spec, values, { i: 0 });
+export const __twist_t = (spec: Spec) => (values: unknown[]) => {
+  // (Keyed under the owner that made it, as Solid's template takes its key where it is made.)
+  const d = described(spec, values, { i: 0 });
+  if (d && d[EL]) d.owner = getOwner();
+  return d;
+};
 const fixedAttrs = new WeakMap<Spec, string>();
 const fixedHtml = new WeakMap<Spec, { t: string }>();
 function described(spec: Spec, values: unknown[], at: { i: number }): any {
@@ -463,6 +468,9 @@ const validTags = new Set<string>();
 const TAG_NAME = /^[A-Za-z][A-Za-z0-9._:-]*$/;
 
 function element(el: Element_, keyed: boolean): string {
+  // (Rendered, all of it, under the owner it takes its key under: as Solid's template makes its parts where it is made.)
+  const under = el.owner ? keyOwnerOf(el.owner) : null;
+  if (under && under !== getOwner()) return runWithOwner(under, () => element(el, keyed));
   const { tag } = el;
   // (A name from run time: one element name, or nothing is written.)
   if (!validTags.has(tag)) {

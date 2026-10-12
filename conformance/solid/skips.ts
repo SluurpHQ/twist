@@ -31,6 +31,21 @@ export const CHANGES: Change[] = [
     skip: "a long-lived lane does not grow its bookkeeping with every pass",
     why: "measures a lane's private _nodes array",
   },
+  {
+    file: "signals/tests/loading-fallback-in-flush-3540.test.ts",
+    find: `type State = { log: string[]; readers:`,
+    replace:
+      `const noReaders = (s: string) => s.split(" | ").filter(p => !/^([oif](\\d+|undefined) ?)+$/.test(p)).join(" | ").replace(/readers=\\d+ /, "");\n` +
+      `const expectTrace = (out: string[], expected: string[]) => expect(out.map(noReaders)).toEqual(expected.map(noReaders));\n` +
+      `type State = { log: string[]; readers:`,
+    why: "the readers counts read a boundary's private _readers set (its bookkeeping); the traces are compared without them",
+  },
+  {
+    file: "signals/tests/loading-fallback-in-flush-3540.test.ts",
+    find: `expect(out).toEqual(`,
+    replace: `expectTrace(out, `,
+    why: "(with the change above)",
+  },
   // ---- Solid's build
   {
     file: "web/test/server/server-diagnostics.spec.tsx",

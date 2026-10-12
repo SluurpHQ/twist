@@ -28,6 +28,7 @@ import {
   ownerUnder,
   peekNextChildId,
   resetOwner,
+  keyOwnerOf,
   Computation,
   startEffect,
   RENDER_EFFECT,
@@ -128,7 +129,12 @@ export function __twist_t(spec: Spec) {
   let made: Node | null = null;
   const plan = planOf(spec);
   return (values: unknown[]) => {
-    if (describing()) return expand(spec, values, { i: 0 }, jsx, jsxs);
+    if (describing()) {
+      // (Keyed under the owner that made it, as Solid's template takes its key where it is made.)
+      const d = expand(spec, values, { i: 0 }, jsx, jsxs);
+      if (d && d[EL]) d.owner = getOwner();
+      return d;
+    }
     const el = (made ??= build(spec)).cloneNode(true) as Element;
     fill(el, plan, values, { i: 0 });
     return el;
@@ -698,7 +704,10 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
   if (claimed) b.first = claimed;
   if (host) b.host = host;
   startEffect(b);
+  return b;
 }
+/** Bindings whose first value was pending as they were claimed (counted: a marked range keeps its nodes for them). */
+let pendingClaims = 0;
 /** A node's children bound to a value: its state on the effect (one object a binding, no closures). */
 const NO_NODES: Node[] = [];
 /** Its text is the one node its element has (set as textContent: not looked up until it changes). */
@@ -1296,6 +1305,8 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
   // A node made here (a Portal's marker: the server drew nothing for it): put where it belongs.
   if ((v as Node).nodeType) {
     if (!(v as Node).parentNode) at.parent.insertBefore(v as Node, at.next);
+    // (One already in the page where the walk is, adopted: the walk goes past it.)
+    else if (nextNode(at) === v) at.next = (v as Node).nextSibling;
     return [v as Node];
   }
   return claimText(v, at);
@@ -1538,7 +1549,11 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
     } else if (Array.isArray(x)) out.push(...claimList(x, !!(x as any)[OWN], inTemplate && own, viaFn, at));
     else if (x[EL]) out.push(...claimedBy(x, [claimDescribed(x, x.keyed ?? !(inTemplate && own && !viaFn), at)]));
     else if (x[COMP]) out.push(...claimedBy(x, marked(at, () => claimHtml(x, false, at))));
-    else if ((x as Node).nodeType) out.push(x as Node);
+    else if ((x as Node).nodeType) {
+      // (One already in the page where the walk is, adopted: the walk goes past it.)
+      if (nextNode(at) === x) at.next = (x as Node).nextSibling;
+      out.push(x as Node);
+    }
     else out.push(...claimText(x, at));
   }
   return out;
@@ -1547,7 +1562,9 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
 /** A part that can change, bound to the nodes the server rendered for it. */
 function bindAt(fn: () => any, at: Cursor, inTemplate = false): Node[] {
   const before = at.next;
-  bind(at.parent, fn, null, at, undefined, undefined, undefined, inTemplate);
+  const b = bind(at.parent, fn, null, at, undefined, undefined, undefined, inTemplate);
+  // (Its first value pending: it claims later, where it sits now, not where the walk will have gone by then.)
+  if (b.first === at) (b.first = { parent: at.parent, next: before }), pendingClaims++;
   const out: Node[] = [];
   for (let n = before; n && n !== at.next; n = n.nextSibling) if (!isSeparator(n)) out.push(n);
   return out;
@@ -1560,11 +1577,14 @@ const isComment = (n: Node | null, data: string) => !!n && n.nodeType === 8 && (
 function marked(at: Cursor, claim: () => Node[]): Node[] {
   if (!isComment(at.next, "$")) return claim();
   at.next = at.next!.nextSibling;
+  const pending = pendingClaims;
   const out = claim();
+  // (A part in it still pending claims what is left when its value comes: kept for it.)
+  const keep = pendingClaims !== pending;
   let n = at.next;
   while (n && !isComment(n, "/")) {
     const x = n.nextSibling;
-    if (!out.includes(n)) n.parentNode!.removeChild(n);
+    if (!keep && !out.includes(n)) n.parentNode!.removeChild(n);
     n = x;
   }
   at.next = n ? n.nextSibling : null;
@@ -1592,7 +1612,10 @@ function claimText(v: any, at: Cursor): Node[] {
   return [t];
 }
 
-function claimDescribed(d: { tag: string; props: Record<string, any> }, keyed: boolean, at: Cursor): Element {
+function claimDescribed(d: { tag: string; props: Record<string, any>; owner?: any }, keyed: boolean, at: Cursor): Element {
+  // (Claimed, all of it, under the owner it takes its key under: as Solid's template makes its parts where it is made.)
+  const under = d.owner ? keyOwnerOf(d.owner) : null;
+  if (under && under !== getOwner()) return runWithOwner(under, () => claimDescribed(d, keyed, at));
   const owner = getOwner() as any;
   const key = keyed && owner?.id != null ? getNextChildId(owner) : undefined;
   const registry: Map<string, Element> | undefined = sc.registry ?? hydrating?.registry;

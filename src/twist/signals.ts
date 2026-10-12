@@ -91,6 +91,21 @@ const idOwner = (o: Owner) => {
   return at;
 };
 
+/**
+ * The owner a template's element takes its key under, as Solid's takes it where the template is made: the owner that
+ * made it, when the ids it hands out are below those where it is drawn (a row's, a component's memo's); else where it
+ * is drawn (one made ahead, as a prop, takes its key in place, as Solid's getter would make it there).
+ */
+export function keyOwnerOf(made: Owner | null | undefined): Owner | null {
+  const here = getOwner();
+  if (!made || made.disposed || !here) return here;
+  const a = idOwner(made);
+  const b = idOwner(here);
+  if (a === b) return here;
+  for (let o = a.parent; o; o = o.parent) if (o === b) return made;
+  return here;
+}
+
 /** How many child ids `o` (through the owner that hands them out) has given. */
 export const childIdCount = (o: Owner | null): number => (o ? (idOwner(o).childCount ?? 0) : 0);
 /** Its child-id count set back (a part rendered again takes the same ids). */
