@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -34,6 +34,8 @@ class Record_ {
   own: Raw;
   /** Whether `own` is its private copy yet. */
   copied = false;
+  /** Values its keys had before a write while hydration keeps snapshots (what readers in the scope still see). */
+  snaps: Map<PropertyKey, any> | null = null;
   constructor(public target: Raw) {
     this.keys = new KeyNode(this, $TRACK);
     this.own = target;
@@ -232,12 +234,39 @@ function rawKeys(target: Raw): (string | symbol)[] {
     keys ??= new Set(own);
     n.raw === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
   }
-  if (!keys) return own;
+  // (An array whose length is staged shorter drops the indices past it.)
+  if (!keys && !(Array.isArray(target) && seenStaged(target, "length"))) return own;
+  keys ??= new Set(own);
   if (Array.isArray(target)) {
     const len = rawGet(target, "length");
     for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
   }
   return [...keys];
+}
+/** Whether `target[key]` has a write not committed yet. */
+function written(target: Raw, key: PropertyKey) {
+  return !!records.get(target)?.pending?.has(key) || !!seenStaged(target, key);
+}
+/** The keys a snapshot shows: the world being read, with this tick's writes (not flushed yet) over it. */
+function snapshotKeys(target: Raw): (string | symbol)[] {
+  const p = records.get(target)?.pending;
+  if (!p) return rawKeys(target);
+  const keys = new Set<string | symbol>(rawKeys(target));
+  for (const [k, v] of p) if (k !== "length") v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+  if (Array.isArray(target)) {
+    const len = snapshotGet(target, "length");
+    for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
+  }
+  return [...keys];
+}
+/** `target[key]` as a snapshot shows it: this tick's write, else the world being read. */
+function snapshotGet(target: Raw, key: PropertyKey): any {
+  const p = records.get(target)?.pending;
+  if (p?.has(key)) {
+    const v = p.get(key);
+    return v === DELETE ? undefined : v;
+  }
+  return rawGet(target, key);
 }
 /** The key's node when it has a staged write the reader sees. */
 function seenStaged(target: Raw, key: PropertyKey): KeyNode | null {
@@ -270,16 +299,17 @@ function latestKeys(target: Raw): (string | symbol)[] {
   return [...keys];
 }
 
-/**
- * Whether a value is wrapped in a store proxy (as Solid 2): plain objects, arrays, objects with no prototype, and class
- * instances that are plain records (not DOM nodes, dates, maps…); never a frozen one.
- */
 /** Values never made stores: served as they are, tracked by reference where they sit. */
 const raws = new WeakSet<object>();
 export function markRaw<T extends object>(v: T): T {
   raws.add(v);
   return v;
 }
+
+/**
+ * Whether a value is wrapped in a store proxy (as Solid 2): plain objects, arrays, objects with no prototype, and class
+ * instances that are plain records (not DOM nodes, dates, maps…); never a frozen one.
+ */
 
 export function isWrappable(v: any): v is Raw {
   if (v == null || typeof v !== "object" || Object.isFrozen(v)) return false;
@@ -344,7 +374,12 @@ const readHandler: ProxyHandler<Raw> = {
       if (o === true) trackNode(node(target, key));
       else if (!o) node(target, key).read();
     } else checkStrictRead({ name: typeof key === "string" ? key : undefined });
-    const v = viewGet(target, key);
+    let v = viewGet(target, key);
+    const snaps = records.get(target)?.snaps;
+    if (snaps?.has(key)) {
+      const s = servedSnapshot(v, snaps.get(key));
+      if (s) v = s[0];
+    }
     if (Array.isArray(target) && key === "length") return v;
     // A method of an array (or anything inherited) is not a property of the state.
     if (!desc && typeof v === "function") return v;
@@ -478,6 +513,18 @@ function pendingValue(target: Raw, key: PropertyKey): any {
   }
   return latestGet(target, key);
 }
+/** The keys with this tick's pending writes over the newest ones. */
+function pendingKeys(target: Raw): (string | symbol)[] {
+  const keys = new Set<string | symbol>(latestKeys(target));
+  const p = records.get(target)?.pending;
+  if (p) for (const [k, v] of p) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
+  if (Array.isArray(target)) {
+    // Indices at or past the pending length are gone.
+    const len = pendingValue(target, "length");
+    for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
+  }
+  return [...keys];
+}
 function pendingHas(target: Raw, key: PropertyKey): boolean {
   const p = records.get(target)?.pending;
   if (p && p.has(key)) return p.get(key) !== DELETE;
@@ -492,8 +539,13 @@ function promoteWrites(before: Set<Record_>) {
   for (const r of [...dirtyRecords]) if (!before.has(r)) r.keys.commit();
 }
 
+/** Inside a store's setter (a user's write: what a derive or a landing writes is the tree's own work, never held). */
+let userWrite = 0;
+
 function stage(target: Raw, key: PropertyKey, value: any) {
   const r = recordOf(target);
+  // (Written while hydration keeps snapshots: the value it had, for readers in the scope.)
+  if (userWrite && !r.snaps?.has(key) && takingSnapshots(() => void (r.snaps = null))) (r.snaps ??= new Map()).set(key, pendingValue(target, key));
   (r.pending ??= new Map()).set(key, value);
   if (!dirtyRecords.has(r)) {
     dirtyRecords.add(r);
@@ -576,17 +628,7 @@ const draftHandler: ProxyHandler<Raw> = {
     return draftOf(child(target, v));
   },
   has: (target, key) => pendingHas(target, key),
-  ownKeys(target) {
-    const keys = new Set<string | symbol>(latestKeys(target));
-    const p = records.get(target)?.pending;
-    if (p) for (const [k, v] of p) v === DELETE ? keys.delete(k as string | symbol) : keys.add(k as string | symbol);
-    if (Array.isArray(target)) {
-      // Indices at or past the pending length are gone.
-      const len = pendingValue(target, "length");
-      for (const k of keys) if (isIndex(k) && +k >= len) keys.delete(k);
-    }
-    return [...keys];
-  },
+  ownKeys: (target) => pendingKeys(target),
   getOwnPropertyDescriptor(target, key) {
     if (!pendingHas(target, key)) return undefined;
     const base = Reflect.getOwnPropertyDescriptor(own(target), key);
@@ -679,11 +721,16 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
     guardStoreWrite();
     const d = draftOf(target);
     const before = (fn as any)?.[RECONCILE] ? new Set(dirtyRecords) : null;
-    if (typeof fn === "function") {
-      const r = (fn as (d: T) => T | void)(d as T);
-      if (thenable(r)) asyncStoreSetter();
-      if (r !== undefined && r !== d) replaceInto(target, r);
-    } else replaceInto(target, { ...untrack(() => ({ ...d })), ...(fn as object) });
+    userWrite++;
+    try {
+      if (typeof fn === "function") {
+        const r = (fn as (d: T) => T | void)(d as T);
+        if (thenable(r)) asyncStoreSetter();
+        if (r !== undefined && r !== d) replaceInto(target, r);
+      } else replaceInto(target, { ...untrack(() => ({ ...d })), ...(fn as object) });
+    } finally {
+      userWrite--;
+    }
     // A reconcile given to the setter: its diff visible at once.
     if (before) promoteWrites(before);
   };
@@ -1079,10 +1126,10 @@ function rawOf(v: any, seen: Map<any, any>): any {
   if (seen.has(t)) return seen.get(t);
   // (A projection following another store is rewritten as that one changes: copied, so the snapshot stays as it was.)
   if (derivedFrom.has(t)) return plain(t, seen);
-  // (As a pass sees it: what is staged in this flush included.)
-  const keys = rawKeys(t);
+  // (As it is now: writes not committed yet included.)
+  const keys = snapshotKeys(t);
   const o = own(t);
-  const staged = keys.length !== Reflect.ownKeys(o).length || keys.some((k) => seenStaged(t, k));
+  const staged = keys.length !== Reflect.ownKeys(o).length || keys.some((k) => written(t, k));
   // (Written to: a copy, made first, so a cycle back to it finds the copy.)
   let copy: any = staged || records.get(t)?.copied ? (Array.isArray(t) ? [] : Object.create(Object.getPrototypeOf(t))) : null;
   seen.set(t, copy ?? o);
@@ -1093,7 +1140,7 @@ function rawOf(v: any, seen: Map<any, any>): any {
       vals.push(d);
       continue;
     }
-    const val = rawGet(t, k);
+    const val = snapshotGet(t, k);
     const x = val && typeof val === "object" ? rawOf(child(t, val), seen) : val;
     vals.push(x);
     if (x === val && !staged) continue;
@@ -1105,6 +1152,8 @@ function rawOf(v: any, seen: Map<any, any>): any {
     const k = keys[i]!;
     const d = Object.getOwnPropertyDescriptor(o, k);
     if (d && !("value" in d)) Object.defineProperty(copy, k, d);
+    // (A hidden symbol key is the object's own bookkeeping: not data, not copied.)
+    else if (d && !d.enumerable && typeof k === "symbol") continue;
     else if (d && !d.enumerable && !(k === "length" && Array.isArray(copy))) Object.defineProperty(copy, k, { value: vals[i], writable: true, enumerable: false, configurable: true });
     else copy[k] = vals[i];
   }

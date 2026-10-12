@@ -361,7 +361,22 @@ function releaseScope(o: Owner) {
 export function clearSnapshots() {
   if (snapshotSources) for (const s of snapshotSources) s.snap = NONE;
   snapshotSources = null;
+  for (const clear of snapshotClears) clear();
+  snapshotClears.clear();
   snapshotCapture = false;
+}
+/** What else keeps snapshots (a store's written keys): dropped with them. */
+const snapshotClears = new Set<() => void>();
+/** Whether snapshots are taken now; `onClear` drops what the caller keeps when they are cleared. */
+export function takingSnapshots(onClear?: () => void): boolean {
+  if (snapshotCapture && onClear) snapshotClears.add(onClear);
+  return snapshotCapture;
+}
+/** A kept value read: served to a reader in a snapshot scope (stale when it moved on), else null. */
+export function servedSnapshot(current: unknown, snap: unknown): [unknown] | null {
+  if (!snapshotCapture || !listener?.inSnapshot) return null;
+  if (!Object.is(current, snap)) listener.snapshotStale = true;
+  return [snap];
 }
 /** Never settles: a node not asked yet waits on it. */
 const UNASKED = { then() {} };
@@ -1086,7 +1101,12 @@ abstract class Node<T = any> {
     this.version++;
     // Lane work: derivations follow now; effects at the lane's reveal.
     const lane = this.tx && !this.tx.root.done && this.tx.root.parentTx ? this.tx.root : null;
-    for (const o of this.observers) lane && o.kind !== MEMO && !o.verdict?.has(this) ? lane.stale.add(o) : o.mark(DIRTY);
+    // (A snapshot's readers in their scope read the snapshot: not run again until the scope is released.)
+    const snapped = snapshotCapture && (this as any).snap !== undefined && (this as any).snap !== NONE;
+    for (const o of this.observers) {
+      if (snapped && o.inSnapshot) o.snapshotStale = true;
+      else lane && o.kind !== MEMO && !o.verdict?.has(this) ? lane.stale.add(o) : o.mark(DIRTY);
+    }
   }
   /** The staged value made the committed one. */
   promote() {
