@@ -936,6 +936,7 @@ export class Signal<T> extends Node<T> {
     if (this.pending === NONE) writes.push(this);
     this.pending = next;
     if (acting) this.writtenIn = acting.tx;
+    else if (!flushing && !tickTx) tickWrites.add(this);
     schedule();
   }
   /** The action whose transaction this write belongs to (held with it until the action ends). */
@@ -2268,6 +2269,8 @@ let enteredTx: Transaction | null = null;
 let frameTx: Transaction | null = null;
 /** The first action opened since the last flush: guesses written outside an action in that tick join it. */
 let tickTx: Transaction | null = null;
+/** Signals written in this tick, outside any flush or action, before its first action opened: that action holds them with it. */
+const tickWrites = new Set<Node>();
 /** Guesses written outside an action and over no hold yet: decided once the flush has parked (or not). */
 const frameGuesses: [Node, unknown][] = [];
 
@@ -2370,6 +2373,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
   let tx: Transaction | null = null;
   /** The transaction this round parked into (new or joined). */
   let parked: Transaction | null = enteredTx;
+  // (An action opened in this tick and still running: the writes made in the tick before the flush are its too.)
+  const tick = tickTx && !tickTx.done && tickTx.root.open > 0 ? tickTx.root : null;
   enteredTx = null;
   for (const n of now) {
     if ((n as any).revealNow) {
@@ -2475,18 +2480,21 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
     }
   }
   // The tick entangles: a round that parked holds its plain writes with it.
-  if (parked && !parked.done)
+  if ((parked && !parked.done) || tick)
     for (const n of now) {
       if (n.tx || !(n instanceof Signal)) continue;
+      const into = parked && !parked.done ? parked : tickWrites.has(n) ? tick : null;
+      if (!into) continue;
       // (A write back to the committed value, or one no reader changed with, proposes nothing.)
       if (n.staged === NONE || (n.equals !== false && n.equals(n.value, n.staged as any))) continue;
       const below = downstream(n);
-      if (readersOf(n) && ![...below].some((c) => !c.tx && (c.staged !== NONE || c.due))) continue;
-      hold(n, parked);
+      // (A tick write one asks whether it is pending is seen: held with the action, it is.)
+      if (readersOf(n) && ![...below].some((c) => !c.tx && (c.staged !== NONE || c.due)) && !(into === tick && [...n.observers].some((o) => o.verdict?.has(n)))) continue;
+      hold(n, into);
       held.add(n);
       for (const c of below) {
         if (c.tx || (c.staged === NONE && !c.due)) continue;
-        if (c.kind === MEMO) hold(c, parked);
+        if (c.kind === MEMO) hold(c, into);
         else {
           // (A reader that saw the write before it was held: run again, against the held world.)
           if (c.due) (c.due = false), remove(applies[c.kind as 1 | 2], c);
@@ -2897,7 +2905,7 @@ export function flush<T>(fn?: () => T): T {
     throw e;
   } finally {
     flushing--;
-    if (!flushing) frameTx = tickTx = null;
+    if (!flushing) (frameTx = tickTx = null), tickWrites.clear();
     if (!flushing) DEV?.hooks.onUpdate?.();
     // A refresh counts for the flush it was asked in.
     if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
