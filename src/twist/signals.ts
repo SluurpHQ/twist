@@ -2974,6 +2974,13 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
         if (n.kind === RENDER && !(s as any).bornHeld && !n.readHeld && !(n.applied === NONE && madeByHeld(n, s.tx.root))) s.tx.root.stale.add(n);
         else joins = outOfLane(s.tx.root);
       }
+    // (An effect never applied, made by a pass a transaction holds: it has no frame to show — born held with it.)
+    if (n instanceof Computation && n.kind !== MEMO && n.applied === NONE && !joins) {
+      let p: Owner | null = n.parent;
+      while (p && !(p instanceof Computation)) p = p.parent;
+      const pt = (p as Computation<any> | null)?.tx?.root;
+      if (pt && !pt.done && !pt.parentTx) joins = pt;
+    }
     const by = (n as any).writtenIn as Transaction | null;
     if (by && !by.done) joins = by.root;
     // A memo below reading what another transaction holds entangles them: the two settle as one (A15).
