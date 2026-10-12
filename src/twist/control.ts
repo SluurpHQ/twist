@@ -3,6 +3,7 @@
 declare const process: { env: Record<string, string | undefined> };
 import { createErrorBoundary, createLoadingBoundary, createMemo, createOwner, createRevealOrder, flatten, getOwner, peekNextChildId, runWithOwner, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
 import { LIVE, mapArray, merge, repeat } from "./flow.ts";
+import { attrHooks } from "./attribution/attribution-hooks.ts";
 
 // ---------------------------------------------------------------- marks from the pass
 
@@ -88,7 +89,22 @@ export function createComponent<P>(Comp: (props: P) => any, props: P, name?: str
   const label = `<${name || own.name || "Anonymous"}>`;
   const o = createOwner({ transparent: true }) as any;
   o.name = label;
-  return runWithOwner(o, () => untrack(() => own(props), builtins.has(own) ? undefined : label));
+  const body = () => untrack(() => own(props), builtins.has(own) ? undefined : label);
+  if (process.env.NODE_ENV !== "production") return runWithOwner(o, () => devComponent(o, own, props, name, label, body));
+  return runWithOwner(o, body);
+}
+
+/**
+ * Development: the component's root says what it is (`_component`: its function, props, name, and — while an attribution
+ * engine is installed — a console task for its JSX site, run inside) and its function is marked `$DEVCOMP`.
+ */
+function devComponent<R>(o: any, own: any, props: unknown, name: string | undefined, label: string, body: () => R): R {
+  o._name = label;
+  own[$DEVCOMP] = true;
+  // (`console.createTask` captures a stack each call: made only when an engine reads it.)
+  const task = attrHooks !== null && typeof (console as any).createTask === "function" ? (console as any).createTask(label) : undefined;
+  o._component = { fn: own, props, name: name ?? own.name ?? "", task };
+  return task ? task.run(body) : body();
 }
 
 /** A component called and what it returns rendered by `render`, both under its owner (what it renders is its own). */
@@ -98,7 +114,9 @@ export function renderComponent<P, R>(Comp: (props: P) => any, props: P, render:
   const label = `<${own.name || "Anonymous"}>`;
   const o = createOwner({ transparent: true }) as any;
   o.name = label;
-  return runWithOwner(o, () => render(untrack(() => own(props), builtins.has(own) ? undefined : label)));
+  const body = () => render(untrack(() => own(props), builtins.has(own) ? undefined : label));
+  if (process.env.NODE_ENV !== "production") return runWithOwner(o, () => devComponent(o, own, props, undefined, label, body));
+  return runWithOwner(o, body);
 }
 
 /** Twist's own components (control flow, boundaries): their bodies read what they need, as Solid's computations do. */
