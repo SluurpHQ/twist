@@ -1283,7 +1283,8 @@ export class Computation<T> extends Node<T> implements Owner {
     }
     // A fresh derivation reading a flight a transaction waits on suspends on it (A15).
     // (A resolve() reading one this read itself set off: its last answer, stale while it revalidates.)
-    if (listener && (listener.kind === MEMO || ((listener as any).resolving && flewBefore)) && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && !this.loadingWindow && !this.streaming) throw new NotReadyError(this);
+    // (A first pass shown under a Loading that has not shown its content: the boundary catches it, its fallback shows.)
+    if (listener && (listener.kind === MEMO || ((listener as any).resolving && flewBefore) || (listener.kind === RENDER && freshBoundary(listener))) && listener.ranAt === -1 && !verdictReading && this.flight && this.override === NONE && !this.loadingWindow && !this.streaming) throw new NotReadyError(this);
     // Born held: nothing committed to serve outside a pass.
     if ((this as any).bornHeld && !inPass && this.override === NONE) throw new NotReadyError(this);
     return this.current();
@@ -2584,6 +2585,8 @@ function behindFallback(c: Computation<any>): LoadingState | null {
 function hidden(c: Computation<any>): boolean {
   // (In a frame a rerun parked: what it shows is on its way out, not what this round decides.)
   if (c.dormant) return true;
+  // (A fresh boundary's output showing its fallback: what it reads is not on screen; the boundary catches it.)
+  if ((c as any).shows?.onFallback && (c as any).shows.fresh) return true;
   for (let o: Owner | null = c; o; o = o.parent) {
     if ((o as any).loading?.onFallback) return true;
     // (A boundary's output is on screen, showing the fallback; only what it made is not.)
@@ -3466,12 +3469,21 @@ function toolContext(o: Owner): Record<PropertyKey, unknown> | null {
   return o.context;
 }
 
-/** The Loading boundary a computation is under (found once: a boundary is set before what is under it is made). */
+/** Under a Loading that has not shown its content (a fresh one, not a mount's own). */
+function freshBoundary(c: Computation<any>): boolean {
+  const b = boundaryOf(c);
+  return !!b && b.fresh && !b.mountRoot;
+}
+
+/**
+ * The Loading boundary a computation is under (found once: a boundary is set before what is under it is made). What
+ * its output made (lazy children) is its content too.
+ */
 function boundaryOf(c: Computation<any>): LoadingState | null {
   if (c.boundary !== undefined) return c.boundary;
   let found: LoadingState | null = null;
   for (let o: Owner | null = c.parent; o; o = o.parent) {
-    const b = (o as any).loading as LoadingState | undefined;
+    const b = ((o as any).loading ?? (o as any).shows) as LoadingState | undefined;
     if (b) {
       found = b;
       break;
