@@ -65,3 +65,15 @@ await page.evaluate(([n, r, step]) => { for (let i = 0; i < r; i++) step ? windo
 const { profile } = await cdp.send("Profiler.stop");
 await browser.close();
 console.log(summary(profile, `${app} ${name}`));
+// LINES=fn: that function's samples by line of the bundle (an unminified build reads best).
+if (process.env.LINES) {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL(`../test/out/bench/${app}/app.js`, import.meta.url), "utf8").split("\n");
+  const ticks = new Map();
+  let all = 0;
+  for (const n of profile.nodes) {
+    if (n.callFrame.functionName !== process.env.LINES) continue;
+    for (const t of n.positionTicks ?? []) ticks.set(t.line, (ticks.get(t.line) ?? 0) + t.ticks), (all += t.ticks);
+  }
+  for (const [line, t] of [...ticks].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log(`${((100 * t) / all).toFixed(1).padStart(5)}%  ${line}: ${source[line - 1]?.trim().slice(0, 130)}`);
+}
