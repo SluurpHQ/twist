@@ -1902,6 +1902,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.readHeld && !this.tx) hold(this, this.readHeld), first && ((this as any).bornHeld = true);
     if (flushing || this.tx) this.stage(next);
     else (this.value = next), this.version++, clock++, ((this as any).committed = true);
+    // (Its first answer, come at once: what waited on it untracked runs again, as for an answer that landed.)
+    if (first && this.untrackedReaders) this.rerunReaders();
   }
   /**
    * An answer still to come: in flight until it lands. A thenable that answers while `then` is called (a sync
