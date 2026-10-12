@@ -47,7 +47,7 @@ export { getProjectionTrace } from "./container-trace.ts";
 
 const sharedSources = new WeakMap<object, { open(): AsyncIterator<any> }>();
 const sharedChannels = new WeakSet<object>();
-const LIVE_SOURCE = Symbol.for("solid.live-source");
+const LIVE_SOURCE = Symbol.for("solid.LiveSource");
 
 function closeAsyncIterator(it: AsyncIterator<any>) {
   try {

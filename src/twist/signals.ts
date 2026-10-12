@@ -450,7 +450,8 @@ const answered = new WeakMap<object, [boolean, unknown]>();
 /** Server mode on or off; answers what it was. */
 const SERVER_COMPONENT_SCOPE = Symbol.for("twist.ssr.server-component");
 const LIVE_SERVER_COMPONENT_SCOPE = Symbol.for("twist.ssr.live-server-component");
-const LIVE_SOURCE = Symbol.for("solid.live-source");
+const LIVE_SOURCE = Symbol.for("solid.LiveSource");
+const LIVE_RESUME_FROM = Symbol.for("solid.LiveResumeFrom");
 const UNDECLARED_LIVE_SOURCE_MS = 5000;
 
 /** The hold a server component's pump keeps its response open with; in a document, a warning once it has run long. */
@@ -1416,7 +1417,13 @@ export class Computation<T> extends Node<T> implements Owner {
         // (A stream the client goes on with runs here itself; anything else — "hybrid" of another shape is "server" —
         // is traced for what it reads.)
         const handsOff = (this as any).ssrSource === "hybrid" && ((this as any).sourceFn ?? this.fn).constructor?.name === "AsyncGeneratorFunction";
-        if (!handsOff) traceOnly(this.fn, this.current());
+        const traced = handsOff ? undefined : traceOnly(this.fn, this.current());
+        // A live source: the server's answer now; once hydration ends, the source itself, from that answer on.
+        if (traced && typeof traced === "object" && (traced as any)[LIVE_SOURCE]) {
+          const takeOver = () => !this.disposed && (((this as any).liveTakeover = true), this.mark(DIRTY), schedule());
+          const onEnd = (sharedConfig as any).onHydrationEnd;
+          onEnd ? onEnd(takeOver) : queueMicrotask(takeOver);
+        }
         if (ref && typeof ref === "object" && ref.s === 2) {
           if (typeof ref.then === "function") ref.then(undefined, noop);
           throw ref.v;
@@ -1434,6 +1441,11 @@ export class Computation<T> extends Node<T> implements Owner {
         }
       } else {
         next = this.fn(this.current());
+        // (A live source taking over from the server's answer: it resumes from what shows.)
+        if ((this as any).liveTakeover) {
+          (this as any).liveTakeover = false;
+          if (next && typeof next === "object" && (next as any)[LIVE_SOURCE]) (next as any)[LIVE_RESUME_FROM] = this.current();
+        }
         // (An async iterable's first step runs here: what it reads before its first await is tracked.)
         // (On a server, a slot answered on an earlier pass is not started again.)
         if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && (sourceTees.has(next as any) || (serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))))) next = primed(next as any) as T;
@@ -4310,7 +4322,7 @@ for (const k of ["all", "allSettled", "any", "race", "reject", "resolve", "try"]
 let tracing = false;
 export const isTracing = () => tracing;
 
-function traceOnly(fn: (prev: any) => any, prev: any) {
+function traceOnly(fn: (prev: any) => any, prev: any): unknown {
   const g = globalThis as any;
   const fetchWas = g.fetch;
   const PromiseWas = g.Promise;
@@ -4326,6 +4338,7 @@ function traceOnly(fn: (prev: any) => any, prev: any) {
       if (it === r) it.next().then?.(undefined, noop);
     }
     if (r && typeof r.then === "function") r.then(undefined, noop);
+    return r;
   } catch {
     // What it read before it threw is tracked; the answer is the server's either way.
   } finally {
