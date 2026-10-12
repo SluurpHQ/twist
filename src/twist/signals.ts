@@ -1328,7 +1328,11 @@ export class Signal<T> extends Node<T> {
     const next = this.pending as T;
     this.pending = NONE;
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
-    if (this.equals !== false && this.equals(now, next)) return;
+    if (this.equals !== false && this.equals(now, next)) {
+      // (Repeating a value a transaction holds is a proposal too: its tick enters that hold, A34.)
+      if (this.staged !== NONE && this.tx && !this.tx.root.done) enteredTx ??= this.tx.root;
+      return;
+    }
     this.stage(next);
   }
 }
