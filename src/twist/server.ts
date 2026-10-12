@@ -148,6 +148,24 @@ export function dynamicComponent<P>(source: () => any, options?: { static?: bool
 }
 
 const COMPONENT_BINDING = Symbol.for("solid.component-binding");
+const SERVER_COMPONENT = Symbol.for("solid.server-component");
+
+/** What an async dynamic() source landed, as its record can carry it — a client component function it cannot. */
+function classifyLanding(resolved: any) {
+  if (typeof resolved !== "function" || SERVER_COMPONENT in resolved || COMPONENT_BINDING in resolved) return resolved;
+  const message =
+    process.env.NODE_ENV !== "production"
+      ? "[DYNAMIC_ASYNC_COMPONENT] An async dynamic() source resolved to a client component " +
+        "function, which cannot be serialized for hydration: the client would re-run the source " +
+        "and wait on it while hydrating, committing the enclosing <Loading> to a fallback the " +
+        "server never rendered. Resolve the async upstream — a createAsync()/createMemo() the " +
+        "source reads synchronously (`dynamic(() => page() ? Editor : Viewer)`) — or use lazy() " +
+        "for a code-split component. A source may stay async when it resolves to a server " +
+        "component or a serializable value (a tag name)."
+      : "[DYNAMIC_ASYNC_COMPONENT] An async dynamic() source resolved to a client component function";
+  if (OBSERVE) emitDiagnostic({ code: "DYNAMIC_ASYNC_COMPONENT", kind: "ssr", severity: "error", message, data: { component: resolved.name || undefined } } as any, null);
+  throw new Error(message);
+}
 
 function dynamicCore<P>(source: () => any, options: { static?: boolean; deferStream?: boolean } | undefined, tags: boolean): (props: P) => any {
   const make = (w: any, props: any) => {
@@ -164,7 +182,10 @@ function dynamicCore<P>(source: () => any, options: { static?: boolean; deferStr
   }
   // As the client's: the source's answer kept once, then a value and its rendering per instance.
   // (deferStream: its answer holds the shell.)
-  const cached = createMemo(source, options?.deferStream ? ({ deferStream: true } as any) : undefined);
+  const cached = createMemo(() => {
+    const v = source();
+    return v && typeof v.then === "function" ? v.then(classifyLanding) : v;
+  }, options?.deferStream ? ({ deferStream: true } as any) : undefined);
   return (props: any) => {
     const which = createMemo(() => cached());
     return createMemo(() => ({ t: html(make(which(), props), false) }));

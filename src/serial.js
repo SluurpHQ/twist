@@ -75,6 +75,7 @@ const PROMISE_SUCCESS = (resolver, data) => {
 };
 const PROMISE_FAILURE = (resolver, data) => {
 	resolver.f(data);
+	resolver.p.catch(() => {});
 	resolver.p.s = 2;
 	resolver.p.v = data;
 };

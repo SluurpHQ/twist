@@ -3002,8 +3002,8 @@ export function isPending(fn: () => unknown): boolean {
     fn();
   } catch (e) {
     // Never loaded: nothing stale is shown, so not pending; a tracked reader waits for the first load like any.
-    // Untracked, it never throws.
-    if (outer) throw e;
+    // Untracked, it never throws; an error is no pending (#2790: an Errored fallback asking of the failed source).
+    if (outer && e instanceof NotReadyError) throw e;
   } finally {
     listener = outer;
     verdictReading--;
