@@ -57,7 +57,7 @@ const COMP = Symbol("twist.ssr.component");
 /** Whether `v` is markup made here and not rendered yet (Twist's JSX describes; html() renders). */
 export const isServerNode = (v: any) => !!v && typeof v === "object" && (v[EL] === true || v[COMP] === true);
 
-type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; owner?: any; skip?: (k: string) => boolean; attrs?: string; sources?: boolean };
+type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; owner?: any; skip?: (k: string) => boolean; attrs?: string; sources?: boolean; keys?: string[] };
 type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string, any> };
 
 export const Fragment = (props: { children?: unknown }) => props.children;
@@ -73,23 +73,36 @@ export const __twist_t = (spec: Spec) => (values: unknown[]) => {
   if (d && d[EL]) d.owner = getOwner();
   return d;
 };
-const fixedAttrs = new WeakMap<Spec, string>();
 const fixedHtml = new WeakMap<Spec, { t: string }>();
+/** What a template element's spec gives every element made from it, worked out once: its fixed attributes, its fixed
+ * text (escaped), and its prop keys when they need no checking (no spread among them). */
+type SpecMeta = { attrs: string; kids: any[]; keys: string[] | null };
+const specMeta = new WeakMap<Spec, SpecMeta>();
+function metaOf(spec: Spec): SpecMeta {
+  let m = specMeta.get(spec);
+  if (m) return m;
+  const [tag, fixed, slots, kids] = spec;
+  let attrs = "";
+  for (let i = 0; i < fixed.length; i += 2) attrs += ssrAttribute(fixed[i]!, fixed[i + 1]);
+  const texts = kids.map((k) => (typeof k === "string" ? (RAW_TEXT.has(tag) ? k : { t: k.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }) : k));
+  // (Plain attribute names only: anything else goes through the general checks.)
+  const keys = slots.every((k) => !k.startsWith("$spread$") && ATTR_NAME.test(k)) ? [...slots, ...(kids.length ? ["children"] : [])] : null;
+  specMeta.set(spec, (m = { attrs, kids: texts, keys }));
+  return m;
+}
 function described(spec: Spec, values: unknown[], at: { i: number }): any {
   if (spec[4]) return expand(spec, values, at, jsx, jsxs);
-  const [tag, fixed, slots, kids] = spec;
+  const [tag, , slots, kids] = spec;
+  const meta = metaOf(spec);
   const props: Record<string, any> = {};
   for (const name of slots) props[name] = values[at.i++];
-  const children = kids.map((k) => (k === 0 ? holeValue(spec, values, at) : typeof k === "string" ? (RAW_TEXT.has(tag) ? k : { t: k.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }) : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
+  const texts = meta.kids;
+  const children = kids.map((k, i) => (k === 0 ? holeValue(spec, values, at) : typeof k === "string" ? texts[i] : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
   if (children.length > 1) ((children as any)[OWN] = true), (props.children = children);
   else if (children.length) props.children = children[0];
-  let attrs = fixedAttrs.get(spec);
-  if (attrs === undefined) {
-    attrs = "";
-    for (let i = 0; i < fixed.length; i += 2) attrs += ssrAttribute(fixed[i]!, fixed[i + 1]);
-    fixedAttrs.set(spec, attrs);
-  }
-  return { [EL]: true, tag, props, attrs } as Element_;
+  const d = { [EL]: true, tag, props, attrs: meta.attrs } as Element_;
+  if (meta.keys) d.keys = meta.keys;
+  return d;
 }
 /** A bare function at a template's hole (not compiled as dynamic): where it was registered, to check what it allocates. */
 const holeSites = new WeakMap<Function, { spec: Spec; hole: number; registered: number }>();
@@ -563,7 +576,8 @@ function element(el: Element_, keyed: boolean): string {
   if (tag === "html" || tag === "head") markHead();
   // The key first: what the props read is the element's, after it.
   let out = "<" + tag + (keyed ? ssrHydrationKey() : "");
-  const all = propsOf(el);
+  // (A template's element: its props as the template set them, their keys checked once for it.)
+  const all = el.keys ? el.props : propsOf(el);
   let content: string | undefined;
   let kids: any = NONE_CHOSEN;
   let chosen: unknown = NONE_CHOSEN;
@@ -575,8 +589,8 @@ function element(el: Element_, keyed: boolean): string {
   let behaviors: Map<string, string> | null = null;
   const tail: Set<string> | undefined = (all as any)[TAIL];
   // (Own keys through the proxy's ownKeys alone: no descriptor asked for.)
-  for (const k of Reflect.ownKeys(all)) {
-    if (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k) || (tail && tail.has(k))) continue;
+  for (const k of el.keys ?? Reflect.ownKeys(all)) {
+    if (!el.keys && (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k) || (tail && tail.has(k)))) continue;
     // A void element has no children: never read.
     if (k === "children" && VOID.has(tag)) continue;
     const raw = all[k];
