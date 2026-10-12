@@ -2705,6 +2705,18 @@ export function noteGuessRead(tx: Transaction | null) {
 }
 /** An effect showing a store's guess, over nothing held but derived stores' own computes: it shows now. */
 const showsGuess = (c: Computation<any>) => !!(c as any).readGuess && !c.sources.some((s) => s.tx && !s.tx.root.done && !(s as any).writes);
+/** The transaction whose held world the running computation derives in, if any. */
+export function heldPassTx(): Transaction | null {
+  const l = listener;
+  // (A first run has nothing committed to keep showing: its writes are its first answer.)
+  if (!l || l.ranAt === -1) return null;
+  const t = (l.readHeld ?? l.tx)?.root;
+  // (The mount frame holds first loads, not writes: what they make shows with them.)
+  if (t && !t.done && !(t as any).mount) return t;
+  // (Or one reading a write of this tick, which the tick's open action will hold.)
+  const tick = tickTx && !tickTx.done && tickTx.root.open > 0 ? tickTx.root : null;
+  return tick && l.sources.some((s) => tickWrites.has(s)) ? tick : null;
+}
 /** Whether a derivation's pass is running now (it reads the staged world; an effect shows the screen). */
 export const inPassNow = () => inPass > 0 && (listener ?? untrackedBy)?.kind === MEMO;
 /** Whether the computation running now derives in `t`'s held world (what `t` commits to). */
@@ -3005,7 +3017,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
       if (n.staged === NONE || (n.equals !== false && n.equals(n.value, n.staged as any))) continue;
       const below = downstream(n);
       // (A tick write one asks whether it is pending is seen: held with the action, it is.)
-      if (readersOf(n) && ![...below].some((c) => !c.tx && (c.staged !== NONE || c.due)) && !(into === tick && [...n.observers].some((o) => o.verdict?.has(n)))) continue;
+      if (readersOf(n) && ![...below].some((c) => !c.tx && (c.staged !== NONE || c.due || (c as any).writes)) && !(into === tick && [...n.observers].some((o) => o.verdict?.has(n)))) continue;
       hold(n, into);
       held.add(n);
       for (const c of below) {

@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -1013,8 +1013,11 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
         );
       } else into(target, unwrap(r) as Raw, key);
     }
-    // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
-    promoteWrites(before);
+    // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes) —
+    // derived in a held world, held with it (#3074).
+    const held = heldPassTx();
+    if (held) for (const r of dirtyRecords) !before.has(r) && (r.keys.writtenIn = held);
+    else promoteWrites(before);
     run.returned = true;
     // The same answer each run: readers are told by the keys that changed, not by the derive having run.
     return 0;
