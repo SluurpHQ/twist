@@ -3282,6 +3282,9 @@ function heldRead<T>(n: Node<T>, held?: Transaction): T {
     }
     return n.staged as T;
   }
+  // (A lane's pass reading a plain write its parent transaction holds: the committed value — the guess shows over the
+  // world as committed; it derives again when that write commits.)
+  if (!(n instanceof Computation) && l.passLane && !l.passLane.done && l.passLane.root.parentTx?.root === t) return t.stale.add(l), n.value;
   // A first pass is its creator's (ruling A): made by a lane's pass, it sees the screen — the lane's parent's held
   // write as committed — and derives again at that commit.
   if (madeByLane(l, t)) {
