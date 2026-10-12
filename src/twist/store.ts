@@ -4,7 +4,7 @@
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks, entangle } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks, entangle, currentTick, setStoreTickWrite } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -677,6 +677,9 @@ function promoteWrites(before: Set<Record_>) {
   for (const r of [...dirtyRecords]) if (!before.has(r)) r.keys.commit();
 }
 
+/** Records a user wrote outside any flush or action, by the tick they were written in. */
+const tickRecords = new WeakMap<Record_, number>();
+setStoreTickWrite((n: any) => n.record !== undefined && tickRecords.get(n.record) === currentTick());
 /** Inside a store's setter (a user's write: what a derive or a landing writes is the tree's own work, never held). */
 let userWrite = 0;
 
@@ -685,6 +688,8 @@ function stage(target: Raw, key: PropertyKey, value: any) {
   const slot = unplaced.get(target);
   if (slot) unplaced.delete(target), stage(slot[0], slot[1], target);
   const r = recordOf(target);
+  // (A user's write outside any flush or action: this tick's, held with the tick's first action as a signal's is.)
+  if (userWrite && !isFlushing() && !isActing()) tickRecords.set(r, currentTick());
   // (Development, an attribution engine installed: a write that changes the key, told on its node where it is made.)
   if (process.env.NODE_ENV !== "production" && attrHooks !== null && key !== $TRACK) {
     const prev = pendingValue(target, key);

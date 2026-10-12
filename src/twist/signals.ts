@@ -2958,6 +2958,13 @@ let tickTx: Transaction | null = null;
 let passTx: Transaction | null = null;
 /** Signals written in this tick, outside any flush or action: the tick's first action holds them with it. */
 const tickWrites = new Set<Node>();
+/** Ticks so far (one ends with each outer flush). */
+let tickNo = 0;
+/** The tick now, for what records its own tick writes (a store's records). */
+export const currentTick = () => tickNo;
+/** A store key node whose record was written in this tick (installed by the store). */
+let storeTickWrite: ((n: Node) => boolean) | null = null;
+export const setStoreTickWrite = (f: (n: Node) => boolean) => void (storeTickWrite = f);
 /** Guesses written outside an action and over no hold yet: decided once the flush has parked (or not). */
 const frameGuesses: [Node, unknown][] = [];
 
@@ -3198,7 +3205,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
   if ((parked && !parked.done) || tick)
     for (const n of now) {
       if (n.tx || !(n instanceof Signal)) continue;
-      const into = parked && !parked.done ? parked : tickWrites.has(n) ? tick : null;
+      const into = parked && !parked.done ? parked : tickWrites.has(n) || storeTickWrite?.(n) ? tick : null;
       if (!into) continue;
       // (A write back to the committed value, or one no reader changed with, proposes nothing.)
       if (n.staged === NONE || (n.equals !== false && n.equals(n.value, n.staged as any))) continue;
@@ -3730,7 +3737,7 @@ export function flush<T>(fn?: () => T): T {
     throw e;
   } finally {
     flushing--;
-    if (!flushing) (frameTx = tickTx = passTx = null), tickWrites.clear();
+    if (!flushing) (frameTx = tickTx = passTx = null), tickWrites.clear(), tickNo++;
     if (!flushing) DEV?.hooks.onUpdate?.();
     // A refresh counts for the flush it was asked in.
     if (!flushing) for (const c of refreshedNow.splice(0)) (c as any).refreshed = false;
