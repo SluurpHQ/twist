@@ -1,4 +1,4 @@
-# Twist
+# <img src="logo.svg" width="28" height="28" alt="" align="top"> Twist
 
 One runtime for React's API and Solid 2's. Components written either way render into the same tree, on fine-grained
 signals: no virtual DOM, no re-running components to find what changed.
