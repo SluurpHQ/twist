@@ -363,13 +363,13 @@ export function clearSnapshots() {
 }
 /** Never settles: a node not asked yet waits on it. */
 const UNASKED = { then() {} };
-/** `fn` once the hydrating pass is over; until then, a question not asked (the flag reads false in the scope). */
-function hydrationGate<T>(fn: (prev?: T) => T): (prev?: T) => T {
+/** Whether the hydrating pass is over, as a node made now sees it: false in its snapshot scope, true once released. */
+function hydrationFlag(): () => boolean {
   const hydrated = new Signal(false, { ownedWrite: true });
   (hydrated as any).snapshots = true;
   hydrated.snapshot();
   hydrated.write(true);
-  return (prev) => (hydrated.read() ? fn(prev) : (UNASKED as T));
+  return () => hydrated.read();
 }
 
 /** The hydrating pass begins: its root is found at its first computation. */
@@ -694,6 +694,56 @@ function bufferedReader(source: any): AsyncIterator<any> {
     next: () => answer() ?? new Promise((ok) => (wake = () => ok(undefined))).then(() => answer()),
     return: (v?: any) => Promise.resolve({ done: true, value: v }),
   } as AsyncIterator<any>;
+}
+/** A step's result if it answered at once (a bare result, or a thenable that calls back while asked): [ok, value]. */
+function answeredNow(r: any): [boolean, any] | null {
+  if (!r || typeof r.then !== "function") return [true, r];
+  let out: [boolean, any] | null = null;
+  r.then(
+    (x: any) => void (out = [true, x]),
+    (e: any) => void (out = [false, e]),
+  );
+  return out;
+}
+/** `it` with each run of results it answers at once given as their last (an already-buffered backlog: one update). */
+function conflated<T>(it: AsyncIterator<T>): AsyncIterator<T> {
+  let carry: any = null;
+  let ended = false;
+  return {
+    next(): any {
+      if (ended) return { done: true, value: undefined };
+      if (carry) {
+        const c = carry;
+        carry = null;
+        return c;
+      }
+      let last: IteratorResult<T> | null = null;
+      for (;;) {
+        let r: any;
+        try {
+          r = it.next();
+        } catch (e) {
+          if (!last) throw e;
+          carry = Promise.reject(e);
+          return last;
+        }
+        const now = answeredNow(r);
+        // (Waiting, or failed: what came before first.)
+        if (!now || !now[0]) {
+          if (!last) return r;
+          carry = r;
+          return last;
+        }
+        if (now[1]?.done) {
+          if (!last) return now[1];
+          ended = true;
+          return last;
+        }
+        last = now[1];
+      }
+    },
+    return: (v?: any) => (it.return ? it.return(v) : Promise.resolve({ done: true, value: v })) as any,
+  };
 }
 /** A snapshot-then-patches stream as whole states (each a copy of its own: what is reconciled in is never changed). */
 function statesOf(source: AsyncIterable<any>, apply: (state: any, patches: any[]) => void): AsyncIterable<any> {
@@ -1261,7 +1311,11 @@ export class Computation<T> extends Node<T> implements Owner {
     // Client-only, on a server: never ready there (its boundary hands it to the client).
     if (serverRender && (options as any)?.ssrSource === "client") this.fn = clientOnly;
     // Client-only, hydrating: not asked until the pass ends (the server rendered its loading value, or a fallback).
-    else if ((options as any)?.ssrSource === "client" && sharedConfig.hydrating && this.inSnapshot && hydratesUnder(owner)) this.fn = hydrationGate(this.fn);
+    else if (kind === MEMO && (options as any)?.ssrSource === "client" && sharedConfig.hydrating && this.inSnapshot && hydratesUnder(owner)) {
+      const hydrated = hydrationFlag();
+      const inner = this.fn;
+      this.fn = (prev) => (hydrated() ? inner(prev) : (UNASKED as T));
+    }
     // Its compute writes (a store's derive): not run while it takes the server's answer.
     if ((options as any)?.writes) (this as any).writes = true;
     // (What it does with each answer, and what a client is sent for one: set before its first run.)
@@ -1590,8 +1644,10 @@ export class Computation<T> extends Node<T> implements Owner {
         // (A loading window's streamed answer: the server drew the loading value, so the claim does too; the answer
         // lands after, as a promise.)
         next = ref && typeof ref === "object" && ref.s === 1 && !(this.loadingWindow && typeof ref.then === "function") ? ref.v : ref;
+        // (The server's stream: its first value is what the server drew; what it buffered after comes later.)
+        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function") (this as any).sentStream = true;
         // (A derived store's stream: its snapshot, then patch batches — each made a whole state again.)
-        if ((this as any).writes && patchApply && next && (next as any).__SEROVAL_STREAM__ === true) next = statesOf(next as any, patchApply) as T;
+        if ((this as any).writes && patchApply && next && ((next as any).__SEROVAL_STREAM__ === true || (typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function"))) next = statesOf(next as any, patchApply) as T;
         // A stream the client goes on with ("hybrid"): once the server's answer has landed, its compute runs here,
         // quietly (its first yield repeats that answer).
         if (handsOff) {
@@ -1924,7 +1980,7 @@ export class Computation<T> extends Node<T> implements Owner {
     for (const t of transactions) if ((t as any).mount) t.flights.delete(this);
     let first = noop;
     this.settles = new Promise<void>((r) => (first = r));
-    const it = iterable[Symbol.asyncIterator]();
+    let it = iterable[Symbol.asyncIterator]();
     // (Let go: what the iterator still answers is stale, its return() answering included.)
     let stopped = false;
     this.closeStream = () => ((stopped = true), void Promise.resolve(it.return?.()).catch(noop));
@@ -1948,6 +2004,13 @@ export class Computation<T> extends Node<T> implements Owner {
         yielded = this.streamed = true;
         if (inRun) this.take(r.value);
         else landings.push([this, r.value]), landNow(), this.wake();
+        // (Hydrating from the server's stream: only its first value in this pass.)
+        if (inRun && (this as any).sentStream) {
+          (this as any).sentStream = false;
+          // (What it buffered after lands as one update: its latest.)
+          it = conflated(it);
+          return void queueMicrotask(step);
+        }
         step();
       };
       const onError = (e: unknown) => {
@@ -2545,7 +2608,7 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
   if (!flights.size && !transactions.size) {
     for (const n of now) {
       if ((n as any).revealNow) (n as any).revealNow = false;
-      else if (!n.tx) n.promote();
+      if (!n.tx) n.promote();
     }
     return;
   }
@@ -2556,8 +2619,10 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
   const tick = tickTx && !tickTx.done && tickTx.root.open > 0 ? tickTx.root : null;
   enteredTx = null;
   for (const n of now) {
+    // (A loading window's first answer: committed whatever holds.)
     if ((n as any).revealNow) {
       (n as any).revealNow = false;
+      if (!n.tx) n.promote();
       continue;
     }
     if (n.tx || held.has(n)) continue;
@@ -3175,10 +3240,20 @@ type EffectBundle<T> = { effect: (value: T, prev?: T) => void | (() => void); er
 
 function effectOf<T>(kind: 1 | 2, compute: (prev?: T) => T, apply?: ((value: T, prev?: T) => void | (() => void)) | EffectBundle<T>, options?: SignalOptions<T>) {
   if (!owner && !inEffectCallback) noOwnerEffect("effect");
+  // Hydrating: a client-only effect neither computes nor applies until the pass ends.
+  let active = true;
+  if (sharedConfig.hydrating && (options as any)?.ssrSource === "client" && !(options as any)?.transparent && hydratesUnder(owner)) {
+    const hydrated = hydrationFlag();
+    const inner = compute;
+    active = false;
+    compute = (prev) => (hydrated() ? ((active = true), inner(prev)) : (prev as T));
+  }
   const e = new Computation<T>(kind, compute, options);
-  if (typeof apply === "function") e.apply = apply;
-  else if (apply) (e.apply = apply.effect), (e.onError = apply.error);
-  else e.apply = () => {};
+  // (Hydrating, a user's effect: what the server sent under its id is its first value.)
+  if (sharedConfig.hydrating && !(options as any)?.transparent && (options as any)?.ssrSource !== "client") (e as any).adopts = true;
+  const effect = typeof apply === "function" ? apply : apply?.effect;
+  if (apply && typeof apply !== "function") e.onError = apply.error;
+  e.apply = !effect ? () => {} : active ? effect : (v, prev) => (active ? effect(v, prev) : undefined);
   startEffect(e, options);
 }
 
@@ -4537,7 +4612,7 @@ function traceOnly(fn: (prev: any) => any, prev: any): unknown {
 /** The value the server sent for an async node (by its id, through the hydration's `has`/`load`), or NONE. */
 function serverSent(n: { id?: string; kind: number }): unknown {
   const sc = sharedConfig as any;
-  if (n.id == null || n.kind !== MEMO || (n as any).ownValue || !sc.has?.(n.id)) return NONE;
+  if (n.id == null || (n.kind !== MEMO && !(n as any).adopts) || (n as any).ownValue || !sc.has?.(n.id)) return NONE;
   const v = sc.load(n.id);
   // ("$$f": a boundary's mark that its content is the client's, not an answer.)
   return v !== "$$f" ? v : NONE;
