@@ -305,6 +305,19 @@ export function markRaw<T extends object>(v: T): T {
   raws.add(v);
   return v;
 }
+/** A record a shallow store takes in: raw from now on (one value is never both a store and raw). */
+function markRawOne(v: any) {
+  if (!isWrappable(v)) return;
+  // (Another store's object, as its proxy: passed through as that store's.)
+  if (unwrap(v) !== v) return;
+  if (records.has(v) || proxies.has(v))
+    throw new Error("shallow store: an ingested record is already tracked as a deep store — one value cannot present both wrapped and raw");
+  raws.add(v);
+}
+function markRawIngest(container: any) {
+  if (Array.isArray(container)) for (const v of container) markRawOne(v);
+  else for (const k in container) markRawOne(container[k]);
+}
 
 /**
  * Whether a value is wrapped in a store proxy (as Solid 2): plain objects, arrays, objects with no prototype, and class
@@ -473,14 +486,14 @@ function trackAll(target: Raw) {
 
 const proxies = new WeakMap<object, any>();
 
-/** Stores made with `shallow`: their values are given as they are, not as stores of their own. */
+/** Stores made with `shallow`: the records they take in are raw (given as they are, replaced by reference). */
 const shallowTargets = new WeakSet<object>();
 export const markShallow = (target: object) => void shallowTargets.add(target);
 
-/** A value read from `target[key]`: a store of its own, unless the store is shallow or the property frozen (a proxy
- * must give a frozen property's value as it is). */
+/** A value read from `target[key]`: a store of its own, unless it is raw or the property frozen (a proxy must give a
+ * frozen property's value as it is). */
 function leaf(target: Raw, key: PropertyKey, v: any) {
-  if (!isWrappable(v) || shallowTargets.has(target)) return v;
+  if (!isWrappable(v)) return v;
   const d = Reflect.getOwnPropertyDescriptor(own(target), key);
   if (d && !d.configurable && !d.writable) return v;
   v = child(target, v);
@@ -621,8 +634,7 @@ const draftHandler: ProxyHandler<Raw> = {
     if ((key === "constructor" || key === "__proto__") && !Object.hasOwn(own(target), key) && !records.get(target)?.pending?.has(key)) return undefined;
     const v = pendingValue(target, key);
     if (typeof v === "function" && !Object.prototype.hasOwnProperty.call(own(target), key)) return v;
-    // (Shallow, or a frozen property: as it is.)
-    if (shallowTargets.has(target)) return v;
+    // (A frozen property: as it is.)
     const d = Reflect.getOwnPropertyDescriptor(own(target), key);
     if (d && !d.configurable && !d.writable) return v;
     return draftOf(child(target, v));
@@ -645,6 +657,8 @@ const draftHandler: ProxyHandler<Raw> = {
       stage(target, "length", raw);
       return true;
     }
+    // (Taken in by a shallow store: raw, unless it is another store's — that one passes through, its owner's.)
+    if (shallowTargets.has(target) && raw === value) markRawOne(raw);
     stage(target, key, raw);
     // An index past the end extends the array.
     if (Array.isArray(target) && isIndex(key) && +key >= pendingValue(target, "length")) stage(target, "length", +key + 1);
@@ -716,7 +730,12 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
   const given = unwrap(init) as Raw;
   // (A frozen object: behind a shell, written to an unfrozen copy.)
   const target = given && typeof given === "object" && Object.isFrozen(given) && (Array.isArray(given) || [Object.prototype, null].includes(Object.getPrototypeOf(given))) ? shellOf(given) : given;
-  if ((seed as any)?.shallow ?? options?.shallow) markShallow(target);
+  if ((seed as any)?.shallow ?? options?.shallow) {
+    if (unwrap(init) !== init) throw new Error("createStore({ shallow }): value is already a store proxy");
+    if (records.has(target) && !shallowTargets.has(target)) throw new Error("createStore({ shallow }): value is already tracked as a deep store");
+    markShallow(target);
+    markRawIngest(own(target));
+  }
   const set: StoreSetter<T> = (fn) => {
     guardStoreWrite();
     const d = draftOf(target);
@@ -1057,6 +1076,19 @@ function into(target: Raw, next: Raw, key: string | ((v: any) => any) | null) {
 /** `next` (what to hold) diffed into `target`; `fresh`: its values put in as they are (nothing merged into what was there). */
 function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) | null, fresh = false) {
   const d = draftOf(target);
+  // (A shallow store's values are leaves: each slot replaced by reference, by position or by key.)
+  if (shallowTargets.has(target)) {
+    markRawIngest(next);
+    if (Array.isArray(target) && Array.isArray(next)) {
+      const len = untrack(() => d.length);
+      for (let i = 0; i < next.length; i++) if (i >= len || untrack(() => d[i]) !== next[i]) d[i] = next[i];
+      if (len !== next.length) d.length = next.length;
+      return;
+    }
+    for (const k of Reflect.ownKeys(d)) if (!(k in next)) delete d[k];
+    for (const k of Reflect.ownKeys(next)) if (untrack(() => d[k]) !== (next as any)[k] || !untrack(() => k in d)) d[k] = (next as any)[k];
+    return;
+  }
   if (Array.isArray(target) && Array.isArray(next)) {
     const old = untrack(() => [...(d as any[])].map(unwrap));
     const byKey = new Map<any, Raw>();
@@ -1348,6 +1380,8 @@ function guessDraftOf<T>(v: T): T {
 export function createOptimisticStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: { key?: string | ((v: any) => any) }): [T, StoreSetter<T>] {
   // (Given a plain store: one that follows it, its own optimistic layer over it; given an optimistic one, its layers
   // compose over the same object.)
+  // (A value, not a derive: its second argument is its options, as createStore's.)
+  if (typeof init !== "function" && seed && !options) (options = seed as any), (seed = undefined);
   const source = typeof init !== "function" && unwrap(init) !== init && !derives.has(unwrap(init) as Raw) ? init : null;
   const [store] =
     typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true)
