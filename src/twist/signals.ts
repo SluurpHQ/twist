@@ -200,14 +200,14 @@ class Root implements Owner {
   }
   /** (Solid's owner tree as its tools walk it: first child, parent, next sibling; disposed ones skipped.) */
   get _firstChild(): Owner | null {
-    return liveFrom(this.owned, 0);
+    return liveFrom(this.owned, (this.owned?.length ?? 0) - 1);
   }
   get _parent(): Owner | null {
     return this.parent;
   }
   get _nextSibling(): Owner | null {
     const o = this.parent?.owned;
-    return o ? liveFrom(o, o.indexOf(this as any) + 1) : null;
+    return o ? liveFrom(o, o.indexOf(this as any) - 1) : null;
   }
   /** Disposes what it owns, and itself unless `self` is false. */
   dispose(self = true) {
@@ -493,9 +493,12 @@ export function createRoot<T>(fn: (dispose: () => void) => T, options?: { id?: s
 
 /** `item` out of `list`; the ends first, as lists are let go of in order or in reverse (no scan per item). */
 /** The first owner not disposed in `list` from `i` on. */
+/** (Newest first, as Solid links them.) */
 function liveFrom(list: Owner[] | null, i: number): Owner | null {
   if (!list) return null;
-  for (; i < list.length; i++) if (!list[i]!.disposed) return list[i]!;
+  // (A lazy memo read once and read by nothing now is off the chain until read again.)
+  const off = (o: Owner) => o instanceof Computation && o.lazy && !o.attached && o.ranAt !== -1;
+  for (; i >= 0; i--) if (!list[i]!.disposed && !off(list[i]!)) return list[i]!;
   return null;
 }
 
@@ -1409,14 +1412,14 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** (Solid's owner tree as its tools walk it: first child, next sibling; disposed ones skipped.) */
   get _firstChild(): Owner | null {
-    return liveFrom(this.owned, 0);
+    return liveFrom(this.owned, (this.owned?.length ?? 0) - 1);
   }
   get _parent(): Owner | null {
     return this.parent;
   }
   get _nextSibling(): Owner | null {
     const o = this.parent?.owned;
-    return o ? liveFrom(o, o.indexOf(this as any) + 1) : null;
+    return o ? liveFrom(o, o.indexOf(this as any) - 1) : null;
   }
   /** Settles when the answer in flight lands or fails (what a server render waits on). */
   declare settles: Promise<void> | null;

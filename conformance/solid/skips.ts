@@ -12,6 +12,17 @@ export type Change = { file: string; why: string } & (
 export const CHANGES: Change[] = [
   // ---- Solid's private structures
   {
+    file: "signals/tests/dormant-memo-chain-3554.test.ts",
+    skip: "a lazy memo a cleanup reawakens while its owner's held children are torn down stays on the chain",
+    why: "where Solid relinks a reawakened lazy memo in its private sibling list (_firstChild/_nextSibling); the drain itself is checked by the tests beside it",
+  },
+  {
+    file: "signals/tests/dormant-memo-chain-3554.test.ts",
+    find: `expect(chain(owner)).toEqual(["reader2", "lazy2", "sibling2", "lazy1"]);`,
+    replace: `// (Solid's private sibling list: where it relinks a reawakened lazy memo.)`,
+    why: "where Solid relinks a reawakened lazy memo in its private sibling list (_firstChild/_nextSibling); the drain it checks stays",
+  },
+  {
     file: "signals/tests/store/enumerator-presence-nodes.test.ts",
     skipFile: true,
     why: "reads a store target's private node caches ($TARGET.h, .k, .n) and its key node's _subs list",
