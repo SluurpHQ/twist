@@ -71,9 +71,15 @@ export const isChildren = (v: any): v is () => any => typeof v === "function" &&
  * A component's body run: under an owner of its own named `<Name>` (transparent: no id of its own), untracked, a
  * direct reactive read in it said to never update (as Solid's).
  */
-export function createComponent<P>(Comp: (props: P) => any, props: P) {
+export function createComponent<P>(Comp: (props: P) => any, props: P, name?: string) {
+  if (typeof Comp !== "function")
+    throw new Error(
+      `createComponent: expected a component function but got ${Comp === null ? "null" : typeof Comp}. A JSX tag resolved to a non-function value — check the import: a missing or misnamed export resolves to undefined.`,
+    );
   const own = ownOf(Comp);
-  const label = `<${own.name || "Anonymous"}>`;
+  // (Outside any owner: a plain call, nothing to label.)
+  if (!getOwner()) return untrack(() => own(props));
+  const label = `<${name || own.name || "Anonymous"}>`;
   const o = createOwner({ transparent: true }) as any;
   o.name = label;
   return runWithOwner(o, () => untrack(() => own(props), builtins.has(own) ? undefined : label));

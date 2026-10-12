@@ -185,7 +185,8 @@ class Root implements Owner {
     if (serverRender) (this as any).renderCtx = sharedConfig.context;
     if (options?.id != null) this.id = options.id;
     else giveId(this, parent);
-    ownerCreations++;
+    // (A transparent owner holds nothing of its own: not a creation.)
+    if (!options?.transparent) ownerCreations++;
     DEV?.hooks.onOwner?.(this);
   }
   get _config() {
@@ -290,6 +291,8 @@ function drainParked(c: { parked?: Owner[] | null }) {
 export function getOwner(): Owner | null {
   return owner;
 }
+/** The computation tracking reads now, or null. */
+export const getObserver = () => listener;
 
 /** Whether `o` has been disposed. */
 export const isDisposed = (o: Owner) => o.disposed;

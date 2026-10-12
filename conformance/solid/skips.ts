@@ -46,7 +46,45 @@ export const CHANGES: Change[] = [
     replace: `expectTrace(out, `,
     why: "(with the change above)",
   },
+  {
+    file: "solid/test/server/ssr-scope-lazy-id.spec.ts",
+    skipFile: true,
+    why: "reads a server owner's private _scopeSlot and _childCount (when an id string gets built is an allocation detail; Twist's ids are the eager form's)",
+  },
+  ...[
+    "renders children when no error",
+    "Errored children run under boundary with correct depth",
+    "Loading children run directly without SSR context",
+    "Errored inside Loading only adds Errored depth without SSR context",
+  ].map((skip) => ({
+    file: "solid/test/server/flow.spec.ts",
+    skip,
+    why: "calls the server <Errored>/<Loading> outside any render: Solid's are its solid-js half (an accessor the web half renders); Twist's are the renderer's own (they answer markup and take their ids there)",
+  })),
+  {
+    file: "solid/test/server/flow.spec.ts",
+    skip: "Show (keyed) children run under value memo scope",
+    why: "pins Solid's owner layout inside a keyed <Show>; Twist's keyed Show lays out its own, the same on client and server (the hydration specs check the keys match)",
+  },
+  ...["preserves stream leaf identity and the first answer: array=${array}"].map((skip) => ({
+    file: "solid/test/server/shallow-projection.spec.ts",
+    skip,
+    why: "a streaming projection made outside any render: Twist's server answers a stream with its first value inside a render (renderToString/renderToStream, checked by the web server specs); outside one its core is the client's",
+  })),
+  ...[
+    "a bare ssrSource 'client' read outside a Loading pass records the finding and throws it",
+    "recorded once per boundary per failure, located by the boundary's owner",
+  ].map((skip) => ({
+    file: "solid/test/server/server-diagnostics.spec.ts",
+    skip,
+    why: "a client-only memo and an error boundary made outside any render (a hand-set sharedConfig.context): Twist's server semantics, and these findings, apply inside renderToString/renderToStream, where the web server specs check them",
+  })),
   // ---- Solid's build
+  {
+    file: "solid/test/server/server-diagnostics.spec.ts",
+    skip: "tiers, in the built artifacts",
+    why: "reads Solid's built dist/server*.js",
+  },
   {
     file: "web/test/server/server-diagnostics.spec.tsx",
     skip: "the observe tier, in the built artifacts",
@@ -66,6 +104,11 @@ export const CHANGES: Change[] = [
     file: "solid/test/package-exports.spec.ts",
     skip: "generated declarations are not public package entry points",
     why: "resolves through Solid's own package.json exports",
+  },
+  {
+    file: "solid/test/server/console-footer.spec.ts",
+    skipFile: true,
+    why: "the console footer points at the repair skill shipped inside Solid's package (node_modules/solid-js/skills/…), which Twist's package does not carry",
   },
   // ---- The test harness
   {

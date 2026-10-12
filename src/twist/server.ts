@@ -1396,7 +1396,17 @@ export function Reveal(props: { order?: RevealOrder; collapsed?: boolean; childr
 
   if (!ctx?.async) {
     let collapsedByParent = false;
-    if (parentGroup) collapsedByParent = parentGroup.register(id).collapseFallback;
+    if (parentGroup) {
+      collapsedByParent = parentGroup.register(id).collapseFallback;
+      if (process.env.NODE_ENV !== "production" && (order === "together" || collapsed))
+        devCheck({
+          code: "REVEAL_IN_RENDER_TO_STRING",
+          kind: "ssr",
+          severity: "warn",
+          message: "[REVEAL_IN_RENDER_TO_STRING] Nested <Reveal> with collapsed/together won't coordinate correctly with renderToString. Use renderToStream for full support.",
+          data: { order, collapsed },
+        });
+    }
     let count = 0;
     setRevealGroup(o, {
       id,

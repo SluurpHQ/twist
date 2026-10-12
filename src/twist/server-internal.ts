@@ -12,6 +12,8 @@ const LIVE_SERVER_COMPONENT = Symbol.for("twist.ssr.live-server-component");
 /** The context keys that cross a server component's barrier (reveal order coordination). */
 const crossing: symbol[] = [Symbol.for("twist.ssr.no-hydrate")];
 export const crossesBarrier = (key: symbol) => void crossing.push(key);
+/** Whether rendering under NoHydration, as a context (Hydration sets it false again). */
+export const NoHydrateContext = { id: crossing[0]!, defaultValue: false };
 
 /**
  * `fn` under a server component's barrier: app context does not reach it (as on every later response, rendered

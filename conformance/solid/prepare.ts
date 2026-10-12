@@ -116,7 +116,13 @@ mkdirSync(join(out, "solid", "src", "client"), { recursive: true });
 mkdirSync(join(out, "solid", "src", "server"), { recursive: true });
 for (const name of ["hydration", "flow", "component", "core", "container-trace"])
   await Bun.write(join(out, "solid", "src", "client", name + ".js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
-for (const name of ["index", "flow", "hydration", "shared", "signals"]) await Bun.write(join(out, "solid", "src", "server", name + ".js"), `export * from "@twist/solid-server";\n`);
+// (With Twist's names for what Solid's server modules export besides its public API.)
+const serverInternals =
+  `export { ssrHandleError, getProjectionTrace, shareAsyncIterable, runInServerComponentScope, NoHydrateContext } from ${JSON.stringify(twist("server-internal.ts"))};\n` +
+  `export { idScope as ssrScope, resetOwner as resetOwnerForRerun } from ${JSON.stringify(twist("signals.ts"))};\n` +
+  `export const ownerId = (o) => o.id;\n`;
+for (const name of ["index", "flow", "hydration", "shared", "signals"])
+  await Bun.write(join(out, "solid", "src", "server", name + ".js"), `export * from ${JSON.stringify(twist("server-solid.ts"))};\n` + serverInternals);
 const ours = twist("index.ts");
 // And by package name: packages that are ours (Bun's resolver finds packages; a plugin cannot invent them).
 for (const name of ["solid-js", "@solidjs/signals"]) {
