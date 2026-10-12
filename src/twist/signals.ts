@@ -2172,6 +2172,20 @@ export class Computation<T> extends Node<T> implements Owner {
     this.renderCtx?.commit?.();
   }
   fail(e: unknown) {
+    // Rejected with a read not ready: pending again when it reads that source (its settling runs it again); a source
+    // first read after an `await` it does not track, and nothing would ever run it again — an error, said plainly.
+    if (e instanceof NotReadyError) {
+      const src = e.source as any;
+      if (src && this.sources.includes(src)) {
+        this.flight = null;
+        flights.delete(this);
+        statusChanged();
+        return;
+      }
+      e = new Error(
+        "Read of an unresolved async source after an `await`. Reads inside async computations only register as dependencies before the first `await`; a source first read after it cannot retry when it settles. Read it before the first `await` (or restructure so the value is an input).",
+      );
+    }
     stampThrower(e, this);
     this.flight = null;
     flights.delete(this);
@@ -4547,7 +4561,14 @@ export function onSettled(fn: () => void | (() => void)) {
     try {
       done = runWithOwner(null, fn);
     } catch (e) {
-      if (!(e instanceof NotReadyError)) throw e;
+      if (!(e instanceof NotReadyError)) {
+        // (The error boundary above the owner that asked for it takes it.)
+        for (let x: Owner | null = o; x; x = x.parent) {
+          const catcher = (x as any).catch as ((e: unknown) => boolean) | undefined;
+          if (catcher && catcher(e)) return;
+        }
+        throw e;
+      }
       const source = e.source as Node | undefined;
       if (source) {
         waiter.fn = () => {
