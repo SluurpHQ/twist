@@ -32,7 +32,16 @@ class Record_ {
   /** Keys defined through a draft as not enumerable, until their write lands. */
   hidden: Set<PropertyKey> | null = null;
   /** What it holds: the given object until the first write, then a private copy (the given one never changes). */
-  own: Raw;
+  get own(): Raw {
+    // (A shell before its first write: what the object it stands for holds now — another store's, live.)
+    return this.back !== null && !this.copied ? (records.get(this.back)?.own ?? this.back) : this.mine;
+  }
+  set own(v: Raw) {
+    this.mine = v;
+  }
+  declare mine: Raw;
+  /** The object a shell stands for (null for a store's own object). */
+  back: Raw | null = null;
   /** Whether `own` is its private copy yet. */
   copied = false;
   /** The action a landing under its optimism was folded into (#3164): in that action's world its guesses are gone. */
@@ -76,6 +85,12 @@ function mine(target: Raw): Raw {
 /** A derived store's objects: each given object's shell there, by the object. */
 class Family {
   map = new WeakMap<object, Raw>();
+  /** `v`'s shell in this family, whosever it is (another store's object, before this family writes it). */
+  over(v: Raw): Raw {
+    let t = this.map.get(v);
+    if (!t) (t = shellOf(v)), families.set(t, this), this.map.set(v, t);
+    return t;
+  }
   /** `v`'s shell in this family (another store's object, held live, as it is). */
   shell(v: any, root = false): any {
     if (!isWrappable(v)) return v;
@@ -101,8 +116,29 @@ function hasLockedKey(v: object): boolean {
 /** An empty object standing in for `v` as a proxy's target, holding `v` until the first write. */
 function shellOf(v: Raw): Raw {
   const t = Array.isArray(v) ? [] : Object.create(Object.getPrototypeOf(v));
-  recordOf(t).own = v;
+  const r = recordOf(t);
+  r.own = v;
+  r.back = v;
+  let s = shellsOver.get(v);
+  if (!s) shellsOver.set(v, (s = new Set()));
+  s.add(t);
   return t;
+}
+/** Shells a draft handed out over another store's object, not in their parent's slot yet: [parent, key]. */
+const unplaced = new WeakMap<Raw, [Raw, PropertyKey]>();
+/** The shells standing for each object (told when what it holds changes, until their first write). */
+const shellsOver = new WeakMap<Raw, Set<Raw>>();
+/** `key` of `target` changed: the shells reading through it tell their readers (and theirs, in turn). */
+function throughShells(target: Raw, key: PropertyKey, keys: boolean) {
+  const s = shellsOver.get(target);
+  if (!s) return;
+  for (const t of s) {
+    const r = records.get(t);
+    if (!r || r.copied) continue;
+    r.nodes.get(key)?.bump();
+    if (keys) r.keys.bump();
+    throughShells(t, key, keys);
+  }
 }
 const families = new WeakMap<object, Family>();
 /** A value read from `target`, as its store holds it: in a derived store, its shell there. */
@@ -209,10 +245,12 @@ class KeyNode extends Signal<number> {
     if (this.raw !== NO_RAW) {
       const t = mine(this.record.target);
       const desc = Object.getOwnPropertyDescriptor(t, this.key);
-      if (this.raw === DELETE) delete t[this.key];
+      const deleted = this.raw === DELETE;
+      if (deleted) delete t[this.key];
       else if (desc && !desc.writable && !desc.set && desc.configurable) Object.defineProperty(t, this.key, { ...desc, value: this.raw });
       else put(this.record, t, this.key, this.raw);
       this.raw = NO_RAW;
+      throughShells(this.record.target, this.key, deleted || !desc);
     }
     super.promote();
   }
@@ -643,6 +681,9 @@ function promoteWrites(before: Set<Record_>) {
 let userWrite = 0;
 
 function stage(target: Raw, key: PropertyKey, value: any) {
+  // (A shell written for the first time: put in its parent's slot first, as that parent's write.)
+  const slot = unplaced.get(target);
+  if (slot) unplaced.delete(target), stage(slot[0], slot[1], target);
   const r = recordOf(target);
   // (Development, an attribution engine installed: a write that changes the key, told on its node where it is made.)
   if (process.env.NODE_ENV !== "production" && attrHooks !== null && key !== $TRACK) {
@@ -776,7 +817,14 @@ const draftHandler: ProxyHandler<Raw> = {
     // (A frozen property: as it is.)
     const d = Reflect.getOwnPropertyDescriptor(own(target), key);
     if (d && !d.configurable && !d.writable) return v;
-    const c = child(target, v);
+    let c = child(target, v);
+    // (Another store's object in a derived store: its shell here, put in the slot at its first write — what this store
+    // writes stays this store's.)
+    const fam = families.get(target);
+    if (fam && isWrappable(c) && families.get(c) !== fam && (families.has(c) || proxies.has(c))) {
+      c = fam.over(c);
+      unplaced.set(c, [target, key]);
+    }
     // (Its store object, as a read through the store records it.)
     if (isWrappable(c) && !parentOf.has(c)) parentOf.set(c, target);
     return draftOf(c);
@@ -991,8 +1039,8 @@ const storeOwners = new WeakMap<object, object>();
 const derives = new WeakMap<object, () => unknown>();
 
 function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: StoreOptions | undefined, writable: boolean): [T, StoreSetter<T>] {
-  // (Seeded with another store: built on that store's object, live; else a family of its own.)
-  const target = (unwrap(seed) !== seed ? unwrap(seed) : new Family().shell(seed, true)) as Raw;
+  // (A family of its own: seeded with another store, over that store's object, live until written here.)
+  const target = new Family().shell(unwrap(seed), true) as Raw;
   if (options?.name) storeNames.set(target, options.name);
   if (process.env.NODE_ENV !== "production") {
     const o = getOwner();
