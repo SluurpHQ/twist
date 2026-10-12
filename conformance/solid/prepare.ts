@@ -119,6 +119,10 @@ await Bun.write(
   join(out, "signals", "src", "core", "dev.js"),
   `export { emitDiagnostic, ownerPath, reportDiagnostic, setConsoleFooter, GRAPH_SIZE_WARN_AT, GRAPH_SIZE_WARN_EVERY } from ${JSON.stringify(twist("diagnostics.ts"))};\nexport const asyncTailFlights = 0;\n`,
 );
+// (The attribution engine, at the package's and the core's paths: Twist's.)
+for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "attribution.js"), `export * from ${JSON.stringify(twist("attribution/index.ts"))};\n`);
+for (const name of ["attribution", "attribution-hooks", "attribution-queries", "attribution-costs", "attribution-feedback"])
+  await Bun.write(join(out, "signals", "src", "core", name + ".js"), `export * from ${JSON.stringify(twist(`attribution/${name}.ts`))};\n`);
 // (Its error module: the public not-ready error.)
 await Bun.write(join(out, "signals", "src", "core", "error.js"), `export { NotReadyError } from ${JSON.stringify(twist("index.ts"))};\n`);
 // Solid's client and server modules, by their paths: Twist's public entries.
@@ -142,10 +146,11 @@ const ours = twist("index.ts");
 for (const name of ["solid-js", "@solidjs/signals"]) {
   const dir = join(here, "node_modules", name);
   mkdirSync(dir, { recursive: true });
-  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js", "./internal/container-trace": "./container-trace.js" } }));
+  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js", "./internal/container-trace": "./container-trace.js", "./attribution": "./attribution.js" } }));
   await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(ours)};\n`);
   await Bun.write(join(dir, "internal.js"), `export * from ${JSON.stringify(twist("internal.ts"))};\n`);
   await Bun.write(join(dir, "container-trace.js"), `export * from ${JSON.stringify(twist("container-trace.ts"))};\n`);
+  await Bun.write(join(dir, "attribution.js"), `export * from ${JSON.stringify(twist("attribution/index.ts"))};\n`);
 }
 // The web runtime, and the JSX runtime Bun's transform imports from it.
 const web = join(here, "..", "..", "src", "twist", "web.ts").split("\\").join("/");

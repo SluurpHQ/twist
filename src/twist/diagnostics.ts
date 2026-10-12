@@ -30,6 +30,10 @@ const ownerOf = (subject: any) => (subject && ("parent" in subject || "owned" in
 let ambient: () => unknown = () => null;
 export const setAmbientSubject = (fn: () => unknown) => void (ambient = fn);
 
+/** Whether an observer has excluded anything at all (the engine's cheap pre-check). */
+export const anyExcluded = () => anyMarked;
+/** Whether a finding was suppressed (made under an excluded owner). */
+export const isSuppressed = (entry: object) => suppressed.has(entry as Diagnostic);
 export function isExcluded(subject: any): boolean {
   if (!anyMarked || !subject) return false;
   for (let o = ownerOf(subject); o; o = o.parent) {
@@ -112,7 +116,7 @@ function shouldWarnGraphSize(node: object, count: number) {
   return true;
 }
 /** A change about to run `count` subscribers again (said once per node, until it grows). */
-export function noteFanOut(node: { name?: string }, count: number) {
+export function noteFanOut(node: { name?: string }, count: number, write?: string) {
   if (!shouldWarnGraphSize(node, count)) return;
   const name = node.name;
   const message =
@@ -120,7 +124,7 @@ export function noteFanOut(node: { name?: string }, count: number) {
     `every one re-runs this flush. If many independent computations read the same value ` +
     `(for example every row of a list comparing against one selected id), prefer a per-key ` +
     `store or projection so only the items whose result flipped update.`;
-  reportDiagnostic(emitDiagnostic({ code: "HUGE_FAN_OUT", kind: "graph", severity: "warn", message, nodeName: name, ownerName: name, data: { count } }, node));
+  reportDiagnostic(emitDiagnostic({ code: "HUGE_FAN_OUT", kind: "graph", severity: "warn", message, nodeName: name, ownerName: name, data: write === undefined ? { count } : { count, write } }, node));
 }
 /** A run that tracked `count` distinct sources (said once per node, until it grows). */
 export function noteFanIn(node: { name?: string }, count: number) {
@@ -208,19 +212,18 @@ function records() {
   });
 }
 
-/** Attribution: an engine may be installed; without one, the wrappers just run what they are given. */
-let attribution: any = null;
-export const setAttributionHooks = (hooks: any) => void (attribution = hooks);
+/** Attribution: an engine may be installed (attribution/); without one, the wrappers just run what they are given. */
+import { attrHooks } from "./attribution/attribution-hooks.ts";
 /** Where a server render takes the route a router declares (the render running now's), if one listens. */
 let routeDeclarer: (() => ((ref: unknown) => void) | undefined) | null = null;
 export const setRouteDeclarer = (fn: typeof routeDeclarer) => void (routeDeclarer = fn);
 
 const attributionSlot = {
   get installed() {
-    return attribution;
+    return attrHooks;
   },
   withInteraction<T>(ref: unknown, fn: () => T): T {
-    const h = attribution;
+    const h = attrHooks as any;
     if (!h) return fn();
     h.interactionStart(ref);
     let returned: any;
@@ -231,7 +234,7 @@ const attributionSlot = {
     }
   },
   withOrigin<T>(ref: unknown, fn: () => T): T {
-    const h = attribution;
+    const h = attrHooks as any;
     if (!h) {
       // (On a server: a router's first declaration names the render it runs in.)
       const r = ref as { kind?: string; initial?: boolean } | null;
@@ -246,7 +249,7 @@ const attributionSlot = {
     }
   },
   currentOrigin() {
-    return attribution?.currentOrigin();
+    return attrHooks?.currentOrigin();
   },
 };
 

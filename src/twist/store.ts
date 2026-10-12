@@ -3,6 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
+import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
@@ -184,6 +185,8 @@ class KeyNode extends Signal<number> {
     this.seq = 0;
     this.record = record;
     this.key = key;
+    // (Development, an attribution engine installed: named by its path — the store's name, then the key.)
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null && key !== $TRACK) this.name = `${storeNames.get(storeRoot(record.target)) ?? "store"}.${String(key)}`;
   }
   /** affects() marks on it: its own (a keyless mark's snapshot), and keyed ones on its key here or upstream. */
   declare private ownAffected: number;
@@ -636,6 +639,11 @@ let userWrite = 0;
 
 function stage(target: Raw, key: PropertyKey, value: any) {
   const r = recordOf(target);
+  // (Development, an attribution engine installed: a write that changes the key, told on its node where it is made.)
+  if (process.env.NODE_ENV !== "production" && attrHooks !== null && key !== $TRACK) {
+    const prev = pendingValue(target, key);
+    if (!Object.is(prev, value === DELETE ? undefined : value)) attrHooks.write(node(target, key), prev, value === DELETE ? undefined : value);
+  }
   // (Written while hydration keeps snapshots: the value it had, for readers in the scope.)
   if (userWrite && !r.snaps?.has(key) && takingSnapshots(() => void (r.snaps = null))) (r.snaps ??= new Map()).set(key, pendingValue(target, key));
   (r.pending ??= new Map()).set(key, value);
@@ -819,6 +827,9 @@ function asyncStoreSetter(): never {
 export function createStore<T extends object>(init: T | ((draft: T) => T | void | Promise<T | void>), seed?: T, options?: StoreOptions): [T, StoreSetter<T>] {
   if (typeof init === "function") return derivedStore(init as any, seed ?? ({} as T), options, true) as [T, StoreSetter<T>];
   const given = unwrap(init) as Raw;
+  // (A plain store's options come second: `createStore(value, options)`.)
+  const name = (seed as StoreOptions | undefined)?.name ?? options?.name;
+  if (name) storeNames.set(given, name);
   // (A frozen object, or one with a locked property: behind a shell — no proxy invariant pins what it shows — written
   // to a copy.)
   const target = given && typeof given === "object" && (Array.isArray(given) || [Object.prototype, null].includes(Object.getPrototypeOf(given))) && (Object.isFrozen(given) || hasLockedKey(given)) ? shellOf(given) : given;
@@ -915,7 +926,9 @@ function shadowDraft(real: any, shallow: boolean) {
 }
 const cloneState = (v: any) => (v === null || typeof v !== "object" ? v : typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
 
-type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean; ssrSource?: "server" | "hybrid" | "client" };
+type StoreOptions = { key?: string | ((v: any) => any); seedLoadingValue?: boolean; shallow?: boolean; ssrSource?: "server" | "hybrid" | "client"; name?: string };
+/** Stores given a name (development tools name their nodes by it). */
+const storeNames = new WeakMap<object, string>();
 
 /** A derived store's derive, by its root. */
 const derives = new WeakMap<object, () => unknown>();
@@ -923,6 +936,7 @@ const derives = new WeakMap<object, () => unknown>();
 function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options: StoreOptions | undefined, writable: boolean): [T, StoreSetter<T>] {
   // (Seeded with another store: built on that store's object, live; else a family of its own.)
   const target = (unwrap(seed) !== seed ? unwrap(seed) : new Family().shell(seed, true)) as Raw;
+  if (options?.name) storeNames.set(target, options.name);
   if (options?.shallow) markShallow(target);
   const key = options && "key" in options ? (options.key ?? null) : "id";
   // On a server, a projection's trace (what crosses a frame's border): told of each change, and of its source's end.
@@ -1034,7 +1048,7 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     run.returned = true;
     // The same answer each run: readers are told by the keys that changed, not by the derive having run.
     return 0;
-  }, { writes: true, onTake: took, ...(options?.ssrSource ? { ssrSource: options.ssrSource, sourceFn: fn } : {}), ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
+  }, { writes: true, onTake: took, ...(options?.name ? { name: options.name } : {}), ...(options?.ssrSource ? { ssrSource: options.ssrSource, sourceFn: fn } : {}), ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   memo = m;
   // (It holds the store's state across runs: never torn down for being read with nothing subscribed.)
   if (writable) keepMemo(m as any);

@@ -8,6 +8,7 @@
 // flight lands. Writes on graphs no flight touches commit at once.
 declare const process: { env: Record<string, string | undefined> };
 
+import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { diagnose, emitDiagnostic, ownerPath, reportDiagnostic, setAmbientSubject, GRAPH_SIZE_WARN_AT, noteFanIn, noteFanOut } from "./diagnostics.ts";
 
 // Messages Solid's diagnostics carry, word for word (tools and tests match them).
@@ -535,13 +536,45 @@ export function onCleanup<T extends () => void>(fn: T): T {
 /** A scope of its own, owned by the current one: disposed with it, or by the function `fn` is given. */
 export function createRoot<T>(fn: (dispose: () => void) => T, options?: { id?: string; transparent?: boolean }): T {
   const root = new Root(owner, options);
+  // (Development: a top-level root is where a walk of the live graph starts.)
+  if (process.env.NODE_ENV !== "production" && !root.parent) liveRoots.add(root);
   return runWithOwner(root, () =>
     fn(() => {
       dispose(root);
+      if (process.env.NODE_ENV !== "production") liveRoots.delete(root);
       if (root.parent?.owned) remove(root.parent.owned, root);
     }),
   );
 }
+/** The top-level roots alive now (development: the attribution engine's graph walk starts there). */
+const liveRoots = new Set<Owner>();
+
+/** What the attribution engine reads of the core (development tooling): a node's sources, readers and value, a
+ * transaction's nodes and what it waits on. Read-only. */
+export const attributionCore = {
+  sources: (n: any): Node<any>[] => (n instanceof Computation ? (n.sources as Node<any>[]) : []),
+  readers: (n: any): Computation<any>[] => (Array.isArray(n.observers) ? n.observers : [...n.observers]),
+  /** Its value as the engine compares it: a staged one, else the committed one. */
+  value: (n: any): unknown => (n.staged !== NONE ? n.staged : n.value),
+  committed: (n: any): unknown => n.value,
+  isComputation: (n: any): boolean => n instanceof Computation,
+  isEffect: (n: any): boolean => n instanceof Computation && n.kind !== MEMO,
+  owned: (o: any): any[] => o.owned ?? [],
+  isPlumbing: (n: any): boolean => !!n.plumbing,
+  isVerdict: (n: any): boolean => !!n.verdictReader,
+  /** A node showing a guess that is not one written (a lane's derivation). */
+  isCompanion: (n: any): boolean => n.override !== NONE && !n.guessed,
+  laneGuesses: (t: any): Node<any>[] => (t.lane ? [...t.lane.guessed.keys()] : t.parentTx ? [...t.guessed.keys()] : []),
+  marks: (t: any): Node<any>[] | null => t.marks ?? null,
+  blockers: (t: any): Iterable<Computation<any>> => t.flights,
+  nodes: (t: any): Iterable<Node<any>> => t.nodes,
+  open: (t: any): number => t.open,
+  /** What moves each time it commits a value (the engine's "did it land" check). */
+  time: (n: any): number => n.version,
+  liveRoots: (): Owner[] => [...liveRoots].filter((r) => !(r as any).disposed),
+  /** The node behind an accessor (a memo's, a signal's), or what was given. */
+  nodeOf: (target: unknown): any => (typeof target === "function" ? (accessors.get(target as any) ?? target) : target),
+};
 
 /** `item` out of `list`; the ends first, as lists are let go of in order or in reverse (no scan per item). */
 /** The first owner not disposed in `list` from `i` on. */
@@ -1128,6 +1161,8 @@ abstract class Node<T = any> {
     // (Its own truth landed over a guess: derivations and latest() read the truth; the screen keeps the guess.)
     if (this.override !== NONE && (this as any).truthLanded && (verdictReading || listener?.kind === MEMO)) return (this.staged !== NONE ? this.staged : this.value) as T;
     if (this.override !== NONE && !authoritative) {
+      // (Development, an attribution engine installed: a run that read a guess is optimistic work.)
+      if (listener !== null && attrHooks !== null) (listener as any).devGuess = true;
       const lane = (this as any).laneTx as Transaction | undefined;
       if (lane && !lane.done && listener) {
         // A derivation reading the guess is the lane's work; an effect reads the screen: not the guess until the lane
@@ -1255,6 +1290,11 @@ export class Signal<T> extends Node<T> {
   }
   write(next: T) {
     guardWrite(this.ownedWrite, this);
+    // (Told where it is made — its interaction or navigation still open — when it changes what the node would hold.)
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null) {
+      const now = (this.pending !== NONE ? this.pending : this.staged !== NONE ? this.staged : this.value) as T;
+      if (this.equals === false || !this.equals(now, next)) attrHooks.write(this, now, next);
+    }
     if (snapshotCapture && (this as any).snapshots) this.snapshot();
     if (halted) notifyHalted();
     if (this.pending === NONE) writes.push(this);
@@ -1720,7 +1760,20 @@ export class Computation<T> extends Node<T> implements Owner {
     else drainParked(this as any);
   }
   runIn() {
-
+    // (Development, an attribution engine installed: told when it starts — its sources still the last run's — and ends.)
+    const h = attrHooks;
+    if (h === null || process.env.NODE_ENV === "production") return this.runBody();
+    const create = this.ranAt === -1;
+    (this as any).devChanged = false;
+    (this as any).devGuess = false;
+    h.recomputeStart(this, create);
+    try {
+      this.runBody();
+    } finally {
+      h.recomputeEnd(this, create, !!(this as any).devChanged, !!(this as any).devGuess || !!this.passLane || !!this.revealingLane, !!this.tx || !!this.readHeld, !!this.tx);
+    }
+  }
+  runBody() {
     if (TRACE && ++runs % 100000 === 0) trace(`runs ${runs} kind ${this.kind} order ${this.order}`);
     if (this.passLane) this.passLane = null;
     if (this.revealing !== this.revealOf) this.revealing = this.revealOf;
@@ -2001,6 +2054,7 @@ export class Computation<T> extends Node<T> implements Owner {
     }
     this.ready = true;
     if (this.recovered) this.recovered = false;
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null) (this as any).devChanged = changed;
     if (this.kind !== MEMO) {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
       // (A pass that read the frame and found what it shows already applies nothing: it runs again at the reveal.)
@@ -2020,6 +2074,8 @@ export class Computation<T> extends Node<T> implements Owner {
     }
     // (Served a held world, even to the same value: it enters that hold, and the write that ran it with it, A29.)
     if (!changed) return void (this.readHeld && !this.tx && !this.readHeld.root.done && flushing && hold(this, this.readHeld));
+    // (A memo's new value: a cause for what reads it, chained to what changed before it.)
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null && !first) attrHooks.derivedChanged(this);
     // Lane work: held in its lane (revealed with it).
     if (this.passLane && !this.passLane.done && !this.tx) hold(this, this.passLane);
     // Derived from a held world: held with it (born held when it never committed a value).
@@ -2078,6 +2134,7 @@ export class Computation<T> extends Node<T> implements Owner {
     let sync = true;
     let early: [boolean, unknown] | null = null;
     this.flight = flight;
+    if (process.env.NODE_ENV !== "production" && attrHooks !== null) attrHooks.flightStart(this, flight);
     (process.env.NODE_ENV !== "production" && !serverRender ? watchAsyncTail(this, flight, p) : p).then(
       (v) => (sync ? (early = [true, v]) : this.flight === flight && this.land(v)),
       (e) => (sync ? (early = [false, e]) : this.flight === flight && this.fail(e)),
@@ -2382,6 +2439,8 @@ export class Computation<T> extends Node<T> implements Owner {
     const prevListener = listener;
     inEffectCallback = true;
     const prevStrict = strictRead;
+    const h = process.env.NODE_ENV !== "production" ? attrHooks : null;
+    if (h !== null) h.effectRunStart(this);
     try {
       c?.();
       // (Unowned and untracked: what it reads there will not make it run again.)
@@ -2397,6 +2456,7 @@ export class Computation<T> extends Node<T> implements Owner {
       listener = prevListener;
       inEffectCallback = wasIn;
       strictRead = prevStrict;
+      if (h !== null) h.effectRunEnd(this);
     }
     if (done !== undefined && typeof done !== "function") throw new Error("effect callback returned an invalid cleanup value. Return a cleanup function or undefined.");
     if (done || this.cleanup) this.cleanup = done as (() => void) | undefined;
@@ -3496,11 +3556,15 @@ function drain() {
         landing = true;
         // (An answer of the mount frame: held with the frame's other answers.)
         const mount = flightHolder(c);
+        const h = process.env.NODE_ENV !== "production" ? attrHooks : null;
+        const before = h !== null ? (c.staged !== NONE ? c.staged : c.value) : undefined;
+        if (h !== null) h.asyncStart(c);
         try {
           c.take(v);
         } finally {
           landing = false;
         }
+        if (h !== null) h.asyncEnd(c, before, v, true);
         const lr = (c as any).landRelease as (() => void)[] | undefined;
         if (lr) ((c as any).landRelease = undefined), lr.forEach((f) => f());
         if (mount && (mount as any).mount && !mount.done && !c.streaming && c.staged !== NONE && !c.tx) (hold(c, mount), ((c as any).bornHeld = true));
@@ -3581,11 +3645,14 @@ export function flush<T>(fn?: () => T): T {
   // Stopped by an effect's uncaught error: nothing runs until resetErrorHalt().
   if (stopped) return fn ? untrack(fn) : result;
   if (!flushing) flushes++;
+  const outer = !flushing && process.env.NODE_ENV !== "production" ? attrHooks : null;
   flushing++;
   try {
     if (fn) result = fn();
     sweepUntracked();
+    if (outer !== null) outer.flushStart();
     drain();
+    if (outer !== null) outer.flushEnd();
   } catch (e) {
     halt(e);
     throw e;
@@ -3888,6 +3955,7 @@ export function refresh<T>(target: (() => T) | object): Promise<T> {
   refreshedNow.push(c);
   if (acting) (c as any).joins = acting.tx;
   c.mark(DIRTY);
+  if (process.env.NODE_ENV !== "production" && attrHooks !== null) attrHooks.refreshed(c);
   // Settled when its new answer lands, in the world it lands in (an action's, still open): not when that commits.
   const answer = () => (typeof target === "function" ? (c.staged !== NONE ? c.staged : c.value) : target) as T;
   // (Disposed: nothing to ask again; its last value is the answer.)
