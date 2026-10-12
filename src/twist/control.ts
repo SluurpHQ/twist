@@ -1,5 +1,6 @@
 // Control flow and components, renderer-neutral (exported by solid-js): For, Repeat, Show, Switch/Match, Loading,
 // Errored, createComponent, and the marks Twist's JSX pass leaves for the runtime.
+declare const process: { env: Record<string, string | undefined> };
 import { createErrorBoundary, createLoadingBoundary, createMemo, createOwner, createRevealOrder, flatten, getOwner, runWithOwner, sharedConfig, untrack, type RevealOrder } from "./signals.ts";
 import { LIVE, mapArray, merge, repeat } from "./flow.ts";
 
@@ -154,10 +155,23 @@ export const Show = /* @__PURE__ */ builtin(function Show<T>(props: { when: T | 
     const b = branch();
     if (!b) return props.fallback;
     const c = props.children;
-    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? b : value));
+    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(props.keyed ? b : narrowed("Show", () => !!untrack(branch), value)));
     return c;
   });
 });
+
+/** A branch's accessor: its value while the branch is the one shown, an error once it is not (a stale read). */
+const narrowed =
+  <T,>(name: string, live: () => boolean, read: () => T) =>
+  (): T => {
+    if (!live())
+      throw new Error(
+        process.env.NODE_ENV !== "production"
+          ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
+          : `Stale read from <${name}>.`,
+      );
+    return read();
+  };
 
 type MatchProps<T> = { when: T | undefined | null | false; keyed?: boolean; children: any };
 const MATCH = Symbol("match");
@@ -179,7 +193,7 @@ export const Switch = /* @__PURE__ */ builtin(function Switch(props: { fallback?
   });
   // Each Match's condition read once per change (later ones only while earlier ones fail); the branch is which matches
   // (and its value, when keyed).
-  const values = createMemo(() => matches().map((m) => createMemo(() => m.when)));
+  const values = createMemo(() => matches().map((m) => createMemo(() => m.when, { lazy: true })));
   const picked = createMemo(
     () => {
       const ms = matches();
@@ -197,7 +211,7 @@ export const Switch = /* @__PURE__ */ builtin(function Switch(props: { fallback?
     if (i < 0) return props.fallback;
     const m = matches()[i]!;
     const c = m.children;
-    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(m.keyed ? w : values()[i]!));
+    if (typeof c === "function" && c.length > 0 && !isChildren(c)) return untrack(() => c(m.keyed ? w : narrowed("Match", () => untrack(picked)[0] === i, values()[i]!)));
     return c;
   });
 });

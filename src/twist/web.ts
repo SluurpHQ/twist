@@ -481,7 +481,7 @@ export function addEvent(el: Element, type: string, handler: any, delegate = tru
   let key = eventKeys.get(type);
   if (!key) eventKeys.set(type, (key = EVENT_KEY + type));
   if (Array.isArray(handler)) ((el as any)[key] = handler[0]), ((el as any)[key + "Data"] = handler[1]);
-  else (el as any)[key] = handler;
+  else ((el as any)[key] = handler), delete (el as any)[key + "Data"];
   if (!delegated.has(type)) {
     delegated.add(type);
     for (const r of roots) listen(r, type);

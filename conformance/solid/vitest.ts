@@ -5,7 +5,14 @@ export { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, test 
 // expect.soft: as expect (the first failure ends the test).
 (expect as any).soft ??= expect;
 export const vi = {
-  fn: (impl?: (...a: any[]) => any) => mock(impl ?? (() => {})),
+  // (Vitest's `mock.instances` holds each call's `this`; Bun's only for `new`: its `contexts` are that.)
+  fn(impl?: (...a: any[]) => any) {
+    const m: any = mock(function (this: any, ...a: any[]) {
+      if (!new.target) m.mock.instances.push(this);
+      return impl?.apply(this, a);
+    });
+    return m;
+  },
   // (An accessor, as Vitest's: a mock in place of its getter or setter, the original until mocked.)
   spyOn(target: any, prop: PropertyKey, access?: "get" | "set") {
     if (!access) return spyOn(target, prop as any);
