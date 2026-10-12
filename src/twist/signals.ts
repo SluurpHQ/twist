@@ -1833,7 +1833,11 @@ export class Computation<T> extends Node<T> implements Owner {
         }
         if (this.kind !== MEMO) {
           const b = boundaryOf(this);
-          if (b) b.wait(this);
+          // (Under a boundary that has shown its content, waiting on a refetch a transition waits on: the pass is that
+          // transition's — it runs again at the commit, and no fallback shows, #3540.)
+          const t = b && !b.fresh ? heldFlight(threw.source) : null;
+          if (t) t.stale.add(this), (this.staleRead = true);
+          else if (b) b.wait(this);
           else if (this.kind === RENDER && enforcing) unhandledAsync(this);
         }
         return;
@@ -2650,6 +2654,16 @@ function heldFlight(c: Computation<any>) {
 function flightHolder(c: Computation<any>): Transaction | null {
   for (const t of transactions) if (t.flights.has(c)) return t;
   return null;
+}
+/** The transition waiting on the refetch `n` waits on (through what it is waiting for), if any. */
+function heldFlight(n: unknown, seen = new Set<Computation<any>>()): Transaction | null {
+  if (!(n instanceof Computation) || seen.has(n)) return null;
+  seen.add(n);
+  if (n.flight && n.ready) {
+    const t = flightHolder(n);
+    if (t && !t.root.done) return t.root;
+  }
+  return heldFlight((n as any).waitsFor?.source, seen);
 }
 /** The transition waiting on the flight of the computation behind `read`, if any. */
 export function flightTransaction(read: unknown): Transaction | null {
