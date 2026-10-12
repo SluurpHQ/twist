@@ -1118,6 +1118,8 @@ abstract class Node<T = any> {
     // Shown through a guess: its readers see the guess, not this (no change for them); the guess's end tells them if
     // the truth differs. Its own answer landing ends the guess for derivations (A18): they derive from the truth now.
     if (this.override !== NONE) {
+      // (What asks the truth beneath the guess — an until() — hears it change.)
+      for (const o of this.observers) if ((o as any).asksTruth) o.mark(DIRTY);
       // (One equal to the guess confirms it: nothing to re-derive.)
       if (landing && this instanceof Computation && !(this.equals !== false && this.equals(this.override as T, next))) {
         (this as any).truthLanded = true;
@@ -3983,6 +3985,7 @@ export function until<T>(fn: () => T, options?: { timeout?: number; signal?: Abo
         () => {
           const me = listener!;
           (me as any).insideTx = tx;
+          (me as any).asksTruth = true;
           authoritative++;
           try {
             const v = fn();
