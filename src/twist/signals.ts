@@ -2333,7 +2333,33 @@ function boundaryCatches(c: Computation<any>, e: unknown): boolean {
 function escalate(c: Computation<any>, e: unknown) {
   if (boundaryCatches(c, e)) return;
   effectFailed = true;
+  // (Made outside a flush — a render effect created by a root: the error halts now, thrown to what made it.)
+  if (!flushing) {
+    halt(e);
+    throw e;
+  }
   uncaught.push(e);
+}
+/** An error nothing caught: the system stops (an effect's error) and what was queued is dropped. */
+function halt(e: unknown) {
+  (halted = true), (haltNotified = false);
+  if (effectFailed) {
+    effectFailed = false;
+    stopped = true;
+    // Said once, and the cause handed to the platform where it takes one.
+    const msg =
+      "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
+    if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "REACTIVITY_HALTED", kind: "error", severity: "error", message: msg });
+    // The cause beside it, or to the platform where it takes one.
+    const report = (globalThis as any).reportError;
+    if (typeof report === "function") console.error(msg), report(e);
+    else console.error(msg, e);
+  }
+  writes.splice(0);
+  dirty = [];
+  staged = [];
+  applies[RENDER].splice(0);
+  applies[EFFECT].splice(0);
 }
 
 // ---------------------------------------------------------------- scheduling
@@ -3219,24 +3245,7 @@ export function flush<T>(fn?: () => T): T {
     sweepUntracked();
     drain();
   } catch (e) {
-    (halted = true), (haltNotified = false);
-    if (effectFailed) {
-      effectFailed = false;
-      stopped = true;
-      // Said once, and the cause handed to the platform where it takes one.
-      const msg =
-        "[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.";
-      if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "REACTIVITY_HALTED", kind: "error", severity: "error", message: msg });
-      // The cause beside it, or to the platform where it takes one.
-      const report = (globalThis as any).reportError;
-      if (typeof report === "function") console.error(msg), report(e);
-      else console.error(msg, e);
-    }
-    writes.splice(0);
-    dirty = [];
-    staged = [];
-    applies[RENDER].splice(0);
-    applies[EFFECT].splice(0);
+    halt(e);
     throw e;
   } finally {
     flushing--;

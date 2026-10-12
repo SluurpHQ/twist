@@ -54,6 +54,18 @@ export const CHANGES: Change[] = [
     why: "reads a store's private has-node table ($TARGET.h)",
   },
   {
+    file: "signals/tests/held-conditional-effect.test.ts",
+    find: `    expect(deps()).toBe("c,count]");\n`,
+    replace: ``,
+    why: "deps() walks a node's private dependency list (_deps/_nextDep/_depsTail); the effect's log is still checked",
+  },
+  {
+    file: "signals/tests/held-conditional-effect.test.ts",
+    find: `    expect(deps()).toBe("c],count");\n`,
+    replace: ``,
+    why: "(with the change above)",
+  },
+  {
     file: "signals/tests/lane-contract.test.ts",
     skip: "a long-lived lane does not grow its bookkeeping with every pass",
     why: "measures a lane's private _nodes array",
