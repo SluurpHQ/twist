@@ -1265,6 +1265,14 @@ type Cursor = { parent: Node; next: Node | null };
 
 /** The page the server rendered into `element`, adopted: `code()` claims its nodes and binds to them. */
 export function hydrate(code: () => any, element: Element | Document, options: { renderId?: string } = {}) {
+  // (The head's prelude the server put first — charset, base — is no node of the shell's: moved past what it claims.)
+  const head = ((element as Document).nodeType === 9 ? (element as Document) : element.ownerDocument)?.head;
+  if (head && element.contains(head))
+    for (let n = head.firstChild; n && n.nodeType === 1 && (n as Element).hasAttribute("data-dh") && !(n as Element).hasAttribute("data-dhf"); ) {
+      const next = n.nextSibling;
+      head.appendChild(n);
+      n = next;
+    }
   roots.add(element);
   for (const t of delegated) listen(element, t);
   enableHydration();
@@ -1454,7 +1462,14 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
     flush();
     checkHydrationComplete();
   };
-  const settled = (v: unknown) => queueMicrotask(v === false ? fresh : reveal);
+  // (Its content streamed but not swapped in yet — a stylesheet holds the swap: claimed once it is.)
+  const afterSwap = () => {
+    const tpl = document.getElementById(id!);
+    const fr = (globalThis as any)._$HY?.fr;
+    if (!tpl || tpl.nodeName !== "TEMPLATE" || !fr) return reveal();
+    const off = fr.subscribe((fid: string) => fid === id && (off(), reveal()));
+  };
+  const settled = (v: unknown) => queueMicrotask(v === false ? fresh : afterSwap);
   if (record && typeof record.then === "function" && record.s !== 1 && record.s !== 2) record.then(settled, () => queueMicrotask(fresh));
   else if (record) record.s === 2 ? queueMicrotask(fresh) : settled(record.v);
   return fallback;

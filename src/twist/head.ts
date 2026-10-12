@@ -256,7 +256,7 @@ export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc
         const attrs: Record<string, unknown> = {};
         for (const k of Object.keys(d.props ?? {})) if (k !== "children" && !/^on[A-Z]/.test(k)) attrs[k] = read(d.props![k]);
         if (SHELL_ONLY.has(d.tag) || (d.tag === "meta" && attrs.charset != null)) {
-          if (process.env.NODE_ENV !== "production") console.warn(`useHead: <${d.tag}> is shell-only: the document's shell writes it; skipped on the client.`);
+          if (process.env.NODE_ENV !== "production") console.warn(`useHead: <${d.tag}> (${d.tag === "meta" ? "charset" : d.tag}) is shell-only and ignored on the client`);
           continue;
         }
         const rel = d.tag === "link" ? String(attrs.rel ?? "") : "";

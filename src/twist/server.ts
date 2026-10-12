@@ -842,14 +842,16 @@ const DATA = Symbol("data");
  */
 function withHeadAssets(html: string, tracking: AssetTracking, h: HeadRegistry | null, nonce?: Nonce, onHead?: (head: string) => void): string {
   // (A head the page wrote as text, not rendered: no slot was filled, its tags go with the links.)
-  const tags = h && !h.placed ? h.resources.join("") + winners(h.groups.filter((g) => g.boundary === "")).map(headTag).join("") : "";
+  const parts = h && !h.placed ? shellHeadParts(h) : null;
   const at = html.indexOf("</head>");
   if (at === -1) {
-    onHead?.(tags + renderHeadAssets(tracking, nonce));
+    onHead?.((parts ? parts.prelude + (parts.title != null ? `<title data-dh="title">${escape(parts.title)}</title>` : "") + parts.html : "") + renderHeadAssets(tracking, nonce));
     return html;
   }
-  const links = tags + renderHeadAssets(tracking, nonce);
-  return links ? html.slice(0, at) + links + html.slice(at) : html;
+  const SLOT = "\u0000assets\u0000";
+  html = html.slice(0, at) + SLOT + html.slice(at);
+  if (parts) return placeHead(html, { ...parts, html: parts.html + renderHeadAssets(tracking, nonce) }, SLOT);
+  return html.replace(SLOT, () => renderHeadAssets(tracking, nonce));
 }
 
 /** An asset registered during a render: in the head while the shell is to come, to the sink after. */
@@ -961,6 +963,21 @@ function stillOwned(o: any): () => boolean {
 
 function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: number): string {
   const owned = stillOwned(o);
+  // (The boundary it renders in: what it registers in the head and as assets is that boundary's, when it comes.)
+  const inBoundary = headBoundary;
+  const inAssets = r.tracking.currentBoundaryId;
+  const scoped = () => {
+    const hb = headBoundary;
+    const ab = r.tracking.currentBoundaryId;
+    headBoundary = inBoundary;
+    r.tracking.currentBoundaryId = inAssets;
+    try {
+      return runWithOwner(o, fn);
+    } finally {
+      headBoundary = hb;
+      r.tracking.currentBoundaryId = ab;
+    }
+  };
   {
     const token = "\u0000hole" + holeCount++ + "\u0000";
     r.holes.set(
@@ -973,7 +990,7 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
             // From the same ids: the hole takes again what it took the first time.
             if (at >= 0) setChildIdCount(o, at);
             try {
-              ok(rendering(r, r.options, () => runWithOwner(o, fn)));
+              ok(rendering(r, r.options, scoped));
             } catch (e2) {
               // (Client-only content: passed up as it is, its boundary hands it to the client.)
               const next = e2 instanceof NotReadyError && !isClientOnly(e2) && settlesOf(e2);
@@ -1537,6 +1554,12 @@ export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc
     if (process.env.NODE_ENV !== "production")
       for (const k of Object.keys(d.props ?? {})) if (k !== "children" && !ATTR_NAME.test(k)) headCheck(`useHead: ignoring invalid attribute name "${k}" on <${d.tag}>`, { reason: "invalid-attribute", detail: k });
     if (isResource(d)) {
+      // (A stylesheet a streamed boundary asks for is one of its styles: its link gates the boundary's swap.)
+      const p = d.props ?? {};
+      if (headBoundary !== "" && d.tag === "link" && evalHead(p.rel) === "stylesheet" && evalHead(p.href) != null && (sharedConfig.context as any)?.registerAsset) {
+        (sharedConfig.context as any).registerAsset("style", String(evalHead(p.href)));
+        continue;
+      }
       // (Its props read now: one not ready waits, under its boundary, like any read.)
       const markup = headTag(d);
       const id = resourceId(d);
@@ -1575,9 +1598,9 @@ function resourceId(d: HeadDesc) {
 function identity(d: HeadDesc, unique: number) {
   const p = d.props ?? {};
   if (d.tag === "title" || d.tag === "base") return d.tag;
+  if (d.tag === "meta" && p.charset != null) return "charset";
   if (d.key != null) return d.tag + ":key:" + evalHead(d.key);
   if (d.tag === "meta") {
-    if (p.charset != null) return "charset";
     for (const ns of ["name", "property", "http-equiv"]) if (p[ns] != null) return "meta:" + ns + ":" + evalHead(p[ns]);
   }
   if (d.tag === "link") return "link:" + (evalHead(p.rel) ?? "") + ":" + (evalHead(p.href) ?? "");
@@ -1596,11 +1619,12 @@ function headAttrs(d: HeadDesc): Record<string, string | true> {
   return out;
 }
 
-function headTag(d: HeadDesc): string {
+function headTag(d: HeadDesc, ident?: string): string {
   if (d.props?.[RAW]) return d.props[RAW];
   let out = "<" + d.tag;
   const a = headAttrs(d);
   for (const k of Object.keys(a)) out += a[k] === true ? " " + k : ` ${k}="${escape(a[k], true)}"`;
+  if (ident !== undefined) out += ` data-dh="${escape(ident, true)}"`;
   if (VOID.has(d.tag)) return out + ">";
   const text = evalHead(d.props?.children);
   return out + ">" + (text == null ? "" : d.tag === "title" ? escape(String(text)) : String(text)) + "</" + d.tag + ">";
@@ -1608,10 +1632,58 @@ function headTag(d: HeadDesc): string {
 
 /** The winners of `groups`, last one per identity. */
 function winners(groups: HeadGroup[]): HeadDesc[] {
+  return [...winnersBy(groups).values()];
+}
+function winnersBy(groups: HeadGroup[]): Map<string, HeadDesc> {
   const by = new Map<string, HeadDesc>();
   let unique = 0;
   for (const g of groups) for (const d of g.tags) by.set(identity(d, unique++), d);
-  return [...by.values()];
+  return by;
+}
+
+/** The shell's head tags: the prelude (charset, base), the title's text, and the rest in Solid's order. */
+function shellHeadParts(h: HeadRegistry): { prelude: string; html: string; title: string | null } {
+  let prelude = "";
+  let links = "";
+  let metas = "";
+  let others = "";
+  let scripts = "";
+  let title: string | null = null;
+  for (const [ident, d] of winnersBy(h.groups.filter((g) => g.boundary === ""))) {
+    if (ident === "title") {
+      const text = evalHead(d.props?.children);
+      title = text == null ? "" : String(text);
+      continue;
+    }
+    const markup = headTag(d, ident);
+    if (ident === "charset" || ident === "base") prelude += markup;
+    else if (d.tag === "link" || d.tag === "style") links += markup;
+    else if (d.tag === "meta") metas += markup;
+    else if (d.tag === "script") scripts += markup;
+    else others += markup;
+  }
+  return { prelude, html: h.resources.join("") + links + metas + others + scripts, title };
+}
+
+/** The shell's head tags into the page: the prelude after <head>, the title over the shell's own (its text kept). */
+function placeHead(html: string, parts: { prelude: string; html: string; title: string | null }, slot: string): string {
+  let tags = parts.html;
+  const open = html.match(/<head(?:\s[^>]*)?>/);
+  if (parts.prelude && open) {
+    const at = open.index! + open[0].length;
+    html = html.slice(0, at) + parts.prelude + html.slice(at);
+  } else tags = parts.prelude + tags;
+  if (parts.title != null) {
+    const winner = escape(parts.title);
+    const from = open ? html.indexOf(open[0]) + open[0].length : 0;
+    const end = html.indexOf(slot, from);
+    const m = /<title(\s[^>]*)?>([\s\S]*?)<\/title>/.exec(html.slice(from, end === -1 ? undefined : end));
+    if (m) {
+      const at = from + m.index;
+      html = html.slice(0, at) + `<title${m[1] || ""} data-dh="title" data-dhf="${m[2].replace(/"/g, "&quot;")}">${winner}</title>` + html.slice(at + m[0].length);
+    } else tags = `<title data-dh="title">${winner}</title>` + tags;
+  }
+  return html.replace(slot, () => tags);
 }
 
 /** The head's slot filled: the shell's tags (and its resources). Waiting when `wait`: a tag not ready holds it. */
@@ -1619,8 +1691,7 @@ function fillHead(shell: string, h: HeadRegistry, wait: boolean): string | Promi
   // (The slot is written with the head: none, nothing to look for in the page.)
   if (!h.placed || !shell.includes(HEAD_SLOT)) return shell;
   try {
-    const tags = winners(h.groups.filter((g) => g.boundary === "")).map(headTag);
-    return shell.replace(HEAD_SLOT, () => h.resources.join("") + tags.join(""));
+    return placeHead(shell, shellHeadParts(h), HEAD_SLOT);
   } catch (e) {
     const waits = wait && e instanceof NotReadyError && settlesOf(e);
     if (!waits) return shell.replace(HEAD_SLOT, () => h.resources.join(""));
