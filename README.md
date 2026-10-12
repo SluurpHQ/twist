@@ -1,4 +1,6 @@
-# <img src="logo.svg" width="28" height="28" alt="" align="top"> Twist
+<p align="center"><img src="logo.svg" width="96" height="96" alt=""></p>
+
+<h1 align="center">Twist</h1>
 
 One runtime for React's API and Solid 2's. Components written either way render into the same tree, on fine-grained
 signals: no virtual DOM, no re-running components to find what changed.
