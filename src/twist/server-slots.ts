@@ -450,4 +450,4 @@ function claimInScope(mode) {
 
 // Decodes the entities our own escape() produces (attr and content forms).
 
-export { slotText, slotAttribute, slotClassOrStyle, slotValueInline, slotMarker, slotEntry, eventSlotStamp, eventPosition, spreadBehaviorPosition, spreadBehaviorMarkers, collectSpreadSources, spreadPropPosition, spreadObjectAttribute, claimEntries, claimInScope, propOfOccurrence };
+export { slotSpreadSource, slotText, slotAttribute, slotClassOrStyle, slotValueInline, slotMarker, slotEntry, eventSlotStamp, eventPosition, spreadBehaviorPosition, spreadBehaviorMarkers, collectSpreadSources, spreadPropPosition, spreadObjectAttribute, claimEntries, claimInScope, propOfOccurrence };

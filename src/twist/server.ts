@@ -26,7 +26,7 @@ import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, nonceAttr, normalizeNonce, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, resourceIdentity, serializeFragmentAssets, type AssetTracking, type Nonce } from "./server-assets.ts";
-import { isSlotValue, slotAttribute, slotClassOrStyle, spreadBehaviorMarkers, spreadBehaviorPosition, spreadPropPosition } from "./server-slots.ts";
+import { isSlotValue, slotAttribute, slotClassOrStyle, slotSpreadSource, spreadBehaviorMarkers, spreadBehaviorPosition, spreadPropPosition } from "./server-slots.ts";
 export {
   RequestContext,
   getRequestEvent,
@@ -555,7 +555,7 @@ function element(el: Element_, keyed: boolean): string {
 
 /** An element's props: JSX props with their spreads, or ssrElement's sources merged (later ones winning). */
 function propsOf(el: Element_): Record<string, any> {
-  if (!el.sources) return expandSpreads(el.props);
+  if (!el.sources) return expandSpreads(el.props, el.tag);
   let p = typeof el.props === "function" ? el.props() : el.props;
   // (A function source is resolved once.)
   if (Array.isArray(p)) p = merge(...p.map((x: any) => (typeof x === "function" ? x() : x)).filter((x: any) => x != null));
@@ -677,7 +677,7 @@ function liveHole(f: () => any): string | null {
 const hasSpread = (props: unknown) => !!props && typeof props === "object" && Object.keys(props).some((k) => k.startsWith("$spread$"));
 
 /** Props with their spreads applied, in order. */
-function expandSpreads(props: Record<string, any>) {
+function expandSpreads(props: Record<string, any>, tag?: string) {
   if (!Object.keys(props).some((k) => k.startsWith("$spread$"))) return props;
   // (Each key from the last source that has it, read only there: one a later attribute overrides is never read.)
   const winner = new Map<string, Record<string, any>>();
@@ -698,6 +698,8 @@ function expandSpreads(props: Record<string, any>) {
       place(k, props);
     } else {
       const source = props[k]();
+      // (A binding slot's return spread whole binds nothing by position: an error.)
+      if (source && source.$slot === true) slotSpreadSource(tag, source);
       if (source)
         for (const key of Object.keys(source)) {
           if (key === "ref") refs.push(source[key]);
@@ -1760,7 +1762,7 @@ function renderRecord(ctx: any, mode: "string" | "stream") {
   ctx._declareRoute = (ref: unknown) => void (route = ref);
   return {
     shell: () => void (shellAt ??= Date.now()),
-    settle(outcome: "complete" | "abandoned" | "error", boundaries: number) {
+    settle(outcome: "complete" | "abandoned" | "error", boundaries: number, released = false) {
       if (told) return;
       told = true;
       const event: Record<string, unknown> = { mode, at, durationMs: Date.now() - at, boundaries, outcome };
@@ -1771,10 +1773,13 @@ function renderRecord(ctx: any, mode: "string" | "stream") {
         for (const k of ["name", "to", "params"]) if (route[k] !== undefined) named[k] = route[k];
         event.route = named;
       }
-      // (Told under an owner of the render: its listener reads this render's trace, whatever renders now.)
+      // (Told under an owner of the render: its listener reads this render's trace, whatever renders now. A render
+      // already let go of, none.)
+      const emit = () => records.emit("render", event, { trace: ctx.trace?.context, event: ctx.event ?? getRequestEvent() });
+      if (released) return void runWithOwner(null, emit);
       const o = runWithOwner(null, () => createOwner()) as any;
       o.renderCtx = ctx;
-      runWithOwner(o, () => records.emit("render", event, { trace: ctx.trace?.context, event: ctx.event ?? getRequestEvent() }));
+      runWithOwner(o, emit);
     },
   };
 }
@@ -2063,10 +2068,12 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
       options.onCompleteAll?.({ write: (chunk) => sinks.forEach((w) => write(w, chunk)) });
       done = true;
-      record?.settle("complete", r.tracks?.size ?? 0);
+      // (Awaited whole, the render is let go of as it resolves: the record settles after.)
+      if (!whole) record?.settle("complete", r.tracks?.size ?? 0);
       dispose();
       for (const w of sinks) w.end();
       finished();
+      if (whole) record?.settle("complete", r.tracks?.size ?? 0, true);
     }
   };
   let finished!: () => void;

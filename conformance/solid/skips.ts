@@ -121,6 +121,12 @@ export const CHANGES: Change[] = [
     replace: `      expect(body).toContain('"stack"');\n      expect(body).toContain("server-functions-failure-sanitization");`,
     why: "JavaScriptCore does not name that frame, and a Windows path is escaped in the payload; what is checked is that the stack, with its file, is sent",
   },
+  // ---- Twist's model
+  {
+    file: "web/test/server/frame-binding-slots.spec.tsx",
+    skip: "a compiled spread element's handler expressions never evaluate outside a server component",
+    why: "Twist compiles one output for client and server, with React's semantics: a prop's expression is evaluated where its element renders (the server only binds no handler)",
+  },
   // ---- The engine's words
   {
     file: "signals/tests/equals-comparator-errors.test.ts",

@@ -783,6 +783,7 @@ function standInArgFinding(sv, key, occurrence, path) {
 function slotFace(range, content) {
   if (content == null) return SLOT_FACE_DATA;
   if (typeof content !== "object" || Array.isArray(content)) return SLOT_FACE_MARKUP;
+  if (isServerNode(content)) return SLOT_FACE_MARKUP;
   if (isServerContent(content)) {
     // An SSR node is `{ t }` (plus `h`/`p`) and nothing else.
     let data = false;
