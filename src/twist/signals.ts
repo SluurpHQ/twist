@@ -1205,7 +1205,7 @@ export class Signal<T> extends Node<T> {
     this.pending = next;
     if (acting) this.writtenIn = acting.tx;
     else if (inPass && listener) this.writtenBy = listener;
-    else if (!flushing && !tickTx) tickWrites.add(this);
+    else if (!flushing) tickWrites.add(this);
     schedule();
   }
   /** The action whose transaction this write belongs to (held with it until the action ends). */
@@ -2761,7 +2761,7 @@ let frameTx: Transaction | null = null;
 let tickTx: Transaction | null = null;
 /** The hold the passes outside a flush in this tick joined (one per tick: what a later one reads merges into it). */
 let passTx: Transaction | null = null;
-/** Signals written in this tick, outside any flush or action, before its first action opened: that action holds them with it. */
+/** Signals written in this tick, outside any flush or action: the tick's first action holds them with it. */
 const tickWrites = new Set<Node>();
 /** Guesses written outside an action and over no hold yet: decided once the flush has parked (or not). */
 const frameGuesses: [Node, unknown][] = [];
@@ -3595,12 +3595,21 @@ export function startEffect<T>(e: Computation<T>, options?: SignalOptions<T>) {
   // (Unless scheduled, or made by a flush's pass while something could hold it: it applies with that flush.)
   if (kind === RENDER && !options?.schedule && e.due && !e.tx && e.error === NONE) {
     // (A first pass that read only the screen applies as made.)
-    if (flushing && (flights.size || transactions.size) && !madeByLeaver(e) && !(e as any).screenPass) (e as any).applyFirst = true;
+    // (Made by a pass replacing a frame still shown: after that frame goes, as its parent applies.)
+    if (flushing && (((flights.size || transactions.size) && !madeByLeaver(e) && !(e as any).screenPass) || madeOverFrame(e))) (e as any).applyFirst = true;
     else remove(applies[RENDER], e), e.runApply();
   }
   schedule();
 }
 /** Made by a render effect's pass that left a hold: it shows the committed frame, applied as made. */
+/** Made by a render effect's pass while its last frame is still parked with cleanups of its owners not run yet. */
+function madeOverFrame(e: Computation<any>) {
+  let p: Owner | null = e.parent;
+  while (p && !(p instanceof Computation)) p = p.parent;
+  const parked = p && (p as Computation<any>).kind === RENDER ? ((p as any).parked as Owner[] | null) : null;
+  const cleans = (o: Owner): boolean => !!o.cleanups?.length || !!o.owned?.some(cleans);
+  return !!parked?.some(cleans);
+}
 function madeByLeaver(e: Computation<any>) {
   let p: Owner | null = e.parent;
   while (p && !(p instanceof Computation)) p = p.parent;
