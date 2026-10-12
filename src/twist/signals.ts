@@ -2962,6 +2962,8 @@ function settleRoundIn(now: Node[], held: Set<Node>, setTx: (t: Transaction) => 
         c.mark(DIRTY);
         continue;
       }
+      // (Made this flush by a pass of one of its lanes: the lane's work, revealed with it.)
+      if (c.born === flushes && c.kind === MEMO && laneMade(c, t)) continue;
       if ((c.staged !== NONE || c.due) && (c.kind === MEMO || !c.sources.every((s) => s.override !== NONE))) hold(c, t);
       if (c.flight) t.flights.add(c);
     }
@@ -3098,6 +3100,16 @@ function heldRead<T>(n: Node<T>, held?: Transaction): T {
   return n.staged as T;
 }
 
+/** Whether `c` was made by a pass of one of `t`'s lanes (through what it was made under this flush). */
+function laneMade(c: Computation<any>, t: Transaction): boolean {
+  const laneOf = (x: Transaction | null | undefined) => !!x && !x.done && x.root.parentTx?.root === t.root;
+  for (let p = c.parent; p; p = p.parent) {
+    if (!(p instanceof Computation)) continue;
+    if (laneOf(p.passLane) || laneOf(p.readHeld) || laneOf(p.tx)) return true;
+    if (p.born !== flushes) return false;
+  }
+  return false;
+}
 /** Whether `l` is a first pass made by a pass of one of `t`'s lanes (a first pass is its creator's, ruling A). */
 function madeByLane(l: Computation<any>, t: Transaction): boolean {
   if (l.ranAt !== -1 || l.tx || !t.lane) return false;
