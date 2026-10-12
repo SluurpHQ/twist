@@ -367,7 +367,8 @@ impl<'a> Visit<'a> for Pass<'_> {
             self.visit_expression(e);
             // An element's event handler is read when the event comes; a ref is called once. (A component's onX is a prop.)
             let handler = name.len() > 2 && name.starts_with("on") && name.as_bytes()[2].is_ascii_uppercase();
-            if dynamic(e) && name != "ref" && (component || !handler) {
+            // (A component's prop with JSX in it is a getter too, as Solid's: what it makes is made where it is read.)
+            if (dynamic(e) || (component && has_jsx(e))) && name != "ref" && (component || !handler) {
                 self.wrap(e, "__twist_d");
             }
         }
@@ -786,6 +787,10 @@ mod tests {
         assert!(out.contains("{x}"), "{out}");
         assert!(out.contains("\nA = __twist_mark(A);"), "{out}");
         assert!(out.contains("import { __twist_d, __twist_c, __twist_ref, __twist_k, __twist_mark, __twist_memo } from \"@solidjs/web\";"), "{out}");
+        // A component's prop with JSX in it: a getter (a function returning JSX stays as it is).
+        let jsx = c("const B = () => <Loading fallback={<Spinner />} render={(e) => <i>{e}</i>} />;");
+        assert!(jsx.contains("fallback={__twist_d(() => (<Spinner />))}"), "{jsx}");
+        assert!(jsx.contains("render={(e) =>"), "{jsx}");
     }
 
     #[test]
