@@ -57,7 +57,7 @@ const COMP = Symbol("twist.ssr.component");
 /** Whether `v` is markup made here and not rendered yet (Twist's JSX describes; html() renders). */
 export const isServerNode = (v: any) => !!v && typeof v === "object" && (v[EL] === true || v[COMP] === true);
 
-type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; owner?: any; skip?: (k: string) => boolean; attrs?: string; sources?: boolean; keys?: string[] };
+type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; owner?: any; skip?: (k: string) => boolean; attrs?: string; sources?: boolean; keys?: string[]; tagIs?: TagFacts };
 type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string, any> };
 
 export const Fragment = (props: { children?: unknown }) => props.children;
@@ -67,16 +67,26 @@ export const Fragment = (props: { children?: unknown }) => props.children;
  * fixed part as its HTML (rendered the first time). Static attributes after one set at run time: the JSX itself, so
  * attributes keep their order.
  */
-export const __twist_t = (spec: Spec) => (values: unknown[]) => {
-  // (Keyed under the owner that made it, as Solid's template takes its key where it is made.)
-  const d = described(spec, values, { i: 0 });
-  if (d && d[EL]) d.owner = getOwner();
-  return d;
+export const __twist_t = (spec: Spec) => {
+  let meta: SpecMeta | undefined;
+  return (values: unknown[]) => {
+    // (Keyed under the owner that made it, as Solid's template takes its key where it is made.)
+    const d = described(spec, values, { i: 0 }, spec[4] ? undefined : (meta ??= metaOf(spec)));
+    if (d && d[EL]) d.owner = getOwner();
+    return d;
+  };
 };
 const fixedHtml = new WeakMap<Spec, { t: string }>();
 /** What a template element's spec gives every element made from it, worked out once: its fixed attributes, its fixed
  * text (escaped), and its prop keys when they need no checking (no spread among them). */
-type SpecMeta = { attrs: string; kids: any[]; keys: string[] | null };
+type SpecMeta = { attrs: string; kids: any[]; kinds: number[]; inner: (SpecMeta | undefined)[]; keys: string[] | null; tagIs: TagFacts };
+/** A template child: a hole, text, an element with holes, a fixed element (its HTML kept in `kids` once made). */
+const HOLE = 0;
+const TEXT = 1;
+const INNER = 2;
+const FIXED = 3;
+/** What an element's tag means for its markup (worked out once per template). */
+type TagFacts = { void: boolean; raw: boolean };
 const specMeta = new WeakMap<Spec, SpecMeta>();
 function metaOf(spec: Spec): SpecMeta {
   let m = specMeta.get(spec);
@@ -84,23 +94,30 @@ function metaOf(spec: Spec): SpecMeta {
   const [tag, fixed, slots, kids] = spec;
   let attrs = "";
   for (let i = 0; i < fixed.length; i += 2) attrs += ssrAttribute(fixed[i]!, fixed[i + 1]);
-  const texts = kids.map((k) => (typeof k === "string" ? (RAW_TEXT.has(tag) ? k : { t: k.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }) : k));
+  const texts = kids.map((k) => (typeof k === "string" ? (RAW_TEXT.has(tag) ? k : { t: k.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }) : undefined));
+  const kinds = kids.map((k) => (k === 0 ? HOLE : typeof k === "string" ? TEXT : hasHoles(k) ? INNER : FIXED));
+  const inner = kids.map((k, i) => (kinds[i] === INNER && !(k as Spec)[4] ? metaOf(k as Spec) : undefined));
   // (Plain attribute names only: anything else goes through the general checks.)
   const keys = slots.every((k) => !k.startsWith("$spread$") && ATTR_NAME.test(k)) ? [...slots, ...(kids.length ? ["children"] : [])] : null;
-  specMeta.set(spec, (m = { attrs, kids: texts, keys }));
+  validTag(tag);
+  specMeta.set(spec, (m = { attrs, kids: texts, kinds, inner, keys, tagIs: { void: VOID.has(tag), raw: RAW_TEXT.has(tag) } }));
   return m;
 }
-function described(spec: Spec, values: unknown[], at: { i: number }): any {
+function described(spec: Spec, values: unknown[], at: { i: number }, meta?: SpecMeta): any {
   if (spec[4]) return expand(spec, values, at, jsx, jsxs);
   const [tag, , slots, kids] = spec;
-  const meta = metaOf(spec);
+  meta ??= metaOf(spec);
   const props: Record<string, any> = {};
-  for (const name of slots) props[name] = values[at.i++];
-  const texts = meta.kids;
-  const children = kids.map((k, i) => (k === 0 ? holeValue(spec, values, at) : typeof k === "string" ? texts[i] : hasHoles(k) ? described(k, values, at) : fixedPart(k)));
+  for (let i = 0; i < slots.length; i++) props[slots[i]!] = values[at.i++];
+  const { kids: parts, kinds, inner } = meta;
+  const children: any[] = [];
+  for (let i = 0; i < kinds.length; i++) {
+    const kind = kinds[i];
+    children.push(kind === HOLE ? holeValue(spec, values, at) : kind === TEXT ? parts[i] : kind === INNER ? described(kids[i] as Spec, values, at, inner[i]) : (parts[i] ??= fixedPart(kids[i] as Spec)));
+  }
   if (children.length > 1) ((children as any)[OWN] = true), (props.children = children);
   else if (children.length) props.children = children[0];
-  const d = { [EL]: true, tag, props, attrs: meta.attrs } as Element_;
+  const d = { [EL]: true, tag, props, attrs: meta.attrs, tagIs: meta.tagIs } as Element_;
   if (meta.keys) d.keys = meta.keys;
   return d;
 }
@@ -563,16 +580,19 @@ function flatChildren(v: any[], out: any[] = []): any[] {
 const validTags = new Set<string>();
 const TAG_NAME = /^[A-Za-z][A-Za-z0-9._:-]*$/;
 
+/** A tag name from run time checked: one element name, or nothing is written. */
+function validTag(tag: string) {
+  if (validTags.has(tag)) return;
+  if (!TAG_NAME.test(tag)) throw new Error(`"${tag}" is not a valid tag name`);
+  validTags.add(tag);
+}
 function element(el: Element_, keyed: boolean): string {
   // (Rendered, all of it, under the owner it takes its key under: as Solid's template makes its parts where it is made.)
   const under = el.owner ? keyOwnerOf(el.owner) : null;
   if (under && under !== getOwner()) return runWithOwner(under, () => element(el, keyed));
   const { tag } = el;
-  // (A name from run time: one element name, or nothing is written.)
-  if (!validTags.has(tag)) {
-    if (!TAG_NAME.test(tag)) throw new Error(`"${tag}" is not a valid tag name`);
-    validTags.add(tag);
-  }
+  let is = el.tagIs;
+  if (!is) validTag(tag), (is = { void: VOID.has(tag), raw: RAW_TEXT.has(tag) });
   if (tag === "html" || tag === "head") markHead();
   // The key first: what the props read is the element's, after it.
   let out = "<" + tag + (keyed ? ssrHydrationKey() : "");
@@ -589,10 +609,11 @@ function element(el: Element_, keyed: boolean): string {
   let behaviors: Map<string, string> | null = null;
   const tail: Set<string> | undefined = (all as any)[TAIL];
   // (Own keys through the proxy's ownKeys alone: no descriptor asked for.)
-  for (const k of el.keys ?? Reflect.ownKeys(all)) {
-    if (!el.keys && (typeof k !== "string" || el.skip?.(k) || !ATTR_NAME.test(k) || (tail && tail.has(k)))) continue;
+  for (const key of el.keys ?? Reflect.ownKeys(all)) {
+    if (!el.keys && (typeof key !== "string" || el.skip?.(key) || !ATTR_NAME.test(key) || (tail && tail.has(key)))) continue;
+    const k = key as string;
     // A void element has no children: never read.
-    if (k === "children" && VOID.has(tag)) continue;
+    if (k === "children" && is.void) continue;
     const raw = all[k];
     // Content that can change, in a live frame: a hole the engine re-sends.
     if ((k === "innerHTML" || k === "textContent") && isDynamic(raw)) {
@@ -609,7 +630,7 @@ function element(el: Element_, keyed: boolean): string {
     }
     const v = read(raw);
     // (A spread's children: templates of their own, each keyed as a hole's are.)
-    if (k === "children") kids = el.sources || hasSpread(el.props) ? keyedKids(v) : v;
+    if (k === "children") kids = !el.keys && (el.sources || hasSpread(el.props)) ? keyedKids(v) : v;
     else if (k === "ref" || /^on[A-Z]/.test(k)) {
       if (slots) behaviors = spreadBehaviorPosition(behaviors, k, v, ctx.claims, 0, false);
       continue;
@@ -639,7 +660,7 @@ function element(el: Element_, keyed: boolean): string {
     if (Array.isArray(selecting) ? selecting.map(String).includes(v) : String(selecting ?? "") === v) out += " selected";
   }
   // (Ended as Solid ends them: a compiled template writes `<input …>`, a run-time or spread element `<input … />`.)
-  if (VOID.has(tag)) return out + (el.sources || hasSpread(el.props) ? " />" : ">");
+  if (is.void) return out + (!el.keys && (el.sources || hasSpread(el.props)) ? " />" : ">");
   out += ">";
   // The page's head: what useHead registers goes here once the shell is rendered.
   if (tag === "head" && head && !head.placed) {
@@ -652,7 +673,7 @@ function element(el: Element_, keyed: boolean): string {
   try {
     if (content !== undefined) out += content;
     // Script and style text is raw.
-    else if (kids !== NONE_CHOSEN) out += RAW_TEXT.has(tag) ? rawText(kids && kids[DYNAMIC_KIDS] ? read(kids[DYNAMIC_KIDS]) : kids) : children(kids);
+    else if (kids !== NONE_CHOSEN) out += is.raw ? rawText(kids && kids[DYNAMIC_KIDS] ? read(kids[DYNAMIC_KIDS]) : kids) : children(kids);
   } finally {
     selecting = was;
   }
@@ -677,41 +698,58 @@ const DYNAMIC_KIDS = Symbol("twist.ssr.dynamic-children");
 const keyedKids = (v: any): any => (Array.isArray(v) ? Object.assign(v.map(keyedKids), { [OWN]: (v as any)[OWN] }) : v && v[EL] && v.keyed === undefined ? { ...v, keyed: true } : v);
 
 function children(c: any): string {
-  if (c && c[DYNAMIC_KIDS]) {
+  if (Array.isArray(c)) return list(c, !!(c as any)[OWN], true);
+  if (typeof c === "function") return hole(() => list([c], true, true));
+  if (c === null || typeof c !== "object") return html(c, false);
+  if (c[DYNAMIC_KIDS]) {
     const raw = c[DYNAMIC_KIDS];
     return hole(idScope(() => liveHole(() => read(raw)) ?? children(read(raw))), true);
   }
-  return Array.isArray(c) ? list(c, !!(c as any)[OWN], true) : typeof c === "function" ? hole(() => list([c], true, true)) : c && c[EL] ? element(c, c.keyed ?? false) : html(c, false);
+  return c[EL] ? element(c, c.keyed ?? false) : html(c, false);
 }
 
-type Part = { s: string; text: boolean; split: boolean };
+/** HTML written part by part: text beside text split where the client would see two nodes. */
+class Parts {
+  out = "";
+  empty = true;
+  /** The first part's kind, and the last's. */
+  firstText = false;
+  firstSplit = false;
+  text = false;
+  split = false;
+  add(s: string, text: boolean, split: boolean) {
+    if (this.empty) (this.empty = false), (this.firstText = text), (this.firstSplit = split);
+    else if (this.text && text && this.split && split) this.out += SEP;
+    this.out += s;
+    this.text = text;
+    this.split = split;
+  }
+  /** Another's parts after these. */
+  addAll(p: Parts) {
+    if (p.empty) return;
+    if (this.empty) (this.empty = false), (this.firstText = p.firstText), (this.firstSplit = p.firstSplit);
+    else if (this.text && p.firstText && this.split && p.firstSplit) this.out += SEP;
+    this.out += p.out;
+    this.text = p.text;
+    this.split = p.split;
+  }
+}
 
 /**
  * A list as the client flattens it. Text next to text becomes two text nodes there, so a separator marks the split
  * here: between values a hole yields (what each resolves to decides), never between a template's own items.
  */
 function list(items: any[], own: boolean, inTemplate: boolean): string {
-  const parts: Part[] = [];
+  const parts = new Parts();
   collect(items, own, inTemplate, false, parts);
-  return joined(parts);
+  return parts.out;
 }
 
 /** Dynamic holes being rendered in their scope, with the scoped run (a retry runs it again). */
-const scoping = new Map<Function, () => Part[]>();
+const scoping = new Map<Function, () => Parts>();
 
-/** Parts as HTML: text beside text split where the client would see two nodes. */
-function joined(parts: Part[]): string {
-  let out = "";
-  for (let i = 0; i < parts.length; i++) {
-    const a = parts[i - 1];
-    const b = parts[i]!;
-    if (a && a.text && b.text && a.split && b.split) out += SEP;
-    out += b.s;
-  }
-  return out;
-}
 
-function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, parts: Part[]) {
+function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean, parts: Parts) {
   for (let x of items) {
     let fn = viaFn;
     // (A bare function hole: the enclosing scope's next id before it renders, to see whether it took any.)
@@ -720,7 +758,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
     const siteBefore = siteOwner ? childIdCount(siteOwner) : 0;
     // A hole or a component beside other children: between markers the client claims it by.
     if (own && !viaFn && items.length > 1 && ((typeof x === "function" && !(x as any).$esc) || (x && x[COMP]))) {
-      parts.push({ s: "<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, inTemplate)) + "<!--/-->", text: false, split: false });
+      parts.add("<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, inTemplate)) + "<!--/-->", false, false);
       continue;
     }
     // A dynamic hole of a template (an insert, in Solid's terms; not a component's children): rendered in an id scope
@@ -728,7 +766,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
     if (inTemplate && typeof x === "function" && isDynamic(x) && !scoping.has(x)) {
       const f = x;
       const run = idScope(() => {
-        const ps: Part[] = [];
+        const ps = new Parts();
         scoping.set(f, run);
         try {
           collect([f], own, inTemplate, viaFn, ps);
@@ -737,7 +775,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
         }
         return ps;
       });
-      parts.push(...run());
+      parts.addAll(run());
       continue;
     }
     if (typeof x === "function") {
@@ -750,7 +788,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
         // A live frame's hole: rendered (between markers) by the live-hole engine, which re-sends it as it changes.
         const live = liveHole(f);
         if (live != null) {
-          parts.push({ s: live, text: false, split: false });
+          parts.add(live, false, false);
           continue;
         }
         while (typeof x === "function") (x = x()), (fn = true);
@@ -758,7 +796,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
         // A part of the shell not ready yet waits on its own, like any hole.
         const waits = e instanceof NotReadyError && rr?.async && settlesOf(e);
         if (!waits || (boundaries > 0 && !rr!.shellSent && holdsShell(e))) throw e;
-        parts.push({ s: later(rr!, scoped ? () => joined(scoped()) : () => list([f], own, inTemplate), waits, o, at), text: false, split: false });
+        parts.add(later(rr!, scoped ? () => scoped().out : () => list([f], own, inTemplate), waits, o, at), false, false);
         continue;
       }
     }
@@ -768,9 +806,9 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
       const stays = (own && fn && !viaFn) || !!(x as any)[OWN];
       collect(x, stays, inTemplate && own, stays ? false : fn, parts);
     }
-    else if (typeof x === "string" || typeof x === "number") parts.push({ s: typeof x === "string" ? escape(x) : String(x), text: true, split: !own || fn });
-    else if (x[EL]) parts.push({ s: element(x, x.keyed ?? !(inTemplate && own && !fn)), text: false, split: false });
-    else parts.push({ s: html(x, false), text: false, split: false });
+    else if (typeof x === "string" || typeof x === "number") parts.add(typeof x === "string" ? escape(x) : String(x), true, !own || fn);
+    else if (x[EL]) parts.add(element(x, x.keyed ?? !(inTemplate && own && !fn)), false, false);
+    else parts.add(html(x, false), false, false);
     if (siteOwner && childIdCount(siteOwner) !== siteBefore) unscopedHole(site!, siteBefore, childIdCount(siteOwner));
   }
 }
