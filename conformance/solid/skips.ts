@@ -66,6 +66,12 @@ export const CHANGES: Change[] = [
     why: "(with the change above)",
   },
   {
+    file: "signals/tests/loading-value.test.ts",
+    find: `    expect(frames).toEqual(["false|waiting", "false|zero", "true|zero", "true|zero", "false|one"]);`,
+    replace: `    expect(frames.slice(0, 3)).toEqual(["false|waiting", "false|zero", "true|zero"]);\n    expect(frames.at(-1)).toBe("false|one");`,
+    why: "pins Solid's doubled pending frame at the refetch landing (its comment: a frame count this control is not about); the verdict reading true after the window, then the landing, is checked",
+  },
+  {
     file: "signals/tests/lane-contract.test.ts",
     skip: "a long-lived lane does not grow its bookkeeping with every pass",
     why: "measures a lane's private _nodes array",

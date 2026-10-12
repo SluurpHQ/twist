@@ -1382,6 +1382,7 @@ export class Computation<T> extends Node<T> implements Owner {
     if (serverRender) this.renderCtx = sharedConfig.context;
     // A declared first paint: born committed with it; its first flight is quiet (never pending, never held).
     if (options && "loadingValue" in options) {
+      (this as any).declaredLoading = true;
       this.value = options.loadingValue as T;
       this.ready = true;
       this.loadingWindow = true;
@@ -1781,7 +1782,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (threw !== NONE) {
       // Waiting on a first load upstream: still not ready (its readers wait too); the Loading above shows its fallback.
       if (threw instanceof NotReadyError) {
-        this.error = NONE;
+        // (A retry of a settled error, parked: that error stays the answer until the retry lands.)
+        if (!((this as any).declaredLoading && this.error !== NONE)) this.error = NONE;
         // (What it waits on, for a server render to wait too.)
         (this as any).waitsFor = threw;
         // Waiting on a promise its code named: run again when it settles.
@@ -2517,7 +2519,8 @@ function waiting(n: Node, seen = new Set<Node>()): boolean {
     // (A stream between its values is settled on the last one: not pending.)
     if (n.flight && n.ready && !n.quiet && !n.loadingWindow && !n.streaming && !(pendingInside && flightHolder(n)?.root === pendingInside)) return true;
     // (A source showing an optimistic override: what was read from it is what shows, its own pending aside.)
-    if (!n.windowAnswer) for (const s of n.sources) if (s.override === NONE && waiting(s, seen)) return true;
+    // (A declared loading value whose answer is an error, its retry parked: quiet — the error is what shows.)
+    if (!n.windowAnswer && !((n as any).declaredLoading && n.error !== NONE)) for (const s of n.sources) if (s.override === NONE && waiting(s, seen)) return true;
   }
   return false;
 }
@@ -3329,6 +3332,15 @@ function writableMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): [Acce
   if (!m.lazy) m.run();
   const set: Setter<T> = (next) => {
     const v = typeof next === "function" ? (next as (prev: T) => T)(m.current() as T) : next;
+    // (In its loading window, its first answer still on the way: one more committed value inside the window — the
+    // answer lands after it all the same.)
+    if (m.loadingWindow && m.flight) {
+      guardWrite(!!options?.ownedWrite);
+      m.value = v;
+      m.bump();
+      schedule();
+      return v;
+    }
     written.write({ v });
     return v;
   };
