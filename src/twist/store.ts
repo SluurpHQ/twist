@@ -768,7 +768,7 @@ export function createStore<T extends object>(init: T | ((draft: T) => T | void 
 }
 
 /** A derive run: whether it is still the newest, and whether it has gone async; its drafts. */
-type Run = { live: boolean; async: boolean; stream?: boolean; drafts: WeakMap<object, any>; read?: () => unknown };
+type Run = { live: boolean; async: boolean; returned?: boolean; stream?: boolean; drafts: WeakMap<object, any>; read?: () => unknown };
 
 /** `v`'s draft for a derive run: its writes dropped once a newer run has started, committed as made once it is async. */
 function runDraft<T>(v: T, run: Run): T {
@@ -779,7 +779,8 @@ function runDraft<T>(v: T, run: Run): T {
   const inner = draftOf(v) as any;
   const write = (f: () => boolean) => {
     if (!run.live) return true;
-    if (!run.async) return f();
+    // (A sync run's late write, after it returned: shown as made, or held by the action making it.)
+    if (!run.async && (!run.returned || isActing())) return f();
     const before = new Set(dirtyRecords);
     const ok = f();
     // (A transition waits on this run: its writes are that frame's, through the flush; else they show as made.)
@@ -938,11 +939,15 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     }
     // What the derive wrote is visible as it returns (A28 (4): a computation never runs on against its own writes).
     promoteWrites(before);
+    run.returned = true;
     // The same answer each run: readers are told by the keys that changed, not by the derive having run.
     return 0;
   }, { writes: true, onTake: took, ...(options?.ssrSource ? { ssrSource: options.ssrSource, sourceFn: fn } : {}), ...(isServerRender() ? { answerOf } : {}), ...(options?.seedLoadingValue ? { loadingValue: 0 } : {}) } as any);
   memo = m;
   derives.set(target, m);
+  // (Its draft dies with its owner: a late write after that is dropped.)
+  const o = getOwner() as any;
+  if (o) (o.cleanups ??= []).push(() => run && (run.live = false));
   const proxy = new Proxy(target, {
     ...readHandler,
     get(t, k, receiver) {
