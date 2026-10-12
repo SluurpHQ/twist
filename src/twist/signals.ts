@@ -2621,6 +2621,17 @@ export function flightTransaction(read: unknown): Transaction | null {
   return t && !t.done && !t.open && !t.lane && !t.parentTx ? t : null;
 }
 
+/** A write over a derivation another transaction holds is not a proposal: the derivation runs again over it (#3612). */
+export function rederiveHeld(read: unknown) {
+  const c = accessors.get(read as any);
+  // (A derive's own node answers the same each run: held is what it read.)
+  const t = c && [c.staged !== NONE ? c.tx : null, ...c.sources.map((s) => s.tx)].find((t) => t && !t.root.done);
+  if (!c || !t) return;
+  // (A write inside that transaction is a proposal, and so is every later one over it.)
+  if (acting && acting.tx.root === t.root) (c as any).proposedIn = t.root;
+  else if ((c as any).proposedIn !== t.root) c.mark(DIRTY), schedule();
+}
+
 /** This round's staged nodes committed, or held where they lead to a flight that something renders. */
 function settleRound() {
   const now = staged;
@@ -3356,8 +3367,10 @@ export function createSignal<T>(value: T | ((prev?: T) => T), options?: SignalOp
 
 /** A value worked out from what it reads, that can also be set: a write stays until what it reads changes. */
 function writableMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): [Accessor<T>, Setter<T>] {
-  const written = new Signal<{ v: T } | null>(null, { ownedWrite: options?.ownedWrite, equals: false });
-  let seen: { v: T } | null = null;
+  const written = new Signal<{ v: T; rederive?: boolean } | null>(null, { ownedWrite: options?.ownedWrite, equals: false });
+  let seen: { v: T; rederive?: boolean } | null = null;
+  /** Whether what it shows now is a write (not a derivation). */
+  let manual = false;
   // Each source's version at the last run: a write holds only while none of them moved (and no refresh asked).
   let versions: [Source, number][] = [];
   const m = new Computation<T>(
@@ -3368,13 +3381,16 @@ function writableMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): [Acce
       let out: T;
       if (w !== seen) {
         seen = w;
-        if (w && !moved) {
+        // (A write over a derivation another transaction holds is not a proposal: that derivation runs again over it.)
+        if (w && !moved && !w.rederive) {
           // The write holds: still subscribed to what the last run read.
           for (const [s] of versions) m.track(s as any);
+          manual = true;
           return w.v;
         }
         out = fn(w ? w.v : prev);
       } else out = fn(prev);
+      manual = false;
       versions = m.sources.filter((s) => s !== written).map((s) => [s, (s as any).version]);
       return out;
     },
@@ -3394,7 +3410,8 @@ function writableMemo<T>(fn: (prev?: T) => T, options?: SignalOptions<T>): [Acce
       schedule();
       return v;
     }
-    written.write({ v });
+    const held = m.tx && !m.tx.root.done && m.staged !== NONE && !manual && !(acting && acting.tx.root === m.tx.root);
+    written.write(held ? { v, rederive: true } : { v });
     return v;
   };
   const read = () => m.read();

@@ -3,7 +3,7 @@
 // 04) and its tests, not its code.
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks } from "./signals.ts";
 import { applyPatches, diffPatches, registerProjectionTrace } from "./container-trace.ts";
 import { createStream } from "../serial.js";
 
@@ -991,6 +991,9 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
       if (thenable(r)) asyncStoreSetter();
       if (r !== undefined) replaceInto(target, r);
     } else replaceInto(target, { ...(change as object) });
+    // (A write to a key its derive staged under a hold: that derive runs again over it.)
+    const held = (k: KeyNode | undefined) => !!k?.tx && !k.tx.root.done;
+    if ([...dirtyRecords].some((r) => [...(r.pending?.keys() ?? [])].some((k) => held(r.nodes.get(k))))) rederiveHeld(m);
   };
   return [proxy as T, writable ? set : (undefined as any)];
 }
