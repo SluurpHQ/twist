@@ -91,7 +91,8 @@ pub fn compile_with(source: &str, path: &str, hot: bool) -> Result<String, Strin
                     let id = d.id.get_binding_identifier().filter(|i| capitalised(&i.name));
                     if let (Some(id), Some(init @ (Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)))) = (id, &d.init) {
                         let s = init.span();
-                        pass.edits.push(Edit { start: s.start, end: s.end, text: format!("__twist_mark({}{})", &source[s.start as usize..s.end as usize], named(&id.name)) });
+                        // (Its name given: wrapped, the function no longer takes the variable's.)
+                        pass.edits.push(Edit { start: s.start, end: s.end, text: format!("__twist_mark({}, {})", &source[s.start as usize..s.end as usize], json(&id.name)) });
                         marks += 1;
                     }
                 }
@@ -825,7 +826,7 @@ mod tests {
     #[test]
     fn component_children_are_lazy_and_nested_edits_kept() {
         let out = c("const B = () => <Card>Hi {n()}</Card>;");
-        assert!(out.contains("const B = __twist_mark(() => <Card>{__twist_c(() => <>Hi {__twist_memo(() => (n()))}</>)}</Card>);"), "{out}");
+        assert!(out.contains("const B = __twist_mark(() => <Card>{__twist_c(() => <>Hi {__twist_memo(() => (n()))}</>)}</Card>, \"B\");"), "{out}");
         let lone = c("const B = () => <For each={xs()}>{(x) => <i>{x}</i>}</For>;");
         assert!(!lone.contains("__twist_c("), "{lone}");
     }

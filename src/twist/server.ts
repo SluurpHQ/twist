@@ -2,7 +2,7 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, keyOwnerOf, idScope, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly, onCleanup, renderContextOf, setServerSharer } from "./signals.ts";
+import { childIdCount, setChildIdCount, keyOwnerOf, idScope, idPlace, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly, onCleanup, renderContextOf, setServerSharer } from "./signals.ts";
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
 import { headerScript, hydrationSerializer } from "./serialize.ts";
@@ -20,7 +20,7 @@ import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
 import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
 import { getProjectionTrace } from "./container-trace.ts";
-import { traceFor, traceForEvent } from "./trace.ts";
+import { traceFor, traceForEvent, traceMetaMarkup } from "./trace.ts";
 import { inServerComponentScope, shareAsyncIterable } from "./server-internal.ts";
 import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
@@ -1106,6 +1106,8 @@ function stillOwned(o: any): () => boolean {
 
 function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: number): string {
   const owned = stillOwned(o);
+  // (Under the id it was made under: a hole's scope had given its owner one only while the hole ran.)
+  const place = idPlace(o);
   // (The boundary it renders in: what it registers in the head and as assets is that boundary's, when it comes.)
   const inBoundary = headBoundary;
   const inAssets = r.tracking.currentBoundaryId;
@@ -1130,10 +1132,14 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
           w.then(() => {
             // Thrown away with a pass of its boundary that was rendered again: nothing to fill.
             if (!owned()) return ok("");
-            // From the same ids: the hole takes again what it took the first time.
-            if (at >= 0) setChildIdCount(o, at);
             try {
-              ok(rendering(r, r.options, scoped));
+              ok(
+                place(() => {
+                  // From the same ids: the hole takes again what it took the first time.
+                  if (at >= 0) setChildIdCount(o, at);
+                  return rendering(r, r.options, scoped);
+                }),
+              );
             } catch (e2) {
               // (Client-only content: passed up as it is, its boundary hands it to the client.)
               const next = e2 instanceof NotReadyError && !isClientOnly(e2) && settlesOf(e2);
@@ -1313,16 +1319,22 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
 }
 
 /** A Loading boundary that waited, as Solid records it ("boundary" on OBSERVE.records): when it was found waiting, its passes, how it ended. */
-type BoundaryTrack = { id: string; at: number; passes: number; boundary: object; group?: string; settledAt?: number; outcome?: string; streamed?: boolean; error?: unknown; told?: boolean };
+type BoundaryTrack = { id: string; at: number; passes: number; boundary: object; group?: string; settledAt?: number; outcome?: string; streamed?: boolean; error?: unknown; told?: boolean; trace?: { timing: any[] } };
 function trackBoundary(r: Render | null, id: string, boundary: object, group: RevealGroup | null): BoundaryTrack {
   let t = r?.tracks?.get(id);
   if (!t) {
-    t = { id, at: performance.now(), passes: 0, boundary, group: group?.id };
+    t = { id, at: performance.now(), passes: 0, boundary, group: group?.id, trace: (r?.ctx as any)?.trace };
     if (r) (r.tracks ??= new Map()).set(id, t);
   }
   t.passes++;
   return t;
 }
+/** The boundaries a render has told (settled, or revealed with their group). */
+const toldBoundaries = (r: Render) => {
+  let n = 0;
+  for (const t of r.tracks?.values() ?? []) if (t.told) n++;
+  return n;
+};
 /** How it ended: told now, or (in a group) when the group reveals it. */
 function settleBoundary(r: Render | null, t: BoundaryTrack, outcome: string, error?: unknown) {
   if (t.outcome !== undefined) return;
@@ -1336,12 +1348,14 @@ function settleBoundary(r: Render | null, t: BoundaryTrack, outcome: string, err
 function tellBoundary(t: BoundaryTrack, revealAt: number) {
   t.told = true;
   const records = OBSERVE?.records;
-  if (!records?.observed("boundary")) return;
+  if (!records) return;
   const event: Record<string, unknown> = { id: t.id, at: t.at, durationMs: t.settledAt! - t.at, passes: t.passes, outcome: t.outcome, streamed: t.streamed, heldMs: revealAt - t.settledAt! };
   if (t.group) event.revealGroup = t.group;
   const path = ownerPath(t.boundary);
   if (path) event.ownerPath = path;
-  records.emit("boundary", event, t.error !== undefined ? { error: t.error } : {});
+  // (On the request's Server-Timing too: a boundary told before the head commits is a metric there.)
+  t.trace?.timing.push({ type: "boundary", event });
+  if (records.observed("boundary")) records.emit("boundary", event, t.error !== undefined ? { error: t.error } : {});
 }
 /** What the record shows a developer: sequential waits (a waterfall), client-only content found only after a wait. */
 function boundaryChecks(t: BoundaryTrack) {
@@ -1815,7 +1829,10 @@ function shellHeadParts(h: HeadRegistry): { prelude: string; html: string; title
     else if (d.tag === "script") scripts += markup;
     else others += markup;
   }
-  return { prelude, html: h.resources.join("") + links + metas + others + scripts, title };
+  // (The request's trace as <meta> tags beside the app's: shell-only, where the head's tags go.)
+  const ctx = sharedConfig.context as object | undefined;
+  const traceMetas = ctx ? traceMetaMarkup(traceOfRender(ctx)) : "";
+  return { prelude, html: h.resources.join("") + links + metas + traceMetas + others + scripts, title };
 }
 
 /** The shell's head tags into the page: the prelude after <head>, the title over the shell's own (its text kept). */
@@ -1993,20 +2010,24 @@ function traceOfRender(ctx: object) {
 
 /** A server render's "render" record, when something listens: told once, at settle. */
 function renderRecord(ctx: any, mode: "string" | "stream") {
+  // (Timed whenever records exist: the response's Server-Timing reads the shell's time from the trace.)
   const records = OBSERVE?.records;
-  if (!records?.observed("render")) return null;
+  if (!records) return null;
   const at = Date.now();
+  const started = performance.now();
   let route: any;
-  let shellAt: number | undefined;
   let told = false;
+  const timed: { shellMs?: number } = {};
+  if (ctx.trace) ctx.trace.render = timed;
   ctx._declareRoute = (ref: unknown) => void (route = ref);
   return {
-    shell: () => void (shellAt ??= Date.now()),
+    shell: () => void (timed.shellMs ??= performance.now() - started),
     settle(outcome: "complete" | "abandoned" | "error", boundaries: number, released = false) {
       if (told) return;
       told = true;
-      const event: Record<string, unknown> = { mode, at, durationMs: Date.now() - at, boundaries, outcome };
-      if (shellAt !== undefined) event.shellMs = shellAt - at;
+      if (!records.observed("render")) return;
+      const event: Record<string, unknown> = { mode, at, durationMs: performance.now() - started, boundaries, outcome };
+      if (timed.shellMs !== undefined) event.shellMs = timed.shellMs;
       // (The route as it stands now: a match refined during the render is what lands.)
       if (route) {
         const named: Record<string, unknown> = {};
@@ -2061,6 +2082,8 @@ export function renderToString(code: () => any, options: { renderId?: string; no
             // (No head rendered: no page to look through for one.)
             const page = fillHead(html(code(), false), head!, false) as string;
             const out = withHeadAssets(page, tracking, head, nonce, options.onHead);
+            // (A string's shell is the whole document.)
+            record?.shell();
             // (The response head as declared, frozen before the render is disposed: what it declared stays.)
             const ev = getRequestEvent();
             if (ev?.response) commitResponseStub(ev.response, { event: ev });
@@ -2321,11 +2344,11 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       flushAll();
       done = true;
       // (Awaited whole, the render is let go of as it resolves: the record settles after.)
-      if (!whole) record?.settle("complete", r.tracks?.size ?? 0);
+      if (!whole) record?.settle("complete", toldBoundaries(r));
       dispose();
       for (const w of sinks) w.end();
       finished();
-      if (whole) record?.settle("complete", r.tracks?.size ?? 0, true);
+      if (whole) record?.settle("complete", toldBoundaries(r), true);
     }
   };
   let finished!: () => void;
@@ -2344,7 +2367,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   const abandon = (end: boolean, outcome: "abandoned" | "error" = "abandoned", reason?: "sink" | "signal" | "consumer") => {
     if (done) return;
     done = true;
-    record?.settle(outcome, r.tracks?.size ?? 0);
+    record?.settle(outcome, toldBoundaries(r));
     if (reason && process.env.NODE_ENV !== "production")
       emitDiagnostic({
         code: "SSR_STREAM_ABANDONED",
@@ -2406,6 +2429,7 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       if (whole && !quiet()) await new Promise<void>((ok) => idle.push(ok));
       // (All settled before the shell: the live channel closes with it.)
       endLive(r);
+      record?.shell();
       rendering(r, options, () => {
         serializeFragmentAssets("", r.tracking, r.ctx, options.renderId ?? "");
         r.headStyles = new Set([...r.tracking.emittedAssets].filter((u) => !r.tracking.currentBoundaryId && u.endsWith(".css")));
@@ -2414,7 +2438,6 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
       shell = documentShell;
       shellSent = true;
       if (requestEvent?.response) commitResponseStub(requestEvent.response, { event: requestEvent });
-      record?.shell();
       r.shellSent = true;
       // (One settled inside a placeholder that was itself streamed: it streams too.)
       for (const [id, content] of r.inlined) r.sink.fragment(id, content, { styles: { inline: [], links: [] } });

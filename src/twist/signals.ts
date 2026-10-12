@@ -154,6 +154,25 @@ export function idScope<T>(fn: () => T): () => T {
   };
 }
 
+/** Where ids are taken under `o` now (a scope's id, while one runs): a run later takes them from the same place. */
+export function idPlace(o: Owner | null): <T>(fn: () => T) => T {
+  const at = o && idOwner(o);
+  if (!at) return (fn) => fn();
+  const id = at.id;
+  return (fn) => {
+    if (at.id === id) return fn();
+    const was = at.id;
+    const count = at.childCount;
+    at.id = id;
+    try {
+      return fn();
+    } finally {
+      at.id = was;
+      at.childCount = count;
+    }
+  };
+}
+
 /** An owner made under `parent` given its id (unless transparent, which shares its parent's). */
 function giveId(o: Owner, parent: Owner | null) {
   if (!parent || idOwner(parent).id == null) return;

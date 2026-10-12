@@ -23,9 +23,11 @@ export const setReactHost = (fn: typeof reactHost) => void (reactHost = fn);
  * A Solid-style component, marked; returned as one any React can call: React gets the bridge's host for it, Twist the
  * component itself (the mark holds it).
  */
-export function __twist_mark<T>(f: T): T {
+export function __twist_mark<T>(f: T, name?: string): T {
   if (typeof f !== "function") return f;
   const own = f as any;
+  // (A component declared as `const X = () => …`: the name the wrapping took from it.)
+  if (name && !own.name) Object.defineProperty(own, "name", { value: name });
   own[TWIST] = true;
   // (Called as a plain function — a marked helper taking several arguments — it gets them all.)
   const asReact = (props: any, ...rest: any[]) => (reactHost ? reactHost(own, props) : own(props, ...rest));

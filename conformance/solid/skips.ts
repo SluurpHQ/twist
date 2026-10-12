@@ -201,6 +201,53 @@ export const CHANGES: Change[] = [
   })),
   // ---- Solid's build
   {
+    file: "web/test/server/server-trace.spec.tsx",
+    find: `  prod = await load("dist/server.js");\n  observeWeb = await load("dist/server.observe.js");\n  observeFns = await load("server-functions/dist/server.observe.js");\n`,
+    replace: `  prod = await import("@twist/web-server");\n  observeWeb = prod;\n  observeFns = await import("@solidjs/web/server-functions/server");\n`,
+    why: "loads Solid's built tiers (dist/server*.js) beside its source: Twist has one server module, so the same one stands for each",
+  },
+  {
+    file: "web/test/server/server-trace.spec.tsx",
+    skip: "the prod artifact never consults the provider but continues a trace",
+    why: "Solid's prod build against its dev build: Twist has one build, which consults the provider as Solid's dev and observe tiers do",
+  },
+  {
+    file: "web/test/server/server-trace.spec.tsx",
+    find: `    expect(quiet.headers.has("server-timing")).toBe(false);\n`,
+    replace: ``,
+    why: "Solid's observe build times an invocation only while observed: Twist has one build, which times as the dev tier (always)",
+  },
+  {
+    file: "web/test/server/server-trace.spec.tsx",
+    find: `    expect(quiet.has("server-timing")).toBe(false);\n`,
+    replace: ``,
+    why: "Solid's observe build: a document unobserved has no Server-Timing; Twist's one build times as the dev tier (always)",
+  },
+  {
+    file: "web/test/server/server-trace.spec.tsx",
+    find: `    expect(timingMetrics(boundaryOnly).map(m => m.name)).toEqual(["solid-boundary"]);\n`,
+    replace: ``,
+    why: "Solid's observe build gates each metric by its own record's listener; Twist's one build times as the dev tier (both metrics always)",
+  },
+  {
+    file: "web/test/server/server-trace.spec.tsx",
+    find: `    expect(timingMetrics(renderOnly).map(m => m.name)).toEqual(["solid-shell"]);\n`,
+    replace: ``,
+    why: "Solid's observe build gates each metric by its own record's listener; Twist's one build times as the dev tier (both metrics always)",
+  },
+  {
+    file: "web/test/server/server-trace.spec.tsx",
+    find: `  test.each(["dist", "server-functions/dist"])(`,
+    replace: `  test.skip.each(["dist", "server-functions/dist"])(`,
+    why: "reads Solid's built dist/server*.js files for which tier carries what",
+  },
+  {
+    file: "web/test/server/server-trace.spec.tsx",
+    find: `  test.each(["server.js", "server.observe.js", "server.dev.js"])(\n    "frames/dist/%s`,
+    replace: `  test.skip.each(["server.js", "server.observe.js", "server.dev.js"])(\n    "frames/dist/%s`,
+    why: "reads Solid's built frames/dist/*.js files",
+  },
+  {
     file: "solid/test/internal-surface.spec.ts",
     skipFile: true,
     why: "reads Solid's generated type declarations (types/*.d.ts, made by its build) for the names its entries expose",
