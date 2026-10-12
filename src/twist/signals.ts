@@ -258,7 +258,17 @@ function parkFrame(c: Computation<any>) {
   ((c as any).parked ??= []).push(frame);
   // (Not run again before the round decides: past it, a frame left showing reacts again.)
   dormant(frame, true);
+  // (An effect's frame being replaced: what it computed against the new values is never applied under it.)
+  if (c.kind !== MEMO) unapply(frame);
 }
+function unapply(o: Owner) {
+  for (const k of o.owned ?? []) {
+    if (k instanceof Computation && k.due) (k.due = false), remove(applies[k.kind as 1 | 2], k);
+    unapply(k);
+  }
+}
+/** Effects whose new pass ran: their last frame goes after the render effects apply (the new children first). */
+const effectDrains: Computation<any>[] = [];
 /** Memos whose last frame a rerun this round parked. */
 const swaps: Computation<any>[] = [];
 /** The round settled: a held memo's frame waits for its transition (rendering until it lands); the rest go now. */
@@ -271,7 +281,8 @@ function decideSwaps() {
       c.heldPass = t;
       for (const frame of (c as any).parked) dormant(frame, false);
       endWith(t, () => drainParked(c as any));
-    } else drainParked(c as any);
+    } else if (c.kind !== MEMO) effectDrains.push(c);
+    else drainParked(c as any);
   }
 }
 /** What a parked frame holds, set not to run again (or to run again). */
@@ -1619,8 +1630,13 @@ export class Computation<T> extends Node<T> implements Owner {
     const s = this.scope;
     if (s && serverScope?.key !== s.key) s.enter(() => this.runIn());
     else this.runIn();
-    // (An effect's last frame goes once its new pass ran, before its apply — unless the pass is held: then at the round.)
-    if (this.kind !== MEMO && (this as any).parked && !this.tx && !this.readHeld && !this.staleRead) drainParked(this as any);
+    // An effect's last frame goes once its new pass ran — unless the pass is held: then at the round. A pass over an
+    // answer just landed may be held by the round: its frame goes once the round decided, before the new side effects.
+    // (A render effect that left a hold showed the committed frame: its pass replaces the one shown.)
+    const left = (this as any).leftHold;
+    if (this.kind === MEMO || !(this as any).parked || this.tx || !((!this.readHeld && !this.staleRead) || left)) return;
+    if (left || this.sources.some((s) => s instanceof Computation && (s.staged !== NONE || s.flight))) effectDrains.push(this);
+    else drainParked(this as any);
   }
   runIn() {
 
@@ -1644,6 +1660,7 @@ export class Computation<T> extends Node<T> implements Owner {
       t.effects.delete(this);
       t.stale.add(this);
       this.tx = null;
+      (this as any).leftHold = true;
       if (this.staged !== NONE) this.staged = NONE as any;
       // (Its held apply was taken off the queue: what it computes now is queued afresh.)
       if (this.due) this.due = false;
@@ -3239,7 +3256,7 @@ function commitTransactions() {
 
 /** Writes committed and everything brought up to date, until nothing is left to do. */
 function drain() {
-  for (let rounds = 0; settledQueue.length || pendingErrors.length || statusMoved || writes.length || landings.length || guesses.length || frameGuesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || readersOf(status) && statusDirty(); rounds++) {
+  for (let rounds = 0; settledQueue.length || pendingErrors.length || effectDrains.length || statusMoved || writes.length || landings.length || guesses.length || frameGuesses.length || guessWork.length || committable() || ambient.length || ambientEnds.length || dirty.length || applies[RENDER].length || applies[EFFECT].length || readersOf(status) && statusDirty(); rounds++) {
     if (rounds > 1e5) throw new Error("Potential infinite loop detected.");
     if (TRACE && rounds && rounds % 10000 === 0) trace(`round ${rounds} writes ${writes.length} dirty ${dirty.length} tx ${transactions.size}`);
     if (writes.length) for (const s of writes.splice(0)) s.commit();
@@ -3277,6 +3294,13 @@ function drain() {
     if (uncaught.length) throw uncaught.splice(0)[0];
     if (pendingErrors.length) for (const f of pendingErrors.splice(0)) f();
     // (Status readers told this round compute again first: one apply, with the verdict as it ends.)
+    // (Effects' replaced frames go once the round decided what holds, before the new frames' side effects.)
+    if (effectDrains.length && !dirty.length)
+      for (const c of effectDrains.splice(0)) {
+        const left = (c as any).leftHold;
+        if (left) (c as any).leftHold = false;
+        if ((c as any).parked && (!c.tx || left)) drainParked(c as any);
+      }
     if (applies[RENDER].length && !dirty.length) for (const e of applies[RENDER].splice(0).sort(byOrder)) e.runApply();
     if (applies[EFFECT].length && !writes.length && !dirty.length) for (const e of applies[EFFECT].splice(0).sort(byOrder)) e.runApply();
     // (In the effects' phase, after them: a write an effect just made is not settled yet, and not seen.)
@@ -3471,10 +3495,16 @@ export function startEffect<T>(e: Computation<T>, options?: SignalOptions<T>) {
   }
   // (Unless scheduled, or made by a flush's pass while something could hold it: it applies with that flush.)
   if (kind === RENDER && !options?.schedule && e.due && !e.tx && e.error === NONE) {
-    if (flushing && (flights.size || transactions.size)) (e as any).applyFirst = true;
+    if (flushing && (flights.size || transactions.size) && !madeByLeaver(e)) (e as any).applyFirst = true;
     else remove(applies[RENDER], e), e.runApply();
   }
   schedule();
+}
+/** Made by a render effect's pass that left a hold: it shows the committed frame, applied as made. */
+function madeByLeaver(e: Computation<any>) {
+  let p: Owner | null = e.parent;
+  while (p && !(p instanceof Computation)) p = p.parent;
+  return !!(p as any)?.leftHold;
 }
 export const RENDER_EFFECT = RENDER;
 
