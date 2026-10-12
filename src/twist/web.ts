@@ -314,7 +314,10 @@ function assignOne(el: Element, name: string, value: any, prev: any, skipRef: bo
     const was = prev && own?.get(prev)?.get(type);
     if (was) el.removeEventListener(type, was), own!.get(prev)!.delete(type);
     // (A delegated one gone: nothing left on the element for the root's listener to find.)
-    if (delegate && !value) (el as any)[EVENT_KEY + type] = (el as any)[EVENT_KEY + type + "Data"] = undefined;
+    if (delegate && !value) {
+      const [key, data] = keysOf(type);
+      (el as any)[key] = (el as any)[data] = undefined;
+    }
     if (value) {
       if (delegate) addEvent(el, type, value, true);
       else {
@@ -526,12 +529,17 @@ const listening = new WeakMap<Node, Set<string>>();
 
 /** `onX` handlers: kept on the element, run by the root's listener as the event bubbles. */
 const eventKeys = new Map<string, [string, string]>();
+/** Where an event type's handler and its data are kept on an element. */
+function keysOf(type: string) {
+  let keys = eventKeys.get(type);
+  if (!keys) eventKeys.set(type, (keys = [EVENT_KEY + type, EVENT_KEY + type + "Data"]));
+  return keys;
+}
 export function addEvent(el: Element, type: string, handler: any, delegate = true) {
   // Not delegated: a listener of its own on the element (a handler given as [fn, data] is called with data first).
   if (!delegate) return void el.addEventListener(type, listenerFor(handler));
   // (Where Solid keeps it: `_$$type`, a [fn, data] handler's data beside it.)
-  let keys = eventKeys.get(type);
-  if (!keys) eventKeys.set(type, (keys = [EVENT_KEY + type, EVENT_KEY + type + "Data"]));
+  const keys = keysOf(type);
   if (Array.isArray(handler)) ((el as any)[keys[0]] = handler[0]), ((el as any)[keys[1]] = handler[1]);
   else if (((el as any)[keys[0]] = handler), (el as any)[keys[1]] !== undefined) (el as any)[keys[1]] = undefined;
   if (!delegated.has(type)) {
@@ -577,18 +585,21 @@ function tagHost(n: Node, host: () => Node | null) {
 const EVENT_KEY = "_$$";
 
 function dispatch(e: Event, root: Node) {
-  const key = EVENT_KEY + e.type;
+  const [key, dataKey] = keysOf(e.type);
   let node = e.target as any;
   const target = node;
   Object.defineProperty(e, "currentTarget", { configurable: true, get: () => node ?? root });
   // (Roots inside one another, or a portal's mount and its root, may both see the event: each handler runs once.)
-  const ran: Set<Node> = ((e as any).$$ran ??= new Set());
+  let ran: Set<Node> | undefined = (e as any).$$ran;
   while (node && node !== root) {
-    let handler = ran.has(node) ? null : node[key];
-    if (handler) ran.add(node);
+    let handler = node[key];
+    if (handler) {
+      if (ran?.has(node)) handler = null;
+      else (ran ??= (e as any).$$ran = new Set()).add(node);
+    }
     if (handler && !node.disabled) {
       if (isDynamic(handler)) handler = handler();
-      const data = node[key + "Data"];
+      const data = node[dataKey];
       if (data !== undefined) handler.call(node, data, e);
       else if (Array.isArray(handler)) handler[0].call(node, handler[1], e);
       else if (typeof handler === "function") handler.call(node, e);
@@ -761,6 +772,8 @@ class Binding extends Computation<any> {
   declare endAt: Node | null;
   /** The nodes it shows now: one text node, or a list. */
   declare text: Text | null;
+  /** The text it last wrote there (undefined: adopted, not written yet). */
+  declare said: string | undefined;
   declare nodes: Node[];
   /** Hydrating: where its first value claims the server's nodes. */
   declare first: Cursor | undefined;
@@ -804,7 +817,7 @@ class Binding extends Computation<any> {
     return CLAIMED;
   }
 }
-Object.assign(Binding.prototype, { text: null, nodes: NO_NODES, endAt: null, first: undefined, lateRegistry: undefined, host: undefined, apply: bindingApply, transparent: true });
+Object.assign(Binding.prototype, { text: null, said: undefined, nodes: NO_NODES, endAt: null, first: undefined, lateRegistry: undefined, host: undefined, apply: bindingApply, transparent: true });
 /** A list with nothing to call and nothing nested in it: shown as it is. */
 function plainList(v: any[]) {
   for (let i = 0; i < v.length; i++) {
@@ -830,23 +843,28 @@ function bindingApply(this: Binding, v: any) {
   // Text as text: its one node written in place, or made.
   if ((typeof v === "string" && v !== "") || typeof v === "number") {
     const t = String(v);
-    if (text) return void (text.data !== t && (text.data = t));
+    // (Checked against what it wrote last: reading the node's text copies it; adopted text is read once.)
+    if (text) {
+      if (this.said !== t && (this.said !== undefined || text.data !== t)) text.data = t;
+      return void (this.said = t);
+    }
     const current = this.nodes;
     if (current.length === 1 && current[0]!.nodeType === 3) return void (((this.text = current[0] as Text), (this.nodes = NO_NODES)), bindingApply.call(this, t));
     // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
     if (!current.length && end === null && !this.host && !parent.firstChild && parent.nodeType === 1) {
       (parent as Element).textContent = t;
-      return void (this.text = IN_PLACE);
+      return void ((this.text = IN_PLACE), (this.said = t));
     }
     if (!current.length) {
       const n = (this.text = document.createTextNode(t));
+      this.said = t;
       if (this.host) tagHost(n, this.host);
       parent.insertBefore(n, end);
       return;
     }
   }
   const current = text ? [text as Node] : this.nodes;
-  if (text) this.text = null;
+  if (text) (this.text = null), (this.said = undefined);
   // (What it makes, a description drawn late, belongs where the binding was made.)
   const next = runWithOwner(this.parent, () => untrack(() => nodesOf(v, [], current)));
   if (this.host) for (const n of next) tagHost(n, this.host);
