@@ -1,4 +1,5 @@
 // Lists and props helpers: mapArray (by identity, by position or by key), repeat, merge, omit.
+declare const process: { env: Record<string, string | undefined> };
 import { createMemo, keepMemo, ownerUnder, getOwner, runOwned, untrack, Signal, onCleanup, isFlushing, type Owner } from "./signals.ts";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { $PROXY } from "./store.ts";
@@ -272,7 +273,7 @@ export function merge<T extends object[]>(...sources: T): any {
   // (A proxy answering for keys it does not list — a store, a slot props proxy — is read per key too, as Solid's merge does.)
   if (list.some((s) => typeof s === "function" || (s as any)[LIVE] || (typeof s === "object" && $PROXY in s))) {
     const ordered = () => {
-      const ks = new Set<PropertyKey>();
+      const ks = new Set<string | symbol>();
       for (const s of list) for (const k of Reflect.ownKeys(at(s))) ks.delete(k), ks.add(k);
       return [...ks];
     };

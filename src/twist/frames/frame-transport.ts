@@ -187,7 +187,14 @@ export function flightCodec(codec?: any) {
  * address), so an equals-gated reader keeps its instance across refetches and argument changes; the response
  * streams into the address's store.
  */
-export function createServerComponentHandler({ host, component, intercept }: any) {
+/** What createServerComponentHandler takes: the frame host, the mount component per function, and the calls it answers itself. */
+export type ServerComponentHandlerOptions<C = unknown> = {
+  host: any;
+  component: (fnId: string) => C;
+  intercept?: (call: { id: string }) => unknown;
+};
+
+export function createServerComponentHandler({ host, component, intercept }: ServerComponentHandlerOptions) {
   const byFn = new Map();
   const componentFor = (fnId) => {
     let comp = byFn.get(fnId);

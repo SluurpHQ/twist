@@ -1568,7 +1568,8 @@ function drawnOrKept(f: Fiber, sb: Fiber, host: Node, region: { start: Comment; 
     for (const c of f.children) unmount(c, false);
     f.children = [];
     setDehydrated(f, true);
-    const waits = lastHold?.waits;
+    // (Set by the draw above: not the null it was reset to.)
+    const waits = (lastHold as Hold | null)?.waits;
     const again = () => !f.dead && scheduleHydration(f);
     waits?.then(again, again);
     return false;
@@ -2321,7 +2322,7 @@ function mount(c: any, key: string, type: any, parent: Fiber, host: Node, before
       // (Then after the boundaries beside it still waiting to hydrate, as React places it.)
       (f as any).hidden = true;
       hiddenActivities++;
-      const afterHydration = hydrating;
+      const afterHydration = hydrating !== null;
       deferTransition(() => {
         if (f.dead || !(f as any).hidden) return;
         reconcile(f, toList(f.props?.children), hostParentOf(f), nextDomAfter(f, afterHydration));
@@ -4655,7 +4656,7 @@ const validContainer = (n: any) =>
   !!n && (n.nodeType === 1 || n.nodeType === 9 || n.nodeType === 11);
 const HYDRATE = Symbol("hydrate");
 
-export function createRoot(container: Element | DocumentFragment, options?: any) {
+export function createRoot(container: Element | Document | DocumentFragment, options?: any) {
   if (!validContainer(container)) throw new Error("Target container is not a DOM element.");
   const hydrating_ = !!options?.[HYDRATE];
   // Heard from the start while it hydrates (React listens to every event at once): what hovers or moves over markup
@@ -5106,7 +5107,7 @@ Check the render method of ${nameOf(owner.type)}.`));
 }
 
 /** Taken over as the server drew it: its nodes claimed in order and kept, what differs drawn anew. */
-export function hydrateRoot(container: Element, children: any, options?: any) {
+export function hydrateRoot(container: Element | Document, children: any, options?: any) {
   if (!validContainer(container)) throw new Error("Target container is not a DOM element.");
   if ((process.env.NODE_ENV !== "production" && dev()) && children === undefined) console.error("Must provide initial children as second argument to hydrateRoot. Example usage: hydrateRoot(domContainer, <App />)");
   const root = createRoot(container, { ...options, [HYDRATE]: true });

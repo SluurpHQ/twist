@@ -1037,7 +1037,8 @@ function derivedStore<T extends object>(fn: (draft: T) => any, seed: T, options:
     // (On a server, what its source wrote before this answer is the state it answers with.)
     if (traced) promoteWrites(new Set()), queueMicrotask(changed);
     // (Streaming on a server: the state, then what changed, for the client — after this landing is in.)
-    if (trail) queueMicrotask(() => trail.send());
+    const t = trail;
+    if (t) queueMicrotask(() => t.send());
     // (Each landing in the seed window: what the run wrote, committed whole.)
     commitShadow();
     if (v === undefined || typeof v === "number") return;

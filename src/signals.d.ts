@@ -94,6 +94,12 @@ export function onMount(fn: () => void | (() => void)): void;
 export function getOwner(): unknown;
 /** Run `fn` as part of `owner` (from `getOwner`): what it makes ends with that. */
 export function runWithOwner<T>(owner: unknown, fn: () => T): T;
+/** Whether something is tracking what is read now (an effect or a computed running). */
+export function listening(): boolean;
+/** What another reactive system is told of a signal read outside every computation here: the node, for `followNode`. */
+export function setForeignRead(fn: ((node: object) => void) | null): void;
+/** A node `setForeignRead` gave, read here and tracked (a computed brought up to date first). */
+export function followNode(node: object): void;
 /** A computed without loading state: worked out when read, again once what it read changes. */
 export function memo<T>(fn: () => T): () => T;
 /** Read without subscribing, for a value that is needed but not watched. */

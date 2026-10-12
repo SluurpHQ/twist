@@ -9,8 +9,9 @@ import { headerScript, hydrationSerializer } from "./serialize.ts";
 import { createHydrationSerializer } from "./serialization.ts";
 import { __twist_mark, markBuiltin, renderComponent, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
 
-export { lazy } from "./server-solid.ts";
-export * from "./server-solid.ts";
+// (Solid's server API by name: a star export of server-solid would bring this module's Loading, Errored… back to it.)
+export * from "./index.ts";
+export { lazy, createRenderEffect, createEffect, createTrackedEffect, onSettled, createSignal, createOptimistic, createStore, createOptimisticStore, reconcile, isPending, action, createUniqueId } from "./server-solid.ts";
 export * from "./control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
@@ -918,7 +919,7 @@ type Render = {
   revealScript: boolean;
   /** What async nodes answered, by id: a retry takes the same answer instead of asking again. */
   answers: Map<string, [boolean, unknown]>;
-  options: { renderId?: string; noHydrate?: boolean };
+  options: { renderId?: string; noHydrate?: boolean; sink?: Partial<Sink> };
   /** What useHead registered, and whether the patch script has been sent. */
   head: HeadRegistry | null;
   headScript?: boolean;
@@ -1169,7 +1170,7 @@ async function filled(r: Render, s: string, pass?: () => void): Promise<string> 
  * Its children, or its fallback while something under it is not ready. In a stream the fallback is sent first, between
  * markers the client's reveal script finds; the children follow in a template once what they wait on lands.
  */
-export function Loading(props: { fallback?: any; on?: unknown; children?: any }) {
+export function Loading(props: { fallback?: any; on?: unknown; children?: any }): { t: string } {
   const parent = getOwner();
   const boundary = ownerUnder(parent);
   (boundary as any)[LOADING_OWNER] = true;
@@ -1476,6 +1477,7 @@ function streamBoundary(r: Render, boundary: any, id: string, fallback: string, 
 const HOLE_TOKEN = /\u0000hole\d+\u0000/;
 
 /** The end of this turn of the event loop, as the platform has it when the module loads (as Solid's). */
+declare const setImmediate: ((fn: () => void) => unknown) | undefined;
 const deferFlush: (fn: () => void) => void = typeof setImmediate === "function" ? setImmediate : (fn) => void setTimeout(fn, 0);
 
 /** Swaps a streamed template in for the fallback before it (written for Twist, not taken from Solid). */
@@ -2271,7 +2273,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   let root!: any;
   // The shell: rendered again (from the same ids) while something outside every Loading is not ready.
   // A root failure on the first, synchronous pass: heard by the hook, then thrown to the caller.
-  let syncFailure: { error: unknown } | null = null;
+  // (Set in the render's callback: not narrowed to its first null.)
+  let syncFailure = null as { error: unknown } | null;
   let firstPass = true;
   const shellReady = new Promise<string>((ok, fail) => {
     // (A boundary failing before the shell goes out fails the request with it.)

@@ -43,7 +43,10 @@
       "types": "./src/signals.d.ts",
       "default": "./src/signals.js"
     },
-    "./serial": "./src/serial.js",
+    "./serial": {
+      "types": "./src/serial.d.ts",
+      "default": "./src/serial.js"
+    },
     "./modules": "./modules.js",
     "./vite": "./vite.js",
     "./compiler": "./napi/index.js"
@@ -70,6 +73,8 @@
     }
   },
   "devDependencies": {
+    "@types/react": "19",
+    "@types/react-dom": "19",
     "fast-check": "3.23.2",
     "oxc-parser": "0.151.0",
     "react": "19",

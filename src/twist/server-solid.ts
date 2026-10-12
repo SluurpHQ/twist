@@ -2,6 +2,7 @@
 // applies once; createEffect only computes; tracked effects and onSettled only take their ids (the client's tree has
 // them, so hydration ids line up). Plain state is plain: a signal or a store written applies at once, optimistic
 // writes do not land (the page shows settled state), actions are their functions.
+declare const process: { env: Record<string, string | undefined> };
 import { createSignal as coreSignal, createStore as coreStore, isWrappable } from "./index.ts";
 import { createMemo, createOwner, getNextChildId, getOwner, NotReadyError, onCleanup, peekNextChildId, resetOwner, runWithOwner, settlesOf, sharedConfig, untrack, renderContextOf } from "./signals.ts";
 import { __twist_mark } from "./control.ts";
@@ -117,7 +118,7 @@ export function lazy<P>(fn: () => Promise<any>, options?: { export?: string }, m
   let p: any;
   const load = () => {
     if (p) return p;
-    const cur = (p = fn());
+    const cur: Promise<any> & { mod?: any; v?: any; error?: unknown; errored?: boolean } = (p = fn());
     cur.then(
       (mod: any) => ((cur.mod = mod), (cur.v = exportName ? mod[exportName] : mod.default)),
       (err: unknown) => ((cur.error = err), (cur.errored = true), p === cur && (p = undefined)),

@@ -137,7 +137,7 @@ export function connect(
   }
   const version = bump(address);
   begin(address, version);
-  const inner = isEventStream(response) ? wire.open(response.body) : new ChunkReader(response.body);
+  const inner = isEventStream(response) ? wire.open(response.body) : new ChunkReader(response.body!);
   // The body has drained: the transport's sweep follows at once and is not
   let drained = false;
   let cancelled: Error | undefined;

@@ -325,7 +325,10 @@ export let stylesheetsInUse = false;
  * loading, started now), so the screen keeps the old UI instead of showing new content unstyled. Null when there
  * is nothing to wait for (loaded, in the document already, or not a stylesheet resource).
  */
-export function stylesheetPending(root: Document | ShadowRoot, props: any): PromiseLike<void> | null {
+/** A thenable told when a stylesheet has loaded (or failed to). */
+export type StylesheetWait = { then(on: () => void): void };
+
+export function stylesheetPending(root: Document | ShadowRoot, props: any): StylesheetWait | null {
   if (props?.rel !== "stylesheet" || typeof props.href !== "string" || typeof props.precedence !== "string") return null;
   if (typeof props.media === "string" && typeof matchMedia === "function" && matchMedia(props.media).matches === false) return null;
   const r = getResource(root, "link", props);
@@ -355,7 +358,7 @@ export function stylesheetPending(root: Document | ShadowRoot, props: any): Prom
   const preload = r.state.preload as HTMLElement | null;
   if (preload) onSettled(preload, insert);
   else insert();
-  const wait = { then: (on: () => void) => void (done ? on() : waiting.push(on)) } as PromiseLike<void>;
+  const wait: StylesheetWait = { then: (on) => void (done ? on() : waiting.push(on)) };
   // (Told apart from data a render waits for: an update outside a transition waits only for these.)
   (wait as any)[STYLESHEET_WAIT] = true;
   return wait;

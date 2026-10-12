@@ -658,7 +658,8 @@ let history: RerunEvent[] = [];
  * is process-wide and the subscriptions on it are the consumer's, so the
  * engine neither holds nor clears listeners of its own.
  */
-const records = OBSERVE.records;
+// (This entry is development's only: OBSERVE is there.)
+const records = OBSERVE!.records;
 
 /**
  * The ring buffers `attribution.history(type)` reads, by type. Four of the

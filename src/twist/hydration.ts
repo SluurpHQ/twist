@@ -1,5 +1,6 @@
 // Hydration's bookkeeping, as Solid's client/hydration.ts keeps it: when hydration is done, boundary holds, the claim
 // window, and the ledger of streamed fragments (`_$HY.fr`).
+declare const process: { env: Record<string, string | undefined> };
 import { clearSnapshots, closeHydrationScope, flush, getOwner, isDisposed, isFlushing, onCleanup, openHydrationScope, setSnapshotCapture, sharedConfig, type Owner } from "./signals.ts";
 
 type Scope = { registry?: Map<string, object>; gather?: (key: string) => void };

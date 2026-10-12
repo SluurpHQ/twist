@@ -1397,6 +1397,7 @@ export class Computation<T> extends Node<T> implements Owner {
   declare parent: Owner | null;
   declare owned: Owner[] | null;
   declare cleanups: (() => void)[] | null;
+  // (Set by a server component's scope; see server-internal.)
   declare context: Record<symbol, unknown> | null;
   declare disposed: boolean;
   /** Its place in the order computations run in (creation order). */
@@ -2105,7 +2106,7 @@ export class Computation<T> extends Node<T> implements Owner {
    * An answer still to come: in flight until it lands. A thenable that answers while `then` is called (a sync
    * thenable) is not in flight at all: its value is taken at once.
    */
-  fly(p: PromiseLike<T>, streamed = false) {
+  fly(p: PromiseLike<T>, streamed = false): void {
     // On a server, a promise already settled answers at once (a render tried again reads what landed).
     const answers = serverAnswers;
     const id = (this as any).id as string | undefined;
@@ -2184,7 +2185,7 @@ export class Computation<T> extends Node<T> implements Owner {
    * On a server, an async iterable answers with its first value. Rendering a response that stays open (a frame's: its
    * context commits), the values after it are taken too, each a commit the response sends on.
    */
-  serverStream(iterable: AsyncIterable<T>, tee?: Tee<T>) {
+  serverStream(iterable: AsyncIterable<T>, tee?: Tee<T>): void {
     const ctx = sharedConfig.context as any;
     // (A render tried again: the source, or the slot, answered on an earlier pass — its first value, its client
     // reader sent then.)
@@ -2261,8 +2262,6 @@ export class Computation<T> extends Node<T> implements Owner {
   }
   /** Lets go of the iterator a stream reads (when it is disposed). */
   declare closeStream: (() => void) | null;
-  // (Set by a server component's scope; see server-internal.)
-  declare context: Record<symbol, unknown> | null;
   /** Values to come from an async iterator: each taken when it lands (at once, when it answers synchronously). */
   stream(iterable: AsyncIterable<T>) {
     const flight = {};
@@ -4783,8 +4782,8 @@ type Member = Slot | RevealOrderController;
 export type RevealOrder = "sequential" | "together" | "natural";
 
 const isOrder = (m: Member): m is RevealOrderController => m instanceof RevealOrderController;
-const memberReady = (m: Member) => (isOrder(m) ? m.allReady() : m.ready());
-const memberSomeReady = (m: Member) => (isOrder(m) ? m.someReady() : m.ready());
+const memberReady = (m: Member): boolean => (isOrder(m) ? m.allReady() : m.ready());
+const memberSomeReady = (m: Member): boolean => (isOrder(m) ? m.someReady() : m.ready());
 
 /** What the order forces on a member: a boundary decides again; a nested order passes it on to its own. */
 function force(m: Member, by: RevealOrderController, gated: boolean, collapsed: boolean) {
@@ -4832,11 +4831,11 @@ class RevealOrderController {
     for (const m of this.members) if (!this.gone(m) && fn(m) === false) return false;
     return true;
   }
-  allReady() {
+  allReady(): boolean {
     return this.each((m) => memberReady(m));
   }
   /** Something to show under its own order (what an enclosing `together` waits for). */
-  someReady() {
+  someReady(): boolean {
     const order = untrack(this.order);
     const ms = this.members;
     if (!ms.length) return true;
@@ -5412,7 +5411,7 @@ export function createReaction(onChange: () => void) {
 }
 
 /** Hydration (a server's HTML adopted): Twist renders on the client only, for now. */
-export const sharedConfig: { hydrating: boolean; context: unknown } = { hydrating: false, context: null };
+export const sharedConfig: { hydrating: boolean; context: unknown; completed?: WeakSet<Element> | null } = { hydrating: false, context: null };
 
 /** A promise that never settles: what `fetch` and `Promise` give while a compute runs only for what it reads. */
 class Stalled {
