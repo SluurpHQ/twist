@@ -2,7 +2,8 @@
 // against Twist (bun run.ts), the modules they import redirected by preload.ts. Only the tests are taken, never
 // Solid's code: Twist is written clean room.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
+import { CHANGES, type Change } from "./skips.ts";
 import { tmpdir } from "node:os";
 import { compile } from "../../test/twist-compile.ts";
 
@@ -29,6 +30,27 @@ for (const [from, to] of Object.entries(PARTS)) cpSync(join(clone, from), join(o
 // beside them, so it takes the server rewrite below.
 const harness = join(out, "web", "test", "harness");
 if (existsSync(harness)) cpSync(harness, join(out, "web", "test", "server", "_harness"), { recursive: true });
+/** skips.ts applied to a file: each change must match, or the run stops (Solid's test changed: look again). */
+const used = new Set<Change>();
+function applyChanges(rel: string, t: string): string {
+  for (const c of CHANGES) {
+    if (c.file !== rel) continue;
+    used.add(c);
+    const note = `/* Twist: ${c.why} */ `;
+    if ("skipFile" in c) t = t.replace(/(^|[^.\w])(describe|it|test)(\.each\([^)]*\))?\(/g, (_m, pre, fn, each) => `${pre}${note}${fn}.skip${each ?? ""}(`);
+    else if ("skip" in c) {
+      const title = c.skip.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`(^|[^.\\w])(describe|it|test)\\((["'\`])${title}\\3`, "g");
+      const n = t.match(re)?.length ?? 0;
+      if (n !== 1) throw new Error(`skips.ts: "${c.skip}" found ${n} times in ${rel}`);
+      t = t.replace(re, (_m, pre, fn, q) => `${pre}${note}${fn}.skip(${q}${c.skip}${q}`);
+    } else {
+      if (!t.includes(c.find)) throw new Error(`skips.ts: ${JSON.stringify(c.find)} not found in ${rel}`);
+      t = t.split(c.find).join(c.replace);
+    }
+  }
+  return t;
+}
 // Chai-style `expect(x).to.toBe(…)` (Vitest allows the `.to`; Bun's expect has none): the same assertion without it.
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((f) => (f.isDirectory() ? walk(join(d, f.name)) : [join(d, f.name)]));
 for (const f of walk(out)) {
@@ -47,6 +69,8 @@ for (const f of walk(out)) {
     const source = /@jsxImportSource\s+(\S+)/.exec(t)![1]!;
     t = `/** @jsxImportSource ${source} */\n` + t.replace(/^\s*\*?\s*@jsxImportSource\s+\S+\s*$/m, "");
   }
+  // What Twist skips or rewrites (skips.ts).
+  t = applyChanges(relative(out, f).split("\\").join("/"), t);
   // JSX files through Twist's pass (Bun's JSX transform runs after, when the test loads).
   if (f.endsWith(".tsx")) t = compile(t, f);
   // Server tests: the web runtime and Solid itself in their server builds.
@@ -59,6 +83,7 @@ for (const f of walk(out)) {
       .replace(/(["'])\.\.\/\.\.\/src\/server\.js\1/g, '"@twist/web-server"');
   if (t !== s) writeFileSync(f, t);
 }
+for (const c of CHANGES) if (!used.has(c)) throw new Error(`skips.ts: no file ${c.file}`);
 // Where the tests reach for their package itself (../src/index.js): Twist's module for it.
 const twist = (f: string) => join(here, "..", "..", "src", "twist", f).split("\\").join("/");
 for (const [pkg, file] of Object.entries(SRC)) {

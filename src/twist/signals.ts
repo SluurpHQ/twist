@@ -828,6 +828,7 @@ export class Signal<T> extends Node<T> {
   }
   write(next: T) {
     guardWrite(this.ownedWrite);
+    if (halted) notifyHalted();
     if (this.pending === NONE) writes.push(this);
     this.pending = next;
     if (acting) this.writtenIn = acting.tx;
@@ -1916,6 +1917,13 @@ const queue = (c: Computation<any>) => (dirty.push(c), schedule());
 let scheduled = false;
 let flushing = 0;
 let halted = false;
+/** The first write after a halt said so. */
+let haltNotified = false;
+function notifyHalted() {
+  if (haltNotified) return;
+  haltNotified = true;
+  console.error(process.env.NODE_ENV !== "production" ? "[REACTIVITY_HALTED] Update ignored: the reactive system was halted by an earlier uncaught error." : "[REACTIVITY_HALTED]");
+}
 
 function schedule() {
   if (scheduled || flushing || halted) return;
@@ -1941,6 +1949,7 @@ let stopped = false;
 
 export function resetErrorHalt() {
   halted = false;
+  haltNotified = false;
   stopped = false;
 }
 
@@ -2711,7 +2720,7 @@ export function flush<T>(fn?: () => T): T {
     sweepUntracked();
     drain();
   } catch (e) {
-    halted = true;
+    (halted = true), (haltNotified = false);
     if (effectFailed) {
       effectFailed = false;
       stopped = true;
