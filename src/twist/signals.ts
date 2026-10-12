@@ -1333,6 +1333,8 @@ export class Signal<T> extends Node<T> {
 }
 Object.assign(Signal.prototype, { snap: NONE, snapshots: false });
 
+/** A re-armed boundary making its fallback: what it reads directly must be ready. */
+let fallbackFresh = 0;
 /** Inside until()'s predicate: the authoritative reader, which never sees optimism (A17). */
 let authoritative = 0;
 export const isAuthoritative = () => authoritative > 0;
@@ -1705,6 +1707,8 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.flight && this.ready && !this.streaming && this.override === NONE && strictRead && !listener && !verdictReading && !serverRender && process.env.NODE_ENV !== "production") pendingUntrackedRead(this);
     // An authoritative reader asks the truth: a refetch with nothing landed for its question has none yet (A17).
     if (authoritative && !this.loadingWindow && this.flight && this.ready && !this.streaming && this.staged === NONE && this.override === NONE) throw new NotReadyError(this);
+    // A re-armed boundary's fallback, made now, reading a refetch: not ready (its swap waits for it, the content stays).
+    if (fallbackFresh && !listener && this.flight && this.ready && !this.streaming && this.override === NONE) throw new NotReadyError(this);
     // Never had a value (a first load, or waiting on one): not ready. (Read directly in a strict scope, in the
     // browser: an error saying so — nothing would show it when it lands.)
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) {
@@ -4579,7 +4583,7 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
     const on = options.on;
     let first = true;
     // What it read last time: each node's version, and which were loading (a source going pending re-arms too).
-    let seen = new Map<Node, [number, boolean]>();
+    let seen = new Map<Node, [number, boolean, unknown]>();
     // (Transparent, as `shown`: a boundary takes one id, its content's, as the server's does.)
     const watch = new Computation<void>(MEMO, () => {
       listener!.track(status);
@@ -4589,14 +4593,14 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
       } catch (e) {
         if (!(e instanceof NotReadyError)) throw e;
       }
-      const now = new Map<Node, [number, boolean]>();
+      const now = new Map<Node, [number, boolean, unknown]>();
       let changed = false;
       for (const src of watch.sources) {
         if (src === status) continue;
         const was = seen.get(src);
-        const entry: [number, boolean] = [src.version, waiting(src)];
+        const entry: [number, boolean, unknown] = [src.version, waiting(src), src.override];
         now.set(src, entry);
-        if (!was || was[0] !== entry[0] || (entry[1] && !was[1])) changed = true;
+        if (!was || was[0] !== entry[0] || was[2] !== entry[2] || (entry[1] && !was[1])) changed = true;
       }
       if (now.size !== seen.size) changed = true;
       seen = now;
@@ -4606,7 +4610,8 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
         // shown when it commits, cleared if what it shows lands first). Otherwise it shows now.
         // (Read through latest(): ahead of the frame, by choice; the fallback shows now.) Several changes in one
         // flush re-arm it once.
-        if (latestCalls !== calls) readAhead = true;
+        // (A guess it reads — an optimistic write — is ahead of the frame too: shown now.)
+        if (latestCalls !== calls || watch.sources.some((s) => s.override !== NONE)) readAhead = true;
         if (arming) return;
         arming = true;
         endWith(null, () => {
@@ -4680,13 +4685,38 @@ export function createLoadingBoundary<T, F>(fn: () => T, fallback: () => F, opti
   let shownFallback: { value: F; dispose: () => void } | null = null;
   // (Development, an attribution engine installed: told when its fallback starts and stops showing.)
   let devShowing = false;
+  let devStaged = false;
   const showFallback = (): F => {
     if (process.env.NODE_ENV !== "production" && attrHooks !== null && !devShowing) {
-      devShowing = true;
-      attrHooks.boundaryFallback(state, content, true, null);
-      if (!flushing) schedule();
+      // (Staged with a frame: shown from its commit, if it is still there then.)
+      const frame = (shown as any).followsFrame && shown.tx && !shown.tx.root.done ? shown.tx.root : null;
+      if (frame) {
+        if (!devStaged)
+          (devStaged = true),
+            endWith(frame, () => {
+              devStaged = false;
+              if (shownFallback && !devShowing && attrHooks !== null) (devShowing = true), attrHooks.boundaryFallback(state, content, true, null);
+            });
+      } else {
+        devShowing = true;
+        attrHooks.boundaryFallback(state, content, true, null);
+        if (!flushing) schedule();
+      }
     }
-    if (!shownFallback) runWithOwner(outer, () => createRoot((dispose) => void (shownFallback = { value: untrack(fallback), dispose }), X === undefined ? undefined : { id: X }));
+    if (!shownFallback)
+      runWithOwner(outer, () =>
+        createRoot((dispose) => {
+          if (armed) fallbackFresh++;
+          try {
+            shownFallback = { value: untrack(fallback), dispose };
+          } catch (e) {
+            dispose();
+            throw e;
+          } finally {
+            if (armed) fallbackFresh--;
+          }
+        }, X === undefined ? undefined : { id: X }),
+      );
     return shownFallback!.value;
   };
   const dropFallback = () => {
