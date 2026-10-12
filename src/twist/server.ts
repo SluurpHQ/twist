@@ -1651,9 +1651,31 @@ function awaitData<V>(r: Render, v: V, id?: string): V {
 }
 // (A source counts only when it is the client's reader of one Twist split: anything else goes to the serializer as it is.)
 const isData = (v: any) => !!v && (typeof v.then === "function" || (typeof v[Symbol.asyncIterator] === "function" && !!v[SOURCE_ANSWER]));
+/** An answer's value with `done` called once the sources inside it (plain objects' and arrays') have all ended. */
+function heldInside(x: any, done: () => void): any {
+  let left = 1;
+  const part = () => () => --left === 0 && done();
+  const map = (v: any, seen: Map<object, any>): any => {
+    if (!v || typeof v !== "object") return v;
+    if (typeof v[Symbol.asyncIterator] === "function" && typeof v.then !== "function") return left++, held(v, part());
+    if (seen.has(v)) return seen.get(v);
+    const proto = Object.getPrototypeOf(v);
+    if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v;
+    let copy: any = null;
+    for (const k of Object.keys(v)) {
+      const c = map(v[k], seen);
+      if (c !== v[k]) (copy ??= Array.isArray(v) ? [...v] : { ...v })[k] = c;
+    }
+    seen.set(v, copy ?? v);
+    return copy ?? v;
+  };
+  const out = map(x, new Map());
+  part()();
+  return out;
+}
 /** `v` with `done` called once it has all come: a promise when it settles (or, answering with a source, when that ends). */
 function held(v: any, done: () => void): any {
-  if (typeof v.then === "function") return v.then((x: any) => (x && typeof x[Symbol.asyncIterator] === "function" ? held(x, done) : (done(), x)), (e: unknown) => (done(), Promise.reject(e)));
+  if (typeof v.then === "function") return v.then((x: any) => (x && typeof x[Symbol.asyncIterator] === "function" ? held(x, done) : heldInside(x, done)), (e: unknown) => (done(), Promise.reject(e)));
   // (A source: done when it ends, fails or is let go of. Only the iterator method shows: what is serialized is the
   // source, not its reader's methods.)
   const it = v[Symbol.asyncIterator]();

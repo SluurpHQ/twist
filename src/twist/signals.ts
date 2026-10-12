@@ -501,6 +501,24 @@ const teeOf = (v: AsyncIterable<any>) => {
   if (!t) sourceTees.set(v, (t = teeSource(v)));
   return t;
 };
+/** What the client is sent for an answer: each async source in it (at any depth of plain objects and arrays) as the
+ * client's reader of its split. */
+function clientCopy(v: any, seen = new Map<object, any>()): any {
+  if (!v || typeof v !== "object") return v;
+  if (typeof v[Symbol.asyncIterator] === "function" && typeof v.then !== "function") return teeOf(v)[1];
+  if (seen.has(v)) return seen.get(v);
+  const proto = Object.getPrototypeOf(v);
+  if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v;
+  let copy: any = null;
+  const keys = Object.keys(v);
+  for (const k of keys) {
+    const x = v[k];
+    const c = x && typeof x === "object" ? clientCopy(x, seen) : x;
+    if (c !== x) (copy ??= Array.isArray(v) ? [...v] : { ...v })[k] = c;
+  }
+  seen.set(v, copy ?? v);
+  return copy ?? v;
+}
 /**
  * Two readers of one async source: each value kept for the reader behind, the source asked once per value. A reader
  * let go of stops reading; the source is returned when both are, or when `close` is called.
@@ -1332,7 +1350,7 @@ export class Computation<T> extends Node<T> implements Owner {
         next = this.fn(this.current());
         // (An async iterable's first step runs here: what it reads before its first await is tracked.)
         // (On a server, a slot answered on an earlier pass is not started again.)
-        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))) next = primed(next as any) as T;
+        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && (sourceTees.has(next as any) || (serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))))) next = primed(next as any) as T;
       }
       // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
       if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
@@ -1506,7 +1524,7 @@ export class Computation<T> extends Node<T> implements Owner {
       serverFly?.(this, answer);
     }
     else if (serverRender && !streamed) {
-      const answer = sourceAnswer(Promise.resolve(p).then((v: any) => (v && typeof v[Symbol.asyncIterator] === "function" ? teeOf(v)[1] : v)));
+      const answer = sourceAnswer(Promise.resolve(p).then((v: any) => clientCopy(v)));
       // (Its failure is the flight's, handled there: this copy is only what the client is sent.)
       answer.catch(noop);
       serverFly?.(this, answer);
@@ -1574,6 +1592,8 @@ export class Computation<T> extends Node<T> implements Owner {
     const live = liveScope || pumps || !!(iterable as any)[LIVE_SOURCE] || !!(this as any).writes;
     // (A plain one: two readers of the source, this render's and the client's. Already split when a promise answered
     // with it: the client's reader went out then.)
+    // (Split already, the client's reader gone out in an answer it was nested in: the same split.)
+    tee ??= live ? undefined : sourceTees.get(iterable as object);
     const sent = !!tee;
     const split = live ? null : (tee ?? teeSource(iterable));
     if (live && tee) void tee[1][Symbol.asyncIterator]().return?.();
