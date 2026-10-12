@@ -282,6 +282,8 @@ function decideSwaps() {
       for (const frame of (c as any).parked) dormant(frame, false);
       endWith(t, () => drainParked(c as any));
     } else if (c.kind !== MEMO) effectDrains.push(c);
+    // (A memo whose new pass waits on what is not ready yet: its frame stays shown, reacting, until a pass answers.)
+    else if ((c as any).pendingPass) for (const frame of (c as any).parked) dormant(frame, false);
     else drainParked(c as any);
   }
 }
@@ -1818,6 +1820,7 @@ export class Computation<T> extends Node<T> implements Owner {
         if (!((this as any).declaredLoading && this.error !== NONE)) this.error = NONE;
         // (What it waits on, for a server render to wait too.)
         (this as any).waitsFor = threw;
+        if (this.kind === MEMO) (this as any).pendingPass = true;
         // Waiting on a promise its code named: run again when it settles.
         const p = threw.source as any;
         if (p && typeof p.then === "function") {
@@ -1846,6 +1849,8 @@ export class Computation<T> extends Node<T> implements Owner {
       else if (comparing === this) (comparing = null), boundaryCatches(this, threw);
       return;
     }
+    // (Answered after a pending pass: the frame it kept shown goes at the round.)
+    if ((this as any).pendingPass) ((this as any).pendingPass = false), (this as any).parked && swaps.push(this);
     // Recovered from an error: a value again is a change, even the one it had before.
     if (this.error !== NONE) (this.error = NONE), (this.recovered = true);
     // (The boundary that caught its error shows its content again, #2949.)
