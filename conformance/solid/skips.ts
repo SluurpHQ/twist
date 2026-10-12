@@ -228,6 +228,20 @@ afterEach(() => void (process.env.NODE_ENV = devEnv));`,
     why: "the production switch above runs before each test",
   },
   {
+    file: "signals/tests/transition-corpse-revival.test.ts",
+    skipFile: true,
+    why: "drives Solid's raw core primitives (signal/setSignal from core/index.js) and its node flags",
+  },
+  {
+    file: "signals/tests/held-truth-lane-only.test.ts",
+    find: `    expect(n._config & CONFIG_HELD).toBeTruthy();
+    expect(n._pendingValue).toEqual({ version: 1 });
+    expect(n._value).toEqual({ version: 0 });
+`,
+    replace: ``,
+    why: "reads Solid's node fields (_config, _pendingValue, _value); what the held truth shows stays checked",
+  },
+  {
     file: "web/test/performance-tracks.spec.tsx",
     find: `container.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));`,
     replace: `container.querySelector("button")!.dispatchEvent(Object.defineProperty(new MouseEvent("click", { bubbles: true }), "timeStamp", { value: Date.now() }));`,

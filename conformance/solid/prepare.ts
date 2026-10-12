@@ -128,6 +128,10 @@ for (const name of ["attribution", "attribution-hooks", "attribution-queries", "
   await Bun.write(join(out, "signals", "src", "core", name + ".js"), `export * from ${JSON.stringify(twist(`attribution/${name}.ts`))};\n`);
 // (Its error module: the public not-ready error.)
 await Bun.write(join(out, "signals", "src", "core", "error.js"), `export { NotReadyError } from ${JSON.stringify(twist("index.ts"))};\n`);
+// (Its core module: the hydration snapshot scope.)
+await Bun.write(join(out, "signals", "src", "core", "core.js"), `export { clearSnapshots, markSnapshotScope, setSnapshotCapture } from ${JSON.stringify(twist("signals.ts"))};\n`);
+// (Its node flags: names only — the assertions on them are taken out in skips.ts.)
+await Bun.write(join(out, "signals", "src", "core", "constants.js"), `export const CONFIG_HELD = 0;\n`);
 // Solid's client and server modules, by their paths: Twist's public entries.
 mkdirSync(join(out, "solid", "src", "client"), { recursive: true });
 mkdirSync(join(out, "solid", "src", "server"), { recursive: true });
