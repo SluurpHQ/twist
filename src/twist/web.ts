@@ -440,7 +440,9 @@ export function style(el: HTMLElement, value: any, prev?: any) {
   if (value == null || value === false || value === "") return void ((el as any).$$style = undefined), el.removeAttribute("style");
   if (typeof value === "string") return void ((el as any).$$style = undefined), void (el.style.cssText = value);
   prev = applied ?? prev;
-  if (typeof prev !== "object" || prev == null) (el.style.cssText = ""), (prev = {});
+  // (Over a string it set, cleared first; over nothing of its own, the properties already there stay.)
+  if (typeof prev === "string") el.style.cssText = "";
+  if (typeof prev !== "object" || prev == null) prev = {};
   const now: Record<string, any> = {};
   for (const k of Object.keys(value)) now[k] = value[k];
   for (const k of Object.keys(prev)) if (now[k] == null) el.style.removeProperty(k);
