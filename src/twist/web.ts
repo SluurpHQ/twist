@@ -761,6 +761,8 @@ class Binding extends Computation<any> {
   declare nodes: Node[];
   /** Hydrating: where its first value claims the server's nodes. */
   declare first: Cursor | undefined;
+  /** A first claim made after the walk (its value was pending): the server's keys it claims from. */
+  declare lateRegistry: Map<string, Element> | undefined;
   declare host: (() => Node | null) | undefined;
   /** A value's nodes in place: claimed from the server's the first time when hydrating. */
   show(v: any) {
@@ -771,7 +773,20 @@ class Binding extends Computation<any> {
     // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
     const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
     if (open) at.next = open.nextSibling;
-    const current = (this.nodes = untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at)));
+    const claim = () => untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at));
+    // (Claimed after the walk: in a window of its own, the keys the walk had.)
+    const late = this.lateRegistry;
+    let current: Node[];
+    if (late && !hydrating) {
+      this.lateRegistry = undefined;
+      hydrating = { registry: late };
+      try {
+        current = (sc as any).hydrateWindow ? (sc as any).hydrateWindow(undefined, claim, { registry: late }, this) : claim();
+      } finally {
+        hydrating = null;
+      }
+    } else current = claim();
+    this.nodes = current;
     if (open) {
       let n = at.next;
       while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
@@ -786,7 +801,7 @@ class Binding extends Computation<any> {
     return CLAIMED;
   }
 }
-Object.assign(Binding.prototype, { text: null, nodes: NO_NODES, endAt: null, first: undefined, host: undefined, apply: bindingApply, transparent: true });
+Object.assign(Binding.prototype, { text: null, nodes: NO_NODES, endAt: null, first: undefined, lateRegistry: undefined, host: undefined, apply: bindingApply, transparent: true });
 /** A list with nothing to call and nothing nested in it: shown as it is. */
 function plainList(v: any[]) {
   for (let i = 0; i < v.length; i++) {
@@ -1284,6 +1299,29 @@ function gatherHydratable(element: Element | Document, root?: string) {
 type Cursor = { parent: Node; next: Node | null };
 
 /** The page the server rendered into `element`, adopted: `code()` claims its nodes and binds to them. */
+/** The client modules parts of the page rendered with (by hydration key), imported into `_$HY.modules`. */
+function loadModuleAssets(mapping: Record<string, string>): Promise<void> | undefined {
+  const hy = (globalThis as any)._$HY;
+  if (!hy) return;
+  hy.modules ??= {};
+  hy.loading ??= {};
+  const pending: Promise<void>[] = [];
+  for (const key in mapping) {
+    if (hy.modules[key]) continue;
+    hy.loading[key] ??= import(/* @vite-ignore */ new URL(mapping[key]!, document.baseURI).href).then(
+      (mod) => void (hy.modules[key] = mod),
+      (e) => {
+        delete hy.loading[key];
+        throw e;
+      },
+    );
+    pending.push(hy.loading[key]);
+  }
+  return pending.length ? Promise.all(pending).then(() => {}) : undefined;
+}
+/** A module a part of the page needed did not load: said, and the part goes on without it. */
+const reportAssetFailure = (e: unknown) => console.error("Hydration module preload failed:", e);
+
 export function hydrate(code: () => any, element: Element | Document, options: { renderId?: string } = {}) {
   // (The head's prelude the server put first — charset, base — is no node of the shell's: moved past what it claims.)
   const head = ((element as Document).nodeType === 9 ? (element as Document) : element.ownerDocument)?.head;
@@ -1309,26 +1347,48 @@ export function hydrate(code: () => any, element: Element | Document, options: {
   sc.boundaryScopes ??= new Map();
   sc.captureBoundaryScope = (id: string) => sc.registry && sc.boundaryScopes.set(id, { registry: sc.registry, gather: sc.gather });
   gatherHydratable(element, options.renderId || undefined);
-  const was = hydrating;
-  hydrating = { registry };
-  sharedConfig.hydrating = true;
-  let disposer!: () => void;
-  try {
-    createRoot(
-      (dispose) => {
-        disposer = dispose;
-        claimHtml(code(), false, { parent: element, next: element.firstChild });
-      },
-      { id: options.renderId ?? "" },
-    );
-    flush();
-  } finally {
-    hydrating = was;
-    sharedConfig.hydrating = !!was;
-  }
-  runHydrationEvents();
+  let disposer: (() => void) | undefined;
+  const claimRoot = () => {
+    const was = hydrating;
+    hydrating = { registry };
+    sc.registry = registry;
+    sharedConfig.hydrating = true;
+    try {
+      createRoot(
+        (dispose) => {
+          disposer = dispose;
+          claimHtml(code(), false, { parent: element, next: element.firstChild });
+        },
+        { id: options.renderId ?? "" },
+      );
+      flush();
+    } finally {
+      hydrating = was;
+      sharedConfig.hydrating = !!was;
+    }
+    runHydrationEvents();
+  };
+  // The root's own client modules (a lazy page at the top): hydrated once they have loaded.
+  const rootMapping = hy.r?.[(options.renderId ?? "") + "_assets"] ?? hy.r?.["_assets"];
+  const rootAssets = rootMapping && typeof rootMapping === "object" ? loadModuleAssets(rootMapping) : undefined;
+  if (rootAssets) {
+    sharedConfig.hydrating = true;
+    rootAssets.then(claimRoot, (e) => {
+      sharedConfig.hydrating = false;
+      sc.registry = undefined;
+      // A document shell cannot be made again on the client: hydration given up, said plainly.
+      if ((element as Document).nodeType === 9) {
+        console.error("Hydration module preload failed for a document root; a document shell cannot be client-rendered, so hydration was abandoned and the page is not interactive.");
+        ((globalThis as any).reportError || console.error)(e);
+        return;
+      }
+      console.error("Hydration module preload failed, falling back to client render:", e);
+      (element as Element).textContent = "";
+      disposer = render(code, element as Element);
+    });
+  } else claimRoot();
   return () => {
-    disposer();
+    disposer?.();
     roots.delete(element);
     (element as Element).textContent = "";
   };
@@ -1349,7 +1409,7 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
         return [el];
       }
     }
-    if (v.fn === Loading) return claimLoading(componentProps(v.props), at);
+    if (v.fn === Loading) return claimLoading(componentProps(v.props), at, v);
     if (v.fn === Errored) return claimErrored(componentProps(v.props), at);
     return renderComponent(v.fn, componentProps(v.props), (out) => claimHtml(out, false, at));
   }
@@ -1380,8 +1440,8 @@ function claimLiveBoundary(props: { fallback?: any; children?: any; on?: unknown
     "on" in props ? { on: () => props.on } : undefined,
   );
   const nodes = untrack(() => nodesOf(read(), [], []));
-  // Kept current from here (the nodes are where they belong: the binding puts them before what follows them).
-  bind(at.parent, read, at.next);
+  // Kept current from here (the nodes are where they belong: the binding starts from them, not moving them).
+  bind(at.parent, read, at.next, undefined, undefined, nodes);
   return nodes;
 }
 
@@ -1416,7 +1476,7 @@ function claimFallbackThenRender(props: { fallback?: any; children?: any; on?: u
  * under it; content the server streamed later shows its fallback (claimed) until the fragment record settles, the
  * reveal script having swapped the content in, which is claimed then.
  */
-function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, at: Cursor): Node[] {
+function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, at: Cursor, described?: any): Node[] {
   const parent = getOwner();
   // The id the server's boundary took, looked at (not taken) to tell the two shapes apart.
   let id: string | undefined;
@@ -1424,6 +1484,27 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
     id = parent ? peekNextChildId(parent) : undefined;
   } catch {
     id = undefined;
+  }
+  // The client modules its content rendered with, still loading: nothing claimed now — the boundary claims its server
+  // nodes where they are once they land (hydration waits for it).
+  const mapping = id != null ? (globalThis as any)._$HY?.r?.[id + "_assets"] : undefined;
+  const assets = described && mapping && typeof mapping === "object" ? loadModuleAssets(mapping) : undefined;
+  if (assets) {
+    const release = runWithOwner(parent, () => initBoundaryResume(parent!, id!));
+    // (Transparent: it takes no id — the boundary claims under the one the server gave it.)
+    const landed = createMemo(
+      () =>
+        assets.then(
+          () => true,
+          (e) => (reportAssetFailure(e), true),
+        ),
+      { transparent: true } as any,
+    );
+    return bindAt(() => {
+      landed();
+      queueMicrotask(() => release() && checkHydrationComplete());
+      return described;
+    }, at);
   }
   // Its fallback final on the server: claimed, the content rendered fresh after it.
   if (id != null && (globalThis as any)._$HY?.r?.[id] === "$$f") return claimFallbackThenRender(props, at, parent!, id);
@@ -1623,8 +1704,9 @@ function claimList(items: any[], own: boolean, inTemplate: boolean, viaFn: boole
 function bindAt(fn: () => any, at: Cursor, inTemplate = false): Node[] {
   const before = at.next;
   const b = bind(at.parent, fn, null, at, undefined, undefined, undefined, inTemplate);
-  // (Its first value pending: it claims later, where it sits now, not where the walk will have gone by then.)
-  if (b.first === at) (b.first = { parent: at.parent, next: before }), pendingClaims++;
+  // (Its first value pending: it claims later, where it sits now, not where the walk will have gone by then — with
+  // the keys the server rendered, as the walk had them.)
+  if (b.first === at) (b.first = { parent: at.parent, next: before }), (b.lateRegistry = hydrating?.registry), pendingClaims++;
   const out: Node[] = [];
   for (let n = before; n && n !== at.next; n = n.nextSibling) if (!isSeparator(n)) out.push(n);
   return out;
