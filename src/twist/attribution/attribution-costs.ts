@@ -1,3 +1,4 @@
+// Ported from Solid's signals attribution engine (MIT, Ryan Carniato and contributors): same behaviour, Twist's nodes.
 /**
  * `costs()` — the cost tables: scopes ranked by the self-time they burn,
  * root writes ranked by the downstream re-run time they cause. Folded from

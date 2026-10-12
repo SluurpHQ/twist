@@ -1,3 +1,4 @@
+// Ported from Solid's signals attribution engine (MIT, Ryan Carniato and contributors): same behaviour, Twist's nodes.
 /**
  * Point queries over the engine's live state — the devtools/console view of
  * one scope. Their own module so a records-only consumer never ships them;

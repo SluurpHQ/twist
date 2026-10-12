@@ -1,3 +1,4 @@
+// Ported from Solid's signals attribution engine (MIT, Ryan Carniato and contributors): same behaviour, Twist's nodes.
 // `solid-js/attribution` on Twist: the "why did this run" engine (development tooling). Its folds and point queries
 // are their own modules: a consumer that only listens to records never loads them.
 export { attribution, formatOrigin, formatRerun, graphSize } from "./attribution.ts";

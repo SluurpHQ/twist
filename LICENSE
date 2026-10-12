@@ -27,3 +27,13 @@ Parts of src/serial.js (the runtime helpers it sends to the page, and its output
 Copyright (c) 2022 Alexis Munsayac
 
 Released under the MIT License, as above.
+
+---
+
+Some files are ported from Solid (https://github.com/solidjs/solid), each saying so at its top: the attribution
+engine (src/twist/attribution/), the performance tracks (src/twist/performance-tracks.ts), frames
+(src/twist/frames/), and parts of the server runtime, assets and container traces:
+
+Copyright (c) 2016-2026 Ryan Carniato and contributors
+
+Released under the MIT License, as above.

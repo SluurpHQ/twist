@@ -1,3 +1,4 @@
+// Ported from Solid's signals attribution engine (MIT, Ryan Carniato and contributors): same behaviour, Twist's nodes.
 import { setAttributionHooks, type AttributionHooks, type InteractionRef, type NavigationRef, type Transition } from "./attribution-hooks.ts";
 import { anyExcluded, emitDiagnostic, GRAPH_SIZE_WARN_AT, isExcluded, isSuppressed, noteFanOut, OBSERVE, ownerPath, reportDiagnostic } from "../diagnostics.ts";
 import { attributionCore as core } from "../signals.ts";

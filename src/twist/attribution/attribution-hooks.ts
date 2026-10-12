@@ -1,3 +1,4 @@
+// Ported from Solid's signals attribution engine (MIT, Ryan Carniato and contributors): same behaviour, Twist's nodes.
 // The attribution engine's hook points in the core: the core calls them with true facts while an engine is installed
 // (`attribution.enable()`); with none installed each site is one null check. (Solid's attribution-hooks.)
 import type { ChangeOrigin } from "./attribution.ts";

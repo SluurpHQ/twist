@@ -1,3 +1,4 @@
+// Ported from Solid's signals attribution engine (MIT, Ryan Carniato and contributors): same behaviour, Twist's nodes.
 /**
  * `feedback()` — what the user waited on, as ranked tables. Folded from the
  * records the engine already keeps (holds, the interaction on each re-run,
