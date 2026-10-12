@@ -348,7 +348,27 @@ export function claimElement<T extends Element>(node: T): T {
 }
 
 /** Replays events caught before hydration; Twist catches none yet. @internal */
-export function runHydrationEvents() {}
+/**
+ * Events the page's bootstrap queued before hydration (`_$HY.events`), run in order once their target is claimed (the
+ * first not claimed yet waits, and those after it); dropped once hydration is done and the queue is empty.
+ */
+export function runHydrationEvents() {
+  const events = (sc as any).events as ([EventTarget, Event][] & { queued?: boolean }) | null | undefined;
+  if (!events || events.queued) return;
+  events.queued = true;
+  queueMicrotask(() => {
+    events.queued = false;
+    const completed = (sc as any).completed as WeakSet<object> | undefined;
+    while (events.length) {
+      const [el, e] = events[0]!;
+      if (!completed?.has(el)) return;
+      events.shift();
+      for (const root of roots) if (root.contains(el as Node)) dispatch(e, root);
+    }
+    const hy = (globalThis as any)._$HY;
+    if (hy?.done) (sc as any).events = (sc as any).completed = hy.events = hy.completed = null;
+  });
+}
 
 /** Claim every `a[href]` and `form[action]` in a subtree (content that arrives as markup). @internal */
 export function claimElementTree<T extends Node>(root: T): T {
@@ -1250,6 +1270,9 @@ export function hydrate(code: () => any, element: Element | Document, options: {
   enableHydration();
   claims ??= { html: claimHtml, list: claimList, children: claimChildren };
   const hy = ((globalThis as any)._$HY ??= { r: {}, fe() {} });
+  // (What the bootstrap queued before now, and the elements claimed so far: queued events run as theirs are.)
+  (sc as any).events = hy.events;
+  (sc as any).completed = hy.completed;
   sc.load = (id: string) => hy.r[id];
   sc.has = (id: string) => id in hy.r;
   sc.cleanupFragment = cleanupFragment;
@@ -1275,6 +1298,7 @@ export function hydrate(code: () => any, element: Element | Document, options: {
     hydrating = was;
     sharedConfig.hydrating = !!was;
   }
+  runHydrationEvents();
   return () => {
     disposer();
     roots.delete(element);
@@ -1410,6 +1434,7 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
       sc.registry = prevRegistry;
       sharedConfig.hydrating = !!was;
     }
+    runHydrationEvents();
   };
   // Its content handed to the client (the record false, or failed): made here in the fallback's place, a live boundary.
   const fresh = () => {
@@ -1632,7 +1657,11 @@ function claimDescribed(d: { tag: string; props: Record<string, any>; owner?: an
     // Not what the server rendered: made here.
     el = element(d.tag, {});
     at.parent.insertBefore(el, at.next);
-  } else if (el === at.next) at.next = el.nextSibling;
+  } else {
+    if (el === at.next) at.next = el.nextSibling;
+    // (The server's element, claimed: events queued on it before hydration may run now.)
+    (sc as any).completed?.add(el);
+  }
   const props = d.props;
   if (hasSpread(props)) return spreadOn(el, mergedProps(props), false, true), el;
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
