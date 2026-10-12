@@ -3901,6 +3901,8 @@ export function isPending(fn: () => unknown): boolean {
   probe.attached = false;
   const viaLatest = new Set<Node>();
   (probe as any).viaLatest = viaLatest;
+  // (Asked inside latest(): it sees the staged world, so only work still out is pending.)
+  const ahead = latestDepth > 0;
   const outer = listener;
   if (outer) outer.track(status), (outer.verdictReader = true);
   // (Development, an attribution engine installed: this run asked isPending — window 1.)
@@ -3929,7 +3931,7 @@ export function isPending(fn: () => unknown): boolean {
   const was = pendingInside;
   pendingInside = ((outer as any)?.insideTx as Transaction | null | undefined)?.root ?? null;
   try {
-    const r = reads.some((s) => (viaLatest.has(s) ? ownWork(s) : waiting(s)));
+    const r = reads.some((s) => (ahead || viaLatest.has(s) ? ownWork(s) : waiting(s)));
     return r;
   } finally {
     pendingInside = was;
@@ -3955,6 +3957,7 @@ export function latest<T>(fn: () => T): T {
   if (process.env.NODE_ENV !== "production" && listener !== null && attrHooks !== null) (listener as any)._devWindows = ((listener as any)._devWindows ?? 0) | 2;
   verdictReading++;
   inPass++;
+  latestDepth++;
   // (Inside isPending: what it reads here is asked for its own work only.)
   const via: Set<Node> | undefined = (listener as any)?.viaLatest;
   const at = via ? listener!.sources.length : 0;
@@ -3963,12 +3966,15 @@ export function latest<T>(fn: () => T): T {
   } finally {
     inPass--;
     verdictReading--;
+    latestDepth--;
     if (via) for (let i = at; i < listener!.sources.length; i++) via.add(listener!.sources[i]!);
   }
 }
 
 /** latest() calls so far (a Loading `on` that reads ahead shows its fallback now). */
 let latestCalls = 0;
+/** latest() windows open now (an isPending inside one asks every read for its own work). */
+let latestDepth = 0;
 
 /** Run a derived value again (an async one re-asks quietly: isPending stays false). */
 /** The computation behind an accessor or a refreshable store. */
