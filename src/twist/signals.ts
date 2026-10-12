@@ -12,17 +12,17 @@ import { NO_READERS, NOTHING_YET, addReader, dropReader, noteRead, readersOf as 
 import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { diagnose, emitDiagnostic, ownerPath, reportDiagnostic, setAmbientSubject, GRAPH_SIZE_WARN_AT, noteFanIn, noteFanOut } from "./diagnostics.ts";
 
-// Messages Solid's diagnostics carry, word for word (tools and tests match them).
-const OWNED_WRITE_MESSAGE =
+// Messages Solid's diagnostics carry, word for word (tools and tests match them); just the code in production.
+const OWNED_WRITE_MESSAGE = process.env.NODE_ENV === "production" ? "[REACTIVE_WRITE_IN_OWNED_SCOPE]" :
   "[REACTIVE_WRITE_IN_OWNED_SCOPE] Writing to reactive state inside an owned scope (component, computation) is not allowed. " +
   "Move the write outside or set the `ownedWrite` option if this is intentional.";
-const OWNED_REFRESH_MESSAGE =
+const OWNED_REFRESH_MESSAGE = process.env.NODE_ENV === "production" ? "[REACTIVE_WRITE_IN_OWNED_SCOPE]" :
   "[REACTIVE_WRITE_IN_OWNED_SCOPE] Calling refresh() inside an owned scope (component, computation) is not allowed. " +
   "Move the invalidation outside pure computation.";
-const ACTION_IN_OWNED_SCOPE_MESSAGE =
+const ACTION_IN_OWNED_SCOPE_MESSAGE = process.env.NODE_ENV === "production" ? "[ACTION_CALLED_IN_OWNED_SCOPE]" :
   "[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed. " +
   "Call it from an event handler or another imperative scope.";
-const PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE =
+const PRIMITIVE_IN_EFFECT_CALLBACK_MESSAGE = process.env.NODE_ENV === "production" ? "[PRIMITIVE_IN_EFFECT_CALLBACK]" :
   "[PRIMITIVE_IN_EFFECT_CALLBACK] Cannot create a memo, effect or root with no owner inside an effect callback. The effect " +
   "phase runs with no ambient owner, so a computation created here belongs to nobody: it is never disposed and never held. " +
   "Create it in the compute (a flow component owns its children), or parent it explicitly with runWithOwner.";
@@ -3454,7 +3454,7 @@ function drain() {
         // (Its answer in: the frame it kept shown goes at the round.)
         if ((c as any).parked && c.kind === MEMO && !c.flight) swaps.push(c);
       }
-    if (guesses.length) installGuesses();
+    if (guesses.length) guessRuns!.install();
     if (guessWork.length)
       for (const [install, tx, source] of guessWork.splice(0)) {
         // (A guess over a source of its own: the action's end waits for that source's answer in flight, A18.)
@@ -3468,7 +3468,7 @@ function drain() {
       for (const c of now) if (!c.disposed && !c.released) ownersFirst(c), c.disposed || c.dormant || c.update();
     }
     settleRound();
-    if (frameGuesses.length) settleFrameGuesses();
+    if (frameGuesses.length) guessRuns!.settleFrame();
     commitTransactions();
     // (What the round left holding: told before its effects run — its writes all in it by now.)
     if (process.env.NODE_ENV !== "production" && pendingHolds.size) {
@@ -5088,8 +5088,12 @@ function installGuesses() {
   }
 }
 
+/** How guesses are installed: set by the first one (a page that guesses nothing never loads it). */
+let guessRuns: { install(): void; settleFrame(): void } | null = null;
+
 /** An optimistic write to `n`: shown from the next flush until the action that made it ends. */
 export function guess(n: Node, v: unknown) {
+  guessRuns ??= { install: installGuesses, settleFrame: settleFrameGuesses };
   // Written in a lane's own pass: the lane is its parent.
   const l = listener;
   const lane = l ? unrevealed(l.passLane) ?? unrevealed(l.readHeld?.root.parentTx ? l.readHeld.root : null) : null;

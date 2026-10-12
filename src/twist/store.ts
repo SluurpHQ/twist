@@ -917,7 +917,7 @@ function replaceInto(target: Raw, next: any, d: any = draftOf(target)) {
 
 export type StoreSetter<T> = (fn: ((draft: T) => T | void) | Partial<T>) => void;
 
-const ASYNC_STORE_SETTER_MESSAGE =
+const ASYNC_STORE_SETTER_MESSAGE = process.env.NODE_ENV === "production" ? "[ASYNC_STORE_SETTER]" :
   "[ASYNC_STORE_SETTER] Store setter callback returned a Promise. A store setter is a synchronous transaction: " +
   "the draft closes when the callback returns, so writes after an `await` are lost. " +
   "Move the await into an action() and call the setter from there.";
@@ -1264,6 +1264,8 @@ export function reconcile<T>(value: T, key: string | ((v: any) => any) | null = 
 }
 /** Inside an optimistic store's setter (its writes show at once, whatever holds). */
 let guessWriting = 0;
+/** Optimistic drafts: installed by the first optimistic store (a page with none never loads them). */
+let guessLayer: { draft<T>(v: T): T; snapshot(t: object, v: unknown): unknown } | null = null;
 /** In reconcile() (not a derived store's landing): a keyed subtree nobody reads is swapped whole. */
 let pruning = false;
 /** Marks a reconcile function: given to a setter, its diff is visible as the setter returns. */
@@ -1304,7 +1306,7 @@ function into(target: Raw, next: Raw, key: string | ((v: any) => any) | null) {
 /** `next` (what to hold) diffed into `target`; `fresh`: its values put in as they are (nothing merged into what was there). */
 function reconcileInto(target: Raw, next: Raw, key: string | ((v: any) => any) | null, fresh = false) {
   // (In an optimistic setter: through its guesses, tentative like any write there.)
-  const d = guessWriting ? guessDraftOf(target) : draftOf(target);
+  const d = guessWriting ? guessLayer!.draft(target) : draftOf(target);
   // (A shallow store's values are leaves: each slot replaced by reference, by position or by key.)
   if (shallowTargets.has(target)) {
     markRawIngest(next);
@@ -1375,7 +1377,8 @@ export function snapshot<T>(v: T): T {
   // Nothing optimistic shown: the committed objects themselves (unchanged data keeps its identity).
   const t = unwrap(v);
   // (An optimistic draft: what it shows, this tick's guesses over the view.)
-  if (t && typeof t === "object" && guessDrafts.get(t) === v) return untrack(() => plain(t, new Map(), guessKeys, guessGet));
+  const guessed = t && typeof t === "object" ? guessLayer?.snapshot(t, v) : undefined;
+  if (guessed) return guessed as T;
   if (!liveOverlays) return rawOf(v, new Map());
   return untrack(() => plain(t, new Map())) as T;
 }
@@ -1602,7 +1605,7 @@ const guessHandler: ProxyHandler<Raw> = {
   },
 };
 
-const guessDrafts = new WeakMap<object, any>();
+const guessDrafts = /* @__PURE__ */ new WeakMap<object, any>();
 function guessDraftOf<T>(v: T): T {
   if (!isWrappable(v)) return v;
   let d = guessDrafts.get(v as object);
@@ -1619,6 +1622,7 @@ export function createOptimisticStore<T extends object>(init: T | ((draft: T) =>
   // compose over the same object.)
   // (A value, not a derive: its second argument is its options, as createStore's.)
   if (typeof init !== "function" && seed && !options) (options = seed as any), (seed = undefined);
+  guessLayer ??= { draft: guessDraftOf, snapshot: (t, v) => (guessDrafts.get(t) === v ? untrack(() => plain(t as Raw, new Map(), guessKeys, guessGet)) : undefined) };
   const source = typeof init !== "function" && unwrap(init) !== init && !derives.has(unwrap(init) as Raw) ? init : null;
   const [store] =
     typeof init === "function" ? derivedStore(init as any, seed ?? ({} as T), options, true)
