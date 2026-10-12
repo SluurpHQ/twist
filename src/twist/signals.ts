@@ -1661,6 +1661,11 @@ export class Computation<T> extends Node<T> implements Owner {
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
     const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done) || ((s as any).writtenIn && !(s as any).writtenIn.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
+    // (Run again by the pending status alone — not a lane's reveal: an effect showing the same value applies nothing.)
+    const fromCommit = (this as any).fromCommit;
+    if (fromCommit) (this as any).fromCommit = false;
+    const statusOnly = this.kind !== MEMO && !fromCommit && !this.revealing && !this.revealingLane && this.sources.length > 0 && this.sources.every((s, i) => s === status || s.version === this.seen[i]);
+    if (statusOnly !== (this as any).statusOnly) (this as any).statusOnly = statusOnly;
     // (A quiet re-ask overtaken by a new question: the new one is not quiet.)
     if (this.quiet && this.sources.some((s, i) => s.version !== this.seen[i])) this.quiet = false;
     // A render effect a transaction holds, run again by a change outside it: it leaves the hold and shows the committed
@@ -1927,7 +1932,7 @@ export class Computation<T> extends Node<T> implements Owner {
       // (An effect applies whenever its compute ran again: it ran because something it read changed.)
       // (A pass that read the frame and found what it shows already applies nothing: it runs again at the reveal.)
       const shown = this.staleRead && this.heldOnly && this.applied !== NONE && this.equals !== false && this.equals(this.applied as T, next);
-      if (!shown && (changed || this.applied === NONE || this.equals === Object.is)) {
+      if (!shown && (changed || this.applied === NONE || (this.equals === Object.is && !(this as any).statusOnly))) {
         // (An until() of an action reads the held world and answers now: never held itself.)
         const joins = this.readHeld && !this.tx && !(this as any).insideTx ? this.readHeld : null;
         // (Nothing reads an effect: staged only for a transaction to hold.)
@@ -3338,7 +3343,7 @@ function commitTransactions() {
     for (const e of t.effects) if (e.due && !t.stale.has(e)) applies[e.kind as 1 | 2].push(e);
     for (const e of t.stale) {
       if (e.disposed) continue;
-      e.due && !e.tracked && ((e.due = false), (e.staged = NONE as any)), e.mark(DIRTY);
+      e.due && !e.tracked && ((e.due = false), (e.staged = NONE as any)), e.mark(DIRTY), ((e as any).fromCommit = true);
       // A lane revealed: its effects show it over the parent's world as committed (the parent's commit runs them again).
       if (t.parentTx && e.kind !== MEMO) (e.revealOf = t.parentTx.root), (e.laneOf = t);
     }
