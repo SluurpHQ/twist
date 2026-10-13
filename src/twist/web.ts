@@ -1753,6 +1753,15 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
   }
   // Its fallback final on the server: claimed, the content rendered fresh after it.
   if (id != null && (globalThis as any)._$HY?.r?.[id] === "$$f") return claimFallbackThenRender(props, at, parent!, id);
+  // Its fragment failed and was swapped in already (a single space, the server's mark of one): the content made here.
+  if (record?.s === 2 && !((at.next as Element | null)?.nodeName === "TEMPLATE" && (at.next as Element).id === "pl-" + id)) {
+    const mark = at.next;
+    if (mark && mark.nodeType === 3 && (mark as Text).data === " ") (at.next = mark.nextSibling), mark.parentNode!.removeChild(mark);
+    const read = claimedBoundary(() => made(() => untrack(() => props.children)), () => props.fallback, "on" in props ? { on: () => props.on } : undefined);
+    const nodes = untrack(() => nodesOf(read(), [], []));
+    bind(at.parent, read, at.next);
+    return nodes;
+  }
   const pl = at.next as Element | null;
   if (id == null || !pl || pl.nodeName !== "TEMPLATE" || pl.id !== "pl-" + id) return claimLiveBoundary(props, at);
   const boundary = ownerUnder(parent) as any;
@@ -1804,9 +1813,16 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
   // Its content handed to the client (the record false, or failed): made here in the fallback's place, a live boundary.
   const fresh = () => {
     if (!release() || isDisposed(boundary)) return void checkHydrationComplete();
-    const after = end ? end.nextSibling : null;
     pl.remove();
     end?.remove();
+    // (What a failed swap put in its place — a rejected fragment's template — goes: only the fallback stays.)
+    const keep = new Set<Node>(Array.isArray(fallback) ? fallback : fallback ? [fallback as Node] : []);
+    const after = past && past.parentNode === host ? past : null;
+    for (let n = ahead ? (ahead.parentNode === host ? ahead.nextSibling : null) : host.firstChild; n && n !== after; ) {
+      const next = n.nextSibling;
+      if (!keep.has(n)) host.removeChild(n);
+      n = next;
+    }
     let shown = false;
     runWithOwner(boundary, () => {
       const read = createLoadingBoundary(

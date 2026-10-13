@@ -3,7 +3,7 @@
 // the request's trace. Web-standard Request/Response only. (Solid's web/src/server request half, and its server
 // error reporting.)
 // @ts-nocheck
-import { getOwner, onCleanup, throwerOf } from "./server/signals.ts";
+import { getOwner, onCleanup, throwerOf, verdictOf } from "./server/signals.ts";
 import { renderContextOf } from "./server/twist.ts";
 import { emitDiagnostic, ownerPath, reportDiagnostic } from "./diagnostics.ts";
 import { COMPOSED_BODY_FRAMING, REVALIDATE_HEADER } from "./response.ts";
@@ -89,20 +89,9 @@ export interface ServerErrorSite {
 }
 export type ServerErrorHook = (error: unknown, context: ServerErrorSite) => unknown | void;
 
-interface Verdict {
-  reported: boolean;
-  decided: boolean;
-  wire?: unknown;
-  recorded: boolean;
-}
-const verdicts = new WeakMap<object, Verdict>();
+// (One verdict per error, the server layer's: a failure its boundaries met and one met here are heard once.)
+type Verdict = NonNullable<ReturnType<typeof verdictOf>>;
 const isObject = (value: unknown): value is object => value !== null && (typeof value === "object" || typeof value === "function");
-const verdictOf = (value: unknown) => {
-  if (!isObject(value)) return undefined;
-  let verdict = verdicts.get(value);
-  if (verdict === undefined) verdicts.set(value, (verdict = { reported: false, decided: false, recorded: false }));
-  return verdict;
-};
 const ambientServerErrorHook = (): ServerErrorHook | undefined => (globalThis as any)[SERVER_ERRORS]?.hook;
 
 /** The process-wide server error hook: hears every failure the runtime handles, once per error; its return is the wire value. */

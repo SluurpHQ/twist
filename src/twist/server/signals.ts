@@ -3431,7 +3431,8 @@ interface Verdict {
 const verdicts = new WeakMap<object, Verdict>();
 const isObject = (value: unknown): value is object =>
   value !== null && (typeof value === "object" || typeof value === "function");
-const verdictOf = (value: unknown): Verdict | undefined => {
+// (Twist: exported, so its request layer shares one verdict per error with this one.)
+export const verdictOf = (value: unknown): Verdict | undefined => {
   if (!isObject(value)) return undefined;
   let verdict = verdicts.get(value);
   if (verdict === undefined)
@@ -3742,6 +3743,9 @@ export function createErrorBoundary<T, U>(
     // template reads has long moved past this boundary's: restore it.
     const prevCtx = sharedConfig.context;
     sharedConfig.context = ctx;
+    // (Twist: finished markup, nothing live in it — Twist's holes are thunks where Solid's fallback holds strings.)
+    const live = (ctx as any).liveHoles;
+    if (live) live.suppressed++;
     try {
       const resolved: any = ctx.resolve(ctx.escape(handleError(err)));
       if (!resolved || (resolved.h && resolved.h.length)) return undefined;
@@ -3750,6 +3754,7 @@ export function createErrorBoundary<T, U>(
     } catch {
       return undefined;
     } finally {
+      if (live) live.suppressed--;
       sharedConfig.context = prevCtx;
     }
   };
