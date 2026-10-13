@@ -31,9 +31,8 @@ export function renderComponent<P, R>(Comp: (props: P) => any, props: P, render:
     () => {
       const o = getOwner() as any;
       o._renders = true;
-      if (process.env.NODE_ENV === "production") return render(untrack(() => own(props)));
-      const label = `<${own.name || "Anonymous"}>`;
-      o._name = label;
+      let label: string | undefined;
+      if (process.env.NODE_ENV !== "production") o._name = label = `<${own.name || "Anonymous"}>`;
       return render(untrack(() => own(props), label));
     },
     { transparent: true },
