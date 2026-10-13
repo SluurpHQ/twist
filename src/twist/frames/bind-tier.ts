@@ -1,6 +1,6 @@
 // Ported from Solid's frames/src/bind-tier.ts (MIT, Ryan Carniato and contributors): same behaviour, Twist's modules.
 /** `@solidjs/web/frames/bind` — the frames client's BIND tier (frames */
-import { createRenderEffect, createSignal, onCleanup, untrack } from "../index.ts";
+import { createRenderEffect, createSignal, onCleanup, untrack } from "../client/index.ts";
 // `assign` MUST be the shared @solidjs/web instance (external in
 import { assign, runHydrationEvents } from "../web.ts";
 import { sharedConfig } from "../internal.ts";

@@ -2,8 +2,8 @@
 // `@solidjs/web/performance-tracks` on Twist (ported from Solid's, MIT): the attribution engine's records and the web
 // runtime's call/frame records painted as Chrome Performance panel tracks (development tooling).
 import { OBSERVE } from "./diagnostics.ts";
-import { DEV } from "./signals.ts";
-import { attribution, formatRerun, formatOrigin } from "./attribution/index.ts";
+import { DEV } from "./core/index.ts";
+import { attribution, formatRerun, formatOrigin } from "./core/attribution.ts";
 
 declare const process: { env: Record<string, string | undefined> };
 const IS_DEV = process.env.NODE_ENV !== "production";

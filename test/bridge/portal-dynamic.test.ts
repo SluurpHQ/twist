@@ -2,7 +2,7 @@
 import { expect, test } from "bun:test";
 import * as server from "../../src/twist/server.ts";
 import * as web from "../../src/twist/web.ts";
-import { createSignal, flush } from "../../src/twist/index.ts";
+import { createSignal, flush } from "../../src/twist/client/index.ts";
 
 const settle = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();

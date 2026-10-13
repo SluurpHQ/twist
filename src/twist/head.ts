@@ -2,7 +2,7 @@
 // meta, icons…) shown from the last group to register each identity, restored as groups go; resource hints mounted
 // at once and kept; stylesheets warmed as preloads, holding what shows with them until they load, then made live and
 // let go of once no one holds them.
-import { createMemo, createRenderEffect, createRoot, onCleanup, runWithOwner, untrack } from "./signals.ts";
+import { createMemo, createRenderEffect, createRoot, onCleanup, runWithOwner, untrack } from "./core/index.ts";
 
 declare const process: { env: Record<string, string | undefined> };
 

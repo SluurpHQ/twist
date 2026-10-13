@@ -8,6 +8,7 @@ export {
   computed,
   signal,
   read,
+  setForeignRead,
   setSignal,
   setMemo,
   markRefresh,

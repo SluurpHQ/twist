@@ -1,14 +1,4 @@
-// What Solid's integrations read from "solid-js/internal", from Twist's own modules (one sharedConfig, client and server).
-export { createLoadingBoundary, sharedConfig } from "./signals.ts";
-export { materializeContainerTrace } from "./container-trace.ts";
-export {
-  creationStamp,
-  crossesBarrier,
-  getProjectionTrace,
-  inLiveServerComponentScope,
-  inServerComponentScope,
-  runInServerComponentScope,
-  shareAsyncIterable,
-  ssrHandleError,
-  ssrSanitizeError,
-} from "./server-internal.ts";
+// What Solid's integrations read from "solid-js/internal" in the browser (solid-js's own module), and the container
+// tier's materializer.
+export * from "./client/internal.ts";
+export { materializeContainerTrace } from "./client/container-trace.ts";

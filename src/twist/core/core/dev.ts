@@ -1118,32 +1118,51 @@ const warnedTailReads = new WeakMap<object, WeakMap<object, Set<PropertyKey | un
 let tailFlightId = 0;
 const TAIL_FRAME = /^__solidAsyncCompute_(\d+)$/;
 
+// (Twist: the awaiting function named by declaration — JavaScriptCore names an async frame by a function's declared
+// name only, not a computed one — compiled once per id; an id comes back once its flight settles.)
+type TailRunner = (p: PromiseLike<unknown>, done: () => void, ok: (v: unknown) => unknown, fail: (e: unknown) => unknown) => Promise<unknown>;
+const tailRunners: TailRunner[] = [];
+const freeTailIds: number[] = [];
+function tailRunner(id: number): TailRunner {
+  let run = tailRunners[id];
+  if (run) return run;
+  const name = `__solidAsyncCompute_${id}`;
+  try {
+    run = new Function(
+      `return async function ${name}(p, done, ok, fail) { let v; try { v = await p; } catch (e) { done(); return fail(e); } done(); return ok(v); }`
+    )() as TailRunner;
+  } catch {
+    // (No code made at run time here: a computed name, which engines that read it still see.)
+    run = ({
+      async [name](p: PromiseLike<unknown>, done: () => void, ok: (v: unknown) => unknown, fail: (e: unknown) => unknown) {
+        let v: unknown;
+        try {
+          v = await p;
+        } catch (e) {
+          done();
+          return fail(e);
+        }
+        done();
+        return ok(v);
+      }
+    } as any)[name] as TailRunner;
+  }
+  return (tailRunners[id] = run);
+}
+
 export function watchAsyncTail<T>(el: Computed<T>, flight: PromiseLike<T>): PromiseLike<T> {
   if (!(flight instanceof Promise) || flight.constructor !== Promise) return flight;
   return {
     then(onFulfilled: (value: T) => void, onRejected: (error: unknown) => void) {
-      const id = ++tailFlightId;
-      const name = `__solidAsyncCompute_${id}`;
+      const id = freeTailIds.pop() ?? ++tailFlightId;
       // Retire the entry before settling so reads made by the landing itself stay quiet.
       const done = () => {
-        if (tailFlights.delete(id)) asyncTailFlights--;
+        if (tailFlights.delete(id)) asyncTailFlights--, freeTailIds.push(id);
       };
       if (tailFlights.size >= nextTailSweep) sweepTailFlights();
       asyncTailFlights++;
       tailFlights.set(id, { el: new WeakRef(el), flight: new WeakRef(flight) });
-      ({
-        async [name]() {
-          let value: T;
-          try {
-            value = await flight;
-          } catch (error) {
-            done();
-            return onRejected(error);
-          }
-          done();
-          onFulfilled(value);
-        }
-      })[name]();
+      tailRunner(id)(flight, done, onFulfilled as (v: unknown) => unknown, onRejected as (e: unknown) => unknown);
       return undefined as any;
     }
   } as PromiseLike<T>;

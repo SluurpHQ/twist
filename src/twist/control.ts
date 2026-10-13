@@ -8,44 +8,10 @@ import { attrHooks } from "./attribution/attribution-hooks.ts";
 
 // ---------------------------------------------------------------- marks from the pass
 
-const DYNAMIC = Symbol("twist.dynamic");
-const CHILDREN = Symbol("twist.children");
-
-/**
- * A component written Solid-style (it runs once): marked, so a React tree that meets it mounts it as a Twist subtree,
- * and Twist calls it directly (an unmarked component is React's: Twist mounts it as a React subtree, when the bridge is
- * there). Twist's compile pass marks what a Solid-style file declares.
- */
-export const TWIST = Symbol.for("twist.component");
-/** How React draws a Solid-style component it calls (installed by the bridge, with its host). */
-let reactHost: ((component: any, props: any) => any) | null = null;
-export const setReactHost = (fn: typeof reactHost) => void (reactHost = fn);
-
-/**
- * A Solid-style component, marked; returned as one any React can call: React gets the bridge's host for it, Twist the
- * component itself (the mark holds it).
- */
+import { foreign, isTwist, ownOf, isDynamic, isChildren, builtins, builtin, __twist_mark } from "./marks.ts";
+export { TWIST, setReactHost, __twist_mark, isTwist, ownOf, setForeignComponent, __twist_d, __twist_c, __twist_k, __twist_ref, isDynamic, isChildren, markBuiltin, builtin } from "./marks.ts";
 /** Marks a component a development tool may swap (solid-refresh's proxies look for it). */
 export const $DEVCOMP = Symbol("solid.devcomp");
-export function __twist_mark<T>(f: T, name?: string): T {
-  if (typeof f !== "function") return f;
-  const own = f as any;
-  // (A component declared as `const X = () => …`: the name the wrapping took from it.)
-  if (name && !own.name) Object.defineProperty(own, "name", { value: name });
-  own[TWIST] = true;
-  // (Called as a plain function — a marked helper taking several arguments — it gets them all.)
-  const asReact = (props: any, ...rest: any[]) => (reactHost ? reactHost(own, props) : own(props, ...rest));
-  Object.defineProperty(asReact, "name", { value: own.name });
-  (asReact as any)[TWIST] = own;
-  return asReact as T;
-}
-export const isTwist = (f: any) => typeof f === "function" && !!f[TWIST];
-/** The Solid-style component itself, for a marked one React calls. */
-export const ownOf = (f: any) => (typeof f?.[TWIST] === "function" ? f[TWIST] : f);
-
-/** How a React component is mounted inside a Twist tree (installed by the bridge; none, and it is called as is). */
-let foreign: ((type: any, props: any) => any) | null = null;
-export const setForeignComponent = (fn: typeof foreign) => void (foreign = fn);
 
 /** A component rendered: a Solid-style one called once (untracked), a React one mounted by the bridge. */
 export function callComponent<P>(type: (props: P) => any, props: P) {
@@ -57,23 +23,11 @@ export function callInline<P>(type: (props: P) => any, props: P) {
   return foreign && !isTwist(type) ? foreign(type, props) : untrack(() => ownOf(type)(props));
 }
 
-/** A part that can change: read where it is used (bound to its node, or a prop getter). */
-export const __twist_d = <T>(fn: () => T) => ((fn as any)[DYNAMIC] = true, fn);
 /** A condition in JSX (`test ? a : b`, `test && a`): its test as a memo, so a branch is made again only when it flips. */
 export const __twist_memo = <T>(fn: () => T) => createMemo(fn);
-/** A component's children: built when the component reads them. */
-export const __twist_c = <T>(fn: () => T) => ((fn as any)[CHILDREN] = true, fn);
-/** JSX used as a statement: its value passed through, so the call is kept. */
-export const __twist_k = <T>(v: T) => v;
-/** `ref={el}` with a bare variable: called when it is a function, else assigned. */
-export const __twist_ref = (current: unknown, assign: (el: unknown) => void) => (typeof current === "function" ? current : assign);
 
 /** `use:fn={value}` (Solid 1's directive): a ref calling `fn(el, () => value)`, untracked. */
 export const __twist_use = (fn: (el: unknown, value: () => unknown) => void, value: () => unknown) => (el: unknown) => untrack(() => fn(el, value));
-
-export const isDynamic =(v: any): v is () => any => typeof v === "function" && v[DYNAMIC] === true;
-export const isChildren = (v: any): v is () => any => typeof v === "function" && v[CHILDREN] === true;
-
 
 /** A component, run once, untracked. */
 /**
@@ -122,13 +76,6 @@ export function renderComponent<P, R>(Comp: (props: P) => any, props: P, render:
   if (process.env.NODE_ENV !== "production") return runWithOwner(o, () => devComponent(o, own, props, undefined, label, body));
   return runWithOwner(o, body);
 }
-
-/** Twist's own components (control flow, boundaries): their bodies read what they need, as Solid's computations do. */
-const builtins = new WeakSet<Function>();
-export const markBuiltin = (...fs: Function[]) => fs.forEach((f) => builtins.add(f));
-/** A built-in component, marked as one where it is defined (a pure call: unused, it is dropped). */
-export const builtin = <F extends Function>(f: F): F => (__twist_mark(f), markBuiltin(f), f);
-
 
 /** A component's props: marked parts as getters, spreads read where used, children lazy. */
 export function componentProps(raw: Record<string, any>): Record<string, any> {

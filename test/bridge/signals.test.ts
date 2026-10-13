@@ -6,7 +6,7 @@ import { flushSync } from "../../src/react-dom.ts";
 import { installBridge } from "../../src/twist/bridge.ts";
 import { installSignalsBridge } from "../../src/twist/signals-bridge.ts";
 import { jsx as h, render, __twist_d } from "../../src/twist/web.ts";
-import { createSignal, flush } from "../../src/twist/signals.ts";
+import { createSignal, flush } from "../../src/twist/client/index.ts";
 import { signal } from "../../src/signals.js";
 
 const { createElement } = React;

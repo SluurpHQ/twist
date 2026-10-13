@@ -1613,7 +1613,15 @@ export function pullComputed(owner: Computed<any>, c: Computed<any>): void {
   if (height >= c._height && owner._parent !== c) c._height = height + 1;
 }
 
+/** (Twist) What another reactive system does with a read made outside any tracking scope here (its own may be). */
+let foreignRead: ((el: Signal<any> | Computed<any>) => void) | null = null;
+/** @internal (Twist) */
+export function setForeignRead(fn: typeof foreignRead): void {
+  foreignRead = fn;
+}
+
 export function read<T>(el: Signal<T> | Computed<T>): T {
+  if (foreignRead !== null && !tracking) foreignRead(el);
   if ((process.env.NODE_ENV !== "production") && asyncTailFlights !== 0 && !tracking && untrackDepth === 0)
     checkPostAwaitRead(
       el,

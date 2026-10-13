@@ -6,8 +6,8 @@
 //   props read live (a change renders it again); Twist children given to it arrive as a React child.
 //
 // Installed with the app's React (Sluurp's @sluurp/dom, or React itself): `installBridge(React, createRoot)`.
-import { createRenderEffect, createSignal, flush, onCleanup, untrack } from "./signals.ts";
-import { createComponent, isTwist, setForeignComponent, setReactHost } from "./control.ts";
+import { createRenderEffect, createSignal, flush, onCleanup, untrack } from "./core/index.ts";
+import { createComponent, isTwist, setForeignComponent, setReactHost } from "./client/control.ts";
 import { hydrate, render, setForeignClaim } from "./web.ts";
 
 /** An element that takes no box of its own: what is mounted in it lays out as its parent's children. */

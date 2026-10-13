@@ -17,6 +17,19 @@ if (OBSERVE) OBSERVE.server = serverSlots();
 
 export * from "./index.ts";
 export { NoHydration, Hydration, Loading, Errored, Reveal, isHydratable } from "./server.ts";
+// The browser's observe and dev surfaces, the same objects (one diagnostics channel).
+export { DEV } from "./core/index.ts";
+export { OBSERVE };
+export { inServerComponentScope, inLiveServerComponentScope, ssrSanitizeError } from "./server-internal.ts";
+export { reportServerError } from "./request.ts";
+// The client's store-hydration seams, inert here (nothing delivers a trace to a server), as Solid's server entry has them.
+export function withStoreHydration<T>(coreFn: (fn: any, seed: any, options?: any) => T, fn: any, seed: any, options?: any): T {
+  return coreFn(fn, seed, options);
+}
+export function applyPatches(_target: any, _patches: any[]): void {}
+export function forwardIteratorReturn(it: any, value?: any): any {
+  return Promise.resolve(it.return ? it.return(value) : { done: true, value });
+}
 
 type Opts = { defer?: boolean; ssrSource?: string };
 

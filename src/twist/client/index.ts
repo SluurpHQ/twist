@@ -1,0 +1,323 @@
+export {
+  $PROXY,
+  $TRACK,
+  action,
+  affects,
+  createOwner,
+  createReaction,
+  createTrackedEffect,
+  deep,
+  flatten,
+  flush,
+  getNextChildId,
+  getObserver,
+  getOwner,
+  isDisposed,
+  isEqual,
+  isPending,
+  isWrappable,
+  mapArray,
+  merge,
+  isStatic,
+  omit,
+  onCleanup,
+  onSettled,
+  latest,
+  reconcile,
+  refresh,
+  repeat,
+  resetErrorHalt,
+  resolve,
+  until,
+  NotReadyError,
+  TimeoutError,
+  runWithOwner,
+  enableExternalSource,
+  enforceLoadingBoundary,
+  snapshot,
+  untrack,
+  configureClientErrors
+} from "../core/index.js";
+/** @internal — the key a root owner carries `render`'s `onError` under, for the web runtime. */
+export { ROOT_ERROR_HOOK } from "../core/index.js";
+
+export type {
+  ClientErrorContext,
+  ClientErrorHook,
+  ClientErrorsConfig,
+  Accessor,
+  ComputeFunction,
+  EffectBundle,
+  EffectFunction,
+  EffectOptions,
+  ExternalSource,
+  ExternalSourceConfig,
+  ExternalSourceFactory,
+  Merge,
+  MemoOptions,
+  NoInfer,
+  NotWrappable,
+  Omit,
+  Owner,
+  ProjectionOptions,
+  Refreshable,
+  Signal,
+  SignalOptions,
+  SourceAccessor,
+  Setter,
+  Store,
+  Truthy,
+  UntilOptions,
+  StoreReturn,
+  ProjectionStoreReturn,
+  StoreOptions,
+  SolidStore,
+  StoreNode,
+  StoreSetter,
+  StorePathRange,
+  ArrayFilterFn,
+  CustomPartial,
+  Part,
+  PathSetter
+} from "../core/index.js";
+
+// needs wrappers
+export { children, createContext, useContext } from "./core.js";
+
+export type {
+  ChildrenReturn,
+  Context,
+  ContextProviderComponent,
+  ResolvedChildren,
+  ResolvedElement
+} from "./core.js";
+
+export * from "./component.js";
+export * from "./flow.js";
+// (Twist: the control flow marked Solid-style, for the React bridge.)
+import "./control.js";
+export type { ArrayElement, Element } from "./types.js";
+export {
+  enableHydration,
+  createRoot,
+  createMemo,
+  createSignal,
+  createStore,
+  createProjection,
+  createOptimistic,
+  createOptimisticStore,
+  createRenderEffect,
+  createEffect,
+  NoHydration,
+  Hydration,
+  isHydrating,
+  isHydratable
+} from "./hydration.js";
+// Seams for the runtimes in this repo, reached through `solid-js/internal`
+// (src/internal.ts): exported here at runtime so that entry shares this
+// module's state, `@internal` so they are stripped from the declarations.
+/** @internal */
+export { sharedConfig } from "./hydration.js";
+// The container-trace materializer's seams (`solid-js/internal/container-trace`,
+// a separate dist entry so the store engine it builds on stays in a lazy
+// chunk): the store wrappers' hydration dispatch and the projection patch
+// protocol. Runtime exports so that entry shares this module's state.
+/** @internal */
+export { withStoreHydration, applyPatches, forwardIteratorReturn } from "./hydration.js";
+/** @internal */
+export { $DEVCOMP } from "./core.js";
+// The boundary primitives behind `Errored`, `Loading` and `Reveal`: exported
+// at runtime (typed for renderers through `solid-js/internal`), `@internal`
+// because application code should use the components.
+/** @internal */
+export {
+  createErrorBoundary,
+  createLoadingBoundary,
+  createRevealOrder
+} from "./hydration.js";
+// Stub exports — only meaningful on the server entry; the client entry
+// satisfies the export surface so isomorphic builds don't break.
+/** @internal */
+export function ssrHandleError() {}
+/** @internal */
+export function ssrScope<T>(fn: () => T): () => T {
+  return fn;
+}
+/** @internal */
+export function runInServerComponentScope<T>(fn: () => T, _options?: { live?: boolean }): T {
+  return fn();
+}
+/** @internal */
+export function creationStamp(): number {
+  return 0;
+}
+/** @internal */
+export function inServerComponentScope(): boolean {
+  return false;
+}
+/** @internal */
+export function inLiveServerComponentScope(): boolean {
+  return false;
+}
+/** @internal — server-only: the client has no wire to sanitize for. */
+export function ssrSanitizeError(value: unknown): unknown {
+  return value;
+}
+/** @internal — server-only: the server error hook has no client half here. */
+export function reportServerError(): { mapped: boolean; value?: unknown } {
+  return { mapped: false };
+}
+/** Where a server failure was met, as the server error hook hears it (see `@solidjs/web`'s `ServerErrorContext`). */
+export interface ServerErrorSite {
+  kind: "render" | "server-function" | "request";
+  handling: "fallback" | "client" | "failed" | "serialize" | "thrown" | "channel";
+  boundary?: string;
+  /** Where the error was thrown — labels root-first up the owner chain it escaped. */
+  ownerPath?: string[];
+  /** Where it was met — the labels up the chain of the boundary named by `boundary`. */
+  boundaryPath?: string[];
+  functionId?: string;
+  direct?: boolean;
+  /** The request event, when the caller has it in hand; else read from the request scope. */
+  event?: unknown;
+}
+export type ServerErrorHook = (error: unknown, context: ServerErrorSite) => unknown | void;
+/** @internal — server-only: on the client no value carries a trace. */
+export function getProjectionTrace(
+  value: unknown
+): { subscribe(): AsyncIterable<any>; array: boolean } | undefined {
+  return undefined;
+}
+/** @internal — server-only: on the client there is no render to share a source under. */
+export function shareAsyncIterable<T>(source: AsyncIterable<T>): AsyncIterable<T> {
+  return source;
+}
+
+// Observe / dev tiers — re-exported from @solidjs/signals so an app imports
+// one thing. `(process.env.NODE_ENV !== "production")`/`(process.env.NODE_ENV !== "production")` are replaced per build; the observe
+// build resolves signals through the `observe` condition so the two agree.
+
+import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "../core/index.js";
+import { installConsoleFooter } from "./console-footer.js";
+export const OBSERVE: Observe | undefined = (process.env.NODE_ENV !== "production") ? _OBSERVE : undefined;
+export const DEV: Dev | undefined = (process.env.NODE_ENV !== "production") ? _DEV : undefined;
+// The types a runtime, router or observability adapter names when it talks to
+// the tiers: the refs it hands `withInteraction`/`withOrigin`, the channel's
+// types and the findings'. Here so the code that reaches for
+// `OBSERVE.attribution.withOrigin` finds `NavigationRef` beside it, and a
+// `records.subscribe` listener types from this import alone. The engine's
+// records (`RerunEvent`, `HoldEvent`, …) are `solid-js/attribution`'s, with
+// the engine; `ChangeOrigin` is the one of them a slot method returns
+// (`currentOrigin`), so it is here too.
+export type {
+  Dev,
+  Observe,
+  ServerObserve,
+  Records,
+  RecordTypes,
+  HostRecordTypes,
+  RecordType,
+  RecordEvent,
+  RecordLive,
+  RecordListener,
+  RecordSubscribeOptions,
+  AttributionSlot,
+  InteractionRef,
+  NavigationRef,
+  Diagnostics,
+  DiagnosticCapture,
+  DiagnosticCode,
+  DiagnosticEvent,
+  DiagnosticKind,
+  DiagnosticListener,
+  DiagnosticSeverity,
+  DiagnosticSubject
+} from "../core/index.js";
+// The server runtime's observe types — the `"boundary"` record it emits on
+// `OBSERVE.records` and the member it declares onto `OBSERVE.server`
+// (`trace`) — and with them the `RecordTypes`/`ServerObserve` augmentations
+// that module declares: the published types resolve to THIS entry under
+// every condition, so this re-export is what puts them in an observer's
+// program (and what `@solidjs/web` builds on, augmenting `HostRecordTypes`
+// and `ServerTrace` through `"solid-js"`). Type-only — the module's runtime
+// never enters the client build.
+export type { RecoveryEvent, RecoveryLive, RecoveryListener } from "./recovery.js";
+export type { ChangeOrigin } from "../core/attribution.js";
+
+// handle multiple instance check
+declare global {
+  var Solid$$: boolean;
+}
+
+if ((process.env.NODE_ENV !== "production") && globalThis) {
+  if (!globalThis.Solid$$) globalThis.Solid$$ = true;
+  else
+    console.warn(
+      "You appear to have multiple instances of Solid. This can lead to unexpected behavior."
+    );
+}
+
+// Point-of-pain discovery: the first console report of each diagnostic code
+// gains a footer naming the repair skill shipped with this package — see
+// console-footer.ts (shared with the server entry).
+if ((process.env.NODE_ENV !== "production")) installConsoleFooter();
+
+/* Not Implemented
+export {
+  batch, // flush
+  catchError, // old version handled by createErrorBoundary. new version is different helper.
+  createComputed, // nope
+  createDeferred, // take it outside
+  createResource, // all computations
+  createSelector, // createProjection
+  DevHooks,
+  enableScheduling,
+  equalFn, // renamed `isEqual`
+  from, // handled by async iterators
+  getListener, // renamed `getObserver`
+  indexArray, // handled in `mapArray`
+  Index, // handled by For
+  observable, // handled by async iterators
+  on, // with split effects this doesn't need to be core
+  onError, // handled by ErrorBoundary
+  onMount, // onSettled
+  resetErrorBoundaries, // no longer needed with healing
+  startTransition,
+  Suspense, // Loading
+  SuspenseList, // replaced by Reveal + createRevealOrder
+  useTransition,
+  writeSignal, // handled by underlying Node class, should have never been external
+
+  // Store related to legacy syntax
+  createMutable,
+  modifyMutable,
+  produce, // now default
+  unwrap, // snapshot
+}
+
+type {
+  AccessorArray, //use by On only
+  EffectFunction,
+  InitializedResource,
+  InitializedResourceOptions,
+  InitializedResourceReturn,
+  MemoOptions, //SignalOptions
+  OnEffectFunction,
+  OnOptions,
+  Resource,
+  ResourceActions,
+  ResourceFetcher,
+  ResourceFetcherInfo,
+  ResourceOptions,
+  ResourceReturn,
+  ResourceSource,
+  // Store related to legacy syntax
+  ArrayFilterFn,
+  DeepMutable,
+  DeepReadonly,
+  Part,
+  ReconcileOptions,
+  SetStoreFunction,
+  StorePathRange,
+}
+*/

@@ -3,7 +3,7 @@
 /** Client frame runtime — the consumer side of a frame stream. */
 
 // The module's one import, and only for the dev-tier integrity check
-import { DEV, OBSERVE } from "../index.ts";
+import { DEV, OBSERVE } from "../client/index.ts";
 
 /** One transport chunk of a frame stream, addressed by frame `id`. */
 export type FrameChunk = (

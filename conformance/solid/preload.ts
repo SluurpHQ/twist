@@ -55,21 +55,24 @@ for (const [k, f] of Object.entries(vi)) if (!(k in bunVi) || k === "fn" || k ==
 // (A file importing some names from vitest still uses the others as globals: Bun then defines none.)
 for (const k of ["describe", "it", "test", "expect", "beforeAll", "beforeEach", "afterAll", "afterEach"] as const) (globalThis as any)[k] ??= bunTest[k];
 const src = join(import.meta.dir, "..", "..", "src");
-const solid = join(src, "twist", "index.ts");
+const solid = join(src, "twist", "client", "index.ts");
+const signals = join(src, "twist", "core", "index.ts");
 
 plugin({
   name: "twist",
   setup(b) {
     // The package by name (../src/index.js is a file prepare.ts writes).
-    b.onResolve({ filter: /^(solid-js|@solidjs\/signals)$/ }, () => ({ path: solid }));
+    b.onResolve({ filter: /^solid-js$/ }, () => ({ path: solid }));
+    b.onResolve({ filter: /^@solidjs\/signals$/ }, () => ({ path: signals }));
     b.onResolve({ filter: /^vitest$/ }, () => ({ path: join(import.meta.dir, "vitest.ts") }));
   },
 });
 
 // A halt (an uncaught effect error) ends with its test: it does not leak into the next one.
 import { afterEach as eachDone } from "bun:test";
-import { resetErrorHalt } from "../../src/twist/signals.ts";
+import { resetErrorHalt } from "../../src/twist/core/index.ts";
+import { resetErrorHalt as resetServerHalt } from "../../src/twist/signals.ts";
 // (Only under the test runner: this file also preloads plain bun runs.)
 try {
-  eachDone(() => resetErrorHalt());
+  eachDone(() => (resetErrorHalt(), resetServerHalt()));
 } catch {}

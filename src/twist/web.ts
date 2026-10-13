@@ -7,43 +7,39 @@ import { diagnose, OBSERVE } from "./diagnostics.ts";
 import {
   flush,
   createLoadingBoundary,
-  createMemo,
-  isAccessor,
-  resetErrorHalt,
-  createEffect,
+  createErrorBoundary,
+  createMemo as coreMemo,
   createRenderEffect,
+  resetErrorHalt,
+  createOwner,
   createRoot,
   flatten,
   getOwner,
+  isDisposed,
   ROOT_ERROR_HOOK,
   onCleanup,
   runWithOwner,
   untrack,
   NotReadyError,
   getNextChildId,
-  scopeIdOf,
-  sharedConfig,
-  createSignal,
-  createOwner,
-  ownerUnder,
   peekNextChildId,
-  resetOwner,
-  keyOwnerOf,
-  Computation,
-  startEffect,
-  releaseIfConstant,
-  RENDER_EFFECT,
-  hydrationFlag,
-  runAgain,
+  merge,
+  omit,
+  isStatic,
+  $PROXY,
+  $TARGET,
+  $REFRESH,
+  createSignal as coreSignal,
+  enforceLoadingBoundary,
   type Owner,
-} from "./signals.ts";
-import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume } from "./hydration.ts";
-import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
-import { $PROXY, $TARGET } from "./store.ts";
+} from "./core/index.ts";
+import { CONFIG_TRANSPARENT } from "./core/core/constants.ts";
+import { checkHydrationComplete, claimFragment, createEffect, createMemo, createSignal, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume, replayHeldFragment, sharedConfig } from "./client/hydration.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback, $DEVCOMP } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, Match, isTwist, __twist_mark, builtin, erroredFallback } from "./client/control.ts";
+import { $DEVCOMP } from "./client/core.ts";
 
-export * from "./control.ts";
+export * from "./client/control.ts";
 export * from "./response.ts";
 import { inOrder } from "../shared/in-order.ts";
 import { MATH_NS, MATH_TAGS, SVG_NS, SVG_TAGS, Place, expand, hasHoles, places, type Spec } from "./tags.ts";
@@ -78,7 +74,8 @@ export const Fragment = (props: { children?: unknown }) => props.children;
 /** What `<type {...props}>` makes: an element, or what a component returns. */
 export function jsx(type: any, props: Record<string, any>) {
   // Hydrating: descriptions, claimed from the server's page top-down (in the order the server rendered them).
-  if (describing()) return type === Fragment ? props.children : typeof type === "function" ? { [COMP]: true, fn: type, props } : { [EL]: true, tag: type, props };
+  // (A Switch's Match is its props: what the Switch reads.)
+  if (describing()) return type === Fragment ? props.children : type === Match ? componentProps(props) : typeof type === "function" ? { [COMP]: true, fn: type, props, owner: getOwner() } : { [EL]: true, tag: type, props };
   if (typeof type === "function") {
     if (type === Fragment) return childrenOf(props);
     // (A component of React's is mounted as a React subtree, when the bridge is there.)
@@ -236,28 +233,25 @@ function mergedProps(props: Record<string, any>) {
   return merge(...sources);
 }
 
-/** A prop on an element: bound when it can change, set once when it cannot. */
-/** An element's prop bound to a value: its state on the effect. */
-class PropBinding extends Computation<any> {
-  declare el: Element;
-  declare prop: string;
-  declare source: () => any;
-  /** Hydrating: its first value is what the page shows already, nothing written (what the user typed stays). */
-  declare adopt: boolean;
-}
-// (A style or class object is read whole: one changed in place applies again.)
-function propCompute(this: PropBinding) {
-  const v = this.source();
-  return this.prop === "style" || this.prop === "class" || this.prop === "classList" ? readShallow(v) : v;
-}
-Object.assign(PropBinding.prototype, { adopt: false, apply: propApply, transparent: true });
-function propApply(this: PropBinding, v: any, prev: any) {
-  if (this.adopt) {
-    this.adopt = false;
-    if (this.prop === "class") (this.el as any).$$cls = classes(v);
-    return;
-  }
-  assignProp(this.el, this.prop, v, prev);
+/** An element's prop bound to a value: a render effect (a style or class object read whole, so one changed in place
+ * applies again). Hydrating, its first value is what the page shows already: nothing written (what the user typed
+ * stays). */
+function bindProp(el: Element, name: string, source: () => any, adopt: boolean) {
+  const whole = name === "style" || name === "class" || name === "classList";
+  let node: any;
+  createRenderEffect(
+    process.env.NODE_ENV !== "production" ? () => ((node ??= getOwner()), whole ? readShallow(source()) : source()) : whole ? () => readShallow(source()) : source,
+    (v: any, prev: any) => {
+      if (process.env.NODE_ENV !== "production") devTag(node, el);
+      if (adopt) {
+        adopt = false;
+        if (name === "class") (el as any).$$cls = classes(v);
+        return;
+      }
+      assignProp(el, name, v, prev);
+    },
+    bindingNamed(el, name),
+  );
 }
 
 /** An event prop's type, by its name (onClick: click; "" for a prop that is no event). */
@@ -272,18 +266,10 @@ function set(el: Element, name: string, value: any) {
   if (name === "ref") return applyRef(isDynamic(value) ? untrack(value) : value, el);
   const type = eventOf(name);
   if (type) return addEvent(el, type, value, BUBBLING.has(type));
-  if (isDynamic(value)) {
-    // (A binding takes no id: the server makes none for it.)
-    const b = new PropBinding(RENDER_EFFECT, propCompute, bindingNamed(el, name));
-    b.el = el;
-    // (Development: the element it writes, shown beside a finding about it.)
-    if (process.env.NODE_ENV !== "production") (b as any)._devElement = el;
-    b.prop = name;
-    b.source = value;
-    if (hydrating) b.adopt = true;
-    startEffect(b);
-    return;
-  }
+  // (A binding takes no id: the server makes none for it.)
+  if (isDynamic(value)) return bindProp(el, name, value, !!hydrating);
+  // (A style or class given as a store or a merged view: read whole by an effect, so a key changed in it applies.)
+  if ((name === "style" || name === "class" || name === "classList") && value && typeof value === "object" && $PROXY in value) return bindProp(el, name, () => value, !!hydrating);
   // Hydrating: a static value is in the page already.
   if (hydrating) return;
   assignProp(el, name, value, undefined);
@@ -529,11 +515,13 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
   if (skipChildren || skip?.("children")) return;
   if (claimingChildren) return void claims!.children(untrack(() => props.children), { parent: el, next: el.firstChild });
   // Plain data children: put in once, no effect for them.
-  const plain = !Array.isArray(props) && typeof props !== "function" ? untrack(() => leafDescriptor(props, "children")) : undefined;
-  if (plain && !plain.get) return void insertHosted(el, plain.value, null, undefined, undefined, name && `${name}.children`);
-  // (An object without them: nothing to insert. A source that is called is read only by the effect; a store or a live
-  // view can grow them later.)
-  if (!plain && !Array.isArray(props) && typeof props !== "function" && !(props as any)[LIVE] && !($PROXY in props) && !untrack(() => Object.hasOwn(props, "children"))) return;
+  // (Children that cannot change — data, or none, on a plain object or a view over plain ones: put in once, or nothing to
+  // insert. A source that is called is read only by the effect; a store can grow them later.)
+  if (!Array.isArray(props) && typeof props !== "function" && isStatic(props, "children")) {
+    const plain = Reflect.getOwnPropertyDescriptor(props, "children");
+    if (plain) insertHosted(el, plain.value, null, undefined, undefined, name && `${name}.children`);
+    return;
+  }
   insertHosted(el, () => {
     const sources = sourcesOf(props);
     for (let i = sources.length - 1; i >= 0; i--) if (Object.hasOwn(sources[i], "children")) return sources[i].children;
@@ -754,7 +742,7 @@ export function insert(parent: Node, value: any, marker?: Node | null, initial?:
   }
   // (A plain function: run in a memo of its own, as Solid's insert, so what it returns changing inside — a memo in it —
   // does not run it again.)
-  if (typeof value === "function" && !isAccessor(value)) value = createMemo(value, { transparent: true, name: options?.name ?? "effect" });
+  if (typeof value === "function" && !($REFRESH in value)) value = coreMemo(value, { transparent: true, name: options?.name ?? "effect" } as any);
   insertHosted(parent, value, marker, initial, options?.host, options?.name ?? null, slot);
 }
 
@@ -803,85 +791,92 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
 }
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
-function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null, scoped = false, lone = false) {
-  const options = name === undefined ? bindingNamed(parent, "children") : bindingOptions(name);
+function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null, scoped = false, lone = false, schedule = false) {
+  let options = name === undefined ? bindingNamed(parent, "children") : bindingOptions(name);
   // A template's dynamic hole: an id scope of its own, as Solid's insert effect (and the server's hole) is.
-  const o = scoped && isDynamic(value) ? getOwner() : null;
-  const id = o ? scopeIdOf(o) : undefined;
-  const b = new Binding(RENDER_EFFECT, bindingCompute, id === undefined ? options : { ...options, id });
-  if (id !== undefined) b.transparent = false;
-  b.place = parent;
-  b.source = value;
+  if (scoped && isDynamic(value)) options = { ...options, transparent: false };
+  if (schedule) options = { ...options, schedule: true };
+  const b = new Binding(parent, value, getOwner(), options);
   if (end) b.endAt = end;
   if (initial?.length) b.nodes = initial;
   if (claimed) b.first = claimed;
   if (host) b.host = host;
   if (lone) b.lone = true;
-  startEffect(b);
-  // (A template hole that read nothing: written once. Spread's children keep their effect, as Solid's do.)
-  if (name === undefined) releaseIfConstant(b);
+  createRenderEffect(process.env.NODE_ENV !== "production" ? () => ((b.node ??= getOwner()), bindingCompute(b)) : () => bindingCompute(b), (v: any) => bindingApply(b, v), options);
   return b;
+}
+/** Development: the element a binding writes, on its node (shown beside a finding about it). */
+function devTag(node: any, el: Node) {
+  if (node && node._devElement === undefined) node._devElement = el;
 }
 /** Bindings whose first value was pending as they were claimed (counted: a marked range keeps its nodes for them). */
 let pendingClaims = 0;
-/** A node's children bound to a value: its state on the effect (one object a binding, no closures). */
 const NO_NODES: Node[] = [];
 /** Its text is the one node its element has (set as textContent: not looked up until it changes). */
 const IN_PLACE = {} as Text;
-class Binding extends Computation<any> {
-  declare place: Node;
-  declare source: () => any;
-  declare endAt: Node | null;
+/** A node's children bound to a value: the state its render effect keeps. */
+class Binding {
   /** The nodes it shows now: one text node, or a list. */
-  declare text: Text | null;
+  text: Text | null = null;
   /** The text it last wrote there (undefined: adopted, not written yet). */
-  declare said: string | undefined;
-  declare nodes: Node[];
+  said: string | undefined = undefined;
+  nodes: Node[] = NO_NODES;
+  endAt: Node | null = null;
   /** Hydrating: where its first value claims the server's nodes. */
-  declare first: Cursor | undefined;
+  first: Cursor | undefined = undefined;
   /** A first claim made after the walk (its value was pending): the server's keys it claims from. */
-  declare lateRegistry: Map<string, Element> | undefined;
-  declare host: (() => Node | null) | undefined;
+  lateRegistry: Map<string, Element> | undefined = undefined;
+  host: (() => Node | null) | undefined = undefined;
   /** Its element's only child (a template's lone hole): its text can be set as the element's. */
-  declare lone: boolean;
-  /** A value's nodes in place: claimed from the server's the first time when hydrating. */
-  show(v: any) {
-    // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
-    const at = this.first;
-    if (!at) return v;
-    this.first = undefined;
-    // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
-    const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
-    if (open) at.next = open.nextSibling;
-    const claim = () => untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at));
-    // (Claimed after the walk: in a window of its own, the keys the walk had.)
-    const late = this.lateRegistry;
-    let current: Node[];
-    if (late && !hydrating) {
-      this.lateRegistry = undefined;
-      hydrating = { registry: late };
-      try {
-        current = (sc as any).hydrateWindow ? (sc as any).hydrateWindow(undefined, claim, { registry: late }, this) : claim();
-      } finally {
-        hydrating = null;
-      }
-    } else current = claim();
-    this.nodes = current;
-    if (open) {
-      let n = at.next;
-      while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
-        // Not what it renders (the server's page differed): gone.
-        const x = n.nextSibling;
-        if (!current.includes(n)) n.parentNode!.removeChild(n);
-        n = x;
-      }
-      this.endAt = n;
-      at.next = n ? n.nextSibling : null;
-    } else this.endAt = at.next;
-    return CLAIMED;
-  }
+  lone = false;
+  /** Whether it has computed once. */
+  ran = false;
+  /** Development: its effect's node (told the element it writes). */
+  node: any = undefined;
+  constructor(
+    public place: Node,
+    public source: () => any,
+    /** Where it was made: what it draws late belongs there. */
+    public owner: Owner | null,
+    public options: any,
+  ) {}
 }
-Object.assign(Binding.prototype, { text: null, said: undefined, nodes: NO_NODES, endAt: null, first: undefined, lateRegistry: undefined, host: undefined, lone: false, apply: bindingApply, transparent: true });
+/** A value's nodes in place: claimed from the server's the first time when hydrating. */
+function show(b: Binding, v: any) {
+  // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
+  const at = b.first;
+  if (!at) return v;
+  b.first = undefined;
+  // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
+  const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
+  if (open) at.next = open.nextSibling;
+  const claim = () => untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at));
+  // (Claimed after the walk: in a window of its own, the keys the walk had.)
+  const late = b.lateRegistry;
+  let current: Node[];
+  if (late && !hydrating) {
+    b.lateRegistry = undefined;
+    hydrating = { registry: late };
+    try {
+      current = sc.hydrateWindow ? sc.hydrateWindow(undefined, claim, { registry: late }, getOwner()) : claim();
+    } finally {
+      hydrating = null;
+    }
+  } else current = claim();
+  b.nodes = current;
+  if (open) {
+    let n = at.next;
+    while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
+      // Not what it renders (the server's page differed): gone.
+      const x = n.nextSibling;
+      if (!current.includes(n)) n.parentNode!.removeChild(n);
+      n = x;
+    }
+    b.endAt = n;
+    at.next = n ? n.nextSibling : null;
+  } else b.endAt = at.next;
+  return CLAIMED;
+}
 /** A list with nothing to call and nothing nested in it: shown as it is. */
 function plainList(v: any[]) {
   for (let i = 0; i < v.length; i++) {
@@ -890,57 +885,67 @@ function plainList(v: any[]) {
   }
   return true;
 }
-function bindingCompute(this: Binding) {
-  const raw = this.source();
-  if (Array.isArray(raw) && plainList(raw)) return this.show(raw);
+function bindingCompute(b: Binding) {
+  const raw = b.source();
+  if (Array.isArray(raw) && plainList(raw)) return (b.ran = true), show(b, raw);
   // Accessors in what it made: read by an effect of their own, so a change there is shown again, not made again.
-  if (!hasAccessor(raw)) return this.show(resolveDeep(raw));
-  createRenderEffect<any>(() => this.show(resolveDeep(raw)), (v) => bindingApply.call(this, v), bindingOptions((this as any).name ?? null));
+  if (!hasAccessor(raw)) return (b.ran = true), show(b, resolveDeep(raw));
+  // (Made again by a later run: its first apply queued, as the run it belongs to may be held.)
+  let options = b.ran && !b.options.schedule ? { ...b.options, schedule: true } : b.options;
+  if (process.env.NODE_ENV !== "production") options = { ...options, _wide: true };
+  b.ran = true;
+  let node: any;
+  createRenderEffect<any>(
+    process.env.NODE_ENV !== "production" ? () => ((node ??= getOwner()), show(b, resolveDeep(raw))) : () => show(b, resolveDeep(raw)),
+    (v) => (process.env.NODE_ENV !== "production" && devTag(node, b.place), bindingApply(b, v)),
+    options,
+  );
   return NESTED;
 }
-function bindingApply(this: Binding, v: any) {
+function bindingApply(b: Binding, v: any) {
   if (v === CLAIMED || v === NESTED) return;
-  const parent = this.place;
-  const end = this.endAt;
-  let text = this.text;
-  if (text === IN_PLACE) text = this.text = parent.firstChild as Text;
+  if (process.env.NODE_ENV !== "production") devTag(b.node, b.place);
+  const parent = b.place;
+  const end = b.endAt;
+  let text = b.text;
+  if (text === IN_PLACE) text = b.text = parent.firstChild as Text;
   // Text as text: its one node written in place, or made.
   if ((typeof v === "string" && v !== "") || typeof v === "number") {
     const t = String(v);
     // (Checked against what it wrote last: reading the node's text copies it; adopted text is read once.)
     if (text) {
-      if (this.said !== t && (this.said !== undefined || text.data !== t)) text.data = t;
-      return void (this.said = t);
+      if (b.said !== t && (b.said !== undefined || text.data !== t)) text.data = t;
+      return void (b.said = t);
     }
-    const current = this.nodes;
-    if (current.length === 1 && current[0]!.nodeType === 3) return void (((this.text = current[0] as Text), (this.nodes = NO_NODES)), bindingApply.call(this, t));
+    const current = b.nodes;
+    if (current.length === 1 && current[0]!.nodeType === 3) return void (((b.text = current[0] as Text), (b.nodes = NO_NODES)), bindingApply(b, t));
     // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
-    if (!current.length && end === null && !this.host && (this.lone || (!parent.firstChild && parent.nodeType === 1))) {
+    if (!current.length && end === null && !b.host && (b.lone || (!parent.firstChild && parent.nodeType === 1))) {
       (parent as Element).textContent = t;
-      return void ((this.text = IN_PLACE), (this.said = t));
+      return void ((b.text = IN_PLACE), (b.said = t));
     }
     if (!current.length) {
-      const n = (this.text = document.createTextNode(t));
-      this.said = t;
-      if (this.host) tagHost(n, this.host);
+      const n = (b.text = document.createTextNode(t));
+      b.said = t;
+      if (b.host) tagHost(n, b.host);
       parent.insertBefore(n, end);
       return;
     }
   }
-  const current = text ? [text as Node] : this.nodes;
-  if (text) (this.text = null), (this.said = undefined);
+  const current = text ? [text as Node] : b.nodes;
+  if (text) (b.text = null), (b.said = undefined);
   // (What it makes, a description drawn late, belongs where the binding was made.)
-  const next = runWithOwner(this.parent, () => untrack(() => nodesOf(v, [], current)));
-  if (this.host) for (const n of next) tagHost(n, this.host);
+  const next = runWithOwner(b.owner, () => untrack(() => nodesOf(v, [], current)));
+  if (b.host) for (const n of next) tagHost(n, b.host);
   reconcile(parent, current, next, end);
-  this.nodes = next;
+  b.nodes = next;
 }
 
 const NESTED = Symbol("nested");
 /** Whether a value has an accessor in it (in a list, at any depth). */
 const hasAccessor = (v: any): boolean => typeof v === "function" || (Array.isArray(v) && v.some(hasAccessor));
 
-const BINDING = { transparent: true } as any;
+const BINDING = { transparent: true, sync: true } as any;
 
 /** A binding's options: transparent, named `tag.prop` as Solid's compiled bindings are (owner paths say where). */
 const bindingNamed = (el: Node, prop: string) => {
@@ -1000,7 +1005,15 @@ function resolveDeep(v: any): any {
 /** `parent`'s nodes `a` turned into `b` with the fewest moves, in place (Solid's reconcileArrays). */
 export const reconcileArrays = (parent: Node, a: Node[], b: Node[]) => reconcile(parent, a, b, a.length ? a[a.length - 1]!.nextSibling : null);
 
+/** Where a node was last put: the marker of its slot (a node another slot took since is not this one's to remove). */
+const SLOT = Symbol("twist.slot");
+const ownedBy = (n: any, parent: Node, end: Node | null) => n.parentNode === parent && (n[SLOT] === undefined || n[SLOT] === end);
+
 function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
+  reconcileNodes(parent, old, next, end);
+  if (end) for (let i = 0; i < next.length; i++) (next[i] as any)[SLOT] = end;
+}
+function reconcileNodes(parent: Node, old: Node[], next: Node[], end: Node | null) {
   // The old nodes are all the parent holds and none stays: emptied at once (as Solid clears), the new ones put in.
   if (end === null && old.length > 1 && parent.firstChild === old[0] && parent.lastChild === old[old.length - 1] && parent.childNodes.length === old.length && !next.some((n) => n.parentNode === parent)) {
     (parent as Element).textContent = "";
@@ -1024,7 +1037,7 @@ function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
     return;
   }
   if (from === nextEnd) {
-    for (let i = from; i < oldEnd; i++) if (old[i]!.parentNode === parent) parent.removeChild(old[i]!);
+    for (let i = from; i < oldEnd; i++) if (ownedBy(old[i], parent, end)) parent.removeChild(old[i]!);
     return;
   }
   // Two swapped, the rest in place: the two moved.
@@ -1039,7 +1052,7 @@ function reconcile(parent: Node, old: Node[], next: Node[], end: Node | null) {
   }
   const keep = new Set<Node>();
   for (let j = from; j < nextEnd; j++) keep.add(next[j]!);
-  for (let i = from; i < oldEnd; i++) if (!keep.has(old[i]!) && old[i]!.parentNode === parent) parent.removeChild(old[i]!);
+  for (let i = from; i < oldEnd; i++) if (!keep.has(old[i]!) && ownedBy(old[i], parent, end)) parent.removeChild(old[i]!);
   const at = new Map<Node, number>();
   for (let i = from; i < oldEnd; i++) at.set(old[i]!, i);
   const middle = next.slice(from, nextEnd);
@@ -1059,6 +1072,8 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
   if (!element) throw new Error("The `element` passed to `render(..., element)` doesn't exist. Make sure `element` exists in the document.");
   // A fresh mount is a new app: in development, scheduling revives after an earlier halt (playgrounds, hot reload).
   if (process.env.NODE_ENV !== "production") resetErrorHalt();
+  // (Development: an async read with no Loading boundary above it is said, as Solid says it.)
+  if (process.env.NODE_ENV !== "production") enforceLoadingBoundary(true);
   roots.add(element);
   for (const t of delegated) listen(element, t);
   let disposer: (() => void) | undefined;
@@ -1067,8 +1082,9 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
       disposer = dispose;
       // (What a boundary under it catches is told here first, over the page's own hook.)
       if (options?.onError) (getOwner() as any)[ROOT_ERROR_HOOK] = options.onError;
-      // Held as a whole while what it shows first waits on a first load (no half-made page): a boundary with no fallback.
-      insert(element, createLoadingBoundary(code, () => undefined, { mountRoot: true } as any));
+      // Mounted by a queued effect (as Solid's): held as a whole while what it shows first waits on a first load.
+      const tree = code();
+      bind(element, () => tree, null, undefined, undefined, undefined, undefined, false, false, true);
     });
     // Rendered by the time render returns.
     flush();
@@ -1077,6 +1093,8 @@ export function render(code: () => any, element: Element | ShadowRoot | Document
     disposer?.();
     roots.delete(element);
     throw e;
+  } finally {
+    if (process.env.NODE_ENV !== "production") enforceLoadingBoundary(false);
   }
   return () => {
     disposer!();
@@ -1270,45 +1288,95 @@ export function dynamicComponent<P>(source: () => any, options?: DynamicOptions)
   return __twist_mark(dynamicOf<P>(source, options));
 }
 
-// A server component's answer: one component per function, the call's address beside it.
+// A server component's answer (the frames transport's binding, `Symbol.for`): one component per server function — the
+// mount identity — and the call's address, naming its content store.
 const COMPONENT_BINDING = Symbol.for("solid.component-binding");
+// A thenable the source answers with, boxed, so the factory memo stays sync-valued and the per-instance memo goes async.
 const FLIGHT = Symbol("solid.dynamic-flight");
 const bindingOf = (v: any): { component: Function; address: string } | undefined =>
   (v !== null && (typeof v === "function" || typeof v === "object") && v[COMPONENT_BINDING]) || undefined;
 
+/**
+ * `dynamic` and `dynamicComponent` (Solid's dynamicCore): a factory memo reading the source once for every mount, a
+ * value memo per instance (async for a thenable answer), a render memo applying the props. A source switching calls of
+ * the same server function delivers the new address into the mounted instance (no remount).
+ */
 function dynamicOf<P>(source: () => any, options?: DynamicOptions, tag?: typeof tagArm): (props: P) => any {
   if (options?.static) return staticDynamic(untrack(source), tag);
-  // (A bound answer for the component already shown: the same instance, at the answer's address, not a remount.)
-  const sameComponent = (prev: any, next: any) => prev === next || (!!bindingOf(prev) && bindingOf(prev)!.component === bindingOf(next)?.component);
+  // Live delivery channels, one per mounted site; the latest resolution's address for a site mounting later.
+  const sites = new Set<(address: string) => void>();
+  let deliveredAddress: string | undefined;
+  const resolveBinding = (next: any, prev: any) => {
+    const binding = bindingOf(next);
+    if (!binding) return next;
+    deliveredAddress = binding.address;
+    const prevBinding = bindingOf(prev);
+    if (prevBinding && prevBinding.component === binding.component) {
+      for (const deliver of sites) deliver(binding.address);
+      return prev;
+    }
+    return next;
+  };
+  // (The same rule at the memo's gate, for values its compute never sees: an async iterable's yields.)
+  const sameInstance = (prev: any, next: any) => {
+    if (prev === next) return true;
+    const held = bindingOf(prev);
+    const incoming = bindingOf(next);
+    if (!held || !incoming || held.component !== incoming.component) return false;
+    if (held.address === incoming.address) return true;
+    if (deliveredAddress === undefined) return false;
+    if (incoming.address !== deliveredAddress) {
+      deliveredAddress = incoming.address;
+      for (const deliver of sites) deliver(incoming.address);
+    }
+    return true;
+  };
   const cached = createMemo<any>(
-    () => {
+    (prev: any) => {
       const next = source();
-      return next && typeof next.then === "function" ? { [FLIGHT]: next } : next;
+      if (!next || typeof next.then !== "function") return resolveBinding(next, prev);
+      return { [FLIGHT]: next };
     },
-    { lazy: true } as any,
+    { lazy: true, equals: sameInstance } as any,
   );
   return (props: P) => {
+    // (Hydrating: the factory warmed in the owner's own tick, so the value memo's trace finds it computed.)
     if (sharedConfig.hydrating) {
       try {
         untrack(cached);
       } catch {}
     }
-    const value = createMemo<any>(() => {
-      const c = cached();
-      return c && c[FLIGHT] ? c[FLIGHT] : c;
-    });
-    // The address derives from the answer: a switch's new address lands in the switch's transaction, and the content
-    // it waits for holds that transaction (the source stays pending until the new address's first content applies).
-    // (Transparent: no ids of their own, so the server's memos and the client's keep the same ids.)
-    const shown = createMemo<any>(() => value(), { equals: sameComponent, transparent: true } as any);
-    const address = createMemo(() => bindingOf(value())?.address as string, { transparent: true } as any);
+    let latest = 0;
+    const value = createMemo<any>(
+      (prev: any) => {
+        const c = cached();
+        if (!c || !c[FLIGHT]) return resolveBinding(c, prev);
+        const next: PromiseLike<any> = c[FLIGHT];
+        const token = ++latest;
+        // (A delivery pinned to this instance's latest computation: a superseded answer does not re-bind it.)
+        return {
+          then: (onFulfilled: any, onRejected: any) =>
+            next.then((resolved: any) => {
+              const landed = token === latest ? resolveBinding(resolved, prev) : resolved;
+              return onFulfilled ? onFulfilled(landed) : landed;
+            }, onRejected),
+        };
+      },
+      { equals: sameInstance } as any,
+    );
     return createMemo(() => {
-      const c = shown();
+      const c = value();
       if (typeof c === "function") {
         // (In development, what it resolved to is marked as a component, as Solid's dynamic marks it.)
         if (process.env.NODE_ENV !== "production") (c as any)[$DEVCOMP] = true;
         const binding = bindingOf(c);
-        if (binding) return untrack(() => (binding.component as any)(props, address));
+        if (binding) {
+          // Mounted with a live address accessor: kept resolutions deliver into it.
+          const [address, setAddress] = coreSignal((deliveredAddress ??= binding.address), { ownedWrite: true } as any);
+          sites.add(setAddress);
+          onCleanup(() => sites.delete(setAddress));
+          return untrack(() => (binding.component as any)(props, address));
+        }
         return callInline(c, props);
       }
       if (typeof c === "string") return tag ? untrack(() => tag(c, props)) : undefined;
@@ -1342,8 +1410,36 @@ function componentRaw(props: Record<string, any>) {
 const EL = Symbol("twist.hydrate.element");
 const COMP = Symbol("twist.hydrate.component");
 // (A Switch reading its Matches while hydrating: their descriptions made into what they describe.)
-setDescribedNode((v) => (v && v[COMP] ? callComponent(v.fn, componentProps(v.props)) : v));
 const OWN = Symbol("twist.hydrate.own");
+
+/** An owner made under `parent`. */
+const ownerUnder = (parent: Owner | null, options?: { id?: string }) => runWithOwner(parent, () => createOwner(options));
+/** The owner that hands out `o`'s child ids (a transparent one shares its parent's). */
+const idOwner = (o: any) => {
+  while (o._config & CONFIG_TRANSPARENT && o._parent) o = o._parent;
+  return o;
+};
+/**
+ * The owner a template's element takes its key under, as Solid's takes it where the template is made: the owner that
+ * made it, when the ids it hands out are below those where it is drawn (a row's, a component's memo's); else where it
+ * is drawn (one made ahead, as a prop, takes its key in place, as Solid's getter would make it there).
+ */
+function keyOwnerOf(made: Owner | null | undefined): Owner | null {
+  const here = getOwner();
+  if (!made || isDisposed(made) || !here) return here;
+  const a = idOwner(made);
+  const b = idOwner(here);
+  if (a === b) return here;
+  for (let o = a._parent; o; o = o._parent) if (o === b) return made;
+  return here;
+}
+/** True once hydration is over. */
+function hydrationFlag(): () => boolean {
+  const [done, setDone] = coreSignal(false);
+  const end = () => setDone(true);
+  sc.onHydrationEnd ? sc.onHydrationEnd(end) : queueMicrotask(end);
+  return done;
+}
 
 /** How a React component the server drew is hydrated where it is (installed by the bridge). */
 let foreignClaim: ((type: any, props: Record<string, any>, el: Element) => void) | null = null;
@@ -1394,6 +1490,45 @@ function loadModuleAssets(mapping: Record<string, string>): Promise<void> | unde
 /** A module a part of the page needed did not load: said, and the part goes on without it. */
 const reportAssetFailure = (e: unknown) => console.error("Hydration module preload failed:", e);
 
+/**
+ * A value the server sent: a serialized stream (a source the server pumped, a derived store's snapshot and patches) as
+ * the async iterable it was, each reader replaying it from the start; steps already buffered answer at once (sync
+ * thenables), so a hydrating store applies its snapshot during the claim.
+ */
+const iterables = new WeakMap<object, AsyncIterable<unknown>>();
+function iterableOf(v: any) {
+  if (!v || typeof v !== "object" || v.__SEROVAL_STREAM__ !== true || typeof v.on !== "function") return v;
+  let it = iterables.get(v);
+  if (!it) iterables.set(v, (it = { [Symbol.asyncIterator]: () => bufferedReader(v) }));
+  return it;
+}
+function bufferedReader(source: any): AsyncIterator<any> {
+  const queue: IteratorResult<any>[] = [];
+  let failed: { e: unknown } | null = null;
+  let wake: (() => void) | null = null;
+  const push = (r: IteratorResult<any>) => (queue.push(r), wake && (wake(), (wake = null)));
+  const off = source.on({
+    next: (value: any) => push({ done: false, value }),
+    throw: (e: unknown) => ((failed = { e }), wake && (wake(), (wake = null))),
+    return: () => push({ done: true, value: undefined }),
+  });
+  const answer = (): any => {
+    if (queue.length) {
+      const r = queue[0]!.done ? queue[0]! : queue.shift()!;
+      return { then: (ok: any) => (ok ? ok(r) : r) };
+    }
+    if (failed) {
+      const e = failed.e;
+      return { then: (_ok: any, fail: any) => (fail ? fail(e) : Promise.reject(e)) };
+    }
+    return null;
+  };
+  return {
+    next: () => answer() ?? new Promise((ok) => (wake = () => ok(undefined))).then(() => answer()),
+    return: (v?: any) => (off?.(), Promise.resolve({ done: true, value: v })),
+  } as AsyncIterator<any>;
+}
+
 export function hydrate(code: () => any, element: Element | Document, options: { renderId?: string } = {}) {
   // (The head's prelude the server put first — charset, base — is no node of the shell's: moved past what it claims.)
   const head = ((element as Document).nodeType === 9 ? (element as Document) : element.ownerDocument)?.head;
@@ -1411,9 +1546,20 @@ export function hydrate(code: () => any, element: Element | Document, options: {
   // (What the bootstrap queued before now, and the elements claimed so far: queued events run as theirs are.)
   (sc as any).events = hy.events;
   (sc as any).completed = hy.completed;
-  sc.load = (id: string) => hy.r[id];
+  sc.load = (id: string) => iterableOf(hy.r[id]);
   sc.has = (id: string) => id in hy.r;
   sc.cleanupFragment = cleanupFragment;
+  sc.loadModuleAssets = loadModuleAssets;
+  // (Development: what the server rendered and nothing claimed, said once hydration is done — the browser rendered
+  // something else there.)
+  if (process.env.NODE_ENV !== "production")
+    sc.verifyHydration = () => {
+      const registry = sc.registry as Map<string, Element> | undefined;
+      if (!registry?.size) return;
+      const orphaned = [...registry.values()].filter((node) => node.isConnected);
+      registry.clear();
+      if (orphaned.length) console.warn(`Hydration completed with ${orphaned.length} unclaimed server-rendered node(s):\n` + orphaned.map((node) => `  ${node.outerHTML.slice(0, 100)}`).join("\n"));
+    };
   const registry = (sc.registry = new Map<string, Element>());
   sc.gather = (root?: string) => gatherHydratable(element, root);
   sc.boundaryScopes ??= new Map();
@@ -1472,6 +1618,9 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
   if (Array.isArray(v)) return claimList(v, !!(v as any)[OWN], inTemplate, false, at);
   if (typeof v === "function") return bindAt(v, at, inTemplate);
   if (v[COMP]) {
+    // (Rendered under the owner it was described in, as Solid runs a component where its JSX is: its context, its ids.)
+    const under = v.owner ? keyOwnerOf(v.owner) : null;
+    if (under && under !== getOwner()) return runWithOwner(under, () => claimHtml(v, inTemplate, at));
     // A React component the server drew in <sluurp-react>: hydrated there as a React root (the bridge's).
     if (foreignClaim && !isTwist(v.fn)) {
       const el = nextNode(at) as Element | null;
@@ -1503,9 +1652,9 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
  */
 function claimLiveBoundary(props: { fallback?: any; children?: any; on?: unknown }, at: Cursor): Node[] {
   let claimed: Node[] | null = null;
-  const read = createLoadingBoundary(
+  const read = claimedBoundary(
     () => {
-      if (claimed === null) return (claimed = claimHtml(props.children, false, at));
+      if (claimed === null) return (claimed = untrack(() => claimHtml(props.children, false, at)));
       return props.children;
     },
     () => props.fallback,
@@ -1517,24 +1666,18 @@ function claimLiveBoundary(props: { fallback?: any; children?: any; on?: unknown
   return nodes;
 }
 
+/** A Loading boundary claimed: under an owner of its own, the id the hydrating Loading's memo takes (its content's ids
+ * one level down, as the server's). */
+const claimedBoundary = <T, F>(fn: () => T, fallback: () => F, options?: { on?: () => unknown }) =>
+  runWithOwner(createOwner(), () => createLoadingBoundary(fn, fallback, options as any));
+
 /** A boundary the server rendered as its fallback for good ("$$f"): the fallback claimed, then the content made here. */
 function claimFallbackThenRender(props: { fallback?: any; children?: any; on?: unknown }, at: Cursor, parent: Owner, id: string): Node[] {
   const claimed = runWithOwner(ownerUnder(parent, { id }), () => claimHtml(props.fallback, false, at));
   let shown = false;
-  const read = createLoadingBoundary(
-    () => {
-      // (Made, not claimed: nothing of it is in the page.)
-      const was = hydrating;
-      const wasShared = sharedConfig.hydrating;
-      hydrating = null;
-      sharedConfig.hydrating = false;
-      try {
-        return untrack(() => props.children);
-      } finally {
-        hydrating = was;
-        sharedConfig.hydrating = wasShared;
-      }
-    },
+  const read = claimedBoundary(
+    // (Made, not claimed: nothing of it is in the page.)
+    () => made(() => untrack(() => props.children)),
     () => (shown ? props.fallback : ((shown = true), claimed)),
     "on" in props ? { on: () => props.on } : undefined,
   );
@@ -1557,12 +1700,21 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
   } catch {
     id = undefined;
   }
+  // (Its fragment's claimant: a swap held for it — arrived after hydration was done — lands now, before the page is read.)
+  const record = id != null ? (globalThis as any)._$HY?.r?.[id + "_fr"] : undefined;
+  if (record) {
+    // (The swap replaces the placeholder range: the walk goes on from what is in its place.)
+    const before = at.next ? at.next.previousSibling : at.parent.lastChild;
+    const was = at.next;
+    record.s === 1 || record.s === 2 ? replayHeldFragment(id!) : claimFragment(id!);
+    if (was && was.parentNode !== at.parent) at.next = before ? before.nextSibling : at.parent.firstChild;
+  }
   // The client modules its content rendered with, still loading: nothing claimed now — the boundary claims its server
   // nodes where they are once they land (hydration waits for it).
   const mapping = id != null ? (globalThis as any)._$HY?.r?.[id + "_assets"] : undefined;
   const assets = described && mapping && typeof mapping === "object" ? loadModuleAssets(mapping) : undefined;
   if (assets) {
-    const release = runWithOwner(parent, () => initBoundaryResume(parent!, id!));
+    const release = runWithOwner(parent, () => untrack(() => initBoundaryResume(parent!, id!)[2]));
     // (Transparent: it takes no id — the boundary claims under the one the server gave it.)
     const landed = createMemo(
       () =>
@@ -1608,10 +1760,9 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
       }
     }),
   );
-  const record = (globalThis as any)._$HY?.r?.[id + "_fr"];
-  const release = record ? runWithOwner(boundary, () => initBoundaryResume(boundary, id!)) : () => false;
+  const release = record ? runWithOwner(boundary, () => untrack(() => initBoundaryResume(boundary, id!)[2])) : () => false;
   const reveal = () => {
-    if (!release() || boundary.disposed) return void checkHydrationComplete();
+    if (!release() || isDisposed(boundary)) return void checkHydrationComplete();
     const was = hydrating;
     const prevRegistry = sc.registry;
     const registry = new Map<string, Element>();
@@ -1631,7 +1782,7 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
   };
   // Its content handed to the client (the record false, or failed): made here in the fallback's place, a live boundary.
   const fresh = () => {
-    if (!release() || boundary.disposed) return void checkHydrationComplete();
+    if (!release() || isDisposed(boundary)) return void checkHydrationComplete();
     const after = end ? end.nextSibling : null;
     pl.remove();
     end?.remove();
@@ -1666,115 +1817,97 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
  * it did on the server, which then rendered the fallback), the fallback is claimed from the same place instead.
  */
 function claimErrored(props: { fallback?: any; children?: any }, at: Cursor): Node[] {
-  // As the server made it: the boundary (its content under an owner of its own), then the output owner of its fallback.
-  const boundary = createOwner() as any;
-  const output = createOwner() as any;
-  const content = ownerUnder(boundary) as any;
-  const start = at.next;
-  const fallback = (e: unknown) => {
-    at.next = start;
-    const f = props.fallback;
-    return runWithOwner(output, () => claimHtml(erroredFallback(f, () => e, () => {}), false, at));
-  };
   // The server caught an error here: it sent it under the boundary's id, and rendered the fallback.
-  const sent = (globalThis as any)._$HY?.r;
-  if (sent && boundary.id != null && boundary.id in sent) {
-    const v = sent[boundary.id];
-    return fallback(v && typeof v === "object" && "s" in v && "v" in v ? v.v : v);
-  }
-  // (An error something under it reports while it is claimed comes back here.)
-  content.catch = (e: unknown) => {
-    throw e;
-  };
-  let nodes: Node[];
-  const before = start ? start.previousSibling : at.parent.lastChild;
+  const parent = getOwner();
+  let id: string | undefined;
   try {
-    nodes = runWithOwner(content, () => claimHtml(props.children, false, at));
-  } catch (e) {
-    if (e instanceof NotReadyError) throw e;
-    // (What the failed attempt made goes with it: its owners, and the nodes it put in before the server's.)
-    resetOwner(content);
-    for (let n = before ? before.nextSibling : at.parent.firstChild; n && n !== start; ) {
-      const next = n.nextSibling;
-      n.parentNode!.removeChild(n);
-      n = next;
-    }
-    return fallback(e);
-  } finally {
-    content.catch = undefined;
+    id = parent ? peekNextChildId(parent) : undefined;
+  } catch {
+    id = undefined;
   }
-  // Claimed: from here an error under it shows the fallback, made here; the content stays alive behind it, and a reset
-  // runs again what threw (the content made anew only when what threw is not known).
-  const [error, setError] = createSignal<unknown>(NO_ERROR, { equals: false });
-  let shown: unknown = NO_ERROR;
-  let fresh = false;
-  const failedBelow = new Set<Computation<any>>();
-  let unknownThrower = false;
-  let kept: Node[] | null = null;
-  const caught = (e: unknown, from?: Computation<any>) => {
-    if (from) failedBelow.add(from);
-    else unknownThrower = true;
-    if (shown !== e) (shown = e), setError(() => e);
-    return true;
-  };
-  content.catch = caught;
-  const reset = () => {
-    fresh = true;
-    shown = NO_ERROR;
-    setError(NO_ERROR);
-  };
-  // (Its range: bindings inside it change their own nodes, so what it held is what lies between these two.)
-  const after = at.next;
-  const parent = at.parent;
-  const read = runWithOwner(output, () =>
-    createMemo(() => {
-      const e = error();
-      if (e === NO_ERROR && !fresh) return nodes;
-      // (What it shows now taken out: the content's nodes kept, to show again after a reset.)
-      const out: Node[] = [];
-      for (let n = before ? before.nextSibling : parent.firstChild; n && n !== after; ) {
-        const next = n.nextSibling;
-        out.push(n);
-        (n as ChildNode).remove();
-        n = next;
-      }
-      kept ??= out;
-      if (e === NO_ERROR) {
-        fresh = false;
-        const again = unknownThrower || !failedBelow.size ? null : [...failedBelow];
-        failedBelow.clear();
-        unknownThrower = false;
-        const back = kept;
-        kept = null;
-        if (again) {
-          for (const c of again) untrack(() => runAgain(c));
-          return back;
+  const sent = (globalThis as any)._$HY?.r;
+  let thrown: { e: unknown } | null = null;
+  if (sent && id != null && id in sent) {
+    const v = sent[id];
+    thrown = { e: v && typeof v === "object" && "s" in v && "v" in v ? v.v : v };
+  }
+  const start = at.next;
+  const before = start ? start.previousSibling : at.parent.lastChild;
+  // Its first pass claims (the content, or the fallback the server drew); later ones are made here. An error under the
+  // claimed content shows the fallback, the content kept alive behind it; a reset runs again what threw.
+  let claiming = true;
+  let shown: unknown = undefined;
+  const read = createErrorBoundary(
+    () => {
+      if (!claiming) return made(() => untrack(() => props.children));
+      if (thrown) throw thrown.e;
+      try {
+        return untrack(() => claimHtml(props.children, false, at));
+      } catch (e) {
+        // (What the failed claim put in before the server's nodes goes with it; the fallback claims from the start.)
+        if (!(e instanceof NotReadyError)) {
+          for (let n = before ? before.nextSibling : at.parent.firstChild; n && n !== start; ) {
+            const next = n.nextSibling;
+            n.parentNode!.removeChild(n);
+            n = next;
+          }
+          at.next = start;
         }
-        resetOwner(content);
-        return made(() => runWithOwner(content, () => untrack(() => props.children)));
+        throw e;
       }
-      const f = props.fallback;
-      return made(() => untrack(() => erroredFallback(f, () => e, reset)));
-    }),
+    },
+    (err, reset) => (shown = claiming ? claimHtml(erroredFallback(props.fallback, err, reset), false, at) : made(() => untrack(() => erroredFallback(props.fallback, err, reset)))),
   );
-  bind(at.parent, read, at.next);
+  let first: unknown;
+  let nodes: Node[];
+  try {
+    nodes = untrack(() => nodesOf((first = read()), [], []));
+  } finally {
+    claiming = false;
+  }
+  // Kept current over its range: what lies between the nodes around it (parts under it change their own nodes). The
+  // content's nodes are kept while the fallback shows, and put back when a reset shows the same content again.
+  const host = at.parent;
+  const after = at.next;
+  const owner = getOwner();
+  let content: unknown = first === shown ? null : first;
+  let kept: Node[] | null = null;
+  // (Its first value is what was claimed: in place already, nothing to do — its range may hold the server's markers.)
+  let claimedFirst = true;
+  createRenderEffect(
+    read,
+    (v: any) => {
+      const current: Node[] = [];
+      for (let n = before ? before.nextSibling : host.firstChild; n && n !== after; n = n.nextSibling) current.push(n);
+      // (A fallback claimed first, over content that failed after it was claimed: what the content put in goes.)
+      if (claimedFirst && ((claimedFirst = false), v === first)) {
+        if (v === shown) {
+          const keep = new Set(nodes);
+          for (const n of current) if (!keep.has(n)) host.removeChild(n);
+        }
+        return;
+      }
+      let next: Node[];
+      if (v === shown) {
+        if (!kept && content !== null) kept = current;
+        next = runWithOwner(owner, () => untrack(() => nodesOf(v, [], [])));
+      } else if (v === content && kept) {
+        next = kept;
+        kept = null;
+      } else {
+        content = v;
+        kept = null;
+        next = runWithOwner(owner, () => untrack(() => nodesOf(v, [], current)));
+      }
+      reconcile(host, current, next, after);
+    },
+    BINDING,
+  );
   return nodes;
 }
-const NO_ERROR = Symbol("twist.no-error");
 
 /** `fn` run as a fresh render, not a claim (nothing of what it makes is in the page). */
-function made<T>(fn: () => T): T {
-  const was = hydrating;
-  const wasShared = sharedConfig.hydrating;
-  hydrating = null;
-  sharedConfig.hydrating = false;
-  try {
-    return fn();
-  } finally {
-    hydrating = was;
-    sharedConfig.hydrating = wasShared;
-  }
-}
+const made = <T,>(fn: () => T): T => clientOnlyRun(fn);
 
 const noopFn = () => {};
 
@@ -1934,7 +2067,7 @@ export function effect<T>(compute: (prev?: T) => T, apply: (v: T, prev?: T) => v
 export function readShallow<T>(v: T): T {
   if (!v || typeof v !== "object") return v;
   if (Array.isArray(v)) return v.map(readShallow) as T;
-  if (!(v as any)[$TARGET]) return v;
+  if (!($PROXY in (v as object))) return v;
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(v)) out[k] = (v as any)[k];
   return out as T;
