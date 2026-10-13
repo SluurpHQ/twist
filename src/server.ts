@@ -1,7 +1,7 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
 declare const process: { env: Record<string, string | undefined> };
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, VIEW_TRANSITION, createElement, invalidType, objectChild, ownerNow, readThenable, unwrapChild, withOwner } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, VIEW_TRANSITION, callComponent, callRender, createElement, invalidType, objectChild, ownerNow, readThenable, unwrapChild, withOwner } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
@@ -281,7 +281,25 @@ const contextValue = (ctx: Ctx, c: any) => (ctx.values.has(c) ? ctx.values.get(c
 /** The component (its owner frame) whose render threw last: onError is told from it. */
 let failedIn: any = null;
 
-function renderFunction(type: any, props: any) {
+/** A promise use()d: its value, or (pending) thrown, where it was asked recorded on the component in development (an
+ * owner stack told for its abort starts there, as React's does). */
+function usedThenable(u: any) {
+  try {
+    return readThenable(u);
+  } catch (e: any) {
+    const o = process.env.NODE_ENV !== "production" && dev() && e && typeof e.then === "function" ? ownerNow() : null;
+    if (o && !o.suspendedAt) {
+      // (From the component's call: the frames of use() itself left out, by name — JavaScriptCore may have dropped some.)
+      const lines = String(new Error("react-stack-top-frame").stack).split("\n");
+      let i = 1;
+      while (i < lines.length && /^\s*at (?:\S+\.)?(?:usedThenable|use)\b/.test(lines[i]!)) i++;
+      o.suspendedAt = { stack: [lines[0], ...lines.slice(i)].join("\n") };
+    }
+    throw e;
+  }
+}
+
+function renderFunction(type: any, props: any, ref?: any) {
   const c: ServerComponent = { hooks: [], at: 0, again: false, ids: 0, pass: 0 };
   const was = rendering;
   rendering = c;
@@ -292,7 +310,7 @@ function renderFunction(type: any, props: any) {
       c.pass = pass;
       c.again = false;
       c.ids = 0;
-      const out = type(props);
+      const out = process.env.NODE_ENV !== "production" && dev() ? callComponent(type, props, ref) : ref === undefined ? type(props) : type(props, ref);
       if (!c.again) return (lastUsedId = c.ids > 0), out;
     }
   } finally {
@@ -333,7 +351,7 @@ function serverHooks(ctx: Ctx) {
     useOptimistic: (s: any) => [s, NOOP],
     // On the server an effect event is never called: calling it is an error, as React's.
     useEffectEvent: () => effectEventOnServer,
-    use: (u: any) => (u && u.$$typeof === CONTEXT ? read(u) : u && u.$$typeof === RECOVERABLE ? browserOnly(u) : readThenable(u)),
+    use: (u: any) => (u && u.$$typeof === CONTEXT ? read(u) : u && u.$$typeof === RECOVERABLE ? browserOnly(u) : usedThenable(u)),
   } as any;
 }
 
@@ -591,7 +609,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
           if (part != null) inst.state = { ...inst.state, ...part };
         }
       }
-      const out = inst.render();
+      const out = process.env.NODE_ENV !== "production" && dev() ? callRender(inst) : inst.render();
       // Rendered once on the server: an update asked later does nothing (React says so).
       const noop = (what: string) => () =>
         warn(`Can only update a mounting component. This usually means you called ${what}() outside componentWillMount() on the server. This is a no-op.\n\nPlease check the code for the ${name} component.`);
@@ -605,7 +623,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
         `The <${type.displayName || type.name || "Component"} /> component appears to have a render method, but doesn't extend React.Component. This is likely to cause errors. Change ${type.displayName || type.name || "Component"} to extend React.Component instead.`,
       );
     // (Its element's owner and its type: what it makes is owned by it, an owner stack starts from it.)
-    const frame = (process.env.NODE_ENV !== "production" && dev()) ? { type, owner: node?._owner ?? null } : null;
+    const frame = (process.env.NODE_ENV !== "production" && dev()) ? { type, owner: node?._owner ?? null, stack: node?._debugStack ?? null, suspendedAt: null } : null;
     if ((process.env.NODE_ENV !== "production" && dev()) && type.contextTypes)
       withOwner(frame!, () =>
         warn(`${type.displayName || type.name || "Unknown"} uses the legacy contextTypes API which was removed in React 19. Use React.createContext() with React.useContext() instead. (https://react.dev/link/legacy-context)`, "server:legacy-fn-context:" + (type.displayName || type.name)),
@@ -642,7 +660,7 @@ function renderFrame(node: any, ctx: Ctx, hooks: any): string {
       return render(props.children(contextValue(ctx, type._context)), ctx, hooks);
     case FORWARD_REF: {
       const { ref, ...rest } = props;
-      return renderOutput(renderFunction(() => type.render(rest, ref ?? null), props), ctx, hooks);
+      return renderOutput(renderFunction(type.render, rest, ref ?? null), ctx, hooks);
     }
     case MEMO:
       return render(createElement(type.type, props), ctx, hooks);

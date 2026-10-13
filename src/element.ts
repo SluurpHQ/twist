@@ -50,7 +50,43 @@ export const unstable_SuspenseList = SUSPENSE_LIST;
 /** Names a transition's kind for view transitions; nothing to do where they are drawn as children. */
 export function addTransitionType(_type: string) {}
 
-function element(type: any, key: any, props: any): Element {
+/** Element stacks taken since the last microtask (development): past React's budget, none (each one costs). */
+let stacksMade = 0;
+/** Where an element is made (development): the stack from the code that called `entry`, React's `_debugStack`. */
+function stackAt(entry: Function): Error | null {
+  if (stacksMade === 0) queueMicrotask(() => void (stacksMade = 0));
+  if (++stacksMade > 10000) return null;
+  const e = new Error("react-stack-top-frame");
+  (Error as any).captureStackTrace?.(e, entry);
+  return e;
+}
+/** Where Twist calls a component's code (development): an owner stack ends at this frame, as React's does. */
+export const callComponent = {
+  react_stack_bottom_frame(fn: (a: any, b?: any) => any, a: any, b?: any) {
+    // (Not a tail call: JavaScriptCore would leave this frame out of the stack.)
+    const out = fn(a, b);
+    return out;
+  },
+}.react_stack_bottom_frame;
+/** A class instance's render, called as callComponent calls a function. */
+export const callRender = {
+  react_stack_bottom_frame(inst: any) {
+    const out = inst.render();
+    return out;
+  },
+}.react_stack_bottom_frame;
+/** An element's stack as an owner stack gives it: the frames from its maker's call down to where Twist called that
+ * maker (none when it was made outside a component's render), React's formatOwnerStack. */
+export function formatOwnerStack(e: Error | null | undefined): string {
+  let s = e ? String(e.stack ?? "") : "";
+  if (s.startsWith("Error: react-stack-top-frame\n")) s = s.slice(29);
+  const bottom = s.indexOf("react_stack_bottom_frame");
+  if (bottom < 0) return "";
+  const end = s.lastIndexOf("\n", bottom);
+  return end < 0 ? "" : s.slice(0, end);
+}
+
+function element(type: any, key: any, props: any, stack: Error | null = null): Element {
   // Production: a plain object, as React's (no checks to keep).
   if (!(process.env.NODE_ENV !== "production" && dev())) return { $$typeof: ELEMENT, type, key, ref: props.ref ?? null, props } as any;
   const el: any ={ $$typeof: ELEMENT, type, key, props, _owner: null };
@@ -60,6 +96,8 @@ function element(type: any, key: any, props: any): Element {
   const store = {};
   Object.defineProperty(store, "validated", { value: 0, writable: true, configurable: false, enumerable: false });
   Object.defineProperty(el, "_store", { value: store, writable: true, configurable: false, enumerable: false });
+  // Where it was made, for owner stacks.
+  Object.defineProperty(el, "_debugStack", { value: stack, writable: true, configurable: false, enumerable: false });
   // element.ref: gone in React 19 (ref is a prop); reading it warns when there is one.
   if (props.ref !== undefined && props.ref !== null) Object.defineProperty(el, "ref", { enumerable: false, get: refGetter });
   else Object.defineProperty(el, "ref", { enumerable: false, value: null });
@@ -91,18 +129,24 @@ function keyGetter(props: any, type: any) {
 /** What the automatic JSX runtime calls: `children` already in the props, the key apart. An array as children
  * came from code (a map), so its elements should have keys. */
 export function jsx(type: any, config: any, maybeKey?: any): Element {
+  return jsxOf(jsx, type, config, maybeKey);
+}
+function jsxOf(entry: Function, type: any, config: any, maybeKey?: any): Element {
   validate(config?.children, type);
-  return make(type, config, maybeKey);
+  return make(entry, type, config, maybeKey);
 }
 
 /** JSX with several children: they are siblings written out, needing no keys, but an array among them does. */
 export function jsxs(type: any, config: any, maybeKey?: any): Element {
+  return jsxsOf(jsxs, type, config, maybeKey);
+}
+function jsxsOf(entry: Function, type: any, config: any, maybeKey?: any): Element {
   const children = config?.children;
   if (Array.isArray(children)) {
     for (const c of children) validate(c, type);
     if ((process.env.NODE_ENV !== "production" && dev())) Object.freeze(children);
   } else if (children !== undefined) warn("React.jsx: Static children should always be an array. You are likely explicitly calling React.jsxs or React.jsxDEV. Use the Babel transform instead.");
-  return make(type, config, maybeKey);
+  return make(entry, type, config, maybeKey);
 }
 
 /** A child as written: an array's elements need keys; an element is marked checked (passed on later in an array,
@@ -113,7 +157,7 @@ function validate(c: any, type: any) {
   else if (c?._store) c._store.validated = 1;
 }
 
-function make(type: any, config: any, maybeKey?: any): Element {
+function make(entry: Function, type: any, config: any, maybeKey?: any): Element {
   config ??= {};
   if ((process.env.NODE_ENV !== "production" && dev()) && Object.prototype.hasOwnProperty.call(config, "key")) {
     // A key spread in with other props: React wants it written as key={...}.
@@ -134,9 +178,9 @@ function make(type: any, config: any, maybeKey?: any): Element {
     for (const k in config) if (k !== "key") props[k] = config[k];
   }
   if (key !== null) keyGetter(props, type);
-  return element(type, key, withDefaults(type, props));
+  return element(type, key, withDefaults(type, props), process.env.NODE_ENV !== "production" && dev() ? stackAt(entry) : null);
 }
-export const jsxDEV = (type: any, config: any, key?: any, isStatic?: boolean) => (isStatic ? jsxs : jsx)(type, config, key);
+export const jsxDEV = (type: any, config: any, key?: any, isStatic?: boolean): Element => (isStatic ? jsxsOf(jsxDEV, type, config, key) : jsxOf(jsxDEV, type, config, key));
 
 let toldOldJsx = false;
 export function createElement(type: any, config?: any, ...children: any[]): Element {
@@ -156,7 +200,7 @@ export function createElement(type: any, config?: any, ...children: any[]): Elem
   if (children.length === 1) props.children = children[0];
   else if (children.length > 1) props.children = (process.env.NODE_ENV !== "production" && dev()) ? Object.freeze(children) : children;
   if (key !== null) keyGetter(props, type);
-  return element(type, key, withDefaults(type, props));
+  return element(type, key, withDefaults(type, props), process.env.NODE_ENV !== "production" && dev() ? stackAt(createElement) : null);
 }
 
 /** Class components keep `defaultProps` (React 19 dropped them for functions). */
@@ -183,7 +227,7 @@ export function cloneElement(el: Element, config?: any, ...children: any[]): Ele
   if ((process.env.NODE_ENV !== "production" && dev())) for (const c of children) validate(c, el.type);
   if (children.length === 1) props.children = children[0];
   else if (children.length > 1) props.children = children;
-  return element(el.type, key, props);
+  return element(el.type, key, props, (el as any)._debugStack ?? null);
 }
 
 export const isValidElement = (x: any): x is Element => typeof x === "object" && x !== null && x.$$typeof === ELEMENT;

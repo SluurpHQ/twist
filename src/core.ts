@@ -3,7 +3,7 @@
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 declare const process: { env: Record<string, string | undefined> };
 import { effect, effectNode, endEffect, type EffectNode, flush as flushSignals, holdFlushes, onBatch, runWithOwner, signal, untrack } from "./signals.js";
-import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, createElement, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
+import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, callComponent, callRender, createElement, formatOwnerStack, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
 import { MATH_NS, SVG_NS, styleText, eventOf, hydrateProps, noop, onAfterEvent, onSubmitAction, setDefaults, setProps, unbindProps } from "./props.ts";
@@ -200,8 +200,9 @@ export function captureOwnerStack(): string | null {
     // A server render's component: the components that rendered it.
     const o = ownerNow();
     if (!o) return null;
-    let out = "";
-    for (let p = o.owner; p; p = p.owner) out += "\n    at " + nameOf(p.type) + " (<anonymous>)";
+    // (Where it suspended first, when that is why it is told for.)
+    let out = o.suspendedAt ? lineOf(formatOwnerStack(o.suspendedAt)) : "";
+    for (let x = o; x.owner; x = x.owner) out += lineOf(formatOwnerStack(x.stack)) || "\n    at " + nameOf(x.owner.type) + " (<anonymous>)";
     return out;
   }
   if (f.kind === TEXT && f.parent) f = f.parent;
@@ -209,9 +210,12 @@ export function captureOwnerStack(): string | null {
   let out = "";
   if (f.kind === HOST || f.kind === HOIST) out += frame(f.type);
   else if (BUILT_IN.has(f.type)) out += frame(f.type === SUSPENSE ? "Suspense" : f.type === ACTIVITY ? "Activity" : "SuspenseList");
-  for (let o = (f as any).owner as Fiber | null; o; o = (o as any).owner) out += frame(nameOf(o.type));
+  // Each fiber where its element was made in its owner's code (its owner's name, when that was not kept).
+  // (Its owner's name when no frame of the owner was kept: JavaScriptCore drops a frame that returns a call.)
+  for (let x: any = f; x.owner; x = x.owner) out += lineOf(formatOwnerStack(x.debugStack)) || frame(nameOf(x.owner.type));
   return out;
 }
+const lineOf = (stack: string) => (stack ? "\n" + stack : "");
 let depth = 0;
 // Phases, as React's commit has them: insertion effects first (before any ref or layout effect: a ref may call
 // what one set up), then refs and layout effects, then passive effects after paint.
@@ -689,9 +693,11 @@ function reconcile(parent: Fiber, list: any[], host: Node, before: Node | null) 
       madeNew = true;
       if (hydrating && !(list as any)[LONE]) nextTree = pushTree(childBase(parent), list.length, i - 1);
       nextOwner = c?._owner ?? null;
+      nextStack = c?._debugStack ?? null;
       next.push(mount(c, key, type, parent, host, before));
       nextTree = null;
       nextOwner = null;
+      nextStack = null;
     }
   }
   // What it had and did not reach: kept as it was, in its place, when it stopped at a suspending child; else let go.
@@ -1021,6 +1027,7 @@ function fiber(kind: number, type: any, key: Key, props: any, parent: Fiber): Fi
   const f = new (kind === HOST || kind === TEXT ? FiberNode : ComponentFiber)(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber;
   if (nextTree) (f.tree = nextTree), (nextTree = null);
   if (nextOwner) Object.defineProperty(f, "owner", { value: nextOwner, enumerable: false }), (nextOwner = null);
+  if (nextStack) Object.defineProperty(f, "debugStack", { value: nextStack, enumerable: false }), (nextStack = null);
   if (parent.strict || parent.type === STRICT) f.strict = true;
   return remember(f);
 }
@@ -1029,6 +1036,8 @@ function fiber(kind: number, type: any, key: Key, props: any, parent: Fiber): Fi
 
 /** The owner of the next fiber made (its element's, in development): set by reconcile. */
 let nextOwner: Fiber | null = null;
+/** Where the next fiber's element was made (development): set by reconcile. */
+let nextStack: Error | null = null;
 /** The tree position the next fiber made takes (it is a child of an array): set by reconcile. */
 let nextTree: TreeContext | null = null;
 /** A fiber's tree position: its own if it is forked, else what its parent gives its children. */
@@ -2788,8 +2797,9 @@ function clearRef(f: Fiber, ref: any) {
 
 /** How a component type renders: functions, classes, forwardRef, memo, lazy, Consumer, Suspense. */
 // Renders shared by every fiber of a kind (a fiber's type is what it renders; a new type gets its render again).
-const renderFunction = (f: Fiber, props: any) => f.type(props);
-const renderMemo = (f: Fiber, props: any) => f.type.type(props);
+// (Development: called through React's bottom frame, where an owner stack ends.)
+const renderFunction = (f: Fiber, props: any) => ((process.env.NODE_ENV !== "production" && dev()) ? callComponent(f.type, props) : f.type(props));
+const renderMemo = (f: Fiber, props: any) => ((process.env.NODE_ENV !== "production" && dev()) ? callComponent(f.type.type, props) : f.type.type(props));
 const renderMemoElement = (f: Fiber, props: any) => createElement(f.type.type, props);
 const renderLazy = (f: Fiber, props: any) => createElement(readLazy(f.type._payload), props);
 const renderConsumer = (f: Fiber, props: any) => props.children(readContext(f, f.type._context));
@@ -2863,9 +2873,10 @@ function renderer(type: any, f: Fiber): (f: Fiber, props: any) => any {
   switch (type?.$$typeof) {
     case FORWARD_REF:
       return (_f, props) => {
-        if (!("ref" in props)) return type.render(props, null);
+        const dev_ = process.env.NODE_ENV !== "production" && dev();
+        if (!("ref" in props)) return dev_ ? callComponent(type.render, props, null) : type.render(props, null);
         const { ref, ...rest } = props;
-        return type.render(rest, ref);
+        return dev_ ? callComponent(type.render, rest, ref) : type.render(rest, ref);
       };
     case MEMO:
       f.compare = type.compare ?? shallowEqual;
@@ -3343,7 +3354,7 @@ function classRender(inst: any) {
   const was = inClassRender;
   inClassRender = true;
   try {
-    return inst.render();
+    return (process.env.NODE_ENV !== "production" && dev()) ? callRender(inst) : inst.render();
   } finally {
     inClassRender = was;
   }
