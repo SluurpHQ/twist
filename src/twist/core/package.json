@@ -1,0 +1,6 @@
+{
+  "name": "@sluurp/twist-core",
+  "private": true,
+  "type": "module",
+  "sideEffects": false
+}

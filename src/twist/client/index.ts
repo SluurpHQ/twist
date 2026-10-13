@@ -94,8 +94,6 @@ export type {
 
 export * from "./component.js";
 export * from "./flow.js";
-// (Twist: the control flow marked Solid-style, for the React bridge.)
-import "./control.js";
 export type { ArrayElement, Element } from "./types.js";
 export {
   enableHydration,

@@ -156,10 +156,10 @@ export function lookupTarget(raw: object, fam: StoreFamily | null): StoreTarget 
 
 /** Test-tier oracle (INTERNALS §5): no write path ever mutates a
  * user-provided (non-owned) object. */
-export const ingestedRaw: WeakSet<object> | null = ((globalThis as any).__TEST__ === true) ? new WeakSet<object>() : null;
+export const ingestedRaw: WeakSet<object> | null = (process.env.NODE_ENV === "test") ? new WeakSet<object>() : null;
 
 export function devAssertNeverUserMutation(target: object): void {
-  if (!((globalThis as any).__TEST__ === true) || !ingestedRaw) return;
+  if (!(process.env.NODE_ENV === "test") || !ingestedRaw) return;
   if (ingestedRaw.has(target) && !isOwned(target)) {
     throw new Error(
       "store invariant: attempted mutation of a user-provided object (not store-owned)"

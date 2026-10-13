@@ -7,8 +7,10 @@ import { NoHydration, Hydration, createMemo } from "./hydration.js";
 import { foreign, isTwist, ownOf, isDynamic, isChildren, builtin } from "../marks.ts";
 export { TWIST, setReactHost, __twist_mark, isTwist, ownOf, setForeignComponent, __twist_d, __twist_c, __twist_k, __twist_ref, isDynamic, isChildren, markBuiltin, builtin } from "../marks.ts";
 
-builtin(For), builtin(Repeat), builtin(Show), builtin(Switch), builtin(Match), builtin(Errored), builtin(Loading), builtin(Reveal);
-builtin(NoHydration), builtin(Hydration);
+/** solid-js's control flow marked Solid-style (for the React bridge: what it meets unmarked, it mounts as React's). */
+export function markControlFlow() {
+  for (const f of [For, Repeat, Show, Switch, Match, Errored, Loading, Reveal, NoHydration, Hydration]) builtin(f);
+}
 
 /** A component rendered: a Solid-style one through createComponent, a React one mounted by the bridge. */
 export function callComponent<P extends Record<string, any>>(type: (props: P) => any, props: P) {

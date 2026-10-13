@@ -7,7 +7,7 @@
 //
 // Installed with the app's React (Sluurp's @sluurp/dom, or React itself): `installBridge(React, createRoot)`.
 import { createRenderEffect, createSignal, flush, onCleanup, untrack } from "./core/index.ts";
-import { createComponent, isTwist, setForeignComponent, setReactHost } from "./client/control.ts";
+import { createComponent, isTwist, markControlFlow, setForeignComponent, setReactHost } from "./client/control.ts";
 import { hydrate, render, setForeignClaim } from "./web.ts";
 
 /** An element that takes no box of its own: what is mounted in it lays out as its parent's children. */
@@ -136,6 +136,7 @@ let hydrateReactRoot: (el: Element, e: any) => { render(e: any): void; unmount()
 /** React and Solid-style components in one tree, from now on: given the app's React and its createRoot. */
 export function installBridge(react: ReactApi, createRoot: typeof createReactRoot, hydrateRoot?: typeof hydrateReactRoot) {
   ({ createElement, useLayoutEffect, useRef, useId } = react);
+  markControlFlow();
   createReactRoot = createRoot;
   if (hydrateRoot) (hydrateReactRoot = hydrateRoot), setForeignClaim(claimReact);
   setReactHost((component, props) => createElement(TwistHost, { component, props }));

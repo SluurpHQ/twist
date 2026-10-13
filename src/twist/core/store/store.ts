@@ -244,7 +244,7 @@ function createTarget(
   t.del = null;
   t.px = new Proxy(t, traps);
   setLookup(value, t);
-  if (((globalThis as any).__TEST__ === true) && ingestedRaw && !isOwned(value)) ingestedRaw.add(value);
+  if ((process.env.NODE_ENV === "test") && ingestedRaw && !isOwned(value)) ingestedRaw.add(value);
   return t;
 }
 
@@ -838,7 +838,7 @@ export function adoptPB(
   const owner: StoreTarget | undefined = (incoming as any)[$OWNER];
   if (owner !== undefined && owner.fam === target.fam) (incoming as any)[$OWNER] = target;
   else setLookup(incoming, target);
-  if (((globalThis as any).__TEST__ === true) && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
+  if ((process.env.NODE_ENV === "test") && ingestedRaw && !isOwned(incoming)) ingestedRaw.add(incoming);
   if (notify && base !== incoming) notifyFold(target, base, incoming);
 }
 

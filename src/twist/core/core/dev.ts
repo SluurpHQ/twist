@@ -718,7 +718,7 @@ export const DEV: Dev = (process.env.NODE_ENV !== "production")
 /**
  * Dev-mode internal consistency check. A failure means the reactive system
  * contradicted itself (not that user code misbehaved) — see
- * INTERNALS-ASYNC-STATE.md for the invariant catalog. Throws under ((globalThis as any).__TEST__ === true)
+ * INTERNALS-ASYNC-STATE.md for the invariant catalog. Throws under (process.env.NODE_ENV === "test")
  * so the suite (and fuzzing) treats any violation as a hard failure; logs in
  * dev builds so user apps degrade instead of crashing.
  */
@@ -732,7 +732,7 @@ export function assertInvariant(condition: boolean, name: string, message: strin
     message: full,
     data: { invariant: name }
   });
-  if (typeof ((globalThis as any).__TEST__ === true) !== "undefined" && ((globalThis as any).__TEST__ === true)) throw new Error(full);
+  if (typeof (process.env.NODE_ENV === "test") !== "undefined" && (process.env.NODE_ENV === "test")) throw new Error(full);
   reportDiagnostic(entry);
 }
 

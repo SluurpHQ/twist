@@ -9,14 +9,14 @@ import type { Computed, Signal } from "./types.js";
  * These are implementation self-consistency checks, not semantic rules: a
  * violation means the reactive system contradicted itself.
  *
- * They are gated on `((globalThis as any).__TEST__ === true)` (not just `(process.env.NODE_ENV !== "production")`): the per-write Set
+ * They are gated on `(process.env.NODE_ENV === "test")` (not just `(process.env.NODE_ENV !== "production")`): the per-write Set
  * tracking and per-flush quiescence sweep are too expensive for shipped dev
  * builds and for benchmarks (they showed up as a 5-21% hit across the
  * CodSpeed suite when they ran under `(process.env.NODE_ENV !== "production")`). Call sites stay `(process.env.NODE_ENV !== "production")`
  * guarded so production tree-shakes the calls; each entry point here
- * early-returns unless `((globalThis as any).__TEST__ === true)` is set, so dev builds pay only a no-op
- * call. The test suite (vitest run) defines `((globalThis as any).__TEST__ === true): true`; benchmark mode
- * defines `((globalThis as any).__TEST__ === true): false`.
+ * early-returns unless `(process.env.NODE_ENV === "test")` is set, so dev builds pay only a no-op
+ * call. The test suite (vitest run) defines `(process.env.NODE_ENV === "test"): true`; benchmark mode
+ * defines `(process.env.NODE_ENV === "test"): false`.
  */
 
 type AnyNode = Signal<any> | Computed<any>;
@@ -33,7 +33,7 @@ const heldPendingNodes = new Set<AnyNode>();
 // (Former INV-8 hold-provenance tracking is gone with revert targets: every
 // held `_pendingValue` is now a pending commit — there is only one kind.)
 export function devTrackHeldPending(node: AnyNode): void {
-  if (!((globalThis as any).__TEST__ === true)) return;
+  if (!(process.env.NODE_ENV === "test")) return;
   heldPendingNodes.add(node);
 }
 
@@ -67,7 +67,7 @@ class CheckedReportersMap extends Map<Computed<any>, Set<Computed<any>>> {
 }
 
 export function createAsyncReporters(): Map<Computed<any>, Set<Computed<any>>> {
-  return ((globalThis as any).__TEST__ === true) ? new CheckedReportersMap() : new Map();
+  return (process.env.NODE_ENV === "test") ? new CheckedReportersMap() : new Map();
 }
 
 /**
@@ -77,7 +77,7 @@ export function createAsyncReporters(): Map<Computed<any>, Set<Computed<any>>> {
  * agree with a fresh computation of their owner's state.
  */
 export function devCheckQuiescent(isQueuedForCommit: (node: AnyNode) => boolean): void {
-  if (!((globalThis as any).__TEST__ === true)) return;
+  if (!(process.env.NODE_ENV === "test")) return;
   for (const node of heldPendingNodes) {
     if (isDisposed(node) || node._pendingValue === NOT_PENDING) {
       heldPendingNodes.delete(node);

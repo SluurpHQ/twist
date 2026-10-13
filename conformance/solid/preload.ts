@@ -42,7 +42,6 @@ import { readFileSync } from "node:fs";
 delete (globalThis as any).reportError;
 // Vitest runs Solid's source with __DEV__ defined true.
 (globalThis as any).__DEV__ = true;
-(globalThis as any).__TEST__ = true;
 // Vitest's globals, as Solid's tests use them without importing.
 import { expect, vi } from "./vitest.ts";
 (globalThis as any).vi = vi;
