@@ -35,6 +35,8 @@ if (process.env.ALLOC) {
   for (const [k, v] of [...bytes].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`${((100 * v) / all).toFixed(1).padStart(5)}%  ${k}`);
   process.exit(0);
 }
+// PRE=case,case: those cases run first (each 21 times), outside the profile.
+if (process.env.PRE) for (const c of process.env.PRE.split(",")) await page.evaluate(([n]) => { for (let i = 0; i < 21; i++) window.benchOne(n); }, [c]);
 // EACH=1: the step alone, warmed before each round outside the profile (one profile per round, merged).
 if (process.env.EACH) {
   const merged = { nodes: [], samples: [], timeDeltas: [] };
