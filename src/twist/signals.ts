@@ -185,6 +185,28 @@ export function idScope<T>(fn: () => T): () => T {
   };
 }
 
+/** `fn(arg)` run now in an id scope of its own (idScope's, for a run that is not repeated: nothing made for it). */
+export function inIdScope<A, T>(fn: (arg: A) => T, arg: A): T {
+  const at = owner && idOwner(owner);
+  if (!at || at.id == null) return fn(arg);
+  const prefix = idValue(at);
+  const slot = at.childCount ?? 0;
+  const was = at.id;
+  const wasSlot = (at as any).slot;
+  at.childCount = slot + 1;
+  const count = at.childCount;
+  at.id = prefix;
+  (at as any).slot = slot;
+  at.childCount = 0;
+  try {
+    return fn(arg);
+  } finally {
+    at.id = was;
+    (at as any).slot = wasSlot;
+    at.childCount = count;
+  }
+}
+
 /** Where ids are taken under `o` now (a scope's id, while one runs): a run later takes them from the same place. */
 export function idPlace(o: Owner | null): <T>(fn: () => T) => T {
   const at = o && idOwner(o);

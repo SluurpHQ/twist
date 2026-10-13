@@ -2,7 +2,7 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, keyOwnerOf, idScope, idPlace, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly, onCleanup, renderContextOf, setServerSharer, installServerStreams } from "./signals.ts";
+import { childIdCount, setChildIdCount, keyOwnerOf, idScope, inIdScope, idPlace, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly, onCleanup, renderContextOf, setServerSharer, installServerStreams } from "./signals.ts";
 installServerStreams();
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { merge, omit, isStatic } from "./flow.ts";
@@ -238,55 +238,53 @@ function opsOf(spec: Spec, meta: SpecMeta): Op[] {
 /** A compiled template written with these values. */
 function runOps(ops: Op[], values: unknown[], keyed: boolean): string {
   const at = { i: 0 };
+  // What is being written: the markup, or (inside a children list) the list's markup since its last part — held until a
+  // hole needs the list's state, then given as one part (as each piece would be one).
   let out = "";
-  // (The children list being written, and those it is inside.)
   let cur: Parts | null = null;
-  const outer: (Parts | null)[] = [];
-  // (Markup in a list held until a hole needs the list's state: one part for a run of it, as each would be one.)
-  let buf = "";
-  const outerBuf: string[] = [];
-  const emit = (t: string) => (cur ? (buf += t) : (out += t));
-  const settle = () => buf && (cur!.add(buf, false, false), (buf = ""));
+  const outer: [Parts | null, string][] = [];
   for (let j = 0; j < ops.length; j++) {
     const op = ops[j]!;
     if (typeof op === "string") {
-      emit(op);
+      out += op;
       continue;
     }
     switch (op.k) {
       case 0:
-        if (keyed) emit(ssrHydrationKey());
+        if (keyed) out += ssrHydrationKey();
         break;
       case 1:
-        emit(ssrAttribute(op.name, read(values[at.i++])));
+        out += ssrAttribute(op.name, read(values[at.i++]));
         break;
       case 2: {
         // (As children() writes an element's one child.)
         const raw = holeValue(op.spec, values, at);
-        emit(isDynamic(raw) ? dynamicKids(raw) : children(read(raw)));
+        out += isDynamic(raw) ? dynamicKids(raw) : children(read(raw));
         break;
       }
       case 3: {
         // (As collect() writes a child among others: a function or a component between markers.)
         const x: any = holeValue(op.spec, values, at);
-        if ((typeof x === "function" && !x.$esc) || (x && x[COMP])) buf += "<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, true)) + "<!--/-->";
-        else settle(), collect([x], true, true, false, cur!);
+        if ((typeof x === "function" && !x.$esc) || (x && x[COMP])) out += "<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, true)) + "<!--/-->";
+        else {
+          if (out) cur!.add(out, false, false), (out = "");
+          collect([x], true, true, false, cur!);
+        }
         break;
       }
       case 4:
-        emit(element(described(op.spec, values, at, op.meta), false));
+        out += element(described(op.spec, values, at, op.meta), false);
         break;
       case 5:
-        outer.push(cur), outerBuf.push(buf);
+        outer.push([cur, out]);
         cur = new Parts();
-        buf = "";
+        out = "";
         break;
       case 6: {
-        settle();
+        if (out) cur!.add(out, false, false);
         const done = cur!.out;
-        cur = outer.pop()!;
-        buf = outerBuf.pop()!;
-        emit(done);
+        [cur, out] = outer.pop()!;
+        out += done;
         break;
       }
     }
@@ -904,8 +902,11 @@ const keyedKids = (v: any): any =>
 
 /** Children that can change: rendered in an id scope of their own, a live frame's hole when there is one. */
 function dynamicKids(raw: any): string {
+  // (Rendered once, nothing to wait for or re-send: run in its scope at once.)
+  if ((!render || !render.async) && !(sharedConfig.context as any)?.liveHoles) return inIdScope(readChildren, raw);
   return hole(idScope(() => liveHole(() => read(raw)) ?? children(read(raw))), true);
 }
+const readChildren = (raw: any) => children(read(raw));
 
 function children(c: any): string {
   if (Array.isArray(c)) return list(c, !!(c as any)[OWN], true);
