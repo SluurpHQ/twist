@@ -34,6 +34,7 @@ import {
   type Owner,
 } from "./core/index.ts";
 import { CONFIG_TRANSPARENT } from "./core/core/constants.ts";
+import { dispose as disposeNode } from "./core/core/owner.ts";
 import { checkHydrationComplete, claimFragment, createEffect, createMemo, createSignal, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume, replayHeldFragment, sharedConfig } from "./client/hydration.ts";
 export { isStatic };
 import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, Match, isTwist, __twist_mark, builtin, erroredFallback } from "./client/control.ts";
@@ -796,13 +797,22 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
   // A template's dynamic hole: an id scope of its own, as Solid's insert effect (and the server's hole) is.
   if (scoped && isDynamic(value)) options = { ...options, transparent: false };
   if (schedule) options = { ...options, schedule: true };
-  const b = new Binding(parent, value, getOwner(), options);
+  const b = new Binding(parent, value);
   if (end) b.endAt = end;
   if (initial?.length) b.nodes = initial;
-  if (claimed) b.first = claimed;
-  if (host) b.host = host;
-  if (lone) b.lone = true;
-  createRenderEffect(process.env.NODE_ENV !== "production" ? () => ((b.node ??= getOwner()), bindingCompute(b)) : () => bindingCompute(b), (v: any) => bindingApply(b, v), options);
+  if (lone) b.flags = LONE;
+  if (schedule) b.flags |= SCHEDULED;
+  // (What only some bindings need, apart: a claim's place, a portal's host, the owner a description drawn late takes,
+  // development's names.)
+  if (claimed || host || sc.hydrating || process.env.NODE_ENV !== "production")
+    b.x = { first: claimed, lateRegistry: undefined, host, owner: sc.hydrating ? getOwner() : null, options, node: undefined };
+  const o = getOwner() as any;
+  createRenderEffect(process.env.NODE_ENV !== "production" ? () => ((b.x!.node ??= getOwner()), bindingCompute(b)) : () => bindingCompute(b), (v: any) => bindingApply(b, v), options);
+  // A template hole that read nothing, applied and done: written once, its effect let go (the owner's newest child).
+  if (name === undefined && o !== null) {
+    const n = o._firstChild;
+    if (n !== null && n._deps === null && n._firstChild === null && n._disposal === null && !n._modified && n._statusFlags === 0) disposeNode(n);
+  }
   return b;
 }
 /** Development: the element a binding writes, on its node (shown beside a finding about it). */
@@ -814,48 +824,58 @@ let pendingClaims = 0;
 const NO_NODES: Node[] = [];
 /** Its text is the one node its element has (set as textContent: not looked up until it changes). */
 const IN_PLACE = {} as Text;
-/** A node's children bound to a value: the state its render effect keeps. */
+/** (A binding's flags: its element's only child — a template's lone hole, its text set as the element's; it has
+ * computed once.) */
+const LONE = 1;
+const RAN = 2;
+/** (Its effect queued: a nested one is too.) */
+const SCHEDULED = 4;
+/** What some bindings keep besides. */
+type BindingExtra = {
+  /** Hydrating: where its first value claims the server's nodes. */
+  first: Cursor | undefined;
+  /** A first claim made after the walk (its value was pending): the server's keys it claims from. */
+  lateRegistry: Map<string, Element> | undefined;
+  host: (() => Node | null) | undefined;
+  /** Where it was made, when made while hydrating: a description drawn late belongs there. */
+  owner: Owner | null;
+  /** Its effect's options (a nested one takes its name). */
+  options: any;
+  /** Development: its effect's node (told the element it writes). */
+  node: any;
+};
+/** A node's children bound to a value: the state its render effect keeps (small: there is one per dynamic part). */
 class Binding {
-  /** The nodes it shows now: one text node, or a list. */
+  /** The text node it shows (IN_PLACE: its element's only child, looked up when it changes), or null. */
   text: Text | null = null;
   /** The text it last wrote there (undefined: adopted, not written yet). */
   said: string | undefined = undefined;
+  /** The nodes it shows, when not one text node. */
   nodes: Node[] = NO_NODES;
   endAt: Node | null = null;
-  /** Hydrating: where its first value claims the server's nodes. */
-  first: Cursor | undefined = undefined;
-  /** A first claim made after the walk (its value was pending): the server's keys it claims from. */
-  lateRegistry: Map<string, Element> | undefined = undefined;
-  host: (() => Node | null) | undefined = undefined;
-  /** Its element's only child (a template's lone hole): its text can be set as the element's. */
-  lone = false;
-  /** Whether it has computed once. */
-  ran = false;
-  /** Development: its effect's node (told the element it writes). */
-  node: any = undefined;
+  flags = 0;
+  x: BindingExtra | null = null;
   constructor(
     public place: Node,
     public source: () => any,
-    /** Where it was made: what it draws late belongs there. */
-    public owner: Owner | null,
-    public options: any,
   ) {}
 }
 /** A value's nodes in place: claimed from the server's the first time when hydrating. */
 function show(b: Binding, v: any) {
   // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
-  const at = b.first;
+  const at = b.x?.first;
   if (!at) return v;
-  b.first = undefined;
+  const x = b.x!;
+  x.first = undefined;
   // A hole the server marked (<!--$-->…<!--/-->): claimed between its markers, the end one its anchor.
   const open = at.next && at.next.nodeType === 8 && (at.next as Comment).data === "$" ? at.next : null;
   if (open) at.next = open.nextSibling;
   const claim = () => untrack(() => claims!.list(Array.isArray(v) ? v : [v], false, false, true, at));
   // (Claimed after the walk: in a window of its own, the keys the walk had.)
-  const late = b.lateRegistry;
+  const late = x.lateRegistry;
   let current: Node[];
   if (late && !hydrating) {
-    b.lateRegistry = undefined;
+    x.lateRegistry = undefined;
     hydrating = { registry: late };
     try {
       current = sc.hydrateWindow ? sc.hydrateWindow(undefined, claim, { registry: late }, getOwner()) : claim();
@@ -868,9 +888,9 @@ function show(b: Binding, v: any) {
     let n = at.next;
     while (n && !(n.nodeType === 8 && (n as Comment).data === "/")) {
       // Not what it renders (the server's page differed): gone.
-      const x = n.nextSibling;
+      const next = n.nextSibling;
       if (!current.includes(n)) n.parentNode!.removeChild(n);
-      n = x;
+      n = next;
     }
     b.endAt = n;
     at.next = n ? n.nextSibling : null;
@@ -887,13 +907,12 @@ function plainList(v: any[]) {
 }
 function bindingCompute(b: Binding) {
   const raw = b.source();
-  if (Array.isArray(raw) && plainList(raw)) return (b.ran = true), show(b, raw);
+  if (Array.isArray(raw) && plainList(raw)) return (b.flags |= RAN), show(b, raw);
   // Accessors in what it made: read by an effect of their own, so a change there is shown again, not made again.
-  if (!hasAccessor(raw)) return (b.ran = true), show(b, resolveDeep(raw));
-  // (Made again by a later run: its first apply queued, as the run it belongs to may be held.)
-  let options = b.ran && !b.options.schedule ? { ...b.options, schedule: true } : b.options;
-  if (process.env.NODE_ENV !== "production") options = { ...options, _wide: true };
-  b.ran = true;
+  if (!hasAccessor(raw)) return (b.flags |= RAN), show(b, resolveDeep(raw));
+  let options: any = b.flags & (RAN | SCHEDULED) ? NESTED_BINDING : BINDING;
+  if (process.env.NODE_ENV !== "production") options = { ...b.x!.options, schedule: !!(b.flags & (RAN | SCHEDULED)), transparent: true, _wide: true };
+  b.flags |= RAN;
   let node: any;
   createRenderEffect<any>(
     process.env.NODE_ENV !== "production" ? () => ((node ??= getOwner()), show(b, resolveDeep(raw))) : () => show(b, resolveDeep(raw)),
@@ -904,9 +923,10 @@ function bindingCompute(b: Binding) {
 }
 function bindingApply(b: Binding, v: any) {
   if (v === CLAIMED || v === NESTED) return;
-  if (process.env.NODE_ENV !== "production") devTag(b.node, b.place);
+  if (process.env.NODE_ENV !== "production") devTag(b.x!.node, b.place);
   const parent = b.place;
   const end = b.endAt;
+  const host = b.x?.host;
   let text = b.text;
   if (text === IN_PLACE) text = b.text = parent.firstChild as Text;
   // Text as text: its one node written in place, or made.
@@ -920,14 +940,14 @@ function bindingApply(b: Binding, v: any) {
     const current = b.nodes;
     if (current.length === 1 && current[0]!.nodeType === 3) return void (((b.text = current[0] as Text), (b.nodes = NO_NODES)), bindingApply(b, t));
     // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
-    if (!current.length && end === null && !b.host && (b.lone || (!parent.firstChild && parent.nodeType === 1))) {
+    if (!current.length && end === null && !host && (b.flags & LONE || (!parent.firstChild && parent.nodeType === 1))) {
       (parent as Element).textContent = t;
       return void ((b.text = IN_PLACE), (b.said = t));
     }
     if (!current.length) {
       const n = (b.text = document.createTextNode(t));
       b.said = t;
-      if (b.host) tagHost(n, b.host);
+      if (host) tagHost(n, host);
       parent.insertBefore(n, end);
       return;
     }
@@ -935,8 +955,9 @@ function bindingApply(b: Binding, v: any) {
   const current = text ? [text as Node] : b.nodes;
   if (text) (b.text = null), (b.said = undefined);
   // (What it makes, a description drawn late, belongs where the binding was made.)
-  const next = runWithOwner(b.owner, () => untrack(() => nodesOf(v, [], current)));
-  if (b.host) for (const n of next) tagHost(n, b.host);
+  const owner = b.x?.owner;
+  const next = owner ? runWithOwner(owner, () => untrack(() => nodesOf(v, [], current))) : untrack(() => nodesOf(v, [], current));
+  if (host) for (const n of next) tagHost(n, host);
   reconcile(parent, current, next, end);
   b.nodes = next;
 }
@@ -946,6 +967,9 @@ const NESTED = Symbol("nested");
 const hasAccessor = (v: any): boolean => typeof v === "function" || (Array.isArray(v) && v.some(hasAccessor));
 
 const BINDING = { transparent: true, sync: true } as any;
+/** The options of an effect nested in a binding (made again by a later run: its first apply queued, as the run it
+ * belongs to may be held). */
+const NESTED_BINDING = { ...BINDING, schedule: true };
 
 /** A binding's options: transparent, named `tag.prop` as Solid's compiled bindings are (owner paths say where). */
 const bindingNamed = (el: Node, prop: string) => {
@@ -1946,7 +1970,7 @@ function bindAt(fn: () => any, at: Cursor, inTemplate = false): Node[] {
   const b = bind(at.parent, fn, null, at, undefined, undefined, undefined, inTemplate);
   // (Its first value pending: it claims later, where it sits now, not where the walk will have gone by then — with
   // the keys the server rendered, as the walk had them.)
-  if (b.first === at) (b.first = { parent: at.parent, next: before }), (b.lateRegistry = hydrating?.registry), pendingClaims++;
+  if (b.x?.first === at) (b.x.first = { parent: at.parent, next: before }), (b.x.lateRegistry = hydrating?.registry), pendingClaims++;
   const out: Node[] = [];
   for (let n = before; n && n !== at.next; n = n.nextSibling) if (!isSeparator(n)) out.push(n);
   return out;
