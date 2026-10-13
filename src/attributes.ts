@@ -53,13 +53,16 @@ export const isCustomElement = (tag: string, _props?: any) => customTag(tag);
  * A custom element's attribute, as React 19 writes it: className as class (and htmlFor as for, on an `is` element),
  * true as present, false and null as absent, and no warnings. Functions and symbols are not attributes.
  */
-export function customAttribute(tag: string, name: string, value: any): [string, string | null] | null {
+/** The value the last attribute() or customAttribute() worked out (null: none, the attribute removed); they answer its name. */
+export let attrValue: string | null = null;
+
+export function customAttribute(tag: string, name: string, value: any): string | null {
   const t = typeof value;
   if (t === "function" || t === "symbol") return null;
   if (!attributeNameSafe(name)) return null;
   const attr = name === "className" ? "class" : name === "htmlFor" && !tag.includes("-") ? "for" : name;
-  if (value == null || value === false) return [attr, null];
-  return [attr, value === true ? "" : attributeString(value, name)];
+  if (value == null || value === false) return ((attrValue = null), attr);
+  return ((attrValue = value === true ? "" : attributeString(value, name)), attr);
 }
 
 /** `inert` once took "" for true: React says it now means false (once on each side, as its client and server keep a
@@ -108,53 +111,53 @@ function kindOf(name: string): number {
   return k;
 }
 
-export function attribute(tag: string, name: string, value: any, svg: boolean, side = "client"): [string, string | null] | null {
+export function attribute(tag: string, name: string, value: any, svg: boolean, side = "client"): string | null {
   const t = typeof value;
   switch (kindOf(name)) {
     case K_HANDLER:
       return null;
     case K_BOOLEAN:
       if (name === "inert") inertEmpty(value, side);
-      return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
+      return ((attrValue = value && t !== "function" && t !== "symbol" ? "" : null), name.toLowerCase());
     case K_BOOLEANISH:
-      if (value == null || t === "function" || t === "symbol") return [name, null];
-      return [name, attributeString(value, name)];
+      if (value == null || t === "function" || t === "symbol") return ((attrValue = null), name);
+      return ((attrValue = attributeString(value, name)), name);
     case K_OVERLOADED:
-      if (value === true) return [name, ""];
-      if (value == null || value === false || t === "function" || t === "symbol") return [name, null];
-      return [name, attributeString(value, name)];
+      if (value === true) return ((attrValue = ""), name);
+      if (value == null || value === false || t === "function" || t === "symbol") return ((attrValue = null), name);
+      return ((attrValue = attributeString(value, name)), name);
     case K_POSITIVENUMBER:
-      return [name, value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) && value >= 1 ? attributeString(value, name) : null];
+      return ((attrValue = value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) && value >= 1 ? attributeString(value, name) : null), name);
     case K_NUMBER:
-      return [name.toLowerCase(), value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) ? attributeString(value, name) : null];
+      return ((attrValue = value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) ? attributeString(value, name) : null), name.toLowerCase());
     case K_XML:
-      if (value == null || t === "function" || t === "symbol" || t === "boolean") return [XML[name]!, null];
-      return [XML[name]!, name === "xlinkHref" ? sanitizeURL(attributeString(value, name)) : attributeString(value, name)];
+      if (value == null || t === "function" || t === "symbol" || t === "boolean") return ((attrValue = null), XML[name]!);
+      return ((attrValue = name === "xlinkHref" ? sanitizeURL(attributeString(value, name)) : attributeString(value, name)), XML[name]!);
     case K_URL:
       // data is a URL only on <object> (React sanitizes it there alone).
       if (name !== "data" || tag === "object") {
         if (value === "" && !(tag === "a" && name === "href") && (name === "src" || name === "href" || name === "data")) {
           warn(`An empty string ("") was passed to the ${name} attribute. ${name === "src" ? "This may cause the browser to download the whole page again over the network. " : ""}To fix this, either do not render the element at all or pass null to ${name} instead of an empty string.`);
-          return [name, null];
+          return ((attrValue = null), name);
         }
-        if (value == null || t === "function" || t === "symbol" || t === "boolean") return [name, null];
-        return [name, sanitizeURL(attributeString(value, name))];
+        if (value == null || t === "function" || t === "symbol" || t === "boolean") return ((attrValue = null), name);
+        return ((attrValue = sanitizeURL(attributeString(value, name))), name);
       }
       break;
     case K_KNOWN: {
       const attr = ALIASES[name] ?? name;
-      if (value == null || t === "function" || t === "symbol" || t === "boolean") return [attr, null];
-      return [attr, attributeString(value, name)];
+      if (value == null || t === "function" || t === "symbol" || t === "boolean") return ((attrValue = null), attr);
+      return ((attrValue = attributeString(value, name)), attr);
     }
   }
   // Everything else: data- and aria- take booleans as text; any other attribute leaves booleans out.
   if (!attributeNameSafe(name)) return null;
   let attr = ALIASES[name] ?? name;
   if (svg && SVG_HYPHEN.test(name)) attr = name.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
-  if (value == null) return [attr, null];
-  if (t === "function" || t === "symbol") return [attr, null];
-  if (t === "boolean" && !dataOrAria(name)) return [attr, null];
-  return [attr, attributeString(value, name)];
+  if (value == null) return ((attrValue = null), attr);
+  if (t === "function" || t === "symbol") return ((attrValue = null), attr);
+  if (t === "boolean" && !dataOrAria(name)) return ((attrValue = null), attr);
+  return ((attrValue = attributeString(value, name)), attr);
 }
 
 // ---------------------------------------------------------------- validation (React DOM's assertValidProps and friends)

@@ -3,7 +3,7 @@
 declare const process: { env: Record<string, string | undefined> };
 
 import { effect, runWithOwner, untrack } from "./signals.js";
-import { XLINK_NS, XML_NS, attribute, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
+import { XLINK_NS, XML_NS, attribute, attrValue, attributeNameSafe, customAttribute, customTag, isCustomElement } from "./attributes.ts";
 import { BEFORE_INPUT_SOURCES, SELECT_SOURCES, configure, delegated, enterLeaveSources, listenAt, want } from "./events.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
 import { cssString } from "./coercion.ts";
@@ -354,9 +354,9 @@ export function setProp(el: Element, name: string, next: any, prev: any, svg: bo
     if (next == null || next === false || typeof next === "function" || typeof next === "symbol") return el.removeAttribute(name);
     return el.setAttribute(name === "className" ? "class" : name, String(next));
   }
-  const out = isCustomElement(tag, (el as any)[PROPS]) ? customAttribute(tag, name, next) : attribute(tag, name, next, svg);
-  if (!out) return;
-  const [attr, value] = out;
+  const attr = isCustomElement(tag, (el as any)[PROPS]) ? customAttribute(tag, name, next) : attribute(tag, name, next, svg);
+  if (attr === null) return;
+  const value = attrValue;
   const ns = attr.startsWith("xlink:") ? XLINK_NS : attr.startsWith("xml:") ? XML_NS : null;
   if (value == null) ns ? el.removeAttributeNS(ns, attr.slice(attr.indexOf(":") + 1)) : el.removeAttribute(attr);
   else ns ? el.setAttributeNS(ns, attr, value) : el.setAttribute(attr, value);

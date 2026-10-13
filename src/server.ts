@@ -8,7 +8,7 @@ import { validateProps, validateStyle } from "./validate-props.ts";
 import { fieldString } from "./coercion.ts";
 import { dev } from "./warnings.ts";
 import { styleText } from "./props.ts";
-import { assertValidProps, attribute, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
+import { assertValidProps, attribute, attrValue, checkTagName, customAttribute, isCustomElement } from "./attributes.ts";
 import { Resources } from "./float-server.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
 import { warn, warnOnce } from "./warnings.ts";
@@ -146,7 +146,7 @@ function attrs(props: any, ctx: Ctx, tag: string) {
     // A custom element's object and array props are properties the client sets, not attributes (React's Fizz).
     if (custom && v !== null && typeof v === "object") continue;
     const a = custom ? customAttribute(tag, k, v) : attribute(tag, k, v, ctx.svg, "server");
-    if (a) out += pair(a[0], a[1]);
+    if (a !== null) out += pair(a, attrValue);
   }
   return out;
 }
@@ -685,8 +685,12 @@ function lazyResolved(type: any, props: any, ctx: Ctx, hooks: any): string {
   }
 }
 
+/** Per tag, worked out once: checked as a tag React writes, and whether it closes itself. */
+const tags: Record<string, { selfClosing: boolean } | undefined> = Object.create(null);
+const tagOf = (tag: string) => tags[tag] ?? (checkTagName(tag), (tags[tag] = { selfClosing: VOID.has(tag) && tag !== "menuitem" }));
+
 function host(tag: string, props: any, ctx: Ctx, hooks: any): string {
-  checkTagName(tag);
+  tagOf(tag);
   if (process.env.NODE_ENV !== "production" && !ctx.svg && !tag.includes("-") && tag.toLowerCase() !== tag)
     warn(`<${tag} /> is using incorrect casing. Use PascalCase for React components, or lowercase for HTML elements.`);
   assertValidProps(tag, props);
@@ -821,7 +825,7 @@ function hostRest(tag: string, props: any, ctx: Ctx, hooks: any, open: string, s
     if (chosen !== undefined && (Array.isArray(chosen) ? chosen.map(String).includes(String(v)) : String(chosen) === String(v))) open += " selected";
   }
   // A void element closes itself, as React writes it.
-  if (VOID.has(tag) && tag !== "menuitem") {
+  if (tagOf(tag).selfClosing) {
     ctx.svg = svg;
     const after = tag === "input" && ctx.formFields ? ctx.formFields : "";
     ctx.formFields = "";
