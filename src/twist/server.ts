@@ -2,31 +2,36 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, keyOwnerOf, idScope, inIdScope, idPlace, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly, onCleanup, renderContextOf, setServerSharer, installServerStreams } from "./signals.ts";
-installServerStreams();
+import { ssrScope, createMemo, createOwner, createRoot, disposeOwner, getNextChildId, getOwner, NotReadyError, resetOwnerForRerun as resetOwner, runWithOwner, untrack, onCleanup, merge, omit, isStatic, NoHydrateContext, RevealGroupContext, getProjectionTrace, SOURCE_ANSWER, type Owner } from "./server/signals.ts";
+import { sharedConfig } from "./server/shared.ts";
+import { alive, childIdCount, setChildIdCount, keyOwnerOf, inIdScope, idPlace, ownerParent, standing, settlesOf, isClientOnly, fileRenderRoot, renderContextOf } from "./server/twist.ts";
 import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
-import { merge, omit, isStatic } from "./flow.ts";
 import { createHydrationSerializer, getLocalHeaderScript as headerScript } from "./serialization.ts";
-import { __twist_mark, markBuiltin, renderComponent, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
+import { __twist_mark, markBuiltin, renderComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./server/control.ts";
 
-// (Solid's server API by name: a star export of server-solid would bring this module's Loading, Errored… back to it.)
-export * from "./index.ts";
-export { lazy, createRenderEffect, createEffect, createTrackedEffect, onSettled, createSignal, createOptimistic, createStore, createOptimisticStore, reconcile, isPending, action, createUniqueId } from "./server-solid.ts";
-export * from "./control.ts";
+// (Solid's server API by name; this module's Loading, Errored… over the layer's.)
+export * from "./server/index.ts";
+export { lazy } from "./server-solid.ts";
+export * from "./server/control.ts";
+export { createComponent } from "./server/control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
 import { commitResponseStub, deriveHead, devCheck, getRequestEvent, peekRequestEvent, setRequestErrorHook, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
 import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
-import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
-import { getProjectionTrace } from "./container-trace.ts";
+import { setAsyncIterableSharer, setContainerTraceResolver, toBorderForm } from "./frames/frame-container-plugin.ts";
 import { traceFor, traceForEvent, traceMetaMarkup } from "./trace.ts";
 import { inServerComponentScope, shareAsyncIterable } from "./server-internal.ts";
 import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
-setServerSharer(shareAsyncIterable);
+/** An owner made under `parent` (given its id, unless transparent). */
+/** A dynamic hole's id scope (Solid's ssrScope): one id taken now, what it makes taking ids under it each run. */
+const idScope = <T,>(fn: () => T) => ssrScope(fn) as () => T;
+const ownerUnder = (parent: Owner | null, options?: { transparent?: boolean; id?: string }) => runWithOwner(parent, () => createOwner(options));
+/** A value on an owner's own context record (what is made under it inherits it). */
+const putContext = (o: any, key: symbol, value: unknown) => void (o._context = { ...o._context, [key]: value });
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, nonceAttr, normalizeNonce, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, resourceIdentity, serializeFragmentAssets, type AssetTracking, type Nonce } from "./server-assets.ts";
 import { isSlotValue, slotAttribute, slotClassOrStyle, slotSpreadSource, spreadBehaviorMarkers, spreadBehaviorPosition, spreadPropPosition } from "./server-slots.ts";
 export {
@@ -445,18 +450,58 @@ function dynamicCore<P>(source: () => any, options: { static?: boolean; deferStr
     if (w && typeof w.then === "function") throw new Error("dynamic(): a static source must resolve synchronously");
     return (props: any) => make(w, props);
   }
-  // As the client's: the source's answer kept once, then a value and its rendering per instance.
-  // (deferStream: its answer holds the shell.)
+  // As the client's (Solid's server dynamic, ported): the source run once per mount, a thenable answer boxed so this
+  // memo stays sync and is nobody's record; per instance, a value memo that unboxes (an ordinary async memo, its landing
+  // serialized under the instance's id) and a render.
   const cached = createMemo(() => {
-    const v = source();
-    return v && typeof v.then === "function" ? v.then(classifyLanding) : v;
-  }, options?.deferStream ? ({ deferStream: true } as any) : undefined);
+    const next: any = source();
+    return next && typeof next.then === "function" ? { [FLIGHT]: next } : next;
+  });
+  const deferStream = !!options?.deferStream;
   return (props: any) => {
-    const which = createMemo(() => cached());
-    return createMemo(() => ({ t: html(make(which(), props), false) }));
+    const ctx = sharedConfig.context as any;
+    let gated = !deferStream || !ctx?.async;
+    const value = createMemo(
+      () => {
+        let c: any;
+        try {
+          c = cached();
+        } catch (err) {
+          // (deferStream over a dependency the source reads that is pending: the shell held on it once — never on
+          // client-only content, which nothing on the server settles.)
+          if (!gated && err instanceof NotReadyError && !(err as any).source?.$clientHole) {
+            gated = true;
+            ctx.block(Promise.resolve((err as any).source).then(noopFn, noopFn));
+          }
+          throw err;
+        }
+        if (!c || !c[FLIGHT]) return c;
+        const next: PromiseLike<any> = c[FLIGHT];
+        // (The landing classified in the source promise's own handlers: no extra microtask.)
+        return {
+          then: (ok?: (v: any) => any, fail?: (e: any) => any) =>
+            next.then((resolved: any) => {
+              let landed: any;
+              try {
+                landed = classifyLanding(resolved);
+              } catch (err) {
+                if (fail) return fail(err);
+                throw err;
+              }
+              return ok ? ok(landed) : landed;
+            }, fail),
+        };
+      },
+      { deferStream } as any,
+    );
+    return createMemo(() => ({ t: html(make(value(), props), false) }), { sync: true } as any);
   };
 }
+/** The box a dynamic() factory holds a thenable answer in (its per-instance memo is the one that goes async). */
+const FLIGHT = Symbol("twist.dynamic-flight");
 
+/** The render context a Loading boundary was made in (a server component's clone carries its frame id). */
+const madeIn = new WeakMap<object, unknown>();
 /** A server Errored's answer for a failure inside it: its fallback's markup (read by a failed Loading's fragment). */
 const ERRORED_OUTCOME = Symbol("twist.ssr.errored-outcome");
 
@@ -466,7 +511,7 @@ const ERRORED_OUTCOME = Symbol("twist.ssr.errored-outcome");
  */
 function failedOutcome(r: Render, boundary: any, fallback: string, e: unknown): string {
   if (!inServerComponentScope(boundary)) return " ";
-  const answer = boundary.context?.[ERRORED_OUTCOME] as ((e: unknown) => string) | undefined;
+  const answer = boundary._context?.[ERRORED_OUTCOME] as ((e: unknown) => string) | undefined;
   if (answer) {
     // (Finished markup, nothing live in it: the live-hole engine mints nothing for it.)
     const live = (r.ctx as any)?.liveHoles;
@@ -480,7 +525,7 @@ function failedOutcome(r: Render, boundary: any, fallback: string, e: unknown): 
   }
   const message = e instanceof Error ? e.message : String(e);
   // (The frame as one value errors: a frame stream's unkeyed error chunk, or the document's live op addressed to it.)
-  const ctx = (boundary.renderCtx ?? r.ctx) as any;
+  const ctx = (madeIn.get(boundary) ?? r.ctx) as any;
   if (r.options.sink?.error) r.sink.error!("", message);
   else ctx?.live?.error?.(ctx.frameId, message);
   return fallback.replace(/^<template id="pl-[^"]*"><\/template>|<!--pl-[^>]*-->$/g, "");
@@ -494,7 +539,7 @@ export function Errored(props: { fallback: any; children?: any }) {
   const output = createOwner();
   const content = ownerUnder(boundary);
   // (In a server component: what a failed Loading inside it renders in its place, this fallback for the error.)
-  if (inServerComponentScope(content)) content.context = { ...content.context, [ERRORED_OUTCOME]: (err: unknown) => fallback(err) };
+  if (inServerComponentScope(content as any)) putContext(content, ERRORED_OUTCOME, (err: unknown) => fallback(err));
   const fallback = (err: unknown) => {
     // What the client may see of it: the error hook's answer, else the sanitized error (heard once, where it was met).
     const id = (boundary as any).id;
@@ -596,12 +641,12 @@ export function ssrHydrationKey() {
 }
 
 let noHydration = 0;
-/** NoHydration and Hydration mark their owners: what renders under them later (a boundary's retry) still knows. */
-const NO_HYDRATE = Symbol.for("twist.ssr.no-hydrate");
-// (Registered: it crosses a server component's context barrier, as Solid's NoHydrateContext does — see server-internal.)
+/** NoHydration and Hydration mark their owners (Solid's NoHydrateContext): what renders under them later (a
+ * boundary's retry) still knows, and it crosses a server component's barrier. */
+const NO_HYDRATE = NoHydrateContext.id;
 /** Whether rendering under NoHydration (nothing hydrates there). */
 export const isNoHydration = () => {
-  const marked = (getOwner() as any)?.context?.[NO_HYDRATE];
+  const marked = (getOwner() as any)?._context?.[NO_HYDRATE];
   return marked !== undefined ? marked : noHydration > 0;
 };
 
@@ -611,6 +656,7 @@ const eventRenders = new WeakMap<object, Set<any>>();
 function claimRender(ctx: any) {
   ctx.rooted = true;
   ctx.writer = hydrationWriter(ctx);
+  fileRenderRoot(getOwner()!, ctx);
   const event = peekRequestEvent();
   let renders = event && eventRenders.get(event);
   if (event && !renders) eventRenders.set(event, (renders = new Set()));
@@ -656,7 +702,7 @@ export function getHydrationWriter() {
 /** Its children render with no hydration keys (they will not be hydrated). */
 export function NoHydration(props: { children?: any }) {
   const o = createOwner({ transparent: true }) as any;
-  o.context = { ...o.context, [NO_HYDRATE]: true };
+  putContext(o, NO_HYDRATE, true);
   noHydration++;
   try {
     return { t: runWithOwner(o, () => html(props.children, false)) };
@@ -672,7 +718,7 @@ export function Hydration(props: { id?: string; children?: any }) {
   const was = noHydration;
   noHydration = 0;
   const o = ownerUnder(getOwner(), { id: props.id ?? "" }) as any;
-  o.context = { ...o.context, [NO_HYDRATE]: false };
+  putContext(o, NO_HYDRATE, false);
   try {
     // Keys from `id` on (a server component's client content claims under its occurrence's prefix).
     return runWithOwner(o, () => {
@@ -1005,7 +1051,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
       } catch (e) {
         // A part of the shell not ready yet waits on its own, like any hole.
         const waits = e instanceof NotReadyError && rr?.async && settlesOf(e);
-        if (!waits || (boundaries > 0 && !rr!.shellSent && holdsShell(e))) throw e;
+        if (!waits) throw e;
         parts.add(later(rr!, scoped ? () => scoped().out : () => list([f], own, inTemplate), waits, o, at), false, false);
         continue;
       }
@@ -1127,8 +1173,6 @@ type Render = {
   chunks: string[];
   wake: (() => void) | null;
   revealScript: boolean;
-  /** What async nodes answered, by id: a retry takes the same answer instead of asking again. */
-  answers: Map<string, [boolean, unknown]>;
   options: { renderId?: string; noHydrate?: boolean; sink?: Partial<Sink> };
   /** What useHead registered, and whether the patch script has been sent. */
   head: HeadRegistry | null;
@@ -1281,11 +1325,14 @@ const fragments = new WeakMap<object, (v: boolean) => void>();
 let boundaries = 0;
 /** Marks a server <Loading> boundary's owner (what reads under it, on any later pass, is inside it). */
 const LOADING_OWNER = Symbol("twist.ssr.loading");
-setInsideLoading((o) => {
-  if (boundaries > 0) return true;
-  for (let x: any = o; x; x = x.parent) if (x[LOADING_OWNER]) return true;
-  return false;
-});
+/** Whether a render is inside a <Loading> now (Solid's `_loadingPhase`: a client-only read is the boundary's then). */
+const insideLoading = () => boundaries > 0 || !!(getOwner() as any)?._context?.[LOADING_OWNER];
+/** A render context's `_loadingPhase`, as the layer reads it: inside a Loading now, or set by a boundary of its own. */
+function loadingPhase(ctx: any) {
+  let set: boolean | undefined;
+  Object.defineProperty(ctx, "_loadingPhase", { configurable: true, get: () => set ?? insideLoading(), set: (v) => void (set = v) });
+  return ctx;
+}
 let holeCount = 0;
 
 /**
@@ -1302,21 +1349,15 @@ function hole(fn: () => string, scoped = false): string {
     return fn();
   } catch (e) {
     const waits = e instanceof NotReadyError && settlesOf(e);
-    if (!waits || (boundaries > 0 && !r.shellSent && holdsShell(e))) throw e;
+    if (!waits) throw e;
     return later(r, fn, waits, o, at);
   }
 }
 
 /** A placeholder in the shell for `fn`, rendered again (from the same ids) once `waits` settles. */
-/** Whether a hole made under `o` still belongs to the render: none of its owners reset or disposed since. */
-function stillOwned(o: any): () => boolean {
-  const seen: [any, number][] = [];
-  for (let x = o; x; x = x.parent) seen.push([x, x.resets ?? 0]);
-  return () => seen.every(([x, n]) => !x.disposed && (x.resets ?? 0) === n);
-}
-
 function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: number): string {
-  const owned = stillOwned(o);
+  // (Thrown away with a pass of its boundary rendered again, or disposed: nothing to fill.)
+  const owned = standing(o);
   // (Under the id it was made under: a hole's scope had given its owner one only while the hole ran.)
   const place = idPlace(o);
   // (The boundary it renders in: what it registers in the head and as assets is that boundary's, when it comes.)
@@ -1353,8 +1394,7 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
               );
             } catch (e2) {
               // (Client-only content: passed up as it is, its boundary hands it to the client.)
-              const next = e2 instanceof NotReadyError && !isClientOnly(e2) && settlesOf(e2);
-              if (next) holdShell(r, e2, next);
+              const next = e2 instanceof NotReadyError && settlesOf(e2);
               next ? again(next) : fail(e2);
             }
           });
@@ -1383,7 +1423,9 @@ async function filled(r: Render, s: string, pass?: () => void): Promise<string> 
 export function Loading(props: { fallback?: any; on?: unknown; children?: any }): { t: string } {
   const parent = getOwner();
   const boundary = ownerUnder(parent);
-  (boundary as any)[LOADING_OWNER] = true;
+  putContext(boundary, LOADING_OWNER, true);
+  madeIn.set(boundary, sharedConfig.context);
+  const boundaryAlive = alive(boundary);
   // (A group coordinates the boundaries directly inside it, not theirs.)
   const group = revealGroupOf(parent);
   if (group) setRevealGroup(boundary, null);
@@ -1424,15 +1466,6 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
     // (Client-only content: nothing on the server settles it.)
     const client = isClientOnly(e);
     const waits = client ? null : settlesOf(e);
-    // What holds the shell (a module loading, data marked deferStream): the boundary waits in the shell, unseen.
-    if (r && r.async && !r.shellSent && waits && holdsShell(e)) {
-      if (id != null) trackBoundary(r, id, boundary, group);
-      resetOwner(boundary);
-      const at = childIdCount(parent);
-      (parent as any).owned?.splice((parent as any).owned.indexOf(boundary), 1);
-      setChildIdCount(parent, at - 1);
-      return { t: later(r, () => (Loading(props) as any).t, waits, parent, at - 1) };
-    }
     const reg = group && id != null ? group.register(id) : null;
     // Collapsed by its group, outside a stream: nothing shows for it.
     if (reg?.collapseFallback && (!r || !r.async)) return { t: "" };
@@ -1466,7 +1499,7 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
         r.waiting.delete(p);
         // A boundary rendered again since (or thrown away): this retry is not its any more.
         // (Its record settles: nothing will be sent for it.)
-        if ((boundary as any).disposed) return fragments.get(boundary)?.(false), r.wake?.();
+        if (!boundaryAlive()) return fragments.get(boundary)?.(false), r.wake?.();
         resetOwner(boundary);
         track.passes++;
         try {
@@ -1517,7 +1550,6 @@ export function Loading(props: { fallback?: any; on?: unknown; children?: any })
             group?.onResolved(id!);
             return void r.wake?.();
           }
-          holdShell(r, e2, next);
           retry(next);
         }
         r.wake?.();
@@ -1540,10 +1572,10 @@ function trackBoundary(r: Render | null, id: string, boundary: object, group: Re
   t.passes++;
   return t;
 }
-/** The boundaries a render has told (settled, or revealed with their group). */
+/** The boundaries the shell waited on (as Solid's render record counts them): settled before it went out, after a wait. */
 const toldBoundaries = (r: Render) => {
   let n = 0;
-  for (const t of r.tracks?.values() ?? []) if (t.told) n++;
+  for (const t of r.tracks?.values() ?? []) if (t.outcome !== undefined && !t.streamed && t.passes > 1) n++;
   return n;
 };
 /** How it ended: told now, or (in a group) when the group reveals it. */
@@ -1624,10 +1656,6 @@ function boundaryRecord(r: Render, boundary: object, id: string) {
 /** What fails each streamed boundary's fragment record (the client renders the subtree, and meets the error there). */
 const failures = new WeakMap<object, (e: unknown) => void>();
 
-/** A wait the shell must not go out before (deferred data found while a boundary retries). */
-function holdShell(r: Render, e: unknown, waits: Promise<void>) {
-  if (!r.shellSent && e instanceof NotReadyError && holdsShell(e)) r.blocks.add(waits);
-}
 
 /** A boundary whose content waits on holes of its own: its fallback in place, the content streamed once filled. */
 /** A boundary's place in the stream: its fallback between markers (kept in the template while its group collapses it). */
@@ -1643,9 +1671,10 @@ function boundaryModules(id: string) {
 
 function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>, group: RevealGroup | null = null, collapse = false, track?: BoundaryTrack): string {
   boundaryRecord(r, boundary, id);
+  const live = alive(boundary);
   const done: Promise<void> = content.then(
     (html) => {
-      if (boundary.disposed) return void fragments.get(boundary)?.(false);
+      if (!live()) return void fragments.get(boundary)?.(false);
       rendering(r, r.options, () => {
         const patch = r.head ? headPatch(r, id) : "";
         fragments.get(boundary)?.(true);
@@ -1703,9 +1732,10 @@ type RevealGroup = {
   onResolved(key: string): void;
   onMinimallyResolved?(key: string): void;
 };
-const REVEAL_GROUP = Symbol("twist.ssr.reveal-group");
-const revealGroupOf = (o: any): RevealGroup | null => (o?.context?.[REVEAL_GROUP] as RevealGroup | undefined) ?? null;
-const setRevealGroup = (o: any, g: RevealGroup | null) => void (o.context = { ...o.context, [REVEAL_GROUP]: g });
+// (Solid's RevealGroupContext: it crosses a server component's barrier.)
+const REVEAL_GROUP = RevealGroupContext.id;
+const revealGroupOf = (o: any): RevealGroup | null => (o?._context?.[REVEAL_GROUP] as RevealGroup | undefined) ?? null;
+const setRevealGroup = (o: any, g: RevealGroup | null) => putContext(o, REVEAL_GROUP, g);
 
 /** The order the Loading boundaries directly inside reveal in, as the stream sends them. */
 export function Reveal(props: { order?: RevealOrder; collapsed?: boolean; children?: any }) {
@@ -2113,23 +2143,6 @@ function headPatch(r: Render, id: string): string {
 
 // ---------------------------------------------------------------- render entry points
 
-/** An async node's answer, sent to the client under its id (once; nothing under NoHydration). */
-const noopFn = () => {};
-function sendAnswer(node: any, answer: unknown) {
-  const r = render;
-  // Data marked deferStream holds the shell until it lands, wherever it is first asked (as Solid's serialize).
-  if (r && node?.deferStream && !r.shellSent && answer && typeof (answer as any).then === "function")
-    r.blocks.add((answer as Promise<unknown>).then(noopFn, noopFn));
-  const id = node?.id as string | undefined;
-  if (!r?.serializer || id == null || isNoHydration() || !sharedConfig.context || r.written.has(id)) return;
-  r.written.add(id);
-  // (A stream the client goes on with: the server answers with its first value only, the client's iteration the rest.)
-  if (node?.ssrSource === "hybrid" && answer && typeof (answer as any)[Symbol.asyncIterator] === "function" && typeof (answer as any).then !== "function") {
-    const it = (answer as any)[Symbol.asyncIterator]();
-    answer = Promise.resolve(it.next()).then((step: IteratorResult<unknown>) => (it.return?.(), step.value));
-  }
-  r.serializer.write(id, awaitData(r, answer, id));
-}
 /** A value still to come (a promise, or an async source's values): the stream stays open until it has all been written. */
 function awaitData<V>(r: Render, v: V, id?: string): V {
   if (!isData(v)) return v;
@@ -2137,47 +2150,83 @@ function awaitData<V>(r: Render, v: V, id?: string): V {
   let open = true;
   const done = () => open && ((open = false), id != null && r.abandons.delete(id), queueMicrotask(() => (r.pendingData--, r.wake?.())));
   if (id != null) r.abandons.set(id, Object.assign(done, { [DATA]: true }));
-  // (A promise as it is, the serializer's to write; one that answers with a source, held until that ends.)
-  if (typeof (v as any).then === "function" && !(v as any)[SOURCE_ANSWER]) return (v as any).then(done, done), v;
-  return held(v, done);
+  // (A promise or an answer's source as it is, the serializer's to write: a promise done when it settles — or, answering
+  // with a source, when that ends; a source when it ends.)
+  if ((v as any).__SEROVAL_STREAM__ === true) return held(v, done);
+  if (typeof (v as any).then === "function") (v as any).then((x: any) => (x && x[SOURCE_ANSWER] ? endOf(x, done) : done()), done);
+  else endOf(v, done);
+  return v;
 }
-// (A source counts only when it is the client's reader of one Twist split: anything else goes to the serializer as it is.)
+/** `done` called when an answer's source (one of the layer's channels, ours to change) ends, fails or is let go of. */
+function endOf(source: any, done: () => void) {
+  const open = source[Symbol.asyncIterator];
+  // (A turn later: the serializer writes the end it read first.)
+  const ended = () => deferFlush(done);
+  source[Symbol.asyncIterator] = function (this: unknown) {
+    const it = open.call(this);
+    return {
+      next: (...a: any[]) => Promise.resolve(it.next(...a)).then((x: IteratorResult<unknown>) => (x.done && ended(), x), (e: unknown) => (ended(), Promise.reject(e))),
+      return: (x?: unknown) => (ended(), it.return ? it.return(x) : Promise.resolve({ done: true, value: x })),
+    };
+  };
+}
+// (A source counts only when it is an async node's answer: anything else goes to the serializer as it is.)
 const isData = (v: any) => !!v && (typeof v.then === "function" || v.__SEROVAL_STREAM__ === true || (typeof v[Symbol.asyncIterator] === "function" && !!v[SOURCE_ANSWER]));
-/** An answer's value with `done` called once the sources inside it (plain objects' and arrays') have all ended. */
-function heldInside(x: any, done: () => void): any {
-  let left = 1;
-  const part = () => () => --left === 0 && done();
-  const map = (v: any, seen: Map<object, any>): any => {
-    if (!v || typeof v !== "object") return v;
-    if (typeof v[Symbol.asyncIterator] === "function" && typeof v.then !== "function") return left++, held(v, part());
-    if (seen.has(v)) return seen.get(v);
-    const proto = Object.getPrototypeOf(v);
-    if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v;
-    let copy: any = null;
-    for (const k of Object.keys(v)) {
-      const c = map(v[k], seen);
-      if (c !== v[k]) (copy ??= Array.isArray(v) ? [...v] : { ...v })[k] = c;
-    }
-    seen.set(v, copy ?? v);
-    return copy ?? v;
-  };
-  const out = map(x, new Map());
-  part()();
-  return out;
+/**
+ * A value as it crosses to the client (Solid's funnel, ported from its server.ts, MIT): every async iterable in it — the
+ * channel itself, or one nested in a resolved answer — a seat on the shared stream of it (so the serializer and a memo
+ * reading the same source see the whole sequence), and a failure the client may see sanitized. One guard per channel.
+ */
+const guardedChannels = new WeakMap<object, any>();
+const verdictNow = (error: unknown) => {
+  throw ssrSanitizeError(error, null);
+};
+const borderForm = (value: unknown) => toBorderForm(value, false);
+const guardIterable = (iterable: any) => ({
+  [Symbol.asyncIterator]() {
+    const iterator = iterable[Symbol.asyncIterator]();
+    return {
+      next: (value?: unknown) => iterator.next(value).then(undefined, verdictNow),
+      return: (value?: unknown) => (iterator.return ? iterator.return(value) : Promise.resolve({ done: true, value })),
+      throw: (error?: unknown) => (iterator.throw ? iterator.throw(error) : Promise.reject(error)),
+    };
+  },
+});
+const guardStream = (source: ReadableStream) => {
+  const reader = source.getReader();
+  return new ReadableStream({
+    pull: (c) =>
+      reader.read().then(
+        (r) => (r.done ? c.close() : c.enqueue(r.value)),
+        (e) => {
+          try {
+            verdictNow(e);
+          } catch (sanitized) {
+            c.error(sanitized);
+          }
+        },
+      ),
+    cancel: (reason) => reader.cancel(reason),
+  });
+};
+function guardChannel(p: any): any {
+  if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
+  let guarded = guardedChannels.get(p);
+  if (guarded !== undefined) return guarded;
+  if (typeof p.then === "function") guarded = p.then(borderForm, verdictNow);
+  else if (typeof ReadableStream === "function" && p instanceof ReadableStream) guarded = guardStream(p);
+  else {
+    const border: any = borderForm(p);
+    guarded = border && typeof border[Symbol.asyncIterator] === "function" ? guardIterable(border) : border;
+    if (guarded === p) return p;
+  }
+  guardedChannels.set(p, guarded);
+  return guarded;
 }
-/** `v` with `done` called once it has all come: a promise when it settles (or, answering with a source, when that ends). */
+
+/** A serialized stream: `done` when it returns or throws. */
 function held(v: any, done: () => void): any {
-  // (A serialized stream: done when it returns or throws.)
-  if (v.__SEROVAL_STREAM__ === true) return v.on({ next() {}, throw: done, return: done }), v;
-  if (typeof v.then === "function") return v.then((x: any) => (x && typeof x[Symbol.asyncIterator] === "function" ? held(x, done) : heldInside(x, done)), (e: unknown) => (done(), Promise.reject(e)));
-  // (A source: done when it ends, fails or is let go of. Only the iterator method shows: what is serialized is the
-  // source, not its reader's methods.)
-  const it = v[Symbol.asyncIterator]();
-  const reader = {
-    next: (...a: any[]) => Promise.resolve(it.next(...a)).then((x: IteratorResult<unknown>) => (x.done && done(), x), (e: unknown) => (done(), Promise.reject(e))),
-    return: (x?: unknown) => (done(), it.return ? it.return(x) : Promise.resolve({ done: true, value: x })),
-  };
-  return { [Symbol.asyncIterator]: () => reader };
+  return v.on({ next() {}, throw: done, return: done }), v;
 }
 
 /** The data not yet sent, as a script (the scope's header ahead of the first). */
@@ -2195,20 +2244,12 @@ function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?
   render = r;
   const wasHead = head;
   if (r) head = r.head;
-  setServerAnswers(r?.answers ?? null);
-  setServerFly(r?.serializer ? sendAnswer : null);
-  const wasServer = setServerRender(true);
-  const wasScope = setServerScope(r ? { key: r, enter: (f) => rendering(r, options, f) } : null);
   try {
     return fn();
   } finally {
-    setServerScope(wasScope);
-    setServerRender(wasServer);
     // (The context stays the global one: whichever render touched it last, as Solid leaves it.)
     render = wasRender;
     head = wasHead;
-    setServerAnswers(wasRender?.answers ?? null);
-    setServerFly(wasRender?.serializer ? sendAnswer : null);
   }
 }
 
@@ -2251,7 +2292,7 @@ function renderRecord(ctx: any, mode: "string" | "stream") {
       const emit = () => records.emit("render", event, { trace: ctx.trace?.context, event: ctx.event ?? getRequestEvent() });
       if (released) return void runWithOwner(null, emit);
       const o = runWithOwner(null, () => createOwner()) as any;
-      o.renderCtx = ctx;
+      fileRenderRoot(o, ctx);
       runWithOwner(o, emit);
     },
   };
@@ -2345,12 +2386,12 @@ function resolveTemplate(v: any): { t: string[]; h: any[]; p: Promise<unknown>[]
 
 /** The context a string render's code reads: nothing waits, nothing is sent. */
 function stringContext(id: string) {
-  return { id, count: 0, async: false, document: true, escape, ssr, resolve: resolveTemplate, serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} };
+  return loadingPhase({ id, count: 0, async: false, document: true, escape, ssr, resolve: resolveTemplate, serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} });
 }
 
 /** The context of a stream: Solid's render context API over this render. */
 function streamContext(r: Render, options: StreamOptions) {
-  return {
+  return loadingPhase({
     errorPolicy: options.onError,
     id: options.renderId ?? "",
     count: 0,
@@ -2362,9 +2403,10 @@ function streamContext(r: Render, options: StreamOptions) {
     ssr,
     resolve: resolveTemplate,
     serialize(id: string, p: unknown, deferStream?: boolean) {
+      // (Data marked deferStream holds the shell until it lands.)
+      if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add((p as Promise<unknown>).then(noopFn, noopFn));
       if (!r.serializer) return;
-      if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add(p as Promise<unknown>);
-      r.serializer.write(id, awaitData(r, p, id));
+      r.serializer.write(id, guardChannel(awaitData(r, p, id)));
     },
     block(p: Promise<unknown>) {
       if (!r.shellSent) r.blocks.add(p);
@@ -2417,8 +2459,9 @@ function streamContext(r: Render, options: StreamOptions) {
       r.sink.reveal(Array.isArray(keys) ? keys : [keys], { fallback: true });
     },
     flushed: () => r.shellSent,
-  };
+  });
 }
+const noopFn = () => {};
 
 type StreamOptions = {
   renderId?: string;
@@ -2442,7 +2485,7 @@ type StreamOptions = {
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: StreamOptions = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: null as any, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null, nonce: normalizeNonce(options.nonce), abandons: new Map() };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, options, holes: new Map(), shellSent: false, head: null as any, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null, nonce: normalizeNonce(options.nonce), abandons: new Map() };
   r.head = newHead(r.tracking.resources);
   // Its hook is its request's: a server function the request calls later reports to it.
   fileRequestHook(options.onError);

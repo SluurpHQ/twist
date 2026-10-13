@@ -1,6 +1,6 @@
 // @ts-nocheck
 // Ported from Solid's web/src/server.ts (MIT, Ryan Carniato and contributors): binding-slot values and claims, the
-import { sharedConfig } from "./signals.ts";
+import { sharedConfig } from "./server/shared.ts";
 import { inServerComponentScope } from "./server-internal.ts";
 import { devCheck, recordFinding } from "./request.ts";
 import { escape, ssrClassName, ssrStyle } from "./server.ts";

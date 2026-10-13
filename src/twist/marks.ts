@@ -10,6 +10,8 @@ const CHILDREN = Symbol("twist.children");
  * there). Twist's compile pass marks what a Solid-style file declares.
  */
 export const TWIST = Symbol.for("twist.component");
+/** Props whose keys are read where used (merged or spread props of the old kernel's flow). */
+export const LIVE = Symbol("twist.live");
 /** How React draws a Solid-style component it calls (installed by the bridge, with its host). */
 let reactHost: ((component: any, props: any) => any) | null = null;
 export const setReactHost = (fn: typeof reactHost) => void (reactHost = fn);

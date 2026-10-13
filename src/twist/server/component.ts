@@ -1,0 +1,537 @@
+import {
+  NotReadyError,
+  createMemo,
+  getNextChildId,
+  peekNextChildId,
+  getOwner,
+  getContext,
+  NoHydrateContext,
+  runWithOwner,
+  createComponentOwner,
+  type Owner
+} from "./signals.js";
+import { IS_DEV, IS_OBSERVE, devCheck, errorText } from "./diagnostics.js";
+import { sharedConfig, callerRenderContext, type ResolvedAssets } from "./shared.js";
+import type { Element as SolidElement } from "../client/types.js";
+
+export function enableHydration() {}
+
+/**
+ * A general `Component` has no implicit `children` prop. If desired, specify
+ * one explicitly, e.g. `Component<{ name: string; children: Element }>`.
+ */
+export type Component<P extends Record<string, any> = {}> = (props: P) => SolidElement;
+
+/**
+ * Extend props to forbid the `children` prop.
+ */
+export type VoidProps<P extends Record<string, any> = {}> = P & { children?: never };
+/**
+ * `VoidComponent` forbids the `children` prop.
+ */
+export type VoidComponent<P extends Record<string, any> = {}> = Component<VoidProps<P>>;
+
+/**
+ * Extend props to allow optional Solid children.
+ */
+export type ParentProps<P extends Record<string, any> = {}> = P & { children?: SolidElement };
+/**
+ * `ParentComponent` allows an optional `children` prop with the usual type in JSX.
+ */
+export type ParentComponent<P extends Record<string, any> = {}> = Component<ParentProps<P>>;
+
+/**
+ * Extend props to require a `children` prop with the specified type.
+ */
+export type FlowProps<P extends Record<string, any> = {}, C = SolidElement> = P & { children: C };
+/**
+ * `FlowComponent` requires a `children` prop with the specified type.
+ */
+export type FlowComponent<P extends Record<string, any> = {}, C = SolidElement> = Component<
+  FlowProps<P, C>
+>;
+
+export type ValidComponent = Component<any>;
+
+/**
+ * Takes the props of the passed component and returns its type
+ */
+export type ComponentProps<T extends ValidComponent> = T extends Component<infer P> ? P : never;
+
+/**
+ * Type of `props.ref`, for use in `Component` or `props` typing.
+ */
+export type Ref<T> = T | ((val: T) => void);
+
+/**
+ * Creates a component. On the server this is a plain call (no untrack
+ * needed); the observe and dev tiers run it under a labelled owner so the
+ * owner tree reads as the component tree — see `observedComponent`.
+ */
+export function createComponent<T extends Record<string, any>>(
+  Comp: Component<T>,
+  props: T,
+  _name?: string
+): SolidElement {
+  if (IS_OBSERVE) return observedComponent(Comp, props, _name);
+  return Comp(props || ({} as T));
+}
+
+/**
+ * Observe/dev component wrapper — the server twin of the client's
+ * (`client/core.ts`): the body runs under a transparent owner carrying the
+ * component's label, so a finding raised inside locates as
+ * `<App> › <Page>` through the core's `ownerPath` walk, the same field and
+ * shape on both sides. Transparent, so hydration ids are unchanged; not a
+ * creation for `creationStamp()`, so the live-hole verdicts are unchanged
+ * (see `createComponentOwner`). Outside any owner there is nothing to hang
+ * the label on and the call stays plain. The prod build never reaches this.
+ *
+ * `name` is the source tag the compiler emitted under `sourceNames.components`; it
+ * wins over `Comp.name`, which a minifier rewrites and a `lazy()` wrapper
+ * hides. The dev tier adds the client's non-function check, so a JSX tag
+ * that resolved to `undefined` names the mistake instead of failing inside
+ * the runtime.
+ */
+function observedComponent<T extends Record<string, any>>(
+  Comp: Component<T>,
+  props: T,
+  name?: string
+): SolidElement {
+  if (IS_DEV && typeof Comp !== "function") {
+    throw new Error(
+      `createComponent: expected a component function but got ${
+        Comp === null ? "null" : typeof Comp
+      }. A JSX tag resolved to a non-function value — check the import: a missing or misnamed export resolves to undefined.`
+    );
+  }
+  if (!getOwner()) return Comp(props || ({} as T));
+  name ||= Comp.name;
+  return runWithOwner(createComponentOwner(`<${name || "Anonymous"}>`), () =>
+    Comp(props || ({} as T))
+  );
+}
+
+type AssetContext = NonNullable<typeof sharedConfig.context>;
+
+// Dev CHECK: a `lazy()` component whose client assets the render could not
+// map — `LAZY_ASSET_UNMAPPED`. One condition, two shapes: the resolver threw
+// (`data.reason: "resolution-failed"`, `data.id`, `data.error`), or the module
+// exposes no `$$moduleUrl` to resolve from (`"no-module-url"`). Either way the
+// component loads late during hydration instead of preloading with the page.
+// `subject` locates it: the current owner by default, or the one a body
+// captured for the async paths (a rejected resolver, a deferred import).
+function lazyAssetUnmapped(id: string | undefined, error?: unknown, subject?: Owner | null): void {
+  // The gate sits before the message is built, so the prod artifact carries
+  // an empty function and none of the text.
+  if (!IS_DEV) return;
+  devCheck(
+    {
+      code: "LAZY_ASSET_UNMAPPED",
+      kind: "ssr",
+      severity: "warn",
+      message:
+        id !== undefined
+          ? `[LAZY_ASSET_UNMAPPED] lazy() asset resolution failed for "${id}": ${errorText(error)}`
+          : "[LAZY_ASSET_UNMAPPED] lazy() used in SSR without a moduleUrl and the loaded module has no " +
+            "$$moduleUrl export, so its client assets cannot be resolved — the component will load " +
+            "late during hydration. This is typically injected by the bundler plugin.",
+      data:
+        id !== undefined ? { reason: "resolution-failed", id, error } : { reason: "no-module-url" }
+    },
+    subject as any
+  );
+}
+
+/**
+ * Resolves a module's client assets once per request and hands them to
+ * `apply`. Shared by the render path and `preload()` so the cache, the
+ * settle-and-upgrade dance and the boundary restore stay in one place.
+ */
+function resolveLazyAssets(
+  ctx: AssetContext,
+  id: string,
+  apply: (assets: ResolvedAssets | null | undefined) => void
+): Promise<void> | undefined {
+  // One resolver call per module per request. The component body — and with it
+  // its registration — re-runs on every re-creation across suspended render
+  // passes, and dev-server resolvers answer from the live module graph with
+  // real work per call, so re-asking multiplied that work by the retry count
+  // (and by every lazy() on the page). Only the RESOLUTION is memoized:
+  // `apply` still runs per call, so per-boundary attribution is unchanged.
+  const cache = (ctx._lazyAssets ??= new Map());
+  let assets;
+  if (cache.has(id)) {
+    assets = cache.get(id);
+  } else {
+    assets = ctx.resolveAssets!(id);
+    cache.set(id, assets);
+  }
+  if (assets && typeof (assets as Promise<ResolvedAssets | null>).then === "function") {
+    // Restore the boundary that owned this call — by the time the resolver
+    // settles, other boundaries may be rendering. The owner likewise, for
+    // the finding a rejection raises.
+    const boundary = ctx._currentBoundaryId;
+    const owner = getOwner();
+    return (assets as Promise<ResolvedAssets | null>).then(
+      resolved => {
+        // Upgrade the memoized entry to the settled VALUE. Leaving the promise
+        // in the cache made every post-settle re-creation mint a fresh pending
+        // gate (a `.then` of an already-resolved promise: pending at the render
+        // memo's compute, settled one microtask later), so the memo threw
+        // NotReadyError on every suspended-render retry pass and the boundary
+        // resume loop never converged — an unbounded microtask livelock that
+        // ground dev streaming SSR into heap exhaustion (async dev resolvers
+        // only; sync manifests never enter this branch).
+        cache.set(id, resolved ?? null);
+        const current = ctx._currentBoundaryId;
+        ctx._currentBoundaryId = boundary;
+        try {
+          apply(resolved);
+        } finally {
+          ctx._currentBoundaryId = current;
+        }
+      },
+      err => {
+        cache.set(id, null);
+        lazyAssetUnmapped(id, err, owner);
+      }
+    );
+  }
+  apply(assets as ResolvedAssets | null);
+}
+
+/**
+ * Lazy load a function component asynchronously.
+ * On server, returns a createMemo that throws NotReadyError until the module resolves,
+ * allowing resolveSSRNode to capture it as a fine-grained hole. The memo naturally
+ * scopes the owner so hydration IDs align with the client's createMemo in lazy().
+ * The component is the resolved module's default export, or the export named
+ * by the `{ export }` option (a call-site literal, so the client half can
+ * resolve the same export synchronously during hydration).
+ *
+ * The bundler plugin injects `moduleUrl` (the module specifier, third
+ * argument) so the server can look up client chunk URLs from the asset
+ * manifest. When no callsite `moduleUrl` exists (e.g. `lazy` over an
+ * `import.meta.glob` entry), asset resolution defers until the import
+ * resolves and reads the module's bundler-injected `$$moduleUrl` export
+ * instead.
+ *
+ * The returned component's `moduleUrl` property resolves through the asset
+ * manifest of the render it is read in (the caller's, through its owner):
+ * there it returns the client-loadable entry URL for the module (e.g.
+ * `/assets/About-abc123.js`), suitable for stamping into markup (island
+ * containers and similar). Read where no render can be attributed — outside
+ * one, or after an `await` without the owner — it returns the raw module
+ * specifier. Reading it in a render also registers a modulepreload hint for
+ * the module's chunks — accessing the resolved client URL on the server is
+ * treated as a declaration that the client will fetch it. `preload()` hints
+ * into the caller's render the same way, and into none without one.
+ */
+export function lazy<M extends Record<string, any>, K extends keyof M & string>(
+  fn: () => Promise<M>,
+  options: { export: K },
+  moduleUrl?: string
+): M[K] & { preload: () => Promise<M>; moduleUrl?: string };
+export function lazy<T extends Component<any>>(
+  fn: () => Promise<{ default: T }>,
+  options?: { export?: string },
+  moduleUrl?: string
+): T & { preload: () => Promise<{ default: T }>; moduleUrl?: string };
+export function lazy<T extends Component<any>>(
+  fn: () => Promise<any>,
+  options?: { export?: string },
+  moduleUrl?: string
+): T & { preload: () => Promise<any>; moduleUrl?: string } {
+  const exportName = options?.export;
+  type LoadingModule = Promise<any> & {
+    v?: T;
+    mod?: Record<string, any>;
+    error?: unknown;
+    errored?: boolean;
+  };
+  let p: LoadingModule | undefined;
+  let load = () => {
+    if (p) return p;
+    const cur = (p = fn() as LoadingModule);
+    cur.then(
+      (mod: any) => {
+        // The full namespace is kept alongside the resolved component so a
+        // post-load re-creation can read `$$moduleUrl` synchronously (see
+        // the deferred registration path below).
+        cur.mod = mod;
+        cur.v = exportName ? mod[exportName] : mod.default;
+      },
+      err => {
+        // Capture the rejection so the SSR render path can surface it to
+        // `<Errored>` instead of leaving `v` undefined forever (which
+        // would keep throwing `NotReadyError` and look like the module is
+        // still loading) and instead of leaking the rejection as a
+        // process-level `unhandledRejection` (#2780). Presence is a flag —
+        // a falsy rejection value is still a rejection (#2857).
+        cur.error = err;
+        cur.errored = true;
+        // But never CACHE the failure: `p` is module-scoped and shared
+        // across requests, so a single transient import hiccup would poison
+        // every subsequent SSR render for the process lifetime. Clearing
+        // (only if still current) lets the next creation re-import, while
+        // renders that captured `cur` still surface this error (#2999).
+        if (p === cur) p = undefined;
+      }
+    );
+    return cur;
+  };
+  const wrap: Component<ComponentProps<T>> & {
+    preload?: () => Promise<any>;
+    moduleUrl?: string;
+  } = props => {
+    const noHydrate = getContext(NoHydrateContext);
+    if (!noHydrate && !sharedConfig.context?.resolveAssets) {
+      throw new Error(
+        `lazy() called${moduleUrl ? ` with moduleUrl "${moduleUrl}"` : ""} but no asset manifest is set. ` +
+          "Pass a manifest option to renderToStream/renderToString."
+      );
+    }
+    // Capture the current load: a rejection clears `p` for future retries,
+    // and this render must keep reading the promise it suspended on.
+    const cur = load();
+    const ctx = sharedConfig.context;
+    // While set, the render memo below reports not-ready even after the module
+    // itself has loaded. Only async work arms it: an in-flight resolver-
+    // function manifest (dev servers answer asset lookups from their live
+    // module graph) or the deferred `$$moduleUrl` path. Without this gate a
+    // streamed fragment could flush before its assets registered, dropping
+    // its styles/module map from the stream. Sync manifests never arm it.
+    let assetsPending: Promise<void> | undefined;
+    // Asset registration is separate from rendering: the manifest guard above
+    // is waived for no-hydrate zones (nothing hydrates, so no assets are
+    // needed), and those zones must still render their resolved module.
+    // Fusing this into an early return dropped the content entirely for
+    // exactly the waived cases (#2859).
+    if (ctx?.registerAsset && ctx.resolveAssets) {
+      // The module mapping is keyed by the hydration id the render memo below
+      // will receive (peek — creating the memo consumes the slot). The
+      // client's lazy() computes the same id positionally during hydration,
+      // so no module identity needs to exist client-side.
+      const o = getOwner();
+      const hydrationKey = !noHydrate && o?.id != null ? peekNextChildId(o) : undefined;
+      const applyAssets = (assets: ResolvedAssets | null | undefined) => {
+        if (!assets) return;
+        for (let i = 0; i < assets.css.length; i++) {
+          const css = assets.css[i];
+          if (typeof css === "string") ctx.registerAsset!("style", css);
+          else ctx.registerAsset!("inline-style", css);
+        }
+        if (assets.preloads) {
+          for (let i = 0; i < assets.preloads.length; i++) {
+            const preload = assets.preloads[i];
+            const as = (preload as any)?.as;
+            if (!noHydrate || typeof as !== "string" || as.toLowerCase() !== "script") {
+              ctx.registerAsset!("preload", preload);
+            }
+          }
+        }
+        if (!noHydrate) {
+          for (let i = 0; i < assets.js.length; i++) ctx.registerAsset!("module", assets.js[i]);
+          if (hydrationKey != null) ctx.registerModule?.(hydrationKey, assets.js[0]);
+        }
+      };
+      const registerLazyAssets = (id: string): Promise<void> | undefined =>
+        resolveLazyAssets(ctx, id, applyAssets);
+      if (moduleUrl) {
+        assetsPending = registerLazyAssets(moduleUrl);
+      } else if (!noHydrate) {
+        // No callsite moduleUrl (e.g. lazy over an `import.meta.glob` entry) —
+        // the module's identity lives in the module itself: the bundler's SSR
+        // transform injects a `$$moduleUrl` export carrying the client
+        // manifest key. Defer registration until the import resolves.
+        if (cur.mod !== undefined) {
+          // Already loaded (a re-creation across suspended render passes):
+          // read `$$moduleUrl` synchronously instead of chaining another
+          // `p.then`. The promise hop was pending at the render memo's
+          // compute on EVERY re-creation — even after module and assets had
+          // settled — so each retry pass re-suspended on a gate that resolved
+          // one microtask later and the boundary resume loop never converged
+          // (the same livelock as the cache upgrade in registerLazyAssets;
+          // both paths must go sync once their async work is done).
+          const id = (cur.mod as any)?.$$moduleUrl;
+          if (typeof id === "string") {
+            assetsPending = registerLazyAssets(id);
+          } else {
+            lazyAssetUnmapped(undefined);
+          }
+        } else {
+          const boundary = ctx._currentBoundaryId;
+          assetsPending = cur.then(mod => {
+            const id = (mod as any)?.$$moduleUrl;
+            if (typeof id !== "string") {
+              // Async: `getOwner()` is whatever runs this microtask, so the
+              // finding is located by the owner the body captured.
+              lazyAssetUnmapped(undefined, undefined, o);
+              return;
+            }
+            const current = ctx._currentBoundaryId;
+            ctx._currentBoundaryId = boundary;
+            try {
+              // May itself defer again (async resolver); the returned promise
+              // keeps the memo gated until the whole chain settles.
+              return registerLazyAssets(id);
+            } finally {
+              ctx._currentBoundaryId = current;
+            }
+          });
+        }
+      }
+      if (assetsPending) {
+        const clear = () => {
+          assetsPending = undefined;
+        };
+        assetsPending = assetsPending.then(clear, clear);
+      }
+    }
+    // The module load is CODE, not data: the shell's "no new async discovered
+    // during the sync render" rule cannot be evaluated for a segment whose
+    // code has not run yet. So the shell waits for the chunk (and its asset
+    // registration) even under a boundary — otherwise a `deferStream` read
+    // inside a code-split route is created after the shell has shipped and is
+    // silently a no-op (#3299). The render below still suspends into the
+    // nearest boundary, which keeps owning the DATA the loaded code discovers:
+    // plain async streams behind the fallback as before. Only the first render
+    // that reaches an un-preloaded chunk pays (`p` is module-cached); a loaded
+    // module is a no-op here, and `block` is a no-op once the shell has flushed,
+    // so a lazy mounted by a post-shell fragment streams like any other content.
+    // Rejections are swallowed on this branch — the render memo surfaces
+    // `cur.error` to the nearest <Errored> and clearing the block is all the
+    // shell needs.
+    if (ctx?.async && ((cur.v === undefined && !cur.errored) || assetsPending)) {
+      const gate = assetsPending ? cur.then(() => assetsPending) : cur;
+      ctx.block(
+        gate.then(
+          () => {},
+          () => {}
+        )
+      );
+    }
+    return createMemo(
+      () => {
+        if (cur.errored) throw cur.error;
+        if (!cur.v) throw new NotReadyError(cur);
+        if (assetsPending) throw new NotReadyError(assetsPending);
+        return cur.v(props);
+      },
+      { sync: true }
+    ) as unknown as SolidElement;
+  };
+  // Hints the module's assets now instead of at its render, so a router
+  // warming a matched route gets the links into the head earlier. The import
+  // is never gated on resolution; a resolver failure only warns. The hints go
+  // to the caller's render; a call no render can be attributed to hints
+  // nowhere — the import still starts, and the component's own render
+  // registers its assets when it mounts.
+  wrap.preload = () => {
+    const cur = load();
+    const ctx = callerRenderContext();
+    if (!ctx?.resolveAssets || !ctx.registerAsset) return cur;
+    // As in the render path, a no-hydrate subtree needs its CSS but never
+    // fetches the module. Reading the context needs an owner.
+    const owner = getOwner();
+    const noHydrate = owner ? getContext(NoHydrateContext, owner) : false;
+    const hint = (assets: ResolvedAssets | null | undefined) => {
+      if (!assets) return;
+      for (let i = 0; i < assets.css.length; i++) {
+        const css = assets.css[i];
+        if (typeof css === "string") ctx.registerAsset!("style", css);
+        else ctx.registerAsset!("inline-style", css);
+      }
+      if (assets.preloads) {
+        for (let i = 0; i < assets.preloads.length; i++) {
+          const preload = assets.preloads[i];
+          const as = (preload as any)?.as;
+          if (!noHydrate || typeof as !== "string" || as.toLowerCase() !== "script") {
+            ctx.registerAsset!("preload", preload);
+          }
+        }
+      }
+      // Hint-only: registerModule files the module into the serialized
+      // hydration map, whose key only the render that creates it knows.
+      if (!noHydrate)
+        for (let i = 0; i < assets.js.length; i++) ctx.registerAsset!("module", assets.js[i]);
+    };
+    const hintFor = (id: string) => {
+      try {
+        resolveLazyAssets(ctx, id, hint);
+      } catch (err) {
+        lazyAssetUnmapped(id, err);
+      }
+    };
+    if (moduleUrl) hintFor(moduleUrl);
+    else {
+      // As in the render path: an already-loaded module exposes its specifier
+      // synchronously, so only an in-flight import has to wait a microtask.
+      const known = (cur.mod as any)?.$$moduleUrl;
+      if (typeof known === "string") hintFor(known);
+      else {
+        const boundary = ctx._currentBoundaryId;
+        cur.then(
+          (mod: any) => {
+            const id = mod?.$$moduleUrl;
+            if (typeof id !== "string") return;
+            const current = ctx._currentBoundaryId;
+            ctx._currentBoundaryId = boundary;
+            try {
+              hintFor(id);
+            } finally {
+              ctx._currentBoundaryId = current;
+            }
+          },
+          () => {}
+        );
+      }
+    }
+    return cur;
+  };
+  Object.defineProperty(wrap, "moduleUrl", {
+    get() {
+      // Resolved through the caller's render (see `preload`); outside one,
+      // the raw specifier.
+      const ctx = callerRenderContext();
+      if (moduleUrl && ctx?.resolveAssets) {
+        // A getter can't await, so prefer the sync resolution path (async
+        // dev resolvers expose one carrying the js URLs); without one, fall
+        // through to the raw specifier on a thenable result.
+        const resolve = ctx.resolveAssetsSync || ctx.resolveAssets;
+        const assets = resolve(moduleUrl);
+        if (
+          assets &&
+          typeof (assets as Promise<ResolvedAssets | null>).then !== "function" &&
+          (assets as ResolvedAssets).js.length
+        ) {
+          const resolved = assets as ResolvedAssets;
+          // Lazy components under NoHydration (e.g. islands) skip module
+          // registration during render, so this access is the only signal
+          // that the client will fetch these chunks.
+          if (ctx.registerAsset) {
+            if (resolved.preloads) {
+              for (let i = 0; i < resolved.preloads.length; i++) {
+                ctx.registerAsset("preload", resolved.preloads[i]);
+              }
+            }
+            for (let i = 0; i < resolved.js.length; i++)
+              ctx.registerAsset("module", resolved.js[i]);
+          }
+          return resolved.js[0];
+        }
+      }
+      return moduleUrl;
+    },
+    configurable: true,
+    enumerable: true
+  });
+  return wrap as T & { preload: () => Promise<any>; moduleUrl?: string };
+}
+
+export function createUniqueId(): string {
+  const o = getOwner();
+  if (!o) throw new Error(`createUniqueId cannot be used outside of a reactive context`);
+  return getNextChildId(o);
+}

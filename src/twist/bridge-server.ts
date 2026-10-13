@@ -3,9 +3,9 @@
 //   browser's TwistHost to hydrate (with the same id, React's useId).
 // - A React component in a Solid-style tree is drawn by React's server renderer, its HTML put in <sluurp-react> for the
 //   browser's Twist to claim and hydrate; Twist children given to it are drawn by Twist, in <sluurp-twist>.
-import { createComponent, isTwist, setForeignComponent, setReactHost } from "./control.ts";
+import { createComponent, isTwist, setForeignComponent, setReactHost } from "./server/control.ts";
 import { html, renderToString } from "./server.ts";
-import { untrack } from "./signals.ts";
+import { untrack } from "./server/signals.ts";
 
 type ReactApi = { createElement: (...a: any[]) => any; useId: () => string };
 

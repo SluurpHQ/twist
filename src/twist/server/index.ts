@@ -1,0 +1,208 @@
+import { DEV as _DEV, OBSERVE as _OBSERVE, type Dev, type Observe } from "../core/index.js";
+import { serverSlots } from "./observe.js";
+import { installConsoleFooter } from "../client/console-footer.js";
+
+// From mock signals (same exports that index.ts pulls from @solidjs/signals)
+export {
+  $PROXY,
+  $TRACK,
+  action,
+  affects,
+  createEffect,
+  createMemo,
+  createOptimistic,
+  createOptimisticStore,
+  createOwner,
+  createProjection,
+  createReaction,
+  createRenderEffect,
+  createRoot,
+  createSignal,
+  createStore,
+  createTrackedEffect,
+  deep,
+  flatten,
+  flush,
+  getNextChildId,
+  getObserver,
+  getOwner,
+  isDisposed,
+  isEqual,
+  isPending,
+  isWrappable,
+  mapArray,
+  merge,
+  isStatic,
+  omit,
+  onCleanup,
+  onSettled,
+  latest,
+  reconcile,
+  refresh,
+  repeat,
+  resetErrorHalt,
+  resolve,
+  until,
+  NotReadyError,
+  TimeoutError,
+  runWithOwner,
+  snapshot,
+  createDeepProxy,
+  enableExternalSource,
+  enforceLoadingBoundary,
+  untrack,
+  configureClientErrors,
+  ROOT_ERROR_HOOK
+} from "./signals.js";
+export type { ClientErrorContext, ClientErrorHook, ClientErrorsConfig } from "./signals.js";
+
+// All type re-exports from signals
+export type {
+  Accessor,
+  ComputeFunction,
+  EffectFunction,
+  EffectOptions,
+  ExternalSource,
+  ExternalSourceConfig,
+  ExternalSourceFactory,
+  Merge,
+  NoInfer,
+  NotWrappable,
+  Omit,
+  Owner,
+  Refreshable,
+  Signal,
+  SignalOptions,
+  Setter,
+  Store,
+  SolidStore,
+  StoreNode,
+  StoreSetter,
+  StorePathRange,
+  ArrayFilterFn,
+  CustomPartial,
+  Part,
+  PathSetter,
+  PatchOp
+} from "./signals.js";
+// The observe/dev surface's types, as the client entry exports them — the
+// same names resolve whichever entry a server-side consumer's types come from.
+export type {
+  Dev,
+  Observe,
+  ServerObserve,
+  Records,
+  RecordTypes,
+  HostRecordTypes,
+  RecordType,
+  RecordEvent,
+  RecordLive,
+  RecordListener,
+  Diagnostics,
+  DiagnosticCapture,
+  DiagnosticCode,
+  DiagnosticEvent,
+  DiagnosticKind,
+  DiagnosticListener,
+  DiagnosticSeverity,
+  DiagnosticSubject
+} from "../core/index.js";
+// The record this entry emits — `OBSERVE.records.subscribe("boundary", …)`
+// — and the surface it declares onto `OBSERVE.server`.
+export type { BoundaryEvent, BoundaryLive, BoundaryListener, ServerTrace } from "./observe.js";
+
+// Wrappers — context, children
+export { children, createContext, useContext } from "./core.js";
+export type {
+  ChildrenReturn,
+  Context,
+  ContextProviderComponent,
+  ResolvedChildren,
+  ResolvedElement
+} from "./core.js";
+
+// Component helpers and types
+export * from "./component.js";
+
+// Flow controls
+export * from "./flow.js";
+export type { ArrayElement, Element } from "../client/types.js";
+
+// SSR coordination
+export { NoHydration, Hydration, isHydrating, isHydratable } from "./hydration.js";
+export type { HydrationContext } from "./hydration.js";
+
+// Seams for the runtimes in this repo, reached through `solid-js/internal`
+// (src/internal.ts): exported here at runtime so that entry shares this
+// module's state, `@internal` so they are stripped from the declarations.
+/** @internal */
+export { sharedConfig, createLoadingBoundary } from "./hydration.js";
+/** @internal */
+export { $DEVCOMP } from "./core.js";
+// The boundary primitives behind `Errored` and `Reveal` (`Loading`'s is the
+// SSR-aware one above), `@internal` as on the client entry.
+/** @internal */
+export { createErrorBoundary, createRevealOrder } from "./signals.js";
+/** @internal */
+export {
+  creationStamp,
+  runInServerComponentScope,
+  inServerComponentScope,
+  inLiveServerComponentScope,
+  getProjectionTrace,
+  shareAsyncIterable,
+  ssrSanitizeError,
+  reportServerError
+} from "./signals.js";
+export type { ServerErrorSite, ServerErrorHook } from "./signals.js";
+/** @internal */
+export { ssrHandleError, ssrScope } from "./hydration.js";
+// After the runtime modules above, so this import adds no edge to the module
+// graph's evaluation order (shared.js is long loaded) and the prod artifact
+// is unchanged.
+import { installServerWithOrigin } from "./shared.js";
+
+// The container-trace materializer's seams (client/hydration.ts; consumed by
+// `solid-js/internal/container-trace`, a client-only entry). Mirrored here
+// for export parity, inert: nothing delivers a trace TO a server, so the
+// dispatch is the core primitive and nothing applies a patch batch.
+/** @internal */
+export function withStoreHydration<T>(
+  coreFn: (fn: any, seed: any, options?: any) => T,
+  fn: any,
+  seed: any,
+  options?: any
+): T {
+  return coreFn(fn, seed, options);
+}
+/** @internal */
+export function applyPatches(_target: any, _patches: any[]): void {}
+/** @internal */
+export function forwardIteratorReturn(it: any, value?: any): any {
+  return Promise.resolve(it.return ? it.return(value) : { done: true, value });
+}
+
+// Observe / dev — same shape as the client entry. Both literals are replaced
+// per build (dist/server.dev.* → both true, dist/server.* → both false; a
+// server.observe.* arrives with the first server wiring site), so the dev
+// artifact exposes @solidjs/signals' OBSERVE object — its `diagnostics`
+// channel is the bus server-side findings report through — and prod exports
+// `undefined`. The server reimplements reactivity, so attribution and the
+// graph helpers have nothing to introspect here; the channel is what's shared.
+//
+// `OBSERVE.server` is the one member this entry fills in: the core ships it
+// empty and the process-wide slots (see observe.ts) replace it here, so they
+// exist for anything that imports `solid-js` on the server — before, and
+// regardless of, the web runtime that emits into them.
+const IS_DEV = process.env.NODE_ENV !== "production";
+const IS_OBSERVE = process.env.NODE_ENV !== "production";
+if (IS_OBSERVE) {
+  _OBSERVE!.server = serverSlots();
+  installServerWithOrigin(_OBSERVE!);
+}
+export const OBSERVE: Observe | undefined = IS_OBSERVE ? _OBSERVE : undefined;
+export const DEV: Dev | undefined = IS_DEV ? _DEV : undefined;
+// The console face is the core's; the repair-guide footer under each first
+// report is this package's (console-footer.ts), installed here as on the client
+// so a server render's `[SERVER_WRITE]` points at the same skill section.
+if (IS_DEV) installConsoleFooter();

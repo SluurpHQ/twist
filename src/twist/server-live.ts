@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Ported from Solid's web/src/server.ts (MIT, Ryan Carniato and contributors): the live-hole engine a frame response
-import { getOwner, runWithOwner, sharedConfig, NotReadyError } from "./signals.ts";
+import { getOwner, runWithOwner, NotReadyError } from "./server/signals.ts";
+import { sharedConfig } from "./server/shared.ts";
 import { creationStamp, inServerComponentScope, ssrHandleError, ssrSanitizeError } from "./server-internal.ts";
 import { html } from "./server.ts";
 

@@ -247,7 +247,8 @@ export function repeat<U>(count: Accessor<number>, fn: (index: number) => U, opt
 
 /** Sources merged into one view: later ones win (an undefined value too), each read where it is used. */
 /** Marks a view whose keys can change (read each time). */
-export const LIVE = Symbol("twist.live");
+export { LIVE } from "./marks.ts";
+import { LIVE } from "./marks.ts";
 
 /** A view's source for a key (merge, omit): what the key's descriptor is read off. */
 const leaves = new WeakMap<object, (k: PropertyKey) => object | undefined>();

@@ -3,7 +3,8 @@
 // the request's trace. Web-standard Request/Response only. (Solid's web/src/server request half, and its server
 // error reporting.)
 // @ts-nocheck
-import { getOwner, onCleanup, throwerOf } from "./signals.ts";
+import { getOwner, onCleanup, throwerOf } from "./server/signals.ts";
+import { renderContextOf } from "./server/twist.ts";
 import { emitDiagnostic, ownerPath, reportDiagnostic } from "./diagnostics.ts";
 import { COMPOSED_BODY_FRAMING, REVALIDATE_HEADER } from "./response.ts";
 import { appendTraceServerTiming, hasServerTiming, mergeServerTiming, traceForEvent } from "./trace.ts";
@@ -23,11 +24,7 @@ export interface RequestEvent {
   response?: ResponseStub;
 }
 
-/** The render a caller belongs to, through its owner (each owner made in a render keeps that render's context). */
-export function renderContextOf(owner: any) {
-  for (; owner; owner = owner.parent) if (owner.renderCtx) return owner.renderCtx;
-  return undefined;
-}
+export { renderContextOf };
 
 /** The request event in scope (undefined outside one, and on the client). */
 export function getRequestEvent(): RequestEvent | undefined {
@@ -135,7 +132,7 @@ function renderErrorFinding(value: unknown, site: ServerErrorSite, subject: unkn
 
 /** Root-first component labels up an owner chain. */
 function ownerLabels(subject: any): string[] | undefined {
-  if (!subject || !("parent" in subject)) return undefined;
+  if (!subject || !("_parent" in subject)) return undefined;
   const path = ownerPath(subject);
   return path && path.length ? path : undefined;
 }
