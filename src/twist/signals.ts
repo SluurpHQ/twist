@@ -2027,11 +2027,11 @@ export class Computation<T> extends Node<T> implements Owner {
     // An async answer: in flight, its old value kept meanwhile.
     // (Only an object can be one: a string's or number's lookups are skipped.)
     const obj = isObject(next!);
-    if (obj && typeof (next as any).then === "function") return this.fly(next as any);
-    if (obj && typeof (next as any)[Symbol.asyncIterator] === "function") {
+    if (obj && typeof (next! as any).then === "function") return this.fly(next! as any);
+    if (obj && typeof (next! as any)[Symbol.asyncIterator] === "function") {
       // (On a server, its first value is the answer: a render tried again reads it like a promise's.)
-      if (serverRender) return serverHooks!.stream(this, next as any);
-      return this.stream(next as any);
+      if (serverRender) return serverHooks!.stream(this, next! as any);
+      return this.stream(next! as any);
     }
     if (this.flight) (this.flight = null), flights.delete(this);
     this.take(next!);
