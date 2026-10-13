@@ -127,13 +127,10 @@ mkdirSync(join(out, "solid", "src", "client"), { recursive: true });
 mkdirSync(join(out, "solid", "src", "server"), { recursive: true });
 for (const name of ["hydration", "flow", "component", "core", "container-trace"])
   await Bun.write(join(out, "solid", "src", "client", name + ".js"), `export * from ${JSON.stringify(client(name + ".ts"))};\n`);
-// (With Twist's names for what Solid's server modules export besides its public API.)
-const serverInternals =
-  `export { ssrHandleError, getProjectionTrace, shareAsyncIterable, runInServerComponentScope, NoHydrateContext } from ${JSON.stringify(twist("server-internal.ts"))};\n` +
-  `export { idScope as ssrScope, resetOwner as resetOwnerForRerun } from ${JSON.stringify(twist("signals.ts"))};\n` +
-  `export const ownerId = (o) => o.id;\n`;
-for (const name of ["index", "flow", "hydration", "shared", "signals"])
-  await Bun.write(join(out, "solid", "src", "server", name + ".js"), `export * from ${JSON.stringify(twist("server-solid.ts"))};\n` + serverInternals);
+// (Its server modules: Twist's port of them, src/twist/server; its server entry, Twist's — the layer with Twist's marks.)
+for (const name of ["flow", "hydration", "shared", "signals", "core", "component", "observe", "diagnostics"])
+  await Bun.write(join(out, "solid", "src", "server", name + ".js"), `export * from ${JSON.stringify(twist(`server/${name}.ts`))};\n`);
+await Bun.write(join(out, "solid", "src", "server", "index.js"), `export * from ${JSON.stringify(twist("server-solid.ts"))};\n`);
 // And by package name: packages that are ours (Bun's resolver finds packages; a plugin cannot invent them).
 const packages: Record<string, Record<string, string>> = {
   "solid-js": { index: client("index.ts"), internal: twist("internal.ts"), "container-trace": client("container-trace.ts"), attribution: twist("core/attribution.ts"), refresh: client("refresh.ts") },

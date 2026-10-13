@@ -1,0 +1,620 @@
+import { children } from "./core.js";
+import {
+  createMemo,
+  createOwner,
+  mapArray,
+  repeat,
+  createErrorBoundary,
+  getContext,
+  getOwner,
+  getNextChildId,
+  runWithOwner,
+  setContext,
+  RevealGroupContext,
+  ownerId
+} from "./signals.js";
+import { createLoadingBoundary } from "./hydration.js";
+import { IS_DEV, IS_OBSERVE, devCheck } from "./diagnostics.js";
+import { sharedConfig } from "./shared.js";
+import type { Accessor, RevealOrder } from "./signals.js";
+import type { Element as SolidElement } from "../client/types.js";
+export type { RevealOrder };
+
+type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
+  ? never
+  : T;
+type ConditionalRenderCallback<T> = (item: Accessor<NonNullable<T>>) => SolidElement;
+type KeyedConditionalRenderCallback<T> = (item: NonNullable<T>) => SolidElement;
+type ConditionalRenderChildren<
+  T,
+  F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>
+> = SolidElement | NonZeroParams<F>;
+type KeyedConditionalRenderChildren<
+  T,
+  F extends KeyedConditionalRenderCallback<T> = KeyedConditionalRenderCallback<T>
+> = SolidElement | NonZeroParams<F>;
+type ForOptions<T> = {
+  keyed?: boolean | ((item: T) => any);
+  fallback?: Accessor<SolidElement>;
+};
+
+/**
+ * Creates a list of elements from a list
+ * @description https://docs.solidjs.com/reference/components/for
+ */
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed?: true;
+  children: (item: T[number], index: Accessor<number>) => U;
+}): SolidElement;
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed: false;
+  children: (item: Accessor<T[number]>, index: number) => U;
+}): SolidElement;
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed: (item: T[number]) => any;
+  children: (item: Accessor<T[number]>, index: Accessor<number>) => U;
+}): SolidElement;
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed?: boolean | ((item: T[number]) => any);
+  children: (item: any, index: any) => U;
+}): SolidElement {
+  const options: ForOptions<T[number]> =
+    "fallback" in props
+      ? { keyed: props.keyed, fallback: () => props.fallback }
+      : { keyed: props.keyed };
+  return mapArray(
+    () => props.each,
+    props.children as any,
+    options as any
+  ) as unknown as SolidElement;
+}
+
+/**
+ * Creates a list elements from a count
+ *
+ * @description https://docs.solidjs.com/reference/components/repeat
+ */
+export function Repeat<T extends SolidElement>(props: {
+  count: number;
+  from?: number | undefined;
+  fallback?: SolidElement;
+  children: ((index: number) => T) | T;
+}) {
+  const options: { fallback?: Accessor<SolidElement>; from?: Accessor<number | undefined> } =
+    "fallback" in props ? { fallback: () => props.fallback } : {};
+  options.from = () => props.from;
+  return repeat(
+    () => props.count,
+    index => (typeof props.children === "function" ? props.children(index) : props.children),
+    options
+  ) as unknown as SolidElement;
+}
+
+/**
+ * Conditionally render its children or an optional fallback component
+ * @description https://docs.solidjs.com/reference/components/show
+ */
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  fallback?: SolidElement;
+  children: SolidElement;
+}): SolidElement;
+export function Show<T, F extends KeyedConditionalRenderCallback<T>>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  fallback?: SolidElement;
+  children: NonZeroParams<F>;
+}): SolidElement;
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  fallback?: SolidElement;
+  children: SolidElement;
+}): SolidElement;
+export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  fallback?: SolidElement;
+  children: NonZeroParams<F>;
+}): SolidElement;
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: boolean;
+  fallback?: SolidElement;
+  children: SolidElement | ((item: any) => SolidElement);
+}): SolidElement {
+  // The client reads `props.when` inside its conditionValue memo (child slot
+  // 0), and the getter is allocation-capable: a compiled conditional prop
+  // creates a condition memo per evaluation (`_$memo(() => !!cond)`) under
+  // whichever node is reading. A bare id burn would match the slot but leave
+  // the getter evaluating inside the value memo, drifting every id allocated
+  // after it (#2976) — so the server mirrors the client with a real memo.
+  // The burn stays valid for the client's condition memo: its compute only
+  // reads `conditionValue()`, never a prop getter.
+  const conditionValue = createMemo(() => props.when);
+  const o = getOwner();
+  if (o?.id != null && !props.keyed) {
+    getNextChildId(o); // match client's condition memo (non-keyed only)
+  }
+  return createMemo(
+    () => {
+      const when = conditionValue();
+      if (when) {
+        const child = props.children;
+        if (typeof child === "function" && child.length > 0) {
+          return props.keyed
+            ? (child as any)(when as NonNullable<T>)
+            : (child as any)(() => when as NonNullable<T>);
+        }
+        return child as SolidElement;
+      }
+      return props.fallback as SolidElement;
+    },
+    { sync: true }
+  ) as unknown as SolidElement;
+}
+
+type EvalConditions = readonly [number, unknown, AnyMatchProps<unknown>];
+
+/** (Twist: a renderer whose JSX describes components resolves one here, where its value is needed.) */
+let describedNode = (v: any) => v;
+export const setDescribedNode = (fn: (v: any) => any) => void (describedNode = fn);
+
+/**
+ * Switches between content based on mutually exclusive conditions
+ * @description https://docs.solidjs.com/reference/components/switch-and-match
+ */
+export function Switch(props: { fallback?: SolidElement; children: SolidElement }): SolidElement {
+  const chs = children(() => props.children);
+  // Mirror of the client's switchFunc memo (child slot 1): each Match's
+  // `when` getter is allocation-capable (a compiled conditional prop creates
+  // a condition memo per evaluation), so the server evaluates it inside a
+  // real per-match conditionValue memo at the same child slot as the client
+  // (#2976). The non-keyed condition memo slot stays a burn — its client
+  // compute only reads conditionValue(), never a prop getter. The prevFunc
+  // chain short-circuits like the client: once an earlier Match wins, later
+  // `when` getters are never evaluated.
+  const switchFunc = createMemo<() => EvalConditions | undefined>(
+    () => {
+      let conds: AnyMatchProps<unknown> | AnyMatchProps<unknown>[] = chs() as any;
+      if (!Array.isArray(conds)) conds = [conds];
+      // (Twist: its JSX describes a <Match>; run here, where its props are needed.)
+      conds = conds.map(describedNode);
+      const o = getOwner();
+      let func: () => EvalConditions | undefined = () => undefined;
+      for (let i = 0; i < conds.length; i++) {
+        const index = i;
+        const mp = conds[i];
+        // Nullish slots come from conditionally excluded Matches (#2911).
+        if (mp == null) continue;
+        const prevFunc = func;
+        const conditionValue = createMemo(() => (prevFunc() ? undefined : mp.when));
+        if (o?.id != null && !mp.keyed) getNextChildId(o); // match client's condition memo
+        func = () => {
+          const prev = prevFunc();
+          if (prev) return prev;
+          const w = conditionValue();
+          return w ? [index, w, mp] : undefined;
+        };
+      }
+      return func;
+    },
+    { sync: true }
+  );
+  return createMemo(
+    () => {
+      const sel = switchFunc()();
+      if (!sel) return props.fallback;
+      const [, w, mp] = sel;
+      const c = mp.children;
+      return typeof c === "function" && c.length > 0
+        ? mp.keyed
+          ? (c as any)(w)
+          : (c as any)(() => w)
+        : c;
+    },
+    { sync: true }
+  ) as unknown as SolidElement;
+}
+
+export type MatchProps<T, F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>> = {
+  when: T | undefined | null | false;
+  keyed?: false;
+  children: ConditionalRenderChildren<T, F>;
+};
+export type KeyedMatchProps<
+  T,
+  F extends KeyedConditionalRenderCallback<T> = KeyedConditionalRenderCallback<T>
+> = {
+  when: T | undefined | null | false;
+  keyed: true;
+  children: KeyedConditionalRenderChildren<T, F>;
+};
+export type AnyMatchProps<T> =
+  | MatchProps<T>
+  | KeyedMatchProps<T>
+  | {
+      when: T | undefined | null | false;
+      keyed?: boolean;
+      children: SolidElement;
+    };
+
+/**
+ * Selects a content based on condition when inside a `<Switch>` control flow
+ * @description https://docs.solidjs.com/reference/components/switch-and-match
+ */
+export function Match<T>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  children: SolidElement;
+}): SolidElement;
+export function Match<T, F extends KeyedConditionalRenderCallback<T>>(
+  props: KeyedMatchProps<T, F>
+): SolidElement;
+export function Match<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  children: SolidElement;
+}): SolidElement;
+export function Match<T, F extends ConditionalRenderCallback<T>>(
+  props: MatchProps<T, F>
+): SolidElement;
+export function Match<T>(props: AnyMatchProps<T>): SolidElement;
+export function Match<T>(props: AnyMatchProps<T>) {
+  return props as unknown as SolidElement;
+}
+
+/**
+ * Catches uncaught errors inside components and renders a fallback content
+ * @description https://docs.solidjs.com/reference/components/error-boundary
+ */
+export function Errored(props: {
+  fallback: SolidElement | ((err: () => any, reset: () => void) => SolidElement);
+  children: SolidElement;
+}): SolidElement {
+  return createErrorBoundary(
+    () => props.children,
+    (err, reset) => {
+      const f = props.fallback;
+      // Called whatever its arity, under the boundary's output owner —
+      // mirrors the client: a zero-arity thunk handed back unresolved was
+      // built by the consuming hole inside the ssr() walk, on the enclosing
+      // counter, after every scoped sibling had reserved its slot (#3620).
+      return typeof f === "function" ? f(err, reset) : f;
+    }
+  ) as unknown as SolidElement;
+}
+
+/**
+ * Tracks all resources inside a component and renders a fallback until they are all resolved
+ * @description https://docs.solidjs.com/reference/components/suspense
+ */
+export function Loading(props: {
+  fallback?: SolidElement;
+  on?: any;
+  children: SolidElement;
+}): SolidElement {
+  // Same condition as the client's Loading: the presence of `on` shapes the
+  // boundary's hydration ids, so both sides must decide it the same way.
+  const onOpt = "on" in props ? { on: () => props.on } : undefined;
+  return createLoadingBoundary(
+    () => props.children,
+    () => props.fallback,
+    onOpt
+  ) as unknown as SolidElement;
+}
+
+export type RevealProps = {
+  order?: RevealOrder;
+  collapsed?: boolean;
+  children: SolidElement;
+};
+
+/**
+ * Coordinates the reveal timing of sibling `<Loading>` boundaries during SSR.
+ *
+ * The `order` prop picks the reveal policy:
+ * - `"sequential"` (default) — boundaries reveal in streamed order; out-of-order
+ *   resolutions have their fragment HTML streamed into templates as data arrives,
+ *   but the swap from fallback to content waits until the frontier reaches them.
+ * - `"together"` — every direct slot holds its fallback until the whole group is
+ *   "minimally ready" (every direct slot has its own first visible content
+ *   available), then the whole group releases in a single activation.
+ * - `"natural"` — each boundary's swap is triggered as its own data resolves. At
+ *   the top level this is equivalent to omitting `<Reveal>`; the mode exists for
+ *   nesting, where the group registers as a single composite slot in an enclosing
+ *   `<Reveal>`.
+ *
+ * The `collapsed` prop is only consulted when `order="sequential"` (the default);
+ * it is ignored under `"together"` and `"natural"`.
+ *
+ * Nesting: a nested `<Reveal>` is held on its fallbacks until its parent releases
+ * the slot it occupies. HTML for resolved fragments still streams through normally;
+ * only the `revealFragments` swap calls are deferred. Once released, the inner
+ * group runs its own `order` locally over whatever is still pending. There is no
+ * escape hatch.
+ *
+ * Engine support:
+ * - `renderToString` fully supports `order="sequential"` (without `collapsed`) and
+ *   `order="natural"` because neither requires streamed activation.
+ * - `order="together"` and `collapsed` rely on streamed activation and require
+ *   `renderToStream`. Using them inside a nested `<Reveal>` under
+ *   `renderToString` logs a warning.
+ *
+ * See `documentation/solid-2.0/03-control-flow.md` for the full outer/inner
+ * nesting matrix and the "minimally ready" definition per order.
+ *
+ * @description https://docs.solidjs.com/reference/components/reveal
+ */
+export function Reveal(props: RevealProps): SolidElement {
+  const o = createOwner();
+  // Own, just-created owner — never a swapped hole scope.
+  const id = ownerId(o)!;
+  const order: RevealOrder = props.order ?? "sequential";
+  const collapsed = order === "sequential" && !!props.collapsed;
+
+  if (!sharedConfig.context?.async) {
+    const parent = getOwner();
+    const parentGroup = parent ? runWithOwner(parent, () => getContext(RevealGroupContext)) : null;
+    let collapsedByParent = false;
+    if (parentGroup) {
+      const reg = parentGroup.register(id);
+      collapsedByParent = reg.collapseFallback;
+      // Natural has no coordination requirement — it degrades cleanly to sync rendering.
+      if (IS_DEV && (order === "together" || collapsed))
+        devCheck({
+          code: "REVEAL_IN_RENDER_TO_STRING",
+          kind: "ssr",
+          severity: "warn",
+          message:
+            "[REVEAL_IN_RENDER_TO_STRING] Nested <Reveal> with collapsed/together won't coordinate " +
+            "correctly with renderToString. Use renderToStream for full support.",
+          data: { order, collapsed }
+        });
+    }
+    let count = 0;
+    return runWithOwner(o, () => {
+      setContext(RevealGroupContext, {
+        id,
+        register(_key: string) {
+          count++;
+          const collapseFallback =
+            collapsedByParent || (order === "sequential" && collapsed && count > 1);
+          return { collapseFallback, held: false };
+        },
+        onResolved() {}
+      });
+      return props.children;
+    }) as unknown as SolidElement;
+  }
+
+  const ctx = sharedConfig.context;
+  const keys: string[] = [];
+  const resolved = new Set<string>();
+  const minimallyResolved = new Set<string>();
+  const composites = new Map<string, () => void>();
+  const activated = new Set<string>();
+  const stash: string[] = [];
+  // Leaf children rendered with a collapsed fallback template. When the group is
+  // released from a parent's hold, these need revealFallbacks to become visible.
+  const collapsedLeafKeys: string[] = [];
+  let frontier = 0;
+  let heldByParent = false;
+  let collapsedByParent = false;
+  let selfMinimallyResolved = false;
+  let notifiedParentDone = false;
+  // Child getters can keep registering slots after `props.children` returns.
+  // Do not publish readiness from a partial key set to an enclosing group.
+  let registering = true;
+
+  const parent = getOwner();
+  const parentGroup = parent ? runWithOwner(parent, () => getContext(RevealGroupContext)) : null;
+
+  if (parentGroup) {
+    const reg = parentGroup.register(id, {
+      onActivate: () => {
+        if (!heldByParent) return;
+        heldByParent = false;
+        // If we were collapsed by the outer, uncollapse our own leaf children now
+        // so their fallbacks become visible under our own order. Nested composite
+        // children cascade through their own onActivate.
+        if (collapsedByParent) {
+          collapsedByParent = false;
+          if (collapsedLeafKeys.length) {
+            ctx.revealFallbacks?.([...collapsedLeafKeys]);
+            collapsedLeafKeys.length = 0;
+          }
+        }
+        // Resume our own order.
+        if (order === "sequential") advanceFrontier();
+        else if (order === "together") checkTogetherRelease();
+        else naturalRelease();
+      }
+    });
+    collapsedByParent = reg.collapseFallback;
+    heldByParent = reg.held;
+  }
+
+  // Observe tier: a leaf's `onReveal` (see `ServerRevealGroup.register`),
+  // fired as its swap is issued. Only the observe/dev boundary registers
+  // one, so the plumbing is gated on the tier constant and folds out of the
+  // prod artifact entirely (the spec pins it), not merely left unallocated.
+  let revealHooks: Map<string, () => void> | undefined;
+
+  // Every leaf swap this group issues goes through here, so the boundary
+  // behind each key learns the moment it was revealed.
+  function revealLeaves(leafKeys: string[]) {
+    ctx.revealFragments?.(leafKeys);
+    if (!IS_OBSERVE || revealHooks === undefined) return;
+    for (const key of leafKeys) {
+      const hook = revealHooks.get(key);
+      if (hook !== undefined) {
+        revealHooks.delete(key);
+        hook();
+      }
+    }
+  }
+
+  function notifyParentIfDone() {
+    if (registering || notifiedParentDone) return;
+    if (parentGroup && resolved.size === keys.length) {
+      notifiedParentDone = true;
+      parentGroup.onResolved(id);
+    }
+  }
+
+  function activateComposite(key: string) {
+    if (activated.has(key)) return;
+    activated.add(key);
+    composites.get(key)!();
+  }
+
+  function updateSelfMinimallyResolved() {
+    if (registering || selfMinimallyResolved) return;
+    if (keys.length === 0) selfMinimallyResolved = true;
+    else if (order === "together") selfMinimallyResolved = minimallyResolved.size === keys.length;
+    else if (order === "sequential") selfMinimallyResolved = minimallyResolved.has(keys[0]);
+    // natural: any child being minimally ready counts. For composites this can
+    // precede full resolution when their own order has visible content to show.
+    else selfMinimallyResolved = minimallyResolved.size > 0;
+    if (selfMinimallyResolved) parentGroup?.onMinimallyResolved?.(id);
+  }
+
+  function advanceFrontier() {
+    if (heldByParent) return;
+    while (frontier < keys.length && resolved.has(keys[frontier])) {
+      const k = keys[frontier];
+      // A composite that we're walking past must be activated so it drains its
+      // own stash (the inner subtree's stashed swaps).
+      if (composites.has(k)) activateComposite(k);
+      else revealLeaves([k]);
+      frontier++;
+    }
+    if (frontier < keys.length) {
+      const k = keys[frontier];
+      if (composites.has(k)) activateComposite(k);
+      else if (order === "sequential" && collapsed) ctx.revealFallbacks?.([k]);
+    }
+    notifyParentIfDone();
+  }
+
+  function checkTogetherRelease() {
+    if (registering || order !== "together" || heldByParent) return;
+    if (minimallyResolved.size < keys.length) return;
+    // All direct slots minimally ready: drain stashed leaf swaps and cascade
+    // into every inner composite (they're minimally ready too, so this releases
+    // their own stashes in one pass).
+    if (stash.length) {
+      revealLeaves([...stash]);
+      stash.length = 0;
+    }
+    composites.forEach((_, key) => activateComposite(key));
+    notifyParentIfDone();
+  }
+
+  function naturalRelease() {
+    // Called when a natural group is released by its parent. Flush any leaves
+    // that resolved while held (they're in `stash`), then release every
+    // composite child to run its own order locally — matches the client spec
+    // where natural does not hold composites back. `activateComposite` is
+    // idempotent, and each inner's own order governs when its leaves reveal.
+    if (stash.length) {
+      revealLeaves([...stash]);
+      stash.length = 0;
+    }
+    composites.forEach((_, key) => activateComposite(key));
+    notifyParentIfDone();
+  }
+
+  return runWithOwner(o, () => {
+    setContext(RevealGroupContext, {
+      id,
+      register(key: string, options?: { onActivate?: () => void; onReveal?: () => void }) {
+        keys.push(key);
+        const isComposite = !!options?.onActivate;
+        if (isComposite) composites.set(key, options!.onActivate!);
+        else if (IS_OBSERVE) {
+          if (options?.onReveal) (revealHooks ||= new Map()).set(key, options.onReveal);
+        }
+        const selfCollapse = order === "sequential" && collapsed && keys.length > 1;
+        const collapseFallback = collapsedByParent || selfCollapse;
+        // Track leaf keys that render collapsed so we can emit revealFallbacks
+        // when our group is released by a parent hold.
+        if (collapseFallback && !isComposite) collapsedLeafKeys.push(key);
+        // Held: stash this child's own `revealFragments` calls until we activate
+        // it. Only meaningful for nested Reveals (composites); Loadings ignore
+        // `held`, since their swap is orchestrated by us anyway. We mark held
+        // when our own order won't let this child reveal live.
+        //   - together: hold every direct child.
+        //   - sequential: frontier-0 reveals live; the tail waits.
+        //   - natural: every child reveals live per its own policy (matches
+        //     the client spec that releases nested composites immediately).
+        let held = heldByParent;
+        if (!held) {
+          if (order === "together") held = true;
+          else if (order === "sequential" && keys.length > 1) held = true;
+        }
+        return { collapseFallback, held };
+      },
+      onResolved(key: string) {
+        resolved.add(key);
+        const isLeaf = !composites.has(key);
+        if (isLeaf) {
+          // Queue the leaf's swap BEFORE marking minimally resolved, so any
+          // release triggered by markMinimallyResolved sees it in the stash.
+          if (order === "together") {
+            // Together holds every direct child until the whole group releases.
+            stash.push(key);
+          } else if (order === "natural" && heldByParent) {
+            // Natural reveals leaves live, but we're held by a parent — stash
+            // until naturalRelease() drains it.
+            stash.push(key);
+          } else if (order === "natural") {
+            revealLeaves([key]);
+          }
+          // sequential: no stash needed — advanceFrontier re-reads `resolved`
+          // when we're released (if held) or runs inline below.
+          markMinimallyResolved(key);
+          if (order === "sequential" && !heldByParent) advanceFrontier();
+          if (order === "natural") updateSelfMinimallyResolved();
+        } else {
+          // Composite fully resolved.
+          markMinimallyResolved(key);
+          if (!heldByParent) {
+            if (order === "sequential") advanceFrontier();
+            else if (order === "natural") activateComposite(key);
+            // together: checkTogetherRelease below cascades all composites at once.
+          }
+          if (order === "together") checkTogetherRelease();
+          if (order === "natural") updateSelfMinimallyResolved();
+        }
+        notifyParentIfDone();
+      },
+      onMinimallyResolved(key: string) {
+        markMinimallyResolved(key);
+      }
+    });
+    const result = props.children;
+    registering = false;
+    updateSelfMinimallyResolved();
+    checkTogetherRelease();
+    notifyParentIfDone();
+    return result;
+  }) as unknown as SolidElement;
+
+  function markMinimallyResolved(key: string) {
+    if (minimallyResolved.has(key)) return;
+    minimallyResolved.add(key);
+    updateSelfMinimallyResolved();
+    if (order === "together") checkTogetherRelease();
+  }
+}

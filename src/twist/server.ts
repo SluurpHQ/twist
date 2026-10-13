@@ -2,31 +2,39 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { childIdCount, setChildIdCount, keyOwnerOf, idScope, inIdScope, idPlace, createMemo, createOwner, ownerUnder, createRoot, getNextChildId, getOwner, NotReadyError, resetOwner, runWithOwner, settlesOf, holdsShell, setServerAnswers, setServerFly, setServerRender, setServerScope, setInsideLoading, sharedConfig, untrack, SOURCE_ANSWER, isClientOnly, onCleanup, renderContextOf, setServerSharer, installServerStreams } from "./signals.ts";
-installServerStreams();
-import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
-import { merge, omit, isStatic } from "./flow.ts";
+import { ssrScope, createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwnerForRerun as resetOwner, runWithOwner, untrack, onCleanup, merge, omit, isStatic, NoHydrateContext, getProjectionTrace, SOURCE_ANSWER, type Owner } from "./server/signals.ts";
+import { sharedConfig } from "./server/shared.ts";
+import { childIdCount, setChildIdCount, keyOwnerOf, inIdScope, idPlace, standing, settlesOf, fileRenderRoot, renderContextOf } from "./server/twist.ts";
+import { OBSERVE, emitDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { createHydrationSerializer, getLocalHeaderScript as headerScript } from "./serialization.ts";
-import { __twist_mark, markBuiltin, renderComponent, callComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode } from "./control.ts";
+import { __twist_mark, markBuiltin, renderComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode, erroredFallback } from "./server/control.ts";
+import { createLoadingBoundary, ssrHandleError } from "./server/hydration.ts";
+import { createErrorBoundary } from "./server/signals.ts";
+import { Reveal as layerReveal } from "./server/flow.ts";
 
-// (Solid's server API by name: a star export of server-solid would bring this module's Loading, Errored… back to it.)
-export * from "./index.ts";
-export { lazy, createRenderEffect, createEffect, createTrackedEffect, onSettled, createSignal, createOptimistic, createStore, createOptimisticStore, reconcile, isPending, action, createUniqueId } from "./server-solid.ts";
-export * from "./control.ts";
+// (Solid's server API by name; this module's Loading, Errored… over the layer's.)
+export * from "./server/index.ts";
+export { lazy } from "./server-solid.ts";
+export * from "./server/control.ts";
+export { createComponent } from "./server/control.ts";
 export * from "./response.ts";
 export { CLAIMS_STREAM, CLAIMS_DOCUMENT, SLOT_VALUE, SLOT_MARKER, SLOT_FACE_STREAM, SLOT_FACE_DATA, SLOT_FACE_MARKUP, slotValue, isSlotValue, ssrClaim } from "./server-slots.ts";
 export { createLiveHoles } from "./server-live.ts";
 import { commitResponseStub, deriveHead, devCheck, getRequestEvent, peekRequestEvent, setRequestErrorHook, getExpectedRedirectStatus, reportServerError, ssrSanitizeError, type RequestEvent } from "./request.ts";
 import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
-import { setAsyncIterableSharer, setContainerTraceResolver } from "./frames/frame-container-plugin.ts";
-import { getProjectionTrace } from "./container-trace.ts";
+import { setAsyncIterableSharer, setContainerTraceResolver, toBorderForm } from "./frames/frame-container-plugin.ts";
 import { traceFor, traceForEvent, traceMetaMarkup } from "./trace.ts";
-import { inServerComponentScope, shareAsyncIterable } from "./server-internal.ts";
+import { shareAsyncIterable } from "./server-internal.ts";
 import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
-setServerSharer(shareAsyncIterable);
+/** An owner made under `parent` (given its id, unless transparent). */
+/** A dynamic hole's id scope (Solid's ssrScope): one id taken now, what it makes taking ids under it each run. */
+const idScope = <T,>(fn: () => T) => ssrScope(fn) as () => T;
+const ownerUnder = (parent: Owner | null, options?: { transparent?: boolean; id?: string }) => runWithOwner(parent, () => createOwner(options));
+/** A value on an owner's own context record (what is made under it inherits it). */
+const putContext = (o: any, key: symbol, value: unknown) => void (o._context = { ...o._context, [key]: value });
 import { applyAssetTracking, collectStreamStyles, createAssetTracking, nonceAttr, normalizeNonce, preloadLink, registerEntryAssets, renderHeadAssets, renderInlineStyle, resourceIdentity, serializeFragmentAssets, type AssetTracking, type Nonce } from "./server-assets.ts";
 import { isSlotValue, slotAttribute, slotClassOrStyle, slotSpreadSource, spreadBehaviorMarkers, spreadBehaviorPosition, spreadPropPosition } from "./server-slots.ts";
 export {
@@ -401,7 +409,7 @@ export function Dynamic<P>(props: P & { component: any }) {
 // Twist's own: never handed to React.
 for (const f of [Portal, Dynamic]) __twist_mark(f);
 // (Their bodies read what they render: no strict-read scope; functions declared below are hoisted.)
-markBuiltin(Portal, Dynamic, Errored, NoHydration, Hydration, Loading, HydrationScript);
+markBuiltin(Portal, Dynamic, Errored, NoHydration, Hydration, Loading, Reveal, HydrationScript);
 
 export function dynamic<P>(source: () => any, options?: { static?: boolean; deferStream?: boolean }): (props: P) => any {
   return dynamicCore<P>(source, options, true);
@@ -445,81 +453,103 @@ function dynamicCore<P>(source: () => any, options: { static?: boolean; deferStr
     if (w && typeof w.then === "function") throw new Error("dynamic(): a static source must resolve synchronously");
     return (props: any) => make(w, props);
   }
-  // As the client's: the source's answer kept once, then a value and its rendering per instance.
-  // (deferStream: its answer holds the shell.)
+  // As the client's (Solid's server dynamic, ported): the source run once per mount, a thenable answer boxed so this
+  // memo stays sync and is nobody's record; per instance, a value memo that unboxes (an ordinary async memo, its landing
+  // serialized under the instance's id) and a render.
   const cached = createMemo(() => {
-    const v = source();
-    return v && typeof v.then === "function" ? v.then(classifyLanding) : v;
-  }, options?.deferStream ? ({ deferStream: true } as any) : undefined);
+    const next: any = source();
+    return next && typeof next.then === "function" ? { [FLIGHT]: next } : next;
+  });
+  const deferStream = !!options?.deferStream;
   return (props: any) => {
-    const which = createMemo(() => cached());
-    return createMemo(() => ({ t: html(make(which(), props), false) }));
+    const ctx = sharedConfig.context as any;
+    let gated = !deferStream || !ctx?.async;
+    const value = createMemo(
+      () => {
+        let c: any;
+        try {
+          c = cached();
+        } catch (err) {
+          // (deferStream over a dependency the source reads that is pending: the shell held on it once — never on
+          // client-only content, which nothing on the server settles.)
+          if (!gated && err instanceof NotReadyError && !(err as any).source?.$clientHole) {
+            gated = true;
+            ctx.block(Promise.resolve((err as any).source).then(noopFn, noopFn));
+          }
+          throw err;
+        }
+        if (!c || !c[FLIGHT]) return c;
+        const next: PromiseLike<any> = c[FLIGHT];
+        // (The landing classified in the source promise's own handlers: no extra microtask.)
+        return {
+          then: (ok?: (v: any) => any, fail?: (e: any) => any) =>
+            next.then((resolved: any) => {
+              let landed: any;
+              try {
+                landed = classifyLanding(resolved);
+              } catch (err) {
+                if (fail) return fail(err);
+                throw err;
+              }
+              return ok ? ok(landed) : landed;
+            }, fail),
+        };
+      },
+      { deferStream } as any,
+    );
+    return createMemo(() => ({ t: html(make(value(), props), false) }), { sync: true } as any);
   };
 }
+/** The box a dynamic() factory holds a thenable answer in (its per-instance memo is the one that goes async). */
+const FLIGHT = Symbol("twist.dynamic-flight");
 
-/** A server Errored's answer for a failure inside it: its fallback's markup (read by a failed Loading's fragment). */
-const ERRORED_OUTCOME = Symbol("twist.ssr.errored-outcome");
+// ---------------------------------------------------------------- boundaries (the server layer's: Solid's)
 
-/**
- * What a failed streamed Loading inside a server component puts in its place: the nearest server Errored's fallback, or
- * (none) its own fallback, the error escaping to the frame. Outside one: nothing (the client renders it again).
- */
-function failedOutcome(r: Render, boundary: any, fallback: string, e: unknown): string {
-  if (!inServerComponentScope(boundary)) return " ";
-  const answer = boundary.context?.[ERRORED_OUTCOME] as ((e: unknown) => string) | undefined;
-  if (answer) {
-    // (Finished markup, nothing live in it: the live-hole engine mints nothing for it.)
-    const live = (r.ctx as any)?.liveHoles;
-    if (live) live.suppressed++;
-    try {
-      return rendering(r, r.options, () => runWithOwner(boundary, () => answer(e)));
-    } catch {
-    } finally {
-      if (live) live.suppressed--;
-    }
-  }
-  const message = e instanceof Error ? e.message : String(e);
-  // (The frame as one value errors: a frame stream's unkeyed error chunk, or the document's live op addressed to it.)
-  const ctx = (boundary.renderCtx ?? r.ctx) as any;
-  if (r.options.sink?.error) r.sink.error!("", message);
-  else ctx?.live?.error?.(ctx.frameId, message);
-  return fallback.replace(/^<template id="pl-[^"]*"><\/template>|<!--pl-[^>]*-->$/g, "");
+/** What a boundary renders, rendered as the boundary runs it (Twist's JSX describes): keyed under the owner it runs
+ * under, as Solid's eager templates are, in the render the boundary was made in (a later pass runs after an await). */
+function renderNow(r: Render | null, v: unknown) {
+  return r ? inRender(r, () => ({ t: html(v, false) })) : { t: html(v, false) };
+}
+/** A fallback, as Solid's boundary hands it on: a plain value as it is (escaped where it is written), markup rendered. */
+const fallbackNow = (r: Render | null, v: unknown) => (v == null || (typeof v !== "object" && typeof v !== "function") ? v : renderNow(r, v));
+
+/** Its children, or its fallback while something under it is not ready. */
+export function Loading(props: { fallback?: any; on?: unknown; children?: any }) {
+  const r = render;
+  return createLoadingBoundary(
+    () => {
+      // (What is made under it, on any later pass, is inside a Loading.)
+      putContext(getOwner(), LOADING_OWNER, true);
+      return renderNow(r, props.children);
+    },
+    () => fallbackNow(r, props.fallback),
+    "on" in props ? { on: () => props.on } : undefined,
+  );
 }
 
 /** Its children, or its fallback (given the error and a reset) once rendering them throws. */
 export function Errored(props: { fallback: any; children?: any }) {
-  // As Solid's: the boundary (its content under an owner of its own, its error sent under its id), then an output owner
-  // beside it that its fallback renders under (the client claims the same).
-  const boundary = createOwner();
-  const output = createOwner();
-  const content = ownerUnder(boundary);
-  // (In a server component: what a failed Loading inside it renders in its place, this fallback for the error.)
-  if (inServerComponentScope(content)) content.context = { ...content.context, [ERRORED_OUTCOME]: (err: unknown) => fallback(err) };
-  const fallback = (err: unknown) => {
-    // What the client may see of it: the error hook's answer, else the sanitized error (heard once, where it was met).
-    const id = (boundary as any).id;
-    const e = ssrSanitizeError(err, boundary, { kind: "render", handling: "fallback", boundary: id }, (sharedConfig.context as any)?.errorPolicy);
-    // The error goes to the client under the content's id: the fallback hydrates against it.
-    const r = render;
-    if (r?.serializer && id != null && !isNoHydration() && !r.written.has(id)) r.written.add(id), r.serializer.write(id, e);
-    else if (!r && id != null && !isNoHydration()) (sharedConfig.context as any)?.serialize?.(id, e);
-    const f = props.fallback;
-    return runWithOwner(output, () => html(typeof f === "function" ? f(() => e, () => {}) : f, false));
-  };
-  try {
-    const before = holeCount;
-    const t = runWithOwner(content, () => html(props.children, false));
-    // Holes in it that wait: it waits with them, and shows its fallback if one of them fails.
-    const r = render;
-    if (!r || holeCount === before || !/\u0000hole\d+\u0000/.test(t)) return { t };
-    const token = "\u0000hole" + holeCount++ + "\u0000";
-    r.holes.set(token, filled(r, t).catch((e) => rendering(r, r.options, () => fallback(e))));
-    return { t: token };
-  } catch (e) {
-    // Waiting is not failing: the Loading or the shell above waits.
-    if (e instanceof NotReadyError) throw e;
-    return { t: fallback(e) };
-  }
+  const r = render;
+  return createErrorBoundary(
+    () => renderNow(r, props.children),
+    (err, reset) => fallbackNow(r, erroredFallback(props.fallback, err, reset)),
+  );
+}
+
+/** The order the Loading boundaries directly inside reveal in, as the stream sends them. */
+export function Reveal(props: { order?: "sequential" | "together" | "natural"; collapsed?: boolean; children?: any }) {
+  const r = render;
+  return layerReveal({
+    get order() {
+      return props.order;
+    },
+    get collapsed() {
+      return props.collapsed;
+    },
+    get children() {
+      return renderNow(r, props.children);
+    },
+  } as any);
 }
 
 /** Style text from (name:, value) pairs: entries with no value left out, the rest joined by ";". */
@@ -596,12 +626,12 @@ export function ssrHydrationKey() {
 }
 
 let noHydration = 0;
-/** NoHydration and Hydration mark their owners: what renders under them later (a boundary's retry) still knows. */
-const NO_HYDRATE = Symbol.for("twist.ssr.no-hydrate");
-// (Registered: it crosses a server component's context barrier, as Solid's NoHydrateContext does — see server-internal.)
+/** NoHydration and Hydration mark their owners (Solid's NoHydrateContext): what renders under them later (a
+ * boundary's retry) still knows, and it crosses a server component's barrier. */
+const NO_HYDRATE = NoHydrateContext.id;
 /** Whether rendering under NoHydration (nothing hydrates there). */
 export const isNoHydration = () => {
-  const marked = (getOwner() as any)?.context?.[NO_HYDRATE];
+  const marked = (getOwner() as any)?._context?.[NO_HYDRATE];
   return marked !== undefined ? marked : noHydration > 0;
 };
 
@@ -611,6 +641,7 @@ const eventRenders = new WeakMap<object, Set<any>>();
 function claimRender(ctx: any) {
   ctx.rooted = true;
   ctx.writer = hydrationWriter(ctx);
+  fileRenderRoot(getOwner()!, ctx);
   const event = peekRequestEvent();
   let renders = event && eventRenders.get(event);
   if (event && !renders) eventRenders.set(event, (renders = new Set()));
@@ -656,7 +687,7 @@ export function getHydrationWriter() {
 /** Its children render with no hydration keys (they will not be hydrated). */
 export function NoHydration(props: { children?: any }) {
   const o = createOwner({ transparent: true }) as any;
-  o.context = { ...o.context, [NO_HYDRATE]: true };
+  putContext(o, NO_HYDRATE, true);
   noHydration++;
   try {
     return { t: runWithOwner(o, () => html(props.children, false)) };
@@ -672,7 +703,7 @@ export function Hydration(props: { id?: string; children?: any }) {
   const was = noHydration;
   noHydration = 0;
   const o = ownerUnder(getOwner(), { id: props.id ?? "" }) as any;
-  o.context = { ...o.context, [NO_HYDRATE]: false };
+  putContext(o, NO_HYDRATE, false);
   try {
     // Keys from `id` on (a server component's client content claims under its occurrence's prefix).
     return runWithOwner(o, () => {
@@ -740,6 +771,11 @@ export function html(v: any, inTemplate: boolean): string {
   if (v[LAZY]) return lazyElement(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return renderComponent(v.fn, componentProps(v.props), (out) => html(out, false));
   if (typeof v.t === "string") return v.t;
+  // (A boundary's answer in Solid's template shape: its markup; one still waiting, waited on as a hole is.)
+  if (Array.isArray(v.t)) {
+    if (v.h?.length) throw new NotReadyError(Promise.all(v.p));
+    return v.t.join("");
+  }
   // A binding-slot value as text: the markers the client writes between.
   if (isSlotValue(v)) return v.w();
   // Neither text, a node, a list nor something to call: skipped, and said (as the client does).
@@ -1005,7 +1041,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
       } catch (e) {
         // A part of the shell not ready yet waits on its own, like any hole.
         const waits = e instanceof NotReadyError && rr?.async && settlesOf(e);
-        if (!waits || (boundaries > 0 && !rr!.shellSent && holdsShell(e))) throw e;
+        if (!waits) throw e;
         parts.add(later(rr!, scoped ? () => scoped().out : () => list([f], own, inTemplate), waits, o, at), false, false);
         continue;
       }
@@ -1119,16 +1155,16 @@ export function ssrStyle(value: any): string {
 
 /** A render in progress: whether it can wait (a stream), and the boundaries still waiting. */
 type Render = {
-  /** Its Loading boundaries that waited, by id (their records). */
-  tracks?: Map<string, BoundaryTrack>;
+  /** Its fragments still to come (a boundary's), by key: settles its record; what settled inside it, merged in. */
+  fragments: Map<string, { resolve: (error?: unknown) => void; children?: Record<string, string> }>;
+  /** The boundaries the shell waited on (its render record counts them). */
+  waited: number;
   async: boolean;
   waiting: Set<Promise<void>>;
   /** Chunks after the shell: revealed boundaries, in the order they settled. */
   chunks: string[];
   wake: (() => void) | null;
   revealScript: boolean;
-  /** What async nodes answered, by id: a retry takes the same answer instead of asking again. */
-  answers: Map<string, [boolean, unknown]>;
   options: { renderId?: string; noHydrate?: boolean; sink?: Partial<Sink> };
   /** What useHead registered, and whether the patch script has been sent. */
   head: HeadRegistry | null;
@@ -1247,6 +1283,28 @@ function endLive(r: Render) {
 }
 
 /** The shell with the fragments that settled before it went out in place of their placeholders. */
+/** `html` with the placeholder of fragment `key` (its template and fallback) replaced by `value`. */
+function replacePlaceholder(html: string, key: string, value: string): string {
+  const open = `<template id="pl-${key}">`;
+  const close = `<!--pl-${key}-->`;
+  const at = html.indexOf(open);
+  if (at === -1) return html;
+  const end = html.indexOf(close, at + open.length);
+  return end === -1 ? html : html.slice(0, at) + value + html.slice(end + close.length);
+}
+
+/** A fragment settled inside one still to come: its head tags and styles become that one's. */
+function adoptBoundary(r: Render, key: string, parentKey: string) {
+  if (r.head) for (const g of r.head.groups) if (g.boundary === key) g.boundary = parentKey;
+  const styles = r.tracking.boundaryStyles;
+  const mine = styles.get(key);
+  if (!mine) return;
+  let theirs = styles.get(parentKey);
+  if (!theirs) styles.set(parentKey, (theirs = new Set()));
+  for (const s of mine) theirs.add(s);
+  styles.delete(key);
+}
+
 function inlineFragments(r: Render, shell: string): string {
   for (let again = true; again && r.inlined.size; ) {
     again = false;
@@ -1275,17 +1333,23 @@ export type Sink = {
   error?(id: string, message: string): void;
 };
 let render: Render | null = null;
-/** What settles each streamed boundary's fragment record. */
-const fragments = new WeakMap<object, (v: boolean) => void>();
-/** Loading boundaries being rendered (under one, a waiting hole shows the boundary's fallback instead). */
-let boundaries = 0;
-/** Marks a server <Loading> boundary's owner (what reads under it, on any later pass, is inside it). */
+/** Marks a server <Loading> boundary's content owner (what reads under it, on any later pass, is inside it). */
 const LOADING_OWNER = Symbol("twist.ssr.loading");
-setInsideLoading((o) => {
-  if (boundaries > 0) return true;
-  for (let x: any = o; x; x = x.parent) if (x[LOADING_OWNER]) return true;
-  return false;
-});
+/** Whether a render is inside a <Loading> now (Solid's `_loadingPhase`: a client-only read is the boundary's then). */
+const insideLoading = () => !!(getOwner() as any)?._context?.[LOADING_OWNER];
+/** A render context's `_loadingPhase`, as the layer reads it: inside a Loading now, or set by a boundary of its own. */
+function loadingPhase(ctx: any) {
+  Object.defineProperty(ctx, "_loadingPhase", {
+    configurable: true,
+    get: () => insideLoading(),
+    // (A boundary's pass sets it on its own context, a clone of this one, while it runs; after, the owner says.)
+    set(this: any, v) {
+      let pass: true | undefined = v ? true : undefined;
+      Object.defineProperty(this, "_loadingPhase", { configurable: true, enumerable: true, get: () => pass ?? insideLoading(), set: (next) => void (pass = next ? true : undefined) });
+    },
+  });
+  return ctx;
+}
 let holeCount = 0;
 
 /**
@@ -1302,35 +1366,27 @@ function hole(fn: () => string, scoped = false): string {
     return fn();
   } catch (e) {
     const waits = e instanceof NotReadyError && settlesOf(e);
-    if (!waits || (boundaries > 0 && !r.shellSent && holdsShell(e))) throw e;
+    if (!waits) throw e;
     return later(r, fn, waits, o, at);
   }
 }
 
 /** A placeholder in the shell for `fn`, rendered again (from the same ids) once `waits` settles. */
-/** Whether a hole made under `o` still belongs to the render: none of its owners reset or disposed since. */
-function stillOwned(o: any): () => boolean {
-  const seen: [any, number][] = [];
-  for (let x = o; x; x = x.parent) seen.push([x, x.resets ?? 0]);
-  return () => seen.every(([x, n]) => !x.disposed && (x.resets ?? 0) === n);
-}
-
 function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: number): string {
-  const owned = stillOwned(o);
+  // (Thrown away with a pass of its boundary rendered again, or disposed: nothing to fill.)
+  const owned = standing(o);
   // (Under the id it was made under: a hole's scope had given its owner one only while the hole ran.)
   const place = idPlace(o);
+  // (In the context it was made in: a boundary's, a server component's clone.)
+  const madeIn = sharedConfig.context;
   // (The boundary it renders in: what it registers in the head and as assets is that boundary's, when it comes.)
-  const inBoundary = headBoundary;
   const inAssets = r.tracking.currentBoundaryId;
   const scoped = () => {
-    const hb = headBoundary;
     const ab = r.tracking.currentBoundaryId;
-    headBoundary = inBoundary;
     r.tracking.currentBoundaryId = inAssets;
     try {
       return runWithOwner(o, fn);
     } finally {
-      headBoundary = hb;
       r.tracking.currentBoundaryId = ab;
     }
   };
@@ -1348,13 +1404,12 @@ function later(r: Render, fn: () => string, waits: Promise<void>, o: any, at: nu
                 place(() => {
                   // From the same ids: the hole takes again what it took the first time.
                   if (at >= 0) setChildIdCount(o, at);
-                  return rendering(r, r.options, scoped);
+                  return rendering(r, r.options, () => inContext(madeIn, scoped));
                 }),
               );
             } catch (e2) {
               // (Client-only content: passed up as it is, its boundary hands it to the client.)
-              const next = e2 instanceof NotReadyError && !isClientOnly(e2) && settlesOf(e2);
-              if (next) holdShell(r, e2, next);
+              const next = e2 instanceof NotReadyError && settlesOf(e2);
               next ? again(next) : fail(e2);
             }
           });
@@ -1376,315 +1431,6 @@ async function filled(r: Render, s: string, pass?: () => void): Promise<string> 
   }
 }
 
-/**
- * Its children, or its fallback while something under it is not ready. In a stream the fallback is sent first, between
- * markers the client's reveal script finds; the children follow in a template once what they wait on lands.
- */
-export function Loading(props: { fallback?: any; on?: unknown; children?: any }): { t: string } {
-  const parent = getOwner();
-  const boundary = ownerUnder(parent);
-  (boundary as any)[LOADING_OWNER] = true;
-  // (A group coordinates the boundaries directly inside it, not theirs.)
-  const group = revealGroupOf(parent);
-  if (group) setRevealGroup(boundary, null);
-  const id = (boundary as any).id as string | undefined;
-  // Its content's ids as the client's: under X00 (X01 after `on`); its fallback's under X.
-  if (id != null) (boundary as any).id = id + ("on" in props ? "01" : "00");
-  const wasBoundary = headBoundary;
-  try {
-    boundaries++;
-    headBoundary = id ?? headBoundary;
-    let content: string;
-    const assetCtx = sharedConfig.context as any;
-    const wasAssetBoundary = assetCtx?._currentBoundaryId;
-    if (assetCtx && id != null && "_currentBoundaryId" in assetCtx) assetCtx._currentBoundaryId = id;
-    try {
-      content = runWithOwner(boundary, () => html(props.children, false));
-    } finally {
-      boundaries--;
-      headBoundary = wasBoundary;
-      if (assetCtx && "_currentBoundaryId" in assetCtx) assetCtx._currentBoundaryId = wasAssetBoundary;
-    }
-    const r = render;
-    // Holes in it still waiting (made once, filled as they land): the fallback now, the content when they are filled.
-    if (!r || !r.async || id == null || !HOLE_TOKEN.test(content)) {
-      const waited = r && id != null ? r.tracks?.get(id) : undefined;
-      if (waited && waited.outcome === undefined) waited.passes++, settleBoundary(r!, waited, "settled");
-      // (Its modules, for the client to load before it hydrates it.)
-      if (id != null) boundaryModules(id);
-      return { t: content };
-    }
-    const reg = group?.register(id) ?? null;
-    const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
-    const track = trackBoundary(r, id, boundary, group);
-    return { t: streamBoundary(r, boundary, id, fallback, filled(r, content, () => track.passes++), group, !!reg?.collapseFallback, track) };
-  } catch (e) {
-    if (!(e instanceof NotReadyError)) throw e;
-    const r = render;
-    // (Client-only content: nothing on the server settles it.)
-    const client = isClientOnly(e);
-    const waits = client ? null : settlesOf(e);
-    // What holds the shell (a module loading, data marked deferStream): the boundary waits in the shell, unseen.
-    if (r && r.async && !r.shellSent && waits && holdsShell(e)) {
-      if (id != null) trackBoundary(r, id, boundary, group);
-      resetOwner(boundary);
-      const at = childIdCount(parent);
-      (parent as any).owned?.splice((parent as any).owned.indexOf(boundary), 1);
-      setChildIdCount(parent, at - 1);
-      return { t: later(r, () => (Loading(props) as any).t, waits, parent, at - 1) };
-    }
-    const reg = group && id != null ? group.register(id) : null;
-    // Collapsed by its group, outside a stream: nothing shows for it.
-    if (reg?.collapseFallback && (!r || !r.async)) return { t: "" };
-    // The fallback under an owner of its own with the boundary's id: it takes no id from what follows (as Solid).
-    const fallback = runWithOwner(ownerUnder(parent, { id }), () => html(props.fallback, false));
-    if (!r || !r.async || !waits || id == null) {
-      // What it showed, final: the fallback of a string render, or client-only content the client renders.
-      const track = trackBoundary(r, id ?? "", boundary, group);
-      // (The modules it began to load, for the client to load before it renders it.)
-      if (id != null) boundaryModules(id);
-      // (The client goes on from its fallback: it renders the content itself.)
-      if (id != null) (sharedConfig.context as any)?.serialize?.(id, "$$f");
-      settleBoundary(r, track, client ? "client" : "fallback");
-      return { t: fallback };
-    }
-    const collapse = !!reg?.collapseFallback;
-    const track = trackBoundary(r, id, boundary, group);
-    let passes = 0;
-    let abandoned = false;
-    const retry = (p: Promise<void>) => {
-      r.waiting.add(p);
-      r.abandons.set(id, () => {
-        abandoned = true;
-        r.waiting.delete(p);
-        fragments.get(boundary)?.(false);
-        r.wake?.();
-      });
-      p.then(() => {
-        if (abandoned) return;
-        r.abandons.delete(id);
-        r.waiting.delete(p);
-        // A boundary rendered again since (or thrown away): this retry is not its any more.
-        // (Its record settles: nothing will be sent for it.)
-        if ((boundary as any).disposed) return fragments.get(boundary)?.(false), r.wake?.();
-        resetOwner(boundary);
-        track.passes++;
-        try {
-          boundaries++;
-          let content: string;
-          const hb = headBoundary;
-          headBoundary = id;
-          // (What an earlier pass of it registered goes: this pass registers it again.)
-          if (r.head) r.head.groups = r.head.groups.filter((g) => g.boundary !== id);
-          const wasCurrent = r.tracking.currentBoundaryId;
-          r.tracking.currentBoundaryId = id!;
-          try {
-            content = rendering(r, r.options, () => runWithOwner(boundary, () => html(props.children, false)));
-          } finally {
-            r.tracking.currentBoundaryId = wasCurrent;
-            boundaries--;
-            headBoundary = hb;
-          }
-          const patch = r.head ? headPatch(r, id!) : "";
-          fragments.get(boundary)?.(true);
-          serializeFragmentAssets(id!, r.tracking, r.ctx);
-          if (!r.shellSent) r.inlined.set(id!, content);
-          else r.sink.fragment(id!, content, { styles: collectStreamStyles(id!, r.tracking, r.headStyles), patch, revealGroup: group?.id });
-          settleBoundary(r, track, "settled");
-          group?.onResolved(id!);
-        } catch (e2) {
-          // Client-only content surfaced: handed to the client, which renders it.
-          if (e2 instanceof NotReadyError && isClientOnly(e2)) {
-            fragments.get(boundary)?.(false);
-            settleBoundary(r, track, "client");
-            group?.onResolved(id!);
-            return void r.wake?.();
-          }
-          // (A pass that never stops waiting on something new: given up after a budget of passes, as an error.)
-          const stuck = e2 instanceof NotReadyError && ++passes >= CONVERGE_BUDGET;
-          if (stuck) e2 = new Error(`<Loading> did not converge: still waiting after ${passes} passes`);
-          const next = e2 instanceof NotReadyError && settlesOf(e2);
-          if (!next) {
-            // One that never settles, before the shell went out: the request fails with it.
-            if (stuck && !r.shellSent && (r as any).failShell) return void ((r as any).failShell(e2), r.wake?.());
-            // A real error retrying: the boundary's record fails with it (the stream goes on).
-            abandonUnder(r, id, e2);
-            failures.get(boundary)?.(e2);
-            // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
-            if (r.shellSent) r.sink.fragment(id!, failedOutcome(r, boundary, fallback, e2), { styles: { inline: [], links: [] }, error: e2, revealGroup: group?.id });
-            else r.inlined.set(id!, "");
-            settleBoundary(r, track, "error", e2);
-            group?.onResolved(id!);
-            return void r.wake?.();
-          }
-          holdShell(r, e2, next);
-          retry(next);
-        }
-        r.wake?.();
-      });
-    };
-    boundaryRecord(r, boundary, id);
-    retry(waits);
-    return { t: placeholder(id, fallback, collapse) };
-  }
-}
-
-/** A Loading boundary that waited, as Solid records it ("boundary" on OBSERVE.records): when it was found waiting, its passes, how it ended. */
-type BoundaryTrack = { id: string; at: number; passes: number; boundary: object; group?: string; settledAt?: number; outcome?: string; streamed?: boolean; error?: unknown; told?: boolean; trace?: { timing: any[] } };
-function trackBoundary(r: Render | null, id: string, boundary: object, group: RevealGroup | null): BoundaryTrack {
-  let t = r?.tracks?.get(id);
-  if (!t) {
-    t = { id, at: performance.now(), passes: 0, boundary, group: group?.id, trace: (r?.ctx as any)?.trace };
-    if (r) (r.tracks ??= new Map()).set(id, t);
-  }
-  t.passes++;
-  return t;
-}
-/** The boundaries a render has told (settled, or revealed with their group). */
-const toldBoundaries = (r: Render) => {
-  let n = 0;
-  for (const t of r.tracks?.values() ?? []) if (t.told) n++;
-  return n;
-};
-/** How it ended: told now, or (in a group) when the group reveals it. */
-function settleBoundary(r: Render | null, t: BoundaryTrack, outcome: string, error?: unknown) {
-  if (t.outcome !== undefined) return;
-  t.settledAt = performance.now();
-  t.outcome = outcome;
-  t.streamed = !!r?.shellSent;
-  if (error !== undefined) t.error = error;
-  if (process.env.NODE_ENV !== "production") boundaryChecks(t);
-  if (!t.group || !r?.async) tellBoundary(t, t.settledAt);
-}
-function tellBoundary(t: BoundaryTrack, revealAt: number) {
-  t.told = true;
-  const records = OBSERVE?.records as any;
-  if (!records) return;
-  const event: Record<string, unknown> = { id: t.id, at: t.at, durationMs: t.settledAt! - t.at, passes: t.passes, outcome: t.outcome, streamed: t.streamed, heldMs: revealAt - t.settledAt! };
-  if (t.group) event.revealGroup = t.group;
-  const path = ownerPath(t.boundary);
-  if (path) event.ownerPath = path;
-  // (On the request's Server-Timing too: a boundary told before the head commits is a metric there.)
-  t.trace?.timing.push({ type: "boundary", event });
-  if (records.observed("boundary")) records.emit("boundary", event, t.error !== undefined ? { error: t.error } : {});
-}
-/** What the record shows a developer: sequential waits (a waterfall), client-only content found only after a wait. */
-function boundaryChecks(t: BoundaryTrack) {
-  if (t.outcome === "settled" && t.passes >= 3) {
-    const waits = t.passes - 1;
-    const entry = emitDiagnostic(
-      {
-        code: "SSR_BOUNDARY_WATERFALL",
-        kind: "ssr",
-        severity: waits >= 3 ? "warn" : "info",
-        message: `[SSR_BOUNDARY_WATERFALL] A <Loading> boundary took ${t.passes} render passes — ${waits} sequential async waits, each found only once the one before it answered. Start the reads together (or higher up) so they wait in parallel.`,
-        data: { boundary: t.id, passes: t.passes, sequentialMs: t.settledAt! - t.at },
-      },
-      t.boundary,
-    );
-    if (waits >= 3) reportDiagnostic(entry);
-  }
-  if (t.outcome === "client" && t.passes >= 2) {
-    const waits = t.passes - 1;
-    reportDiagnostic(
-      emitDiagnostic(
-        {
-          code: "SSR_CLIENT_CONTENT_MASKED",
-          kind: "ssr",
-          severity: "warn",
-          message: `[SSR_CLIENT_CONTENT_MASKED] Client-only content under a <Loading> boundary was found after ${waits} server wait${waits === 1 ? "" : "s"}: the fallback streamed, then the client rendered it. Read it outside the server wait, or mark the boundary for the client.`,
-          data: { boundary: t.id, passes: t.passes },
-        },
-        t.boundary,
-      ),
-    );
-  }
-}
-
-/** The passes a Loading boundary's content gets to stop waiting before it fails. */
-const CONVERGE_BUDGET = 100;
-
-/** The boundary's fragment record: settles once its content has been sent (the client hydrates it then). */
-function boundaryRecord(r: Render, boundary: object, id: string) {
-  let revealed!: (v: boolean) => void;
-  let failed!: (e: unknown) => void;
-  const record = new Promise<boolean>((ok, no) => ((revealed = ok), (failed = no)));
-  record.catch(() => {});
-  fragments.set(boundary, revealed);
-  failures.set(boundary, (e: unknown) => failed(ssrSanitizeError(e, boundary, { kind: "render", handling: "client", boundary: id }, (r.ctx as any)?.errorPolicy)));
-  // (A server component's too: hydration-free, but its fragment's outcome is what the client's dev report reads.)
-  if (r.serializer && (!isNoHydration() || inServerComponentScope(boundary as any))) {
-    r.serializer.write(id + "_fr", record);
-    // The stream ends after the record's settling is written.
-    r.pendingData++;
-    const done = () => queueMicrotask(() => (r.pendingData--, r.wake?.()));
-    record.then(done, done);
-  }
-}
-/** What fails each streamed boundary's fragment record (the client renders the subtree, and meets the error there). */
-const failures = new WeakMap<object, (e: unknown) => void>();
-
-/** A wait the shell must not go out before (deferred data found while a boundary retries). */
-function holdShell(r: Render, e: unknown, waits: Promise<void>) {
-  if (!r.shellSent && e instanceof NotReadyError && holdsShell(e)) r.blocks.add(waits);
-}
-
-/** A boundary whose content waits on holes of its own: its fallback in place, the content streamed once filled. */
-/** A boundary's place in the stream: its fallback between markers (kept in the template while its group collapses it). */
-const placeholder = (id: string, fallback: string, collapse: boolean) =>
-  collapse ? `<template id="pl-${id}">${fallback}</template><!--pl-${id}-->` : `<template id="pl-${id}"></template>${fallback}<!--pl-${id}-->`;
-
-/** A boundary's modules, serialized for the client to load before it hydrates or renders it. */
-function boundaryModules(id: string) {
-  const ctx = sharedConfig.context as any;
-  const map = ctx?.getBoundaryModules?.(id);
-  if (map && Object.keys(map).length) ctx.serialize?.(id + "_assets", { ...map });
-}
-
-function streamBoundary(r: Render, boundary: any, id: string, fallback: string, content: Promise<string>, group: RevealGroup | null = null, collapse = false, track?: BoundaryTrack): string {
-  boundaryRecord(r, boundary, id);
-  const done: Promise<void> = content.then(
-    (html) => {
-      if (boundary.disposed) return void fragments.get(boundary)?.(false);
-      rendering(r, r.options, () => {
-        const patch = r.head ? headPatch(r, id) : "";
-        fragments.get(boundary)?.(true);
-        serializeFragmentAssets(id, r.tracking, r.ctx);
-        if (!r.shellSent) r.inlined.set(id, html);
-        else r.sink.fragment(id, html, { styles: collectStreamStyles(id, r.tracking, r.headStyles), patch, revealGroup: group?.id });
-        if (track) settleBoundary(r, track, "settled");
-      });
-    },
-    (e) => {
-      // Client-only content surfaced: handed to the client, which renders it.
-      if (e instanceof NotReadyError && isClientOnly(e)) {
-        if (track) settleBoundary(r, track, "client");
-        return void fragments.get(boundary)?.(false);
-      }
-      if (track) settleBoundary(r, track, "error", e);
-      abandonUnder(r, id, e);
-      failures.get(boundary)?.(e);
-      // (Before the shell went out its placeholder is inlined away: no fallback, the client renders it again.)
-      if (r.shellSent) r.sink.fragment(id, failedOutcome(r, boundary, fallback, e), { styles: { inline: [], links: [] }, error: e, revealGroup: group?.id });
-      else r.inlined.set(id, "");
-    },
-  ).finally(() => rendering(r, r.options, () => group?.onResolved(id)));
-  const settled = done.then(() => {
-    r.abandons.delete(id);
-    r.waiting.delete(settled);
-    r.wake?.();
-  });
-  r.waiting.add(settled);
-  // (Let go of by a failing boundary around it: its record settles, nothing more is sent for it.)
-  r.abandons.set(id, () => {
-    r.waiting.delete(settled);
-    fragments.get(boundary)?.(false);
-    r.wake?.();
-  });
-  return placeholder(id, fallback, collapse);
-}
-
-const HOLE_TOKEN = /\u0000hole\d+\u0000/;
 
 /** The end of this turn of the event loop, as the platform has it when the module loads (as Solid's). */
 declare const setImmediate: ((fn: () => void) => unknown) | undefined;
@@ -1694,198 +1440,6 @@ const deferFlush: (fn: () => void) => void = typeof setImmediate === "function" 
 /** Solid's fragment swap runtime (MIT, Ryan Carniato and contributors): `$df`, groups (`$dfj`), fallbacks (`$dflj`), style gates. */
 const REVEAL = `function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function $dfr(e,n,o,t){if(!(n=document.getElementById(e)))return 0;if(!(o=document.getElementById("pl-"+e)))return(_$HY.dq=_$HY.dq||{})[e]=1,0;for(;o&&(8!==o.nodeType||o.nodeValue!=="pl-"+e);)t=o.nextSibling,o.remove(),o=t;t=o.parentNode,o.replaceWith(n.content),n.remove(),(_$HY.v=_$HY.v||{})[e]=1,_$HY.fe(e,t),_$HY.hp&&_$HY.hp[e]&&($dh(_$HY.hp[e]),delete _$HY.hp[e]),$dfd();return 1}function $dfl(e,o,n){if(!(o=document.getElementById("pl-"+e)))return(_$HY.dlq=_$HY.dlq||{})[e]=1,0;if(o._$fl)return 1;for(n=o.nextSibling;n;){if(8===n.nodeType&&n.nodeValue==="pl-"+e){o.parentNode&&o.parentNode.insertBefore(o.content.cloneNode(!0),n),o._$fl=1,$dfd();return 1}n=n.nextSibling}return 0}function $dflj(e,i){for(i=0;i<e.length;i++)$dfl(e[i])}function $dfd(e,i){if(e=_$HY.dq){_$HY.dq=0;for(i in e)$df(i)}if(e=_$HY.dlq){_$HY.dlq=0;for(i in e)$dfl(i)}}function $dfs(e,c,d){(_$HY.sc=_$HY.sc||{})[e]=c,d&&((_$HY.sd=_$HY.sd||{})[e]=1)}function $dfg(e,g,i,k){if(!(g=_$HY.sg&&_$HY.sg[e]))return;for(i=0;i<g.length;i++)if(_$HY.sc&&_$HY.sc[g[i]]>0)return;for(i=0;i<g.length;i++)k=g[i],delete _$HY.sg[k],$df(k)}function $dfc(e){if(--_$HY.sc[e]<=0){delete _$HY.sc[e],_$HY.sg&&_$HY.sg[e]?$dfg(e):!(_$HY.sd&&_$HY.sd[e])&&$df(e);_$HY.sd&&delete _$HY.sd[e]}}function $dfj(e,i,n){for(i=0;i<e.length;i++)if(_$HY.sc&&_$HY.sc[e[i]]>0){for(n=0;n<e.length;n++)(_$HY.sg=_$HY.sg||{})[e[n]]=e;return}for(i=0;i<e.length;i++)$df(e[i])}function $dfe(e,t,k){(t=e.target)&&t.getAttribute&&!t._$dc&&(k=t.getAttribute("data-dfc"))&&(t._$dc=1,$dfc(k))}document.addEventListener("load",$dfe,!0);document.addEventListener("error",$dfe,!0)`;
 
-// ---------------------------------------------------------------- Reveal (ported from Solid's server flow.ts, MIT)
-
-type RevealOrder = "sequential" | "together" | "natural";
-type RevealGroup = {
-  id: string;
-  register(key: string, options?: { onActivate?: () => void }): { collapseFallback: boolean; held: boolean };
-  onResolved(key: string): void;
-  onMinimallyResolved?(key: string): void;
-};
-const REVEAL_GROUP = Symbol("twist.ssr.reveal-group");
-const revealGroupOf = (o: any): RevealGroup | null => (o?.context?.[REVEAL_GROUP] as RevealGroup | undefined) ?? null;
-const setRevealGroup = (o: any, g: RevealGroup | null) => void (o.context = { ...o.context, [REVEAL_GROUP]: g });
-
-/** The order the Loading boundaries directly inside reveal in, as the stream sends them. */
-export function Reveal(props: { order?: RevealOrder; collapsed?: boolean; children?: any }) {
-  const parent = getOwner();
-  const o = ownerUnder(parent) as any;
-  const id = o.id as string;
-  const order: RevealOrder = props.order ?? "sequential";
-  const collapsed = order === "sequential" && !!props.collapsed;
-  const ctx = sharedConfig.context as any;
-  const parentGroup = revealGroupOf(parent);
-
-  if (!ctx?.async) {
-    let collapsedByParent = false;
-    if (parentGroup) {
-      collapsedByParent = parentGroup.register(id).collapseFallback;
-      if (process.env.NODE_ENV !== "production" && (order === "together" || collapsed))
-        devCheck({
-          code: "REVEAL_IN_RENDER_TO_STRING",
-          kind: "ssr",
-          severity: "warn",
-          message: "[REVEAL_IN_RENDER_TO_STRING] Nested <Reveal> with collapsed/together won't coordinate correctly with renderToString. Use renderToStream for full support.",
-          data: { order, collapsed },
-        });
-    }
-    let count = 0;
-    setRevealGroup(o, {
-      id,
-      register() {
-        count++;
-        return { collapseFallback: collapsedByParent || (order === "sequential" && collapsed && count > 1), held: false };
-      },
-      onResolved() {},
-    });
-    return { t: runWithOwner(o, () => html(props.children, false)) };
-  }
-
-  const keys: string[] = [];
-  const resolved = new Set<string>();
-  const minimallyResolved = new Set<string>();
-  const composites = new Map<string, () => void>();
-  const activated = new Set<string>();
-  const stash: string[] = [];
-  const collapsedLeafKeys: string[] = [];
-  let frontier = 0;
-  let heldByParent = false;
-  let collapsedByParent = false;
-  let selfMinimallyResolved = false;
-  let notifiedParentDone = false;
-  let registering = true;
-
-  if (parentGroup) {
-    const reg = parentGroup.register(id, {
-      onActivate: () => {
-        if (!heldByParent) return;
-        heldByParent = false;
-        if (collapsedByParent) {
-          collapsedByParent = false;
-          if (collapsedLeafKeys.length) {
-            ctx.revealFallbacks?.([...collapsedLeafKeys]);
-            collapsedLeafKeys.length = 0;
-          }
-        }
-        if (order === "sequential") advanceFrontier();
-        else if (order === "together") checkTogetherRelease();
-        else naturalRelease();
-      },
-    });
-    collapsedByParent = reg.collapseFallback;
-    heldByParent = reg.held;
-  }
-
-  const revealLeaves = (leafKeys: string[]) => ctx.revealFragments?.(leafKeys);
-  function notifyParentIfDone() {
-    if (registering || notifiedParentDone) return;
-    if (parentGroup && resolved.size === keys.length) {
-      notifiedParentDone = true;
-      parentGroup.onResolved(id);
-    }
-  }
-  function activateComposite(key: string) {
-    if (activated.has(key)) return;
-    activated.add(key);
-    composites.get(key)!();
-  }
-  function updateSelfMinimallyResolved() {
-    if (registering || selfMinimallyResolved) return;
-    if (keys.length === 0) selfMinimallyResolved = true;
-    else if (order === "together") selfMinimallyResolved = minimallyResolved.size === keys.length;
-    else if (order === "sequential") selfMinimallyResolved = minimallyResolved.has(keys[0]!);
-    else selfMinimallyResolved = minimallyResolved.size > 0;
-    if (selfMinimallyResolved) parentGroup?.onMinimallyResolved?.(id);
-  }
-  function advanceFrontier() {
-    if (heldByParent) return;
-    while (frontier < keys.length && resolved.has(keys[frontier]!)) {
-      const k = keys[frontier]!;
-      if (composites.has(k)) activateComposite(k);
-      else revealLeaves([k]);
-      frontier++;
-    }
-    if (frontier < keys.length) {
-      const k = keys[frontier]!;
-      if (composites.has(k)) activateComposite(k);
-      else if (order === "sequential" && collapsed) ctx.revealFallbacks?.([k]);
-    }
-    notifyParentIfDone();
-  }
-  function checkTogetherRelease() {
-    if (registering || order !== "together" || heldByParent) return;
-    if (minimallyResolved.size < keys.length) return;
-    if (stash.length) {
-      revealLeaves([...stash]);
-      stash.length = 0;
-    }
-    composites.forEach((_, key) => activateComposite(key));
-    notifyParentIfDone();
-  }
-  function naturalRelease() {
-    if (stash.length) {
-      revealLeaves([...stash]);
-      stash.length = 0;
-    }
-    composites.forEach((_, key) => activateComposite(key));
-    notifyParentIfDone();
-  }
-  function markMinimallyResolved(key: string) {
-    if (minimallyResolved.has(key)) return;
-    minimallyResolved.add(key);
-    updateSelfMinimallyResolved();
-    if (order === "together") checkTogetherRelease();
-  }
-
-  setRevealGroup(o, {
-    id,
-    register(key, options) {
-      keys.push(key);
-      const isComposite = !!options?.onActivate;
-      if (isComposite) composites.set(key, options!.onActivate!);
-      const selfCollapse = order === "sequential" && collapsed && keys.length > 1;
-      const collapseFallback = collapsedByParent || selfCollapse;
-      if (collapseFallback && !isComposite) collapsedLeafKeys.push(key);
-      let held = heldByParent;
-      if (!held) {
-        if (order === "together") held = true;
-        else if (order === "sequential" && keys.length > 1) held = true;
-      }
-      return { collapseFallback, held };
-    },
-    onResolved(key) {
-      resolved.add(key);
-      if (!composites.has(key)) {
-        if (order === "together") stash.push(key);
-        else if (order === "natural" && heldByParent) stash.push(key);
-        else if (order === "natural") revealLeaves([key]);
-        markMinimallyResolved(key);
-        if (order === "sequential" && !heldByParent) advanceFrontier();
-        if (order === "natural") updateSelfMinimallyResolved();
-      } else {
-        markMinimallyResolved(key);
-        if (!heldByParent) {
-          if (order === "sequential") advanceFrontier();
-          else if (order === "natural") activateComposite(key);
-        }
-        if (order === "together") checkTogetherRelease();
-        if (order === "natural") updateSelfMinimallyResolved();
-      }
-      notifyParentIfDone();
-    },
-    onMinimallyResolved(key) {
-      markMinimallyResolved(key);
-    },
-  });
-  const result = runWithOwner(o, () => html(props.children, false));
-  registering = false;
-  updateSelfMinimallyResolved();
-  checkTogetherRelease();
-  notifyParentIfDone();
-  return { t: result };
-}
-markBuiltin(Reveal);
 
 function script(r: Render, code: string) {
   const s = r.revealScript ? code : REVEAL + ";" + code;
@@ -1907,7 +1461,7 @@ const RESOURCE_RELS = new Set(["preload", "modulepreload", "prefetch", "preconne
 /** The registry of the render under way. */
 let head: HeadRegistry | null = null;
 /** The Loading boundary rendering now ("" for the shell): what useHead registers belongs to it. */
-let headBoundary = "";
+const boundaryNow = (): string => (sharedConfig.context as any)?._currentBoundaryId ?? "";
 
 /** A render's head registry; `sent` is the render's resource identities, shared with its preloads. */
 const newHead = (sent: Set<string>): HeadRegistry => ({ groups: [], resources: [], sent, placed: false });
@@ -1923,6 +1477,7 @@ export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc
     return;
   }
   const list = typeof tags === "function" ? tags() : tags;
+  const headBoundary = boundaryNow();
   const group: HeadGroup = { boundary: headBoundary, tags: [] };
   for (const d of Array.isArray(list) ? list : [list]) {
     if (!d) continue;
@@ -1949,7 +1504,12 @@ export function useHead(tags: HeadDesc | HeadDesc[] | (() => HeadDesc | HeadDesc
       group.tags.push(d);
     }
   }
-  if (group.tags.length) head.groups.push(group);
+  if (group.tags.length) {
+    const h = head;
+    h.groups.push(group);
+    // (A boundary's pass rendered again: this pass's tags go with it.)
+    if (headBoundary !== "" && getOwner()) onCleanup(() => void (h.groups = h.groups.filter((g) => g !== group)));
+  }
 }
 
 /** A head check's finding (dev), located by component. */
@@ -2113,23 +1673,6 @@ function headPatch(r: Render, id: string): string {
 
 // ---------------------------------------------------------------- render entry points
 
-/** An async node's answer, sent to the client under its id (once; nothing under NoHydration). */
-const noopFn = () => {};
-function sendAnswer(node: any, answer: unknown) {
-  const r = render;
-  // Data marked deferStream holds the shell until it lands, wherever it is first asked (as Solid's serialize).
-  if (r && node?.deferStream && !r.shellSent && answer && typeof (answer as any).then === "function")
-    r.blocks.add((answer as Promise<unknown>).then(noopFn, noopFn));
-  const id = node?.id as string | undefined;
-  if (!r?.serializer || id == null || isNoHydration() || !sharedConfig.context || r.written.has(id)) return;
-  r.written.add(id);
-  // (A stream the client goes on with: the server answers with its first value only, the client's iteration the rest.)
-  if (node?.ssrSource === "hybrid" && answer && typeof (answer as any)[Symbol.asyncIterator] === "function" && typeof (answer as any).then !== "function") {
-    const it = (answer as any)[Symbol.asyncIterator]();
-    answer = Promise.resolve(it.next()).then((step: IteratorResult<unknown>) => (it.return?.(), step.value));
-  }
-  r.serializer.write(id, awaitData(r, answer, id));
-}
 /** A value still to come (a promise, or an async source's values): the stream stays open until it has all been written. */
 function awaitData<V>(r: Render, v: V, id?: string): V {
   if (!isData(v)) return v;
@@ -2137,47 +1680,83 @@ function awaitData<V>(r: Render, v: V, id?: string): V {
   let open = true;
   const done = () => open && ((open = false), id != null && r.abandons.delete(id), queueMicrotask(() => (r.pendingData--, r.wake?.())));
   if (id != null) r.abandons.set(id, Object.assign(done, { [DATA]: true }));
-  // (A promise as it is, the serializer's to write; one that answers with a source, held until that ends.)
-  if (typeof (v as any).then === "function" && !(v as any)[SOURCE_ANSWER]) return (v as any).then(done, done), v;
-  return held(v, done);
+  // (A promise or an answer's source as it is, the serializer's to write: a promise done when it settles — or, answering
+  // with a source, when that ends; a source when it ends.)
+  if ((v as any).__SEROVAL_STREAM__ === true) return held(v, done);
+  if (typeof (v as any).then === "function") (v as any).then((x: any) => (x && x[SOURCE_ANSWER] ? endOf(x, done) : done()), done);
+  else endOf(v, done);
+  return v;
 }
-// (A source counts only when it is the client's reader of one Twist split: anything else goes to the serializer as it is.)
+/** `done` called when an answer's source (one of the layer's channels, ours to change) ends, fails or is let go of. */
+function endOf(source: any, done: () => void) {
+  const open = source[Symbol.asyncIterator];
+  // (A turn later: the serializer writes the end it read first.)
+  const ended = () => deferFlush(done);
+  source[Symbol.asyncIterator] = function (this: unknown) {
+    const it = open.call(this);
+    return {
+      next: (...a: any[]) => Promise.resolve(it.next(...a)).then((x: IteratorResult<unknown>) => (x.done && ended(), x), (e: unknown) => (ended(), Promise.reject(e))),
+      return: (x?: unknown) => (ended(), it.return ? it.return(x) : Promise.resolve({ done: true, value: x })),
+    };
+  };
+}
+// (A source counts only when it is an async node's answer: anything else goes to the serializer as it is.)
 const isData = (v: any) => !!v && (typeof v.then === "function" || v.__SEROVAL_STREAM__ === true || (typeof v[Symbol.asyncIterator] === "function" && !!v[SOURCE_ANSWER]));
-/** An answer's value with `done` called once the sources inside it (plain objects' and arrays') have all ended. */
-function heldInside(x: any, done: () => void): any {
-  let left = 1;
-  const part = () => () => --left === 0 && done();
-  const map = (v: any, seen: Map<object, any>): any => {
-    if (!v || typeof v !== "object") return v;
-    if (typeof v[Symbol.asyncIterator] === "function" && typeof v.then !== "function") return left++, held(v, part());
-    if (seen.has(v)) return seen.get(v);
-    const proto = Object.getPrototypeOf(v);
-    if (!Array.isArray(v) && proto !== Object.prototype && proto !== null) return v;
-    let copy: any = null;
-    for (const k of Object.keys(v)) {
-      const c = map(v[k], seen);
-      if (c !== v[k]) (copy ??= Array.isArray(v) ? [...v] : { ...v })[k] = c;
-    }
-    seen.set(v, copy ?? v);
-    return copy ?? v;
-  };
-  const out = map(x, new Map());
-  part()();
-  return out;
+/**
+ * A value as it crosses to the client (Solid's funnel, ported from its server.ts, MIT): every async iterable in it — the
+ * channel itself, or one nested in a resolved answer — a seat on the shared stream of it (so the serializer and a memo
+ * reading the same source see the whole sequence), and a failure the client may see sanitized. One guard per channel.
+ */
+const guardedChannels = new WeakMap<object, any>();
+const verdictNow = (error: unknown) => {
+  throw ssrSanitizeError(error, null);
+};
+const borderForm = (value: unknown) => toBorderForm(value, false);
+const guardIterable = (iterable: any) => ({
+  [Symbol.asyncIterator]() {
+    const iterator = iterable[Symbol.asyncIterator]();
+    return {
+      next: (value?: unknown) => iterator.next(value).then(undefined, verdictNow),
+      return: (value?: unknown) => (iterator.return ? iterator.return(value) : Promise.resolve({ done: true, value })),
+      throw: (error?: unknown) => (iterator.throw ? iterator.throw(error) : Promise.reject(error)),
+    };
+  },
+});
+const guardStream = (source: ReadableStream) => {
+  const reader = source.getReader();
+  return new ReadableStream({
+    pull: (c) =>
+      reader.read().then(
+        (r) => (r.done ? c.close() : c.enqueue(r.value)),
+        (e) => {
+          try {
+            verdictNow(e);
+          } catch (sanitized) {
+            c.error(sanitized);
+          }
+        },
+      ),
+    cancel: (reason) => reader.cancel(reason),
+  });
+};
+function guardChannel(p: any): any {
+  if (!p || typeof p !== "object" || "__SEROVAL_STREAM__" in p) return p;
+  let guarded = guardedChannels.get(p);
+  if (guarded !== undefined) return guarded;
+  if (typeof p.then === "function") guarded = p.then(borderForm, verdictNow);
+  else if (typeof ReadableStream === "function" && p instanceof ReadableStream) guarded = guardStream(p);
+  else {
+    const border: any = borderForm(p);
+    guarded = border && typeof border[Symbol.asyncIterator] === "function" ? guardIterable(border) : border;
+    if (guarded === p) return p;
+  }
+  guardedChannels.set(p, guarded);
+  return guarded;
 }
-/** `v` with `done` called once it has all come: a promise when it settles (or, answering with a source, when that ends). */
+
+/** A serialized stream: `done` when it returns or throws. */
 function held(v: any, done: () => void): any {
-  // (A serialized stream: done when it returns or throws.)
-  if (v.__SEROVAL_STREAM__ === true) return v.on({ next() {}, throw: done, return: done }), v;
-  if (typeof v.then === "function") return v.then((x: any) => (x && typeof x[Symbol.asyncIterator] === "function" ? held(x, done) : heldInside(x, done)), (e: unknown) => (done(), Promise.reject(e)));
-  // (A source: done when it ends, fails or is let go of. Only the iterator method shows: what is serialized is the
-  // source, not its reader's methods.)
-  const it = v[Symbol.asyncIterator]();
-  const reader = {
-    next: (...a: any[]) => Promise.resolve(it.next(...a)).then((x: IteratorResult<unknown>) => (x.done && done(), x), (e: unknown) => (done(), Promise.reject(e))),
-    return: (x?: unknown) => (done(), it.return ? it.return(x) : Promise.resolve({ done: true, value: x })),
-  };
-  return { [Symbol.asyncIterator]: () => reader };
+  return v.on({ next() {}, throw: done, return: done }), v;
 }
 
 /** The data not yet sent, as a script (the scope's header ahead of the first). */
@@ -2189,26 +1768,44 @@ function takeData(r: Render): string {
   return `<script${nonceAttr(r.nonce, "script")}>${s}</script>`;
 }
 
+/** `fn` with `ctx` as the render context (none given: as it is). */
+function inContext<T>(ctx: unknown, fn: () => T): T {
+  if (!ctx) return fn();
+  const was = sharedConfig.context;
+  sharedConfig.context = ctx as any;
+  try {
+    return fn();
+  } finally {
+    sharedConfig.context = was;
+  }
+}
+
+/** `fn` in render `r` (its holes and head), the render context left as the caller set it (a boundary's buffered one). */
+function inRender<T>(r: Render, fn: () => T): T {
+  const wasRender = render;
+  const wasHead = head;
+  render = r;
+  head = r.head;
+  try {
+    return fn();
+  } finally {
+    render = wasRender;
+    head = wasHead;
+  }
+}
+
 function rendering<T>(r: Render | null, options: { renderId?: string; noHydrate?: boolean }, fn: () => T): T {
   const wasRender = render;
   sharedConfig.context = options.noHydrate ? null : (r?.ctx ?? stringCtx ?? stringContext(options.renderId ?? ""));
   render = r;
   const wasHead = head;
   if (r) head = r.head;
-  setServerAnswers(r?.answers ?? null);
-  setServerFly(r?.serializer ? sendAnswer : null);
-  const wasServer = setServerRender(true);
-  const wasScope = setServerScope(r ? { key: r, enter: (f) => rendering(r, options, f) } : null);
   try {
     return fn();
   } finally {
-    setServerScope(wasScope);
-    setServerRender(wasServer);
     // (The context stays the global one: whichever render touched it last, as Solid leaves it.)
     render = wasRender;
     head = wasHead;
-    setServerAnswers(wasRender?.answers ?? null);
-    setServerFly(wasRender?.serializer ? sendAnswer : null);
   }
 }
 
@@ -2251,7 +1848,7 @@ function renderRecord(ctx: any, mode: "string" | "stream") {
       const emit = () => records.emit("render", event, { trace: ctx.trace?.context, event: ctx.event ?? getRequestEvent() });
       if (released) return void runWithOwner(null, emit);
       const o = runWithOwner(null, () => createOwner()) as any;
-      o.renderCtx = ctx;
+      fileRenderRoot(o, ctx);
       runWithOwner(o, emit);
     },
   };
@@ -2332,25 +1929,106 @@ let stringCtx: any = null;
 
 type Writable = { write(chunk: string): void; end(): void };
 
-/** A value rendered to Solid's template shape: its html, or a hole (re-resolved once `p` settles) when it waits. */
-function resolveTemplate(v: any): { t: string[]; h: any[]; p: Promise<unknown>[] } {
-  try {
-    return { t: [html(v, false)], h: [], p: [] };
-  } catch (e) {
-    const waits = e instanceof NotReadyError && settlesOf(e);
-    if (!waits) throw e;
-    return { t: ["", ""], h: [v], p: [waits] };
+/**
+ * Markup in Solid's template shape (`{ t, h, p }`), as the layer's boundaries take it: the strings, and between them
+ * each hole that still waits — a function giving it once `p`'s promise settles. Twist's late holes are tokens in the
+ * markup; a value that throws not-ready waits on what it named.
+ */
+class Template {
+  t: string[] = [""];
+  h: (() => unknown)[] = [];
+  p: unknown[] = [];
+  text(s: string) {
+    const r = render;
+    if (!r || !s.includes("\u0000hole")) return void (this.t[this.t.length - 1] += s);
+    const bits = s.split(/(\u0000hole\d+\u0000)/);
+    for (let i = 0; i < bits.length; i++) {
+      if (i % 2 === 0) this.t[this.t.length - 1] += bits[i];
+      else {
+        const filled = r.holes.get(bits[i]!)!;
+        this.wait(holeReader(bits[i]!, filled), filled);
+      }
+    }
   }
+  wait(h: () => unknown, p: unknown) {
+    this.h.push(h);
+    this.p.push(p);
+    this.t.push("");
+  }
+  add(v: any) {
+    const again = typeof v === "function" ? v : () => v;
+    try {
+      while (typeof v === "function") v = v();
+    } catch (e) {
+      if (e instanceof NotReadyError) return this.wait(again, (e as any).source);
+      // (A hole that failed: to the boundary it is in, as a template hole's error goes — its handler routes it, then throws.)
+      return void ssrHandleError(e);
+    }
+    if (v == null || typeof v === "boolean") return;
+    if (typeof v === "string") return this.text(v);
+    if (typeof v === "number") return this.text(String(v));
+    if (Array.isArray(v)) {
+      for (const x of v) this.add(x);
+      return;
+    }
+    if (typeof v.t === "string") return this.text(v.t);
+    if (Array.isArray(v.t)) {
+      for (let i = 0; i < v.t.length; i++) {
+        this.text(v.t[i]);
+        if (v.h && i < v.h.length) this.wait(v.h[i], v.p[i]);
+      }
+      return;
+    }
+    try {
+      this.text(html(v, false));
+    } catch (e) {
+      if (e instanceof NotReadyError) return this.wait(again, (e as any).source);
+      throw e;
+    }
+  }
+  done() {
+    return { t: this.t, h: this.h, p: this.p };
+  }
+}
+/** A late hole's markup once it is filled: its value, or the failure it met (the token itself while it waits). */
+function holeReader(token: string, filled: Promise<string>) {
+  let state: { v: string } | { e: unknown } | undefined;
+  filled.then(
+    (v) => void (state = { v }),
+    (e) => void (state = { e }),
+  );
+  return () => {
+    if (!state) return { t: token };
+    if ("e" in state) throw state.e;
+    return { t: state.v };
+  };
+}
+/** A value in Solid's template shape (ctx.resolve). */
+function resolveTemplate(v: any) {
+  const out = new Template();
+  out.add(v);
+  return out.done();
+}
+/** Template strings with values between them, in Solid's template shape (ctx.ssr). */
+function templateOf(strings: string[] | string, ...nodes: any[]) {
+  if (typeof strings === "string") return markHead(strings), { t: [strings], h: [], p: [] };
+  const out = new Template();
+  for (let i = 0; i < strings.length; i++) {
+    markHead(strings[i]);
+    out.text(strings[i]!);
+    if (i < nodes.length) out.add(nodes[i]);
+  }
+  return out.done();
 }
 
 /** The context a string render's code reads: nothing waits, nothing is sent. */
 function stringContext(id: string) {
-  return { id, count: 0, async: false, document: true, escape, ssr, resolve: resolveTemplate, serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} };
+  return loadingPhase({ id, count: 0, async: false, document: true, escape, ssr: templateOf, resolve: resolveTemplate, serialize() {}, block() {}, replace() {}, registerAsset() {}, hold: () => () => {} });
 }
 
 /** The context of a stream: Solid's render context API over this render. */
 function streamContext(r: Render, options: StreamOptions) {
-  return {
+  return loadingPhase({
     errorPolicy: options.onError,
     id: options.renderId ?? "",
     count: 0,
@@ -2359,12 +2037,20 @@ function streamContext(r: Render, options: StreamOptions) {
     document: !options.sink,
     live: {},
     escape,
-    ssr,
-    resolve: resolveTemplate,
+    ssr: (strings: string[] | string, ...nodes: any[]) => inRender(r, () => templateOf(strings, ...nodes)),
+    resolve: (v: any) => inRender(r, () => resolveTemplate(v)),
+    /** A boundary the shell waited on, recorded (the response's Server-Timing, the render record's count). */
+    _recordBoundary(event: unknown) {
+      (r.ctx as any).trace?.timing.push({ type: "boundary", event });
+      r.waited++;
+    },
+    /** A failure nothing contains (reported already): before the shell, the request fails; after, the stream ends. */
+    failRender: (e: unknown) => (r as any).failRender?.(e),
     serialize(id: string, p: unknown, deferStream?: boolean) {
+      // (Data marked deferStream holds the shell until it lands.)
+      if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add((p as Promise<unknown>).then(noopFn, noopFn));
       if (!r.serializer) return;
-      if (deferStream && !r.shellSent && p && typeof (p as any).then === "function") r.blocks.add(p as Promise<unknown>);
-      r.serializer.write(id, awaitData(r, p, id));
+      r.serializer.write(id, guardChannel(awaitData(r, p, id)));
     },
     block(p: Promise<unknown>) {
       if (!r.shellSent) r.blocks.add(p);
@@ -2383,23 +2069,64 @@ function streamContext(r: Render, options: StreamOptions) {
     registerAsset(type: string, value: unknown) {
       registerAssetIn(r.tracking, () => r.shellSent, r.sink, type, value, r.nonce);
     },
-    /** A fragment of the caller's: its record serialized now, its content to the sink when given. */
+    /** A boundary's fragment: its record serialized now (the stream stays open until it settles), its content when given. */
     registerFragment(key: string, opts?: { revealGroup?: string }) {
-      let settle!: (v: unknown) => void;
-      let fail!: (e: unknown) => void;
-      const record = new Promise((ok, no) => ((settle = ok), (fail = no)));
-      record.catch(() => {});
-      r.serializer?.write(key + "_fr", record);
-      let done = false;
-      // (The stream stays open until it is done.)
-      r.holds++;
-      return (value?: string, error?: unknown) => {
-        if (done) return r.shellSent;
-        done = true;
-        r.holds--;
+      if (!r.fragments.has(key)) {
+        let settle!: (v: unknown) => void;
+        let fail!: (e: unknown) => void;
+        const record = new Promise((ok, no) => ((settle = ok), (fail = no)));
+        record.catch(() => {});
+        r.serializer?.write(key + "_fr", record);
+        r.holds++;
+        let open = true;
+        const resolve = (error?: unknown) => {
+          if (!open) return;
+          open = false;
+          r.abandons.delete(key);
+          queueMicrotask(() => {
+            error ? fail(ssrSanitizeError(error, null)) : settle(true);
+            queueMicrotask(() => (r.holds--, r.wake?.()));
+          });
+        };
+        r.fragments.set(key, { resolve });
+        r.abandons.set(key, () => {
+          if (r.fragments.get(key)?.resolve === resolve) r.fragments.delete(key);
+          resolve();
+        });
+      }
+      return (value?: string, error?: unknown, escaped?: { frame?: string }) => {
+        const item = r.fragments.get(key);
+        if (!item) return r.shellSent;
+        r.fragments.delete(key);
+        // (The response over: nothing more is sent for it.)
+        if ((r as any).ended) return item.resolve(), r.shellSent;
+        if (error) abandonUnder(r, key, error);
+        // (Escaped a server component: the frame as one value errors.)
+        if (error && escaped) {
+          const wire = ssrSanitizeError(error, null);
+          const message = wire instanceof Error ? wire.message : String(wire);
+          if (r.options.sink?.error) r.sink.error!("", message);
+          else (r.ctx as any).live?.error?.(escaped.frame, message);
+        }
+        if (item.children && !error) for (const k in item.children) value = replacePlaceholder(value ?? "", k, item.children[k]!);
+        // (Settled inside a fragment still to come: it goes with that one.)
+        const parentKey = [...r.fragments.keys()].reverse().find((k) => key.startsWith(k));
+        if (parentKey) {
+          (r.fragments.get(parentKey)!.children ??= {})[key] = value ?? "";
+          serializeFragmentAssets(key, r.tracking, r.ctx);
+          adoptBoundary(r, key, parentKey);
+          item.resolve();
+          return r.shellSent;
+        }
+        if (error && r.head) r.head.groups = r.head.groups.filter((g) => g.boundary !== key);
         serializeFragmentAssets(key, r.tracking, r.ctx);
-        r.sink.fragment(key, value !== undefined ? value : " ", { styles: collectStreamStyles(key, r.tracking, r.headStyles), revealGroup: opts?.revealGroup, error });
-        queueMicrotask(() => (error ? fail(error) : settle(true)));
+        // (Before the shell: inlined there, in place of its placeholder.)
+        if (!r.shellSent) r.inlined.set(key, value ?? "");
+        else {
+          const patch = !error && r.head ? headPatch(r, key) : "";
+          r.sink.fragment(key, value !== undefined ? value : " ", { styles: collectStreamStyles(key, r.tracking, r.headStyles), patch, revealGroup: opts?.revealGroup, error: error ? ssrSanitizeError(error, null) : undefined });
+        }
+        item.resolve(error);
         r.wake?.();
         return r.shellSent;
       };
@@ -2407,18 +2134,14 @@ function streamContext(r: Render, options: StreamOptions) {
     revealFragments(keys: string | string[]) {
       const list = Array.isArray(keys) ? keys : [keys];
       r.sink.reveal(list, { fallback: false });
-      // (A grouped boundary's record goes when the group reveals it: its hold measured.)
-      for (const k of list) {
-        const t = r.tracks?.get(k);
-        if (t && t.outcome !== undefined && !t.told) tellBoundary(t, performance.now());
-      }
     },
     revealFallbacks(keys: string | string[]) {
       r.sink.reveal(Array.isArray(keys) ? keys : [keys], { fallback: true });
     },
     flushed: () => r.shellSent,
-  };
+  });
 }
+const noopFn = () => {};
 
 type StreamOptions = {
   renderId?: string;
@@ -2442,7 +2165,7 @@ type StreamOptions = {
 
 /** The shell at once, then each boundary as it settles; awaited, the whole document. */
 export function renderToStream(code: () => any, options: StreamOptions = {}) {
-  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, answers: new Map(), options, holes: new Map(), shellSent: false, head: null as any, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null, nonce: normalizeNonce(options.nonce), abandons: new Map() };
+  const r: Render = { async: true, waiting: new Set(), chunks: [], wake: null, revealScript: false, options, fragments: new Map(), waited: 0, holes: new Map(), shellSent: false, head: null as any, data: "", serializer: null, written: new Set(), pendingData: 0, headerSent: false, sink: null as any, ctx: null, blocks: new Set(), holds: 0, inlined: new Map(), tracking: createAssetTracking(), headStyles: null, nonce: normalizeNonce(options.nonce), abandons: new Map() };
   r.head = newHead(r.tracking.resources);
   // Its hook is its request's: a server function the request calls later reports to it.
   fileRequestHook(options.onError);
@@ -2555,13 +2278,13 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     if (!r.waiting.size && !r.pendingData && !r.holds && !done) {
       options.onCompleteAll?.({ write: (chunk) => void r.chunks.push(chunk) });
       flushAll();
-      done = true;
+      done = (r as any).ended = true;
       // (Awaited whole, the render is let go of as it resolves: the record settles after.)
-      if (!whole) record?.settle("complete", toldBoundaries(r));
+      if (!whole) record?.settle("complete", r.waited);
       dispose();
       for (const w of sinks) w.end();
       finished();
-      if (whole) record?.settle("complete", toldBoundaries(r), true);
+      if (whole) record?.settle("complete", r.waited, true);
     }
   };
   let finished!: () => void;
@@ -2579,15 +2302,15 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
   /** The response abandoned (aborted, or its consumer gone): the render torn down, its sources returned, nothing more sent. */
   const abandon = (end: boolean, outcome: "abandoned" | "error" = "abandoned", reason?: "sink" | "signal" | "consumer") => {
     if (done) return;
-    done = true;
-    record?.settle(outcome, toldBoundaries(r));
+    done = (r as any).ended = true;
+    record?.settle(outcome, r.waited);
     if (reason && process.env.NODE_ENV !== "production")
       emitDiagnostic({
         code: "SSR_STREAM_ABANDONED",
         kind: "ssr",
         severity: "warn",
-        message: `[SSR_STREAM_ABANDONED] The response was abandoned (${reason}) before it finished: ${r.waiting.size} fragment(s) still to come were dropped and the render torn down.`,
-        data: { reason, pendingFragments: r.waiting.size, shellFlushed: shellSent },
+        message: `[SSR_STREAM_ABANDONED] The response was abandoned (${reason}) before it finished: ${r.waiting.size + r.fragments.size} fragment(s) still to come were dropped and the render torn down.`,
+        data: { reason, pendingFragments: r.waiting.size + r.fragments.size, shellFlushed: shellSent },
       });
     dispose?.();
     // (The serializer stops too: its close is what reaches a source it still reads.)
@@ -2637,6 +2360,8 @@ export function renderToStream(code: () => any, options: StreamOptions = {}) {
     void all.then(() => options.signal!.removeEventListener("abort", onAbort));
   }
   let readable: ReadableStream<Uint8Array> | null = null;
+  // A failure nothing contains (a boundary's, reported already): before the shell the request fails; after, it ends.
+  (r as any).failRender = (e: unknown) => (shellSent ? abandon(true, "error") : (r as any).failShell(e));
   const failed = shellReady.then(
     async (s) => {
       if (whole && !quiet()) await new Promise<void>((ok) => idle.push(ok));

@@ -1,0 +1,257 @@
+import { getOwner, getNextChildId, getContext, devPeekNextChildId } from "./signals.js";
+import type { Context } from "./signals.js";
+import type { BoundaryEvent } from "./observe.js";
+import type { NavigationRef, Observe } from "../core/index.js";
+
+export type SSRTemplateObject =
+  | { t: string[]; h: Function[]; p: Promise<any>[] }
+  | { t: string; h?: undefined; p?: undefined };
+
+/** Inline style content, e.g. dev CSS collected from a bundler's module graph. */
+export type InlineStyleAsset = {
+  id: string;
+  content: string;
+  attrs?: Record<string, string>;
+};
+
+export type ResolvedAssets = {
+  js: string[];
+  css: (string | InlineStyleAsset)[];
+  /** Renderer-defined preload descriptors; lazy() only reads `as` for NoHydration filtering. */
+  preloads?: unknown[];
+};
+
+export type HydrationContext = {
+  id: string;
+  count: number;
+  /**
+   * Serialize a value for client hydration.
+   * In renderToStream (async: true), accepts promises and async iterables.
+   * In renderToString (async: false), only synchronous values are allowed —
+   * passing async values will throw.
+   */
+  serialize: (id: string, v: any, deferStream?: boolean) => void;
+  resolve(value: any): SSRTemplateObject;
+  ssr(template: string[], ...values: any[]): SSRTemplateObject;
+  escape(value: any): string;
+  replace: (id: string, replacement: () => any) => void;
+  block: (p: Promise<any>) => void;
+  /**
+   * Register a deferred fragment; the resolver settles it: `v` its markup,
+   * `err` the failure it settled with, `escaped` that the failure escaped a
+   * server component (no server `<Errored>` rendered an outcome for it) —
+   * the renderer surfaces it as the frame's own error, the outward face;
+   * `escaped.frame` names the component's frame where the channel needs it
+   * (the document face's `sc:live` op).
+   */
+  registerFragment: (
+    v: string,
+    options?: { revealGroup?: string }
+  ) => (v?: string, err?: any, escaped?: { frame?: string }) => boolean;
+  /**
+   * @internal The frame id of the server component this context renders
+   * inside, on the document face (set by the frames server runtime on the
+   * component's render context; inherited by every clone below it).
+   */
+  frameId?: string;
+  revealFragments?: (groupOrKeys: string | string[]) => void;
+  revealFallbacks?: (groupOrKeys: string | string[]) => void;
+  /** Register a client-side asset discovered during SSR (e.g. from lazy()). */
+  registerAsset?: {
+    (type: "module" | "style", url: string): void;
+    (type: "inline-style", style: InlineStyleAsset): void;
+    (type: "preload", preload: unknown): void;
+  };
+  /** Register a moduleUrl-to-entryUrl mapping for the current boundary. */
+  registerModule?: (moduleUrl: string, entryUrl: string) => void;
+  /**
+   * Resolve a module's client assets from the asset manifest. Set by
+   * the @solidjs/web server renderer. Resolver manifests (dev servers answering from a live
+   * module graph) may return a promise and may resolve css entries to
+   * inline-style descriptors instead of URLs.
+   */
+  resolveAssets?: (moduleUrl: string) => ResolvedAssets | null | Promise<ResolvedAssets | null>;
+  /**
+   * Synchronous resolution fast path. Set by @solidjs/web for object
+   * manifests (sync by nature) and for resolver manifests providing
+   * `resolveSync`; used by sync consumers like lazy's moduleUrl getter.
+   */
+  resolveAssetsSync?: (moduleUrl: string) => ResolvedAssets | null | undefined;
+  /** Retrieve the moduleUrl-to-entryUrl map for a boundary. */
+  getBoundaryModules?: (id: string) => Record<string, string> | null;
+  /** @internal Tracks which Loading boundary is currently rendering. Set by @solidjs/web via applyAssetTracking(). */
+  _currentBoundaryId?: string | null;
+  /**
+   * @internal The seam a `<Loading>` boundary files its `"boundary"` record
+   * through for the response's `Server-Timing` (`solid-boundary` is a
+   * projection of the record). Set by @solidjs/web at render start in
+   * observe builds; `ssrLoadingBoundary` calls it with the record of each
+   * boundary that waited and settled before the shell — the ones whose wait
+   * the head can still account for — under its own gate (dev, or a
+   * `"boundary"` listener). Absent outside observe builds.
+   */
+  _recordBoundary?: (event: BoundaryEvent) => void;
+  /**
+   * @internal The seam a router's initial-route declaration reaches the
+   * render's `"render"` record through (`RenderEvent.route`). Set by
+   * @solidjs/web at render start in observe builds while a `"render"`
+   * listener exists; the server entry's `OBSERVE.attribution.withOrigin`
+   * calls it with an `initial` ref (there is no engine on the server — the
+   * declaration is the whole of what the call does here). The ref is kept
+   * and read when the render settles, so a match refined during the render
+   * is what lands. Absent outside observe builds.
+   */
+  _declareRoute?: (ref: NavigationRef) => void;
+  /**
+   * @internal Containment channel for errors surfacing in async resume loops
+   * (boundary retries, flush passes), where nothing is on the stack to catch
+   * a throw. Set by @solidjs/web's renderToStream: reports through the
+   * render's onError and winds the render down — the request fails, the
+   * process survives.
+   */
+  failRender?: (err: any) => void;
+  /**
+   * @internal The per-request server error hook (`renderToStream`'s
+   * `onError`), set by @solidjs/web. The boundaries read it off the context
+   * they were created under and hand it to `reportServerError`, ahead of the
+   * ambient registration — never off the module global, which may be
+   * another request's context by the time an async failure lands.
+   */
+  errorPolicy?: (error: unknown, context: any) => unknown | void;
+  /**
+   * @internal Whether the shell has flushed — a fragment that fails now
+   * rejects to the client (`handling: "client"`) rather than failing the
+   * request or inlining into a parent's fallback. Set by @solidjs/web's
+   * renderToStream.
+   */
+  flushed?: () => boolean;
+  /**
+   * @internal Per-request memo of `resolveAssets(moduleUrl)` results, keyed
+   * by moduleUrl. lazy() consults it so a component re-created across
+   * suspended render passes asks the manifest exactly once per module —
+   * dev-server resolvers answer from the live module graph and can do real
+   * work per call (SSR stack-overflow diagnosis amplifier).
+   */
+  _lazyAssets?: Map<string, ResolvedAssets | null | undefined | Promise<ResolvedAssets | null>>;
+  /**
+   * @internal True during a Loading discovery pass — the only render phase
+   * with a retryable NotReady catch. Set/restored by
+   * `runWithBoundaryErrorContext` when a boundaryId is passed; read by
+   * @solidjs/web's head registry to escalate pending head-tag props into a
+   * boundary suspension instead of a flush-time warn-and-drop.
+   */
+  _loadingPhase?: boolean;
+  /** True only in renderToStream — enables async data serialization and streaming. */
+  async?: boolean;
+  /**
+   * Frame renders only (DR-2 case 1, set by the frame sink): signal that an
+   * async value settled without a serialization flush the sink could see —
+   * the binding ledger schedules an equality-gated sweep of watched slot
+   * args. No-op semantics elsewhere; absent outside frame renders.
+   */
+  commit?: () => void;
+  /**
+   * Frame renders only (set alongside `commit`): the sink's commit epoch.
+   * Sync-valued memos cache per epoch — cached within one sweep, recomputed
+   * when pulled after a later commit — so watched-arg sweeps read current
+   * derivations. Absent outside frame renders (memos then cache for the
+   * render, the document-SSR contract).
+   */
+  commitEpoch?: () => number;
+  /**
+   * Take a response-window hold; returns the release. Live work with a
+   * knowable end that isn't a fragment or a serialized promise — a
+   * server-consumed async iterable feeding live bindings (a bounded async
+   * trace) — keeps the response open until it completes. Set by
+   * @solidjs/web's render core; holds gate only the end of the response.
+   */
+  hold?: () => () => void;
+};
+
+export const NoHydrateContext: Context<boolean> = {
+  id: Symbol("NoHydrateContext"),
+  defaultValue: false
+};
+
+type SharedConfig = {
+  context?: HydrationContext;
+  getNextContextId(): string | undefined;
+  /**
+   * Dev builds only: the id `getNextContextId()` would hand out next, read
+   * without consuming it (`undefined` outside an id-carrying tree). The web
+   * runtime brackets an unscoped hole's evaluation with it to detect one that
+   * took ids from the enclosing counter (`UNSCOPED_HOLE_ALLOCATED_IDS`).
+   * Absent in prod and observe builds — callers gate on `_SOLID_DEV_`.
+   *
+   * @internal
+   */
+  devPeekNextContextId?: () => string | undefined;
+};
+
+export const sharedConfig: SharedConfig = {
+  getNextContextId() {
+    const o = getOwner();
+    if (!o) throw new Error(`getNextContextId cannot be used under non-hydrating context`);
+    if (getContext(NoHydrateContext)) return undefined;
+    return getNextChildId(o);
+  }
+};
+// Installed here, not in the literal, so the dev gate can fold the helper
+// out of the prod and observe artifacts along with this statement. The gate
+// is a local of this module (not `IS_DEV` from diagnostics.ts): the two sit
+// in an import cycle, and a hoisted function reference is the one thing
+// safe to touch at top level from every entry order.
+const IS_DEV = process.env.NODE_ENV !== "production";
+if (IS_DEV) sharedConfig.devPeekNextContextId = devPeekNextChildId;
+
+// The render a call made outside a render pass belongs to (`preload()`, the
+// `moduleUrl` getter — a router warming a route, a route data function, code
+// after an `await`): the caller's own, found by walking its owner to the root
+// its renderer claimed. `@solidjs/web` files each render's root owner → its
+// context in a process-wide WeakMap under this registered symbol, releasing
+// it on the root's disposal. The module-global `sharedConfig.context` is
+// whichever render started or finished last — possibly another request's.
+const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
+
+export function callerRenderContext(): HydrationContext | undefined {
+  const roots = (globalThis as any)[RENDER_ROOTS] as WeakMap<object, HydrationContext> | undefined;
+  if (!roots) return undefined;
+  // `_parent` is one of the cross-package owner fields (see `emitFinding`).
+  // Disposal unlinks it, so a disposed subtree walks to no render at all.
+  for (let o: any = getOwner(); o; o = o._parent) {
+    const ctx = roots.get(o);
+    if (ctx) return ctx;
+  }
+}
+
+/**
+ * Gives the core's `OBSERVE.attribution.withOrigin` its one server meaning.
+ * The server reimplements reactivity and installs no attribution engine, so
+ * the core's `withOrigin` is `fn()` here; a router calls it the same way on
+ * both sides, and the initial-route declaration it makes while building its
+ * context under a render is the fact the server has nowhere else to learn
+ * — the route a request resolved to, for the request's `"render"` record
+ * (`RenderEvent.route`). Filed through the render context's `_declareRoute`
+ * seam, which @solidjs/web installs while a `"render"` listener exists; a
+ * non-initial ref (nothing writes a location on the server) and a call
+ * outside a render are `fn()` as before. A host that bundles the runtime
+ * twice (two copies of this entry over one core) wraps twice, each copy
+ * reading its own `sharedConfig` — only the copy running the render has a
+ * context, so the declaration lands once, on that render. Called from the
+ * server entry under `_SOLID_OBSERVE_`.
+ */
+export function installServerWithOrigin(observe: Observe): void {
+  const slot = observe.attribution;
+  const inner = slot.withOrigin;
+  observe.attribution = {
+    get installed() {
+      return slot.installed;
+    },
+    withInteraction: slot.withInteraction,
+    currentOrigin: slot.currentOrigin,
+    withOrigin<T>(ref: NavigationRef, fn: () => T): T {
+      if (ref.initial === true) sharedConfig.context?._declareRoute?.(ref);
+      return inner(ref, fn);
+    }
+  };
+}

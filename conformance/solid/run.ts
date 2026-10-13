@@ -78,7 +78,6 @@ for (const r of rows) if (r.note && /Export named 'Dynamic'/.test(r.note)) r.not
 for (const r of rows) {
   const src = readFileSync(join(here, "solid-tests", r.file), "utf8");
   if (/\bexecFileSync\(/.test(src)) r.note = "not ours: runs Solid's built packages in a child process";
-  else if (/\bfunction createMockSSRContext\(/.test(src)) r.note = "not ours: drives Solid's server half through a mock of its renderer (the solid-js / web seam)";
   else if (!r.pass && /\._nextSub\b|\._subs\b/.test(src)) r.note = "not ours: reads Solid's graph fields";
 }
 const notOurs = rows.filter((r) => r.note?.startsWith("not ours"));
