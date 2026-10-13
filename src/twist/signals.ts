@@ -2110,7 +2110,7 @@ export class Computation<T> extends Node<T> implements Owner {
     const now = this.staged !== NONE ? (this.staged as T) : this.value;
     // (Compared already by the compute that made it: once.)
     const compared = comparedBy === this && comparedNow === now && comparedNext === next;
-    comparedBy = null;
+    comparedBy = comparedNow = comparedNext = null;
     let changed: boolean;
     try {
       changed = first || this.recovered || this.equals === false || !(compared ? comparedSame : this.equals(now, next));
