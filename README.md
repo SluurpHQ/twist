@@ -63,14 +63,15 @@ All three are development-only: a production build leaves them out.
 ## Size and speed
 
 Measured with the keyed table of [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark), in
-Chromium (milliseconds, lower is better; `bench/` in this repository):
+Chromium (milliseconds, lower is better; `bench/` in this repository, each app in a browser of its own, the best of three
+rounds taken in turn):
 
 | | create 1,000 rows | replace 1,000 rows | swap rows | create 10,000 rows | memory a row | server render, 1,000 rows | bundle (minified) |
 |---|---|---|---|---|---|---|---|
-| Solid 2 | 20.7 | 23.0 | 1.5 | 223 | 1,454 B | 0.14 | 65 KB |
-| Twist, Solid's API | 21.7 | 23.8 | 1.4 | 255 | 1,178 B | 0.31 | 103 KB |
-| React 19.3 | 23.6 | 26.8 | 19.7 | 319 | 1,736 B | 0.85 | 210 KB |
-| Twist, React's API | 22.9 | 27.2 | 1.6 | 264 | 1,991 B | 0.87 | 148 KB |
+| Solid 2 | 18.4 | 20.0 | 1.1 | 207 | 1,454 B | 0.14 | 65 KB |
+| Twist, Solid's API | 18.6 | 20.5 | 1.2 | 225 | 1,211 B | 0.21 | 103 KB |
+| React 19.3 | 19.8 | 24.0 | 17.8 | 300 | 1,735 B | 0.89 | 210 KB |
+| Twist, React's API | 21.1 | 24.2 | 1.4 | 239 | 1,760 B | 1.03 | 148 KB |
 
 Memory is the heap each row keeps after a garbage collection; the server render is in Bun.
 
@@ -80,7 +81,7 @@ Twist is checked against React's and Solid's own test suites (`conformance/`):
 
 - React 19: 4,052 tests pass, 14 fail. Most of the failures need React's render phase apart from its commit: a
   transition that yields midway and is interrupted, or snapshots taken children first before anything changes.
-- Solid 2: 8,428 tests pass, 92 fail. Most of the failures are Solid 2's newest rules for optimistic updates running
+- Solid 2: 8,431 tests pass, 89 fail. Most of the failures are Solid 2's newest rules for optimistic updates running
   side by side, and for when a pending update holds what is on screen. Tests that only check Solid's private
   structures or its own build files are left out, each with its reason (`conformance/solid/skips.ts`).
 - Solid 1.9: 424 tests pass, 11 fail. The failures are writes held by a transition until it settles, cycle errors,
