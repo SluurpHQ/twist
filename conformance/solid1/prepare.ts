@@ -51,7 +51,7 @@ writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "solid-js", vers
 writeFileSync(join(pkg, "index.js"), `export * from ${solid1("index.ts")};\n`);
 writeFileSync(join(pkg, "web.js"), `export * from ${solid1("web.ts")};\n`);
 writeFileSync(join(pkg, "store.js"), `export * from ${solid1("store.ts")};\n`);
-writeFileSync(join(pkg, "jsx.js"), `export * from ${JSON.stringify(join(here, "..", "..", "src", "twist", "jsx", "client", "jsx-runtime.ts").split("\\").join("/"))};\n`);
+writeFileSync(join(pkg, "jsx.js"), `export * from ${solid1("jsx-runtime.ts")};\n`);
 const web = join(here, "node_modules", "@solidjs", "web");
 mkdirSync(web, { recursive: true });
 writeFileSync(join(web, "package.json"), JSON.stringify({ name: "@solidjs/web", type: "module", exports: { ".": "./index.js" } }));

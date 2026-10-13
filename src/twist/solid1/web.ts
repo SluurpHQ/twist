@@ -1,11 +1,11 @@
 // Solid 1's web runtime (`solid-js/web` 1.x): Twist's, with Solid 1's control flow and core over it.
-import { Portal as TwistPortal, insert, portalNode, jsx } from "../web.ts";
+import { Portal as TwistPortal, insert, portalNode, jsx } from "../web-kernel.ts";
 import { builtin } from "../control.ts";
 import { setDescribe, untrack } from "./index.ts";
 
 setDescribe(jsx);
 
-export * from "../web.ts";
+export * from "../web-kernel.ts";
 export { For, Index, Show, Switch, Match, Suspense, SuspenseList, ErrorBoundary, createRoot, mergeProps, createComponent, untrack, getOwner } from "./index.ts";
 
 /** Solid 1's Portal: its content in a `<div>` (a `<g>` for SVG, a shadow root when asked) appended to `mount`; in the head, as it is. */

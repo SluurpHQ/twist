@@ -47,8 +47,8 @@ export const SOLID1 = {
   "solid-js": ["twist/solid1/index.ts", "twist/solid1/index.server.ts"],
   "solid-js/web": ["twist/solid1/web.ts", "twist/solid1/server.ts"],
   "solid-js/store": ["twist/solid1/store.ts", "twist/solid1/store.ts"],
-  "solid-js/jsx-runtime": ["twist/jsx/client/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
-  "solid-js/jsx-dev-runtime": ["twist/jsx/client/jsx-dev-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
+  "solid-js/jsx-runtime": ["twist/solid1/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
+  "solid-js/jsx-dev-runtime": ["twist/solid1/jsx-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
 };
 
 /** Signals, for code written on them directly. */
