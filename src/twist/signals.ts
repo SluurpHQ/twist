@@ -742,6 +742,8 @@ function strictReadUntracked(n: Node<any>) {
 
 type Equals<T> = false | ((a: T, b: T) => boolean);
 const NONE: unique symbol = Symbol("none");
+/** Whether a node holds nothing beyond its value: no write pending, staged, held or guessed over. */
+export const isQuiet = (n: { staged: unknown; tx: unknown; override: unknown; pending?: unknown }) => n.staged === NONE && n.tx === null && n.override === NONE && (n.pending === undefined || n.pending === NONE);
 const CLEAN = 0;
 const CHECK = 1;
 const DIRTY = 2;
@@ -1452,7 +1454,13 @@ const EFFECT = 1;
 const RENDER = 2;
 
 type Source = Node<any>;
-const accessors = new WeakMap<Function, Computation<any>>();
+/** The node behind an accessor, kept on the function itself (in V8 a WeakMap's set costs some fifty times more). */
+const NODE = Symbol("twist.node");
+const accessors = {
+  get: (f: Function | undefined | null): Computation<any> | undefined => (f as any)?.[NODE],
+  set: (f: Function, n: Computation<any>) => void ((f as any)[NODE] = n),
+  has: (f: Function) => (f as any)[NODE] !== undefined,
+};
 /** Whether `f` reads a signal or memo of its own (not a plain function). */
 export const isAccessor = (f: unknown) => typeof f === "function" && accessors.has(f);
 

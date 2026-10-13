@@ -4,7 +4,7 @@
 declare const process: { env: Record<string, string | undefined> };
 import { emitDiagnostic } from "./diagnostics.ts";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
-import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks, entangle, currentTick, setStoreTickWrite } from "./signals.ts";
+import { Signal, DEV, isFlushing, trackNode, isVerdictReading, isAuthoritative, registerGraph, getOwner, createMemo, createEffect, untrack, isTracking, guardStoreWrite, refreshTarget, queueGuess, endWith, isTracing, checkStrictRead, postAwaitRead, watchingTails, NotReadyError, isServerRender, flightTransaction, setStoreAncestors, readersOf, setPatchApply, firstYieldDropped, isActing, rederiveHeld, heldPassTx, keepMemo, derivesIn, inPassNow, noteGuessRead, takingSnapshots, servedSnapshot, type Transaction, useStoreMarks, entangle, currentTick, setStoreTickWrite, isQuiet } from "./signals.ts";
 import { applyPatches, registerProjectionTrace } from "./container-trace.ts";
 
 export const $TARGET = Symbol("store-target");
@@ -24,6 +24,9 @@ class NodeTable {
   set(k: PropertyKey, n: KeyNode) {
     this.o[k as any] = n;
     return this;
+  }
+  delete(k: PropertyKey) {
+    delete this.o[k as any];
   }
   values(): KeyNode[] {
     return Reflect.ownKeys(this.o).map((k) => this.o[k as any]!);
@@ -246,6 +249,11 @@ class KeyNode extends Signal<number> {
       (this as any)._owner = storeOwners.get(root) ?? null;
     }
   }
+  /** Read again after it was let go (a computation subscribing what it read before): in its table again. */
+  subscribe(o: any) {
+    if (!this.record.nodes.get(this.key)) this.record.nodes.set(this.key, this);
+    super.subscribe(o);
+  }
   /** affects() marks on it: its own (a keyless mark's snapshot), and keyed ones on its key here or upstream. */
   declare private ownAffected: number;
   get affected() {
@@ -273,6 +281,10 @@ class KeyNode extends Signal<number> {
   }
 }
 (KeyNode.prototype as any).ownAffected = 0;
+/** Read by nothing any more, holding nothing pending: let go (a key read once, as rows read a selection, leaves nothing behind). */
+(KeyNode.prototype as any).unobserved = function (this: any) {
+  if (this.raw === NO_RAW && !this.ownAffected && isQuiet(this) && this.record.nodes.get(this.key) === this) this.record.nodes.delete(this.key);
+};
 const NO_RAW: unique symbol = Symbol("no-raw");
 /** `o[key] = v`, as not enumerable when the draft defined it so. */
 function put(r: Record_, o: Raw, key: PropertyKey, v: any) {
