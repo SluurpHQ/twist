@@ -521,6 +521,15 @@ function unhandledAsync(c: Computation<any>) {
     );
   }
 }
+/** Whether `v` is an object or a function (what can be a promise or a stream). */
+const isObject = (v: unknown): boolean => v !== null && (typeof v === "object" || typeof v === "function");
+/** Two source lists alike, in order. */
+function sameSources(a: readonly unknown[], b: readonly unknown[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /** The computation tracking reads now, or null. */
 export const getObserver = () => listener;
 
@@ -1473,6 +1482,8 @@ export class Computation<T> extends Node<T> implements Owner {
   declare ranAt: number;
   declare equals: Equals<T>;
   declare lazy: boolean;
+  /** A Loading boundary counts it among what it waits on. */
+  declare waits: boolean;
   /** Has had a value (an async compute's first load has not). */
   declare ready: boolean;
   /** The flight in progress (its promise), and whether it is a quiet re-ask (refresh). */
@@ -1926,7 +1937,7 @@ export class Computation<T> extends Node<T> implements Owner {
         }
         // (An async iterable's first step runs here: what it reads before its first await is tracked.)
         // (On a server, a slot answered on an earlier pass is not started again.)
-        if (next && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && (sourceTees.has(next as any) || (serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))))) next = primed((serverRender ? shared(next as any) : next) as any) as T;
+        if (isObject(next) && typeof (next as any)[Symbol.asyncIterator] === "function" && typeof (next as any).then !== "function" && !(serverRender && (sourceTees.has(next as any) || (serverAnswers && (this as any).id != null && serverAnswers.has((this as any).id))))) next = primed((serverRender ? shared(next as any) : next) as any) as T;
       }
       // Its equals comparator is part of the compute: a throw there is the compute's error (A3), not the flush's.
       if (this.ready && typeof this.equals === "function" && !(next && typeof (next as any).then === "function")) {
@@ -1946,7 +1957,8 @@ export class Computation<T> extends Node<T> implements Owner {
       verdictReading = prevVerdict;
       inPass--;
       if (relinking) this.relinking = null;
-      if (relinking) {
+      // (What it read before and no longer reads: none when it read the same sources in the same order.)
+      if (relinking && !sameSources(this.before, this.sources)) {
         const dropped = [...relinking].filter((s) => !this.sources.includes(s));
         // (A memo run in a flush that may hold it: whether its committed frame still follows what it read is decided at
         // the round's end — kept until the commit if held, A30.)
@@ -1998,7 +2010,7 @@ export class Computation<T> extends Node<T> implements Owner {
       this.version++;
       if ((this as any).writes) for (const o of this.observers) o.mark(DIRTY);
       // Failed: no longer waiting (the Loading above lets the error through to whatever catches it).
-      boundaryOf(this)?.ready(this);
+      if (this.waits) boundaryOf(this)?.ready(this);
       if (this.kind !== MEMO) handleError(this, threw);
       // (Its comparator threw: the boundary it is made under hears it at once, before what made it runs again.)
       else if (comparing === this) (comparing = null), boundaryCatches(this, threw);
@@ -2011,10 +2023,12 @@ export class Computation<T> extends Node<T> implements Owner {
     // (The boundary that caught its error shows its content again, #2949.)
     const recover = (this as any).recoverTo;
     if (recover) ((this as any).recoverTo = null), recover();
-    boundaryOf(this)?.ready(this);
+    if (this.waits) boundaryOf(this)?.ready(this);
     // An async answer: in flight, its old value kept meanwhile.
-    if (next! && typeof (next as any).then === "function") return this.fly(next as any);
-    if (next! && typeof (next as any)[Symbol.asyncIterator] === "function") {
+    // (Only an object can be one: a string's or number's lookups are skipped.)
+    const obj = isObject(next!);
+    if (obj && typeof (next as any).then === "function") return this.fly(next as any);
+    if (obj && typeof (next as any)[Symbol.asyncIterator] === "function") {
       // (On a server, its first value is the answer: a render tried again reads it like a promise's.)
       if (serverRender) return serverHooks!.stream(this, next as any);
       return this.stream(next as any);
@@ -2359,7 +2373,7 @@ export class Computation<T> extends Node<T> implements Owner {
   }
 }
 // (What most computations never set: one default for all, an own field only once set.)
-Object.assign(Computation.prototype, { inSnapshot: false, snapshotStale: false, ext: null, readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, statusOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, windowAnswer: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false });
+Object.assign(Computation.prototype, { inSnapshot: false, snapshotStale: false, ext: null, readHeld: null, verdictReader: false, verdict: null, quiet: false, error: NONE, passLane: null, revealOf: null, revealing: null, laneOf: null, revealingLane: null, staleRead: false, heldOnly: false, statusOnly: false, applied: NONE, due: false, tracked: false, settles: null, streaming: false, streamed: false, recovered: false, loadingWindow: false, windowAnswer: false, relinking: null, released: false, kept: false, scope: null, renderCtx: null, untrackedReaders: null, dormant: false, heldPass: null, applyFirst: false, erredAt: -1, closeStream: null, waiters: null, owned: null, cleanups: null, disposed: false, childCount: 0, flight: null, equals: Object.is, lazy: false, waits: false });
 (Node.prototype as any).override = NONE;
 
 function noOwnerEffect(effectType: string) {
@@ -4263,6 +4277,7 @@ class LoadingState {
   wait(c: Computation<any>) {
     if (this.waiting.has(c)) return;
     this.waiting.add(c);
+    c.waits = true;
     this.count.bump();
     if (this.mountRoot && !this.warned) {
       this.warned = true;
@@ -4281,6 +4296,7 @@ class LoadingState {
   }
   ready(c: Computation<any>) {
     if (this.waiting.delete(c)) this.count.bump();
+    c.waits = false;
   }
 }
 
