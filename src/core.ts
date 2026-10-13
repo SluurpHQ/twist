@@ -2349,8 +2349,9 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
     toldFragmentsAdded(f);
     // A new top-level node in a hidden Activity (or a portal's in one) is hidden as it comes.
     if (hiddenActivities) for (let k = topInHidden(f); k > 0; k--) hideNode(el, true);
+    // In the layout phase, as React's commitMount: after the focus moving nodes took is put back (it wins).
     if (props.autoFocus && !ns && !server && (type === "input" || type === "button" || type === "select" || type === "textarea")) {
-      insertionQueue.push(() => !f.dead && (el as HTMLElement).focus());
+      layoutQueue.push(() => !f.dead && (el as HTMLElement).focus());
     }
     // An image loaded again once committed: a load it fired before then reached no handler (React's commitMount).
     if (type === "img" && !ns && !server && (props.src || props.srcSet)) {
