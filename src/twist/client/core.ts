@@ -110,6 +110,9 @@ export interface Context<T> extends ContextProviderComponent<T> {
 export function createContext<T>(defaultValue?: T, options?: EffectOptions): Context<T> {
   const id = Symbol((options && options.name) || "");
   function provider(props: FlowProps<{ value: unknown }>) {
+    // (Twist: also on the scope a hydration claim renders it in, where what it returns is claimed.)
+    const o = getOwner() as any;
+    if (o?._renders) setContext(provider, props.value, o);
     return createRoot(() => {
       setContext(provider, props.value);
       return children(() => props.children);

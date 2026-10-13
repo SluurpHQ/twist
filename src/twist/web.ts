@@ -76,7 +76,7 @@ export const Fragment = (props: { children?: unknown }) => props.children;
 export function jsx(type: any, props: Record<string, any>) {
   // Hydrating: descriptions, claimed from the server's page top-down (in the order the server rendered them).
   // (A Switch's Match is its props: what the Switch reads.)
-  if (describing()) return type === Fragment ? props.children : type === Match ? componentProps(props) : typeof type === "function" ? { [COMP]: true, fn: type, props, owner: getOwner() } : { [EL]: true, tag: type, props };
+  if (describing()) return type === Fragment ? props.children : type === Match ? componentProps(props) : typeof type === "function" ? { [COMP]: true, fn: type, props } : { [EL]: true, tag: type, props };
   if (typeof type === "function") {
     if (type === Fragment) return childrenOf(props);
     // (A component of React's is mounted as a React subtree, when the bridge is there.)
@@ -1642,9 +1642,6 @@ function claimHtml(v: any, inTemplate: boolean, at: Cursor): Node[] {
   if (Array.isArray(v)) return claimList(v, !!(v as any)[OWN], inTemplate, false, at);
   if (typeof v === "function") return bindAt(v, at, inTemplate);
   if (v[COMP]) {
-    // (Rendered under the owner it was described in, as Solid runs a component where its JSX is: its context, its ids.)
-    const under = v.owner ? keyOwnerOf(v.owner) : null;
-    if (under && under !== getOwner()) return runWithOwner(under, () => claimHtml(v, inTemplate, at));
     // A React component the server drew in <sluurp-react>: hydrated there as a React root (the bridge's).
     if (foreignClaim && !isTwist(v.fn)) {
       const el = nextNode(at) as Element | null;

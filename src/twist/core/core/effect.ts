@@ -117,8 +117,10 @@ function notifyEffectStatus(this: Effect<any>, status?: number, error?: any): vo
       return;
     }
     if (!globalQueue.notify(this, STATUS_ERROR, STATUS_ERROR)) {
-      haltReactivity(unwrapStatusError(actualError));
-      throw actualError;
+      // (Twist: the error as thrown surfaces from the flush, not its tracking wrapper.)
+      const cause = unwrapStatusError(actualError);
+      haltReactivity(cause);
+      throw cause;
     }
   } else if (this._type === EFFECT_RENDER) {
     globalQueue.notify(this, STATUS_PENDING | STATUS_ERROR, actualStatus, actualError);

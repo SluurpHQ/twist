@@ -1115,6 +1115,8 @@ export function settlesOf(e: NotReadyError): Promise<void> | null {
     // A promise named by the error itself (user code throwing NotReadyError(promise)).
     if (typeof n.then === "function") return Promise.resolve(n).then(noop, noop);
     if (n.flight && n.settles) return n.settles;
+    // (A node of the core's: its flight.)
+    if (n._x?._inFlight && typeof n._x._inFlight.then === "function") return Promise.resolve(n._x._inFlight).then(noop, noop);
     if (n.waitsFor && n.waitsFor.source !== n) {
       const p = find(n.waitsFor.source);
       if (p) return p;
@@ -1143,11 +1145,9 @@ export function holdsShell(e: NotReadyError): boolean {
   return find(e.source);
 }
 
-export class NotReadyError extends Error {
-  constructor(public source?: unknown) {
-    super("Value not ready");
-  }
-}
+/** A read of what is not ready yet: the core's (one class, the browser's and the server's kernels alike). */
+import { NotReadyError } from "./core/core/error.ts";
+export { NotReadyError };
 
 /** A hold: writes and what they led to, kept off screen until its last flight lands. */
 export class Transaction {

@@ -26,11 +26,14 @@ export function callInline<P>(type: (props: P) => any, props: P) {
 export function renderComponent<P, R>(Comp: (props: P) => any, props: P, render: (v: any) => R): R {
   if (foreign && !isTwist(Comp)) return render(foreign(Comp, props));
   const own = ownOf(Comp);
-  if (process.env.NODE_ENV === "production") return render(untrack(() => own(props)));
-  const label = `<${own.name || "Anonymous"}>`;
+  // (A scope of its own, transparent: what it renders is claimed there, a context it provides seen by it.)
   return createRoot(
     () => {
-      (getOwner() as any)._name = label;
+      const o = getOwner() as any;
+      o._renders = true;
+      if (process.env.NODE_ENV === "production") return render(untrack(() => own(props)));
+      const label = `<${own.name || "Anonymous"}>`;
+      o._name = label;
       return render(untrack(() => own(props), label));
     },
     { transparent: true },
