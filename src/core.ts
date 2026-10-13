@@ -978,7 +978,6 @@ class FiberNode {
   declare dom: any;
   declare ns: string | null;
   declare root: RootState;
-  declare doc: Document | undefined;
   // (What most fibers never set: defaults on the prototype, below.)
   declare dead: boolean;
   declare committed: boolean;
@@ -1008,7 +1007,6 @@ class FiberNode {
     this.dom = null;
     this.ns = ns;
     this.root = root;
-    this.doc = parent?.doc;
   }
   /** What React's fiber holds as its stateNode (an element's owner is a fiber): the instance, or the node. */
   get stateNode(): any {
@@ -1016,9 +1014,11 @@ class FiberNode {
   }
 }
 Object.assign(FiberNode.prototype, { dead: false, committed: false, placed: false, strict: false, again: false, draws: 0 });
+/** A component's fiber (hooks, render, effects): its own class, so an element's or a text's, which hold far less, are made smaller (V8 sizes a class's objects by the widest it meets first). */
+class ComponentFiber extends FiberNode {}
 
 function fiber(kind: number, type: any, key: Key, props: any, parent: Fiber): Fiber {
-  const f = new FiberNode(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber;
+  const f = new (kind === HOST || kind === TEXT ? FiberNode : ComponentFiber)(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber;
   if (nextTree) (f.tree = nextTree), (nextTree = null);
   if (nextOwner) Object.defineProperty(f, "owner", { value: nextOwner, enumerable: false }), (nextOwner = null);
   if (parent.strict || parent.type === STRICT) f.strict = true;
@@ -2168,7 +2168,7 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
     } else if (suppressed && text !== "" && /^(string|number|bigint)$/.test(typeof parent.props?.children)) {
       // Its only text missing from the server's element, warnings suppressed: left as the server drew it (React does
       // not fix it): the node kept out of the page until an update places it.
-      f.dom = (parent.doc ?? docOf(host)).createTextNode("");
+      f.dom = docOf(host).createTextNode("");
     } else {
       if (hydrating && text !== "") {
         const next = nextServerNode(host);
@@ -2185,7 +2185,7 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
           if (e) e.serverProps = (next as Text).data;
         } else diffMissing(f, next);
       }
-      f.dom = (parent.doc ?? docOf(host)).createTextNode(text);
+      f.dom = docOf(host).createTextNode(text);
       (hydrating ? host : intoOf(parent, host)).insertBefore(f.dom, hydrating ? serverCursor(host) : before);
       if (hydrating) madeWhileHydrating.push(f.dom), regions[regions.length - 1]?.made.push(f.dom);
     }
@@ -2215,7 +2215,6 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
   if (type === PORTAL) {
     const f = fiber(PORTAL_F, type, key, c, parent);
     f.dom = c.containerInfo;
-    f.doc = docOf(f.dom);
     f.ns = nsOf(f.dom);
     // iOS Safari sends clicks only to elements it thinks clickable: React gives a portal's container a no-op onclick.
     if (f.dom.nodeType === 1 && f.dom.onclick == null) f.dom.onclick = () => {};
@@ -2271,7 +2270,7 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
     if (single && !hydrating && !held) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName.toLowerCase() === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
     // A customized built-in (is="…") is made as one.
-    const doc = parent.doc ?? docOf(host);
+    const doc = docOf(host);
     const el = (f.dom = server ?? (ns ? doc.createElementNS(ns, type) : type === "script" ? inertScript(doc) : typeof props.is === "string" ? doc.createElement(type, { is: props.is }) : doc.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     if (!held) (el as any)[FIBER] = f;
@@ -4771,7 +4770,6 @@ export function createRoot(container: Element | Document | DocumentFragment, opt
   (state as any).idPrefix = options?.identifierPrefix ?? "";
   const top = new FiberNode(ROOT, null, "", null, null, nsOf(container), state) as Fiber;
   top.dom = container;
-  top.doc = docOf(container);
   // The whole root in strict mode (React's unstable_strictMode option).
   if (options?.unstable_strictMode && (process.env.NODE_ENV !== "production" && dev())) top.strict = true;
   addContainer(container, state);
