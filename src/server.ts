@@ -1,7 +1,7 @@
 // Rendering to HTML, on the server or anywhere without a DOM: the same elements and components, hooks answering
 // with their first values. Suspense shows its fallback in renderToString; the streams wait for what it waits on.
 declare const process: { env: Record<string, string | undefined> };
-import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, VIEW_TRANSITION, createElement, invalidType, objectChild, readThenable, unwrapChild, withOwner } from "./element.ts";
+import { ACTIVITY, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, VIEW_TRANSITION, createElement, invalidType, objectChild, ownerNow, readThenable, unwrapChild, withOwner } from "./element.ts";
 import { client } from "./core.ts";
 import { withHooks } from "./hooks.ts";
 import { validateProps, validateStyle } from "./validate-props.ts";
@@ -1226,6 +1226,9 @@ function fallbackFrame(ctx: Ctx, fn: () => string): string {
 const stacks = new WeakMap<object, string>();
 export const componentStackOf = (e: unknown) => (e && typeof e === "object" ? stacks.get(e) ?? "" : "");
 const stackText = (frames: string[]) => frames.slice().reverse().map((n) => `\n    in ${n} (at **)`).join("");
+/** A stack whose innermost component suspended: that frame carries its call site, as React's suspended task's does. */
+const suspendedStackText = (frames: string[]) =>
+  frames.slice().reverse().map((n, i) => (i === 0 ? `\n    in ${n} (at ${n}.js:1:1)` : `\n    in ${n}`)).join("");
 /** A frame's name, as React names components in its stacks. */
 const frameName = (type: any): string =>
   typeof type === "string"
@@ -1973,8 +1976,11 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   // Aborted while the shell renders: what is left is aborted once it is done.
   let renderingShell = true;
   let rootAborted = false;
-  /** Where the root's part was when it was aborted: its component stack. */
+  /** Where the root's part was when it was aborted: its component stack, and its frames. */
   let abortedAt: string | undefined;
+  let abortedFrames: string[] | undefined;
+  /** The component rendering when it was aborted (development: its owner stack). */
+  let abortedOwner: any = null;
   let api: { abort(reason?: unknown): void } | null = null;
   // The stream flows (piped): the shell and what completed into it written, then the rest as it comes.
   /** A prerender: the boundaries it leaves pending, for a resume to finish (React's postponed state). */
@@ -2004,7 +2010,7 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
         shared.aborted = { reason: browser ?? reason ?? new Error("The render was aborted by the server without a reason.") };
         // (Not in a resume whose shell was sent already: replaying it is not the shell's task.)
         if (!resumed && renderingIn?.streaming?.shared === shared && !renderingIn.container && !renderingIn.fallbackOf)
-          (rootAborted = (shared as any).rootAborted = true), (abortedAt = stackText(renderingIn.stack));
+          (rootAborted = (shared as any).rootAborted = true), (abortedAt = stackText(renderingIn.stack)), (abortedFrames = renderingIn.stack.slice()), (abortedOwner = ownerNow());
       }
       else api?.abort(reason);
     },
@@ -2062,7 +2068,9 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       if (options.prerendering && shared.aborted && rootAborted) {
         renderingShell = false;
         const why = shared.aborted.reason;
-        onError(why);
+        // (Its part suspended after the abort: told where it suspended, from the component it was in.)
+        failedIn = abortedOwner;
+        onError(why, abortedFrames && rootPending > 0 ? suspendedStackText(abortedFrames) : abortedAt);
         options.onPostponed?.({ root: true, next: 0, boundaries: [] });
         options.onShellError?.(why);
         closed = true;
@@ -2138,16 +2146,24 @@ export function renderToPipeableStream(node: any, options: any = {}) {
     // Destroyed by its owner (its close event may come later): closed early. (Written after its end, it errors, and
     // that error aborts the render, as React's pipe hears it.)
     if (out.destroyed) return cancel("The destination stream closed early.")();
+    wrote = true;
     out.write(c);
   };
+  // Whether anything reached the destination: one closed before that fails the shell's write (React writes it, and
+  // the stream errors).
+  let wrote = false;
+  const closedEarly = () => (wrote ? "The destination stream closed early." : "The destination stream errored while writing data.");
   const finish = () => ((ended = true), out && !dropped ? out.end?.() : undefined);
   let run: ReturnType<typeof startStream> | null = null;
   const cancel = (reason: string) => () => {
     if (ended || dropped) return;
     dropped = true;
     const why = new Error(reason);
-    abortNow ? abortNow(why) : run?.abort(why);
+    if (abortNow || run) abortNow ? abortNow(why) : run!.abort(why);
+    // (Before the render started: aborted once its shell is made.)
+    else cancelledEarly = why;
   };
+  let cancelledEarly: Error | null = null;
   // Started on the next turn, as React starts its work; it flows once piped.
   let abortNow: ((reason?: unknown) => void) | null = null;
   let flowNow: (() => void) | null = null;
@@ -2167,8 +2183,9 @@ export function renderToPipeableStream(node: any, options: any = {}) {
       shellError(why);
       return;
     }
-    const checkDestination = () => (out?.destroyed || out?.writableEnded) && cancel("The destination stream closed early.")();
+    const checkDestination = () => (out?.destroyed || out?.writableEnded) && cancel(closedEarly())();
     run = startStream(node, { ...options, onShellError: shellError, checkDestination }, write, finish, out !== null, (a, f) => ((abortNow = a), (flowNow = f)));
+    if (cancelledEarly) return void (abortNow ? abortNow(cancelledEarly) : run.abort(cancelledEarly));
     // Piped while its shell rendered (from onShellReady): it flows now.
     if (out) run.flow();
   });
@@ -2177,7 +2194,7 @@ export function renderToPipeableStream(node: any, options: any = {}) {
       out = w;
       // As React's pipe: a destination that errors or closes early aborts what is left of the render.
       w.on?.("error", cancel("The destination stream errored while writing data."));
-      w.on?.("close", cancel("The destination stream closed early."));
+      w.on?.("close", () => cancel(closedEarly())());
       for (const c of chunks.splice(0)) w.write(c);
       // (One nobody listens to for errors is ended instead: an unhandled stream error would take the process down.)
       if (fatal) w.listenerCount?.("error") ? w.destroy?.((fatal as any).error) : w.end?.();
