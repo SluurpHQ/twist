@@ -521,6 +521,19 @@ function unhandledAsync(c: Computation<any>) {
     );
   }
 }
+/** Whether what `c` last waited on is a value a hold keeps (not an answer still on its way, here or upstream). */
+function waitsOnHold(c: Computation<any>): boolean {
+  const s = (c as any).waitsFor?.source as Node | undefined;
+  if (!s) return false;
+  const flying = (n: Node, seen = new Set<Node>()): boolean => {
+    if (seen.has(n)) return false;
+    seen.add(n);
+    if (n instanceof Computation && (n.flight || !n.ready)) return true;
+    return n instanceof Computation && n.sources.some((x) => flying(x, seen));
+  };
+  return !flying(s);
+}
+
 /** Whether `v` is an object or a function (what can be a promise or a stream). */
 const isObject = (v: unknown): boolean => v !== null && (typeof v === "object" || typeof v === "function");
 /** Two source lists alike, in order. */
@@ -1764,6 +1777,8 @@ export class Computation<T> extends Node<T> implements Owner {
     // Never had a value (a first load, or waiting on one): not ready. (Read directly in a strict scope, in the
     // browser: an error saying so — nothing would show it when it lands.)
     if (!this.ready && !(inPass && this.staged !== NONE) && this.override === NONE) {
+      // (Read through latest(), a memo waiting only on what a hold keeps from it: its value in the held world.)
+      if (latestDepth > 0 && this.kind === MEMO && !this.flight && !(this as any).sourceFn && waitsOnHold(this)) return this.ahead();
       if (serverRender && (this as any).ssrSource === "client") clientHoleRead();
       if (strictRead && !listener && !serverRender && process.env.NODE_ENV !== "production") pendingUntrackedRead(this);
       throw new NotReadyError(this);
@@ -2000,7 +2015,8 @@ export class Computation<T> extends Node<T> implements Owner {
           if (t) {
             t.stale.add(this), (this.staleRead = true);
             // (Made by the pass running now: that pass is the transition's too.)
-            if (firstPass && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = t;
+            const m = firstPass ? makerOf(this) : null;
+            if (m && !m.tx && !m.readHeld && (m === prevListener || !prevListener)) m.readHeld = t;
           } else if (b) b.wait(this);
           else if (this.kind === RENDER && enforcing) unhandledAsync(this);
         }
@@ -2041,6 +2057,20 @@ export class Computation<T> extends Node<T> implements Owner {
     // In a frame render: computed for this commit epoch.
     if (this.kind === MEMO && this.renderCtx?.commitEpoch) this.epoch = this.renderCtx.commitEpoch();
     this.wake();
+  }
+  /** Its value worked out now, untracked, in a scope dropped after: nothing it makes or reads stays (latest()'s look ahead). */
+  ahead(): T {
+    const o = new Root(null);
+    const prevListener = listener;
+    listener = null;
+    try {
+      const v = runOwned(o, this.fn as (prev: T) => T, this.value);
+      if (isObject(v) && typeof (v as any).then === "function") throw new NotReadyError(this);
+      return v;
+    } finally {
+      listener = prevListener;
+      dispose(o);
+    }
   }
   /** Taking a value threw: that is its error now, its readers told. */
   takeFailed(e: unknown) {
