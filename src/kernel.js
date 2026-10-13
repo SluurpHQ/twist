@@ -31,18 +31,22 @@ export const readersOf = (n) => (Array.isArray(n.observers) ? n.observers.length
 
 /**
  * `source` read by computation `c`: noted with the version it has, once (answers whether it is new to this run).
- * Its lists made by the first read, a source long: most have one, and a list pushed to grows to 17 places.
+ * Its lists made by the first read, a source long: most have one (its version then kept as a number, no list), and a
+ * list pushed to grows to 17 places.
  */
 export function noteRead(c, source) {
   const sources = c.sources;
   if (sources === NOTHING_YET) {
     c.sources = [source];
-    c.seen = [source.version];
+    c.seen = source.version;
     return true;
   }
   if (sources.includes(source)) return false;
   // (A second one: a list of two, not one grown to 17.)
-  if (sources.length === 1) (c.sources = [sources[0], source]), (c.seen = [c.seen[0], source.version]);
+  if (sources.length === 1) (c.sources = [sources[0], source]), (c.seen = [c.seen, source.version]);
   else sources.push(source), c.seen.push(source.version);
   return true;
 }
+
+/** The version `c` saw of its `i`th source (a number for one source, a list for more). */
+export const seenAt = (c, i) => (typeof c.seen === "number" ? c.seen : c.seen[i]);

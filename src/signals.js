@@ -27,7 +27,7 @@
  * The state every copy of this module on the page shares: a hot update or a second bundle loads another copy, and
  * a signal made by one is read inside another's computed. One state, so the reads are recorded where they are asked.
  */
-import { NO_READERS, NOTHING_YET, addReader, dropReader, noteRead } from "./kernel.js";
+import { NO_READERS, NOTHING_YET, addReader, dropReader, noteRead, seenAt } from "./kernel.js";
 
 const S = (globalThis[Symbol.for("sluurp.signals")] ??= {
   /** What is running now (a computed or an effect), so reads can record themselves. */
@@ -155,7 +155,7 @@ function changed(node) {
   for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
     if (source.kind === COMPUTED) refresh(source);
-    if (source.version !== node.seen[i]) return true;
+    if (source.version !== seenAt(node, i)) return true;
   }
   return false;
 }

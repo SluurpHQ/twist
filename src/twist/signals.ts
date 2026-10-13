@@ -8,7 +8,7 @@
 // flight lands. Writes on graphs no flight touches commit at once.
 declare const process: { env: Record<string, string | undefined> };
 
-import { NO_READERS, NOTHING_YET, addReader, dropReader, noteRead, readersOf as kernelReaders } from "../kernel.js";
+import { NO_READERS, NOTHING_YET, addReader, dropReader, noteRead, seenAt, readersOf as kernelReaders } from "../kernel.js";
 import { attrHooks } from "./attribution/attribution-hooks.ts";
 import { diagnose, emitDiagnostic, ownerPath, reportDiagnostic, setAmbientSubject, GRAPH_SIZE_WARN_AT, noteFanIn, noteFanOut } from "./diagnostics.ts";
 
@@ -1807,7 +1807,7 @@ export class Computation<T> extends Node<T> implements Owner {
         for (let i = 0; i < this.sources.length; i++) {
           const s = this.sources[i]!;
           if (s instanceof Computation) s.update();
-          if (s.version !== this.seen[i]) {
+          if (s.version !== seenAt(this, i)) {
             this.state = DIRTY;
             break;
           }
@@ -1824,11 +1824,11 @@ export class Computation<T> extends Node<T> implements Owner {
         // An effect reading a guess or lane work: it runs at the lane's reveal.
         // (Read through latest() or isPending: it sees the lane now.)
         const lane = this.kind === MEMO || this.verdict?.has(s) ? null : s.override !== NONE ? unrevealed((s as any).laneTx) : s.tx && unrevealed(s.tx.root.parentTx ? s.tx.root : null);
-        if (lane && s.version !== this.seen[i]) {
+        if (lane && s.version !== seenAt(this, i)) {
           lane.stale.add(this);
           continue;
         }
-        if (s.version !== this.seen[i]) {
+        if (s.version !== seenAt(this, i)) {
           this.state = DIRTY;
           break;
         }
@@ -1879,15 +1879,15 @@ export class Computation<T> extends Node<T> implements Owner {
     if (this.staleRead) this.staleRead = false;
     if ((this as any).readGuess) (this as any).readGuess = false;
     // Run again only for what a hold or a guess changed (nothing on screen moved)?
-    const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === this.seen[i] || s.override !== NONE || (!!s.tx && !s.tx.root.done) || ((s as any).writtenIn && !(s as any).writtenIn.root.done));
+    const heldOnly = this.sources.length > 0 && this.sources.every((s, i) => s.version === seenAt(this, i) || s.override !== NONE || (!!s.tx && !s.tx.root.done) || ((s as any).writtenIn && !(s as any).writtenIn.root.done));
     if (heldOnly !== this.heldOnly) this.heldOnly = heldOnly;
     // (Run again by the pending status alone — not a lane's reveal: an effect showing the same value applies nothing.)
     const fromCommit = (this as any).fromCommit;
     if (fromCommit) (this as any).fromCommit = false;
-    const statusOnly = this.kind !== MEMO && !fromCommit && !this.revealing && !this.revealingLane && this.sources.length > 0 && this.sources.every((s, i) => s === status || s.version === this.seen[i]);
+    const statusOnly = this.kind !== MEMO && !fromCommit && !this.revealing && !this.revealingLane && this.sources.length > 0 && this.sources.every((s, i) => s === status || s.version === seenAt(this, i));
     if (statusOnly !== (this as any).statusOnly) (this as any).statusOnly = statusOnly;
     // (A quiet re-ask overtaken by a new question: the new one is not quiet.)
-    if (this.quiet && this.sources.some((s, i) => s.version !== this.seen[i])) this.quiet = false;
+    if (this.quiet && this.sources.some((s, i) => s.version !== seenAt(this, i))) this.quiet = false;
     // A render effect a transaction holds, run again by a change outside it: it leaves the hold and shows the committed
     // frame now (A26), running again at the commit.
     if (this.kind === RENDER && this.tx && !this.tx.root.done && !heldOnly) {
@@ -1919,7 +1919,7 @@ export class Computation<T> extends Node<T> implements Owner {
     const relinking = this.attached && this.sources.length ? new Set(this.sources) : null;
     if (relinking) this.relinking = relinking;
     this.before = this.sources;
-    const seenBefore = this.seen;
+    const seenWas = this.seen;
     this.sources = NOTHING_YET as Source[];
     if (this.windowAnswer) this.windowAnswer = false;
     if (this.readHeld) this.readHeld = null;
@@ -1985,7 +1985,7 @@ export class Computation<T> extends Node<T> implements Owner {
         const dropped = [...relinking].filter((s) => !this.sources.includes(s));
         // (A memo run in a flush that may hold it: whether its committed frame still follows what it read is decided at
         // the round's end — kept until the commit if held, A30.)
-        if (dropped.length && this.kind !== EFFECT && flushing) trims.push([this, dropped, dropped.map((d) => seenBefore[this.before.indexOf(d)]!)]);
+        if (dropped.length && this.kind !== EFFECT && flushing) trims.push([this, dropped, dropped.map((d) => seenAt({ seen: seenWas }, this.before.indexOf(d)))]);
         else for (const s of dropped) s.unsubscribe(this);
       }
     }
@@ -2868,7 +2868,7 @@ function decideTrims(parked: Transaction | null) {
     const keep = dropped.filter((d) => !c.sources.includes(d) && (!frame || frame.includes(d)));
     for (const d of dropped) if (!keep.includes(d) && !c.sources.includes(d)) d.unsubscribe(c);
     c.sources = [...c.sources, ...keep];
-    c.seen = [...c.seen, ...keep.map((d) => versions[dropped.indexOf(d)]!)];
+    c.seen = [...(typeof c.seen === "number" ? [c.seen] : c.seen), ...keep.map((d) => versions[dropped.indexOf(d)]!)];
   }
 }
 
