@@ -106,7 +106,9 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
   const at = fiber ?? anchor;
   if (typeof type === "string") {
     // A stylesheet not loaded yet: the transition waits for it (React's suspended commit), the old UI kept meanwhile.
-    if (type === "link" && typeof document !== "undefined") {
+    // (An urgent update's inside a boundary: that boundary shows its fallback for it, as React's
+    // shouldRemainOnPreviousScreen has it; nothing is held, nor started.)
+    if (type === "link" && typeof document !== "undefined" && !(urgent && inBoundary > 0)) {
       const pending = stylesheetPending(document, props);
       if (pending) throw pending;
     }
@@ -116,6 +118,7 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
   if (type === SUSPENSE) {
     // Still as the server drew it, its content not streamed in yet (its fallback showing): not rendered into.
     if (fiber && (fiber as any).dehydrated && (fiber as any).region?.start?.data === "$?") return;
+    inBoundary++;
     try {
       walk(props.children, fiber, at, contexts);
     } catch (e: any) {
@@ -128,6 +131,8 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
         throw e;
       }
       if (!(e && typeof e.then === "function")) throw e;
+    } finally {
+      inBoundary--;
     }
     return;
   }
@@ -186,8 +191,14 @@ function renderComponent(fiber: Fiber | null, at: Fiber, contexts: [any, any][],
 }
 
 /** The transition's components rendered dry: the thenable that holds it if one suspends, else null. */
-export function tryTransition(changed: Fiber[], p: Preview): PromiseLike<any> | null {
+/** Whether the update tried is urgent (not a transition): it is held only for stylesheets outside any boundary. */
+let urgent = false;
+/** Suspense boundaries the walk is inside. */
+let inBoundary = 0;
+export function tryTransition(changed: Fiber[], p: Preview, isUrgent = false): PromiseLike<any> | null {
   preview = p;
+  urgent = isUrgent;
+  inBoundary = 0;
   // Only the outermost of those changed: the others render as part of them.
   const set = new Set(changed);
   const tops = changed.filter((f) => {

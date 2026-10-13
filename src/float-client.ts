@@ -238,6 +238,21 @@ export function suspendResource(state: CommitWait, root: Document | ShadowRoot, 
   }
 }
 
+/**
+ * What a commit drawing these stylesheets waits for: those in the document still loading (one the server's runtime
+ * put there carries its load as `_p`), or null. React's suspendResource assumes such a stylesheet is loading.
+ */
+export function sheetsLoading(root: Document | ShadowRoot, sheets: [Resource | null | undefined, string][]): Promise<unknown> | null {
+  const waits: PromiseLike<unknown>[] = [];
+  for (const [r, href] of sheets) {
+    if (r?.type !== "stylesheet" || (r.state!.loading & SETTLED) !== NOT_LOADED) continue;
+    const el: any = r.instance ?? root.querySelector(stylesheetSelector(styleKey(href)));
+    const p = el?._p;
+    if (p && typeof p.then === "function") waits.push(p);
+  }
+  return waits.length ? Promise.all(waits.map((p) => Promise.resolve(p).catch(() => {}))) : null;
+}
+
 /** How the commit goes on: at once (null), or by `wait(commit)` once the stylesheets have loaded (a minute at most;
  * with `noTimeout`, a boundary suspended on them, however long they take, as React retries it). */
 export function commitWhenReady(state: CommitWait, noTimeout = false): ((commit: () => void) => () => void) | null {
@@ -326,7 +341,7 @@ export let stylesheetsInUse = false;
  * is nothing to wait for (loaded, in the document already, or not a stylesheet resource).
  */
 /** A thenable told when a stylesheet has loaded (or failed to). */
-export type StylesheetWait = { then(on: () => void): void };
+export type StylesheetWait = { then(on: () => void): void; cancel(): void };
 
 export function stylesheetPending(root: Document | ShadowRoot, props: any): StylesheetWait | null {
   if (props?.rel !== "stylesheet" || typeof props.href !== "string" || typeof props.precedence !== "string") return null;
@@ -338,8 +353,10 @@ export function stylesheetPending(root: Document | ShadowRoot, props: any): Styl
   // Told synchronously, in the load events (as React inserts and commits in them), not a microtask later.
   const waiting: (() => void)[] = [];
   let done = false;
+  // (Given up, a newer transition in its place: nothing put in place for it.)
+  let cancelled = false;
   const finish = () => {
-    if (done) return;
+    if (done || cancelled) return;
     done = true;
     for (const on of waiting.splice(0)) on();
   };
@@ -350,6 +367,7 @@ export function stylesheetPending(root: Document | ShadowRoot, props: any): Styl
   // Its preload first (if still loading), then the stylesheet itself put in place and loaded (React's suspended
   // commit inserts it once the preload has loaded, and commits when it has loaded).
   const insert = () => {
+    if (cancelled) return;
     if (r.state!.loading & INSERTED) return finish();
     const el = acquireResource(root, r, props);
     if (el) onSettled(el, finish);
@@ -358,7 +376,17 @@ export function stylesheetPending(root: Document | ShadowRoot, props: any): Styl
   const preload = r.state.preload as HTMLElement | null;
   if (preload) onSettled(preload, insert);
   else insert();
-  const wait: StylesheetWait = { then: (on) => void (done ? on() : waiting.push(on)) };
+  // A minute at most: then something went wrong, and the content goes in unstyled, its stylesheet put in place (React's
+  // suspended commit times out so).
+  if (!done) {
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      if (!(r.state!.loading & INSERTED)) acquireResource(root, r, props);
+      finish();
+    }, 60000);
+    waiting.push(() => clearTimeout(timer));
+  }
+  const wait: StylesheetWait = { then: (on) => void (done ? on() : waiting.push(on)), cancel: () => void (cancelled = true) };
   // (Told apart from data a render waits for: an update outside a transition waits only for these.)
   (wait as any)[STYLESHEET_WAIT] = true;
   return wait;

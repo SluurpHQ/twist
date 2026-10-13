@@ -19,7 +19,7 @@ import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, 
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
 import { getOffsets, setOffsets } from "./dom-selection.ts";
 import { type TreeContext, ROOT_TREE, makeId, pushTree } from "./tree-id.ts";
-import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, STYLESHEET_WAIT, stylesheetsInUse, suspendResource } from "./float-client.ts";
+import { HOISTABLE, type CommitWait, type Resource, acquireResource, claimHoistable, commitWhenReady, getResource, hoistableRoot, isHoistable, markHoistable, mountHoistable, newCommitWait, sheetsLoading, STYLESHEET_WAIT, stylesheetsInUse, suspendResource } from "./float-client.ts";
 
 type Sig<T = any> = { (): T; set(v: T): void; peek(): T };
 
@@ -1558,8 +1558,36 @@ function hydrateRegion(f: Fiber, host: Node, region: { start: Comment; end: Comm
       drawnOrKept(f, sb, host, region, () => (sb.pending!.peek() ? ((sb as any).recoverLater ??= []).push(tell) : tell()));
       return;
     }
-    layoutQueue.push(tell);
-    drawFresh(f, host, removeRegion(region));
+    // Drawn in place of the server's markup. One that draws stylesheets still loading waits off the page, the
+    // server's markup put back meanwhile, until they have loaded (React suspends that commit); one that holds the
+    // document's own <html>, <head> or <body> cannot, and stays.
+    const server: Node[] = [];
+    for (let n: Node | null = region.start; n; n = n.nextSibling) {
+      server.push(n);
+      if (n === region.end) break;
+    }
+    const after = removeRegion(region);
+    const outer = renderSheets;
+    const sheets: Fiber[] = (renderSheets = []);
+    try {
+      drawFresh(f, host, after);
+    } finally {
+      renderSheets = outer;
+    }
+    const loading = sheets.length ? sheetsLoading(hoistableRoot(host), sheets.map((s) => [(s as any).resource, s.props?.href])) : null;
+    const nodes = loading ? domNodes(f) : null;
+    if (!loading || nodes!.some((n) => n.parentNode !== host)) return void layoutQueue.push(tell);
+    const frag = docOf(host).createDocumentFragment();
+    for (const n of nodes!) frag.appendChild(n);
+    for (const n of server) host.insertBefore(n, after);
+    (f as any).offPage = true;
+    loading.then(() => {
+      if (f.dead) return;
+      (f as any).offPage = false;
+      host.insertBefore(frag, removeRegion(region));
+      tell();
+      flushSignals();
+    });
     return;
   }
   // Hydrated: the root's onHydrated told, with the boundary's start comment (React's hydration callbacks).
@@ -1634,7 +1662,8 @@ function drawFresh(f: Fiber, host: Node, end: Node | null) {
   if (was)
     layoutQueue.push(() => {
       // (Not one whose client render was thrown away: the server's markup stays where it is.)
-      if (f.dead || (f as any).dehydrated) return;
+      // (Nor one drawn off the page, put in place by whoever drew it there.)
+      if (f.dead || (f as any).dehydrated || (f as any).offPage) return;
       const parent = domParent(hostParentOf(f));
       const before = nextDomAfter(f);
       for (const n of domNodes(f)) if (n.parentNode !== parent || n.nextSibling !== before) parent.insertBefore(n, before);
@@ -3919,7 +3948,7 @@ const CONTINUOUS_EVENTS = new Set("drag dragenter dragexit dragleave dragover mo
 function dryRun(fibers: Fiber[], preview: (p: Preview) => void): PromiseLike<any> | null {
   const p: Preview = { states: new Map(), classes: new Map() };
   preview(p);
-  return tryTransition(fibers, p);
+  return tryTransition(fibers, p, true);
 }
 const heldDefault: (() => void)[] = [];
 let heldWait: PromiseLike<void> | null = null;
@@ -4358,6 +4387,12 @@ function effectHook(create: () => any, deps: any[] | undefined, phase: "insertio
 let transitioning = 0;
 type TransitionUpdate = { apply: () => void; preview?: (p: Preview) => void; fiber?: Fiber };
 const transitionWork: TransitionUpdate[] = [];
+/** A root's transition renders not drawn yet let go (a later render of it replaces them); a hold left with nothing
+ * to wait for is given up. */
+function supersedeRoot(top: Fiber) {
+  for (let i = transitionWork.length - 1; i >= 0; i--) if (transitionWork[i]!.fiber === top) transitionWork.splice(i, 1);
+  if (transitionHeld && !transitionWork.length) (transitionHeld as any).cancel?.(), (transitionHeld = null);
+}
 /** Transitions drawn that suspended, their data still awaited: their ends wait. */
 let transitionsSuspended = 0;
 /** Async actions running (React's async action scope): every transition's end waits for them all. */
@@ -4448,8 +4483,22 @@ function mightSuspend(f: Fiber): boolean {
   return f.children.some(mightSuspend);
 }
 
+/** A root's new children that hold a stylesheet resource where it can be seen (no component run): its first, maybe. */
+function bringsStylesheet(w: TransitionUpdate): boolean {
+  const p: Preview = { states: new Map(), classes: new Map() };
+  w.preview!(p);
+  const seen = (c: any): boolean => {
+    if (Array.isArray(c)) return c.some(seen);
+    if (!c || typeof c !== "object" || c.$$typeof !== ELEMENT) return false;
+    if (c.type === "link" && c.props?.rel === "stylesheet" && typeof c.props.precedence === "string") return true;
+    return seen(c.props?.children);
+  };
+  return seen(p.roots?.get(w.fiber!));
+}
 /** What a held transition waits for: it is not tried again before that settles. */
 let transitionHeld: PromiseLike<any> | null = null;
+/** How much transition work there was when it was held. */
+let heldWork = 0;
 let transitionRetried = false;
 
 export function flushTransitions(): boolean {
@@ -4460,7 +4509,10 @@ export function flushTransitions(): boolean {
     flushSignals();
   }
   if (!transitionWork.length && !transitionEnds.length) return false;
-  if (transitionHeld) return false;
+  // (Held: tried again only when a new transition came meanwhile, which interrupts the held one, as React renders it.)
+  if (transitionHeld && transitionWork.length === heldWork) return false;
+  // (The held one given up: what it was to put in place stays out.)
+  if (transitionHeld) (transitionHeld as any).cancel?.(), (transitionHeld = null);
   // An async action under way: the transitions started meanwhile wait for it, and are drawn with its end (React
   // entangles them with the action).
   if (actionsRunning) return false;
@@ -4470,16 +4522,21 @@ export function flushTransitions(): boolean {
   // costs a second render.
   const retried = transitionRetried;
   transitionRetried = false;
-  if (!retried && previewed.length && previewed.some((w) => mightSuspend(w.fiber!))) {
+  if (!retried && previewed.length && previewed.some((w) => mightSuspend(w.fiber!) || (w.fiber!.kind === ROOT && bringsStylesheet(w)))) {
     const preview: Preview = { states: new Map(), classes: new Map() };
     for (const w of previewed) w.preview!(preview);
     const waits = tryTransition(previewed.map((w) => w.fiber!), preview);
     if (waits) {
       transitionHeld = waits;
+      heldWork = transitionWork.length;
       const retry = () => {
+        // (A hold a newer transition replaced: nothing to retry for it.)
+        if (transitionHeld !== waits) return;
         transitionHeld = null;
         // Its data is there: drawn once now, as React renders the retry (the screen is kept if it suspends again).
         transitionRetried = true;
+        // (Held for stylesheets alone: React's render was done, and it commits in their load event.)
+        if ((waits as any)[STYLESHEET_WAIT]) return void flushTransitions();
         if (!transitionBooked) (transitionBooked = true), scheduleTransitions(flushTransitions);
       };
       waits.then(retry, retry);
@@ -5087,14 +5144,18 @@ Check the render method of ${nameOf(owner.type)}.`));
       }
       // Inside a render or a commit (a root made in componentDidMount): drawn with it, as before.
       latest = children;
+      // (An urgent render asked for and not drawn yet: a transition after it is drawn after it, as its own lane.)
+      const urgentPending = pending !== NONE && !pendingInTransition;
       // Given in a transition: a first render that can stop between components (the work loop).
-      pendingInTransition = transitioning > 0;
+      pendingInTransition = transitioning > 0 && !urgentPending;
       if (depth > 0) return renderNow(children);
       // An update in a transition: drawn with the transition (held while it suspends, its end after it).
-      if (transitioning > 0 && !first && top.children.length) {
+      if (transitioning > 0 && ((!first && top.children.length) || urgentPending)) {
         deferTransition(() => ((pending = children), asked.set(asked.peek() + 1)), (p) => (p.roots ??= new Map()).set(top, children), top);
         return;
       }
+      // (A transition's children for this root not drawn yet: this render replaces them, as a root's last render wins.)
+      if (transitionWork.some((w) => w.fiber === top)) supersedeRoot(top);
       // An update at default priority rendering a stylesheet not loaded yet: held till it has (React's suspended commit).
       if (!first && top.children.length && !hydrating_ && holdForStylesheets(() => ((pending = children), asked.set(asked.peek() + 1)), () => dryRun([], (p) => (p.roots ??= new Map()).set(top, children))))
         return;
