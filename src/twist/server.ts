@@ -218,7 +218,9 @@ function opsOf(spec: Spec, meta: SpecMeta): Op[] {
     str(m.attrs + ">");
     if (m.tagIs.void) return;
     const lone = kids.length === 1;
-    if (!lone && kids.length) out.push({ k: 5 });
+    // (A list only where a hole sits among other children: it needs the list state between them.)
+    const listed = !lone && m.kinds.some((k) => k === HOLE);
+    if (listed) out.push({ k: 5 });
     for (let i = 0; i < kids.length; i++) {
       const kind = m.kinds[i];
       if (kind === HOLE) out.push({ k: lone ? 2 : 3, spec: sp }), holes.push([sp, n++]);
@@ -227,7 +229,7 @@ function opsOf(spec: Spec, meta: SpecMeta): Op[] {
       else if (m.inner[i]?.plain) walk(kids[i] as Spec, m.inner[i]!, false);
       else out.push({ k: 4, spec: kids[i] as Spec, meta: m.inner[i] }), (n += m.inner[i]?.size ?? countValues(kids[i] as Spec));
     }
-    if (!lone && kids.length) out.push({ k: 6 });
+    if (listed) out.push({ k: 6 });
     str("</" + tag + ">");
   };
   walk(spec, meta, true);

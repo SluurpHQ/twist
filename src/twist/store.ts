@@ -15,9 +15,27 @@ export const $DELETED = Symbol("store-deleted");
 const DELETE: unique symbol = Symbol("delete");
 type Raw = Record<PropertyKey, any>;
 
+/** Key nodes by key: an object (property lookups are faster than a Map's for the keys stores use), as a Map is read. */
+class NodeTable {
+  o: Record<PropertyKey, KeyNode> = Object.create(null);
+  get(k: PropertyKey): KeyNode | undefined {
+    return this.o[k as any];
+  }
+  set(k: PropertyKey, n: KeyNode) {
+    this.o[k as any] = n;
+    return this;
+  }
+  values(): KeyNode[] {
+    return Reflect.ownKeys(this.o).map((k) => this.o[k as any]!);
+  }
+  *[Symbol.iterator](): IterableIterator<[PropertyKey, KeyNode]> {
+    for (const k of Reflect.ownKeys(this.o)) yield [k, this.o[k as any]!];
+  }
+}
+
 /** Each backing object's state: its key nodes, its proxies, its pending writes. */
 class Record_ {
-  nodes = new Map<PropertyKey, KeyNode>();
+  nodes = new NodeTable();
   /** Key set and array length changes: what enumerates the object reads it. */
   keys: KeyNode;
   proxy: any;
