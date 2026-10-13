@@ -464,8 +464,6 @@ export function setContext<T>(
 // pool recycles it into a *different* tree, disposing the old parent walks
 // into the new tree and tears down live owners (#2863).
 function unlinkOwner(node: SSROwner): void {
-  // (Twist: a disposal counted, so a holder of a pooled owner can tell it was disposed — see twist.ts `alive`.)
-  (node as any)._epoch = ((node as any)._epoch | 0) + 1;
   const parent = node._parent;
   if (!parent) return;
   if (parent._firstChild === node) parent._firstChild = node._nextSibling;

@@ -2,10 +2,10 @@
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 declare const process: { env: Record<string, string | undefined> };
-import { ssrScope, createMemo, createOwner, createRoot, disposeOwner, getNextChildId, getOwner, NotReadyError, resetOwnerForRerun as resetOwner, runWithOwner, untrack, onCleanup, merge, omit, isStatic, NoHydrateContext, RevealGroupContext, getProjectionTrace, SOURCE_ANSWER, type Owner } from "./server/signals.ts";
+import { ssrScope, createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwnerForRerun as resetOwner, runWithOwner, untrack, onCleanup, merge, omit, isStatic, NoHydrateContext, getProjectionTrace, SOURCE_ANSWER, type Owner } from "./server/signals.ts";
 import { sharedConfig } from "./server/shared.ts";
-import { alive, childIdCount, setChildIdCount, keyOwnerOf, inIdScope, idPlace, ownerParent, standing, settlesOf, isClientOnly, fileRenderRoot, renderContextOf } from "./server/twist.ts";
-import { OBSERVE, emitDiagnostic, ownerPath, reportDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
+import { childIdCount, setChildIdCount, keyOwnerOf, inIdScope, idPlace, standing, settlesOf, fileRenderRoot, renderContextOf } from "./server/twist.ts";
+import { OBSERVE, emitDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
 import { createHydrationSerializer, getLocalHeaderScript as headerScript } from "./serialization.ts";
 import { __twist_mark, markBuiltin, renderComponent, componentProps, createComponent, isChildren, isDynamic, setDescribedNode, erroredFallback } from "./server/control.ts";
 import { createLoadingBoundary, ssrHandleError } from "./server/hydration.ts";
@@ -25,7 +25,7 @@ import { isHttpNavigationTarget } from "./response.ts";
 // The container tier's server half (projections cross a frame's border as traces), as Solid's server entry installs it.
 import { setAsyncIterableSharer, setContainerTraceResolver, toBorderForm } from "./frames/frame-container-plugin.ts";
 import { traceFor, traceForEvent, traceMetaMarkup } from "./trace.ts";
-import { inServerComponentScope, shareAsyncIterable } from "./server-internal.ts";
+import { shareAsyncIterable } from "./server-internal.ts";
 import { expand, hasHoles, type Spec } from "./tags.ts";
 setContainerTraceResolver(getProjectionTrace);
 setAsyncIterableSharer(shareAsyncIterable);
@@ -1431,7 +1431,6 @@ async function filled(r: Render, s: string, pass?: () => void): Promise<string> 
   }
 }
 
-const HOLE_TOKEN = /\u0000hole\d+\u0000/;
 
 /** The end of this turn of the event loop, as the platform has it when the module loads (as Solid's). */
 declare const setImmediate: ((fn: () => void) => unknown) | undefined;

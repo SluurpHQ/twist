@@ -9,6 +9,6 @@ Changes: the build constants (`IS_DEV`, `IS_OBSERVE`) read `NODE_ENV`; Twist's a
 JSX describes, and its renderer (`../server.ts`) renders a description after the code that made it returned, so: a row of
 `mapArray`/`repeat` runs under an owner of its own when ids are given, a memo's retry runs in the render it was made in,
 a `<Switch>` runs the `<Match>` descriptions it is given, a Provider also sets its value on the component owner its output
-renders under, a disposal is counted (pooled owners), and an async node's serialized answer is marked so the renderer
-keeps the response open until it ends. `twist.ts` holds the renderer's owner helpers, `control.ts` the marks Twist's JSX
+renders under, an `<Errored>`'s outcome for a failed boundary renders with no live holes, and an async node's serialized
+answer is marked so the renderer keeps the response open until it ends. `twist.ts` holds the renderer's owner helpers, `control.ts` the marks Twist's JSX
 pass leaves and the bridge's component calls.

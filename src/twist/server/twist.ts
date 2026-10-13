@@ -16,8 +16,6 @@ const idOwner = (o: O): O => {
 export const childIdCount = (o: Owner | null): number => (o ? idOwner(o)._childCount : 0);
 /** Its child-id count set back (a part rendered again takes the same ids). */
 export const setChildIdCount = (o: Owner | null, n: number) => void (o && (idOwner(o)._childCount = n));
-/** The owner `o` was made under. */
-export const ownerParent = (o: Owner | null): Owner | null => (o as O)?._parent ?? null;
 
 /**
  * The owner a template's element takes its key under, as Solid's takes it where the template is made: the owner that
@@ -84,13 +82,6 @@ export function standing(o: Owner | null): () => boolean {
   return () => alive;
 }
 
-/** Whether `o` is still the owner it is now: false once it is disposed (an owner pooled and made again included). */
-export function alive(o: Owner): () => boolean {
-  const x = o as O;
-  const epoch = x._epoch | 0;
-  return () => !x._disposed && (x._epoch | 0) === epoch;
-}
-
 /** What a not-ready read waits on (none for client-only content, which nothing on the server settles). */
 export function settlesOf(e: NotReadyError): Promise<void> | null {
   const s = (e as any).source;
@@ -98,8 +89,6 @@ export function settlesOf(e: NotReadyError): Promise<void> | null {
   return Promise.resolve(s).then(noop, noop);
 }
 const noop = () => {};
-/** Whether what is not ready is client-only content (the client renders it). */
-export const isClientOnly = (e: NotReadyError) => (e as any).source?.$clientHole === true;
 
 /** The renders under way, by root owner (Solid's registry: `callerRenderContext` reads it too). */
 const RENDER_ROOTS = Symbol.for("@solidjs/web/render-roots");
