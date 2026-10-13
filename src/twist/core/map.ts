@@ -1,0 +1,742 @@
+import { setStrictRead } from "./core/core.js";
+import {
+  computed,
+  CONFIG_AUTO_DISPOSE,
+  createOwner,
+  getOwner,
+  runWithOwner,
+  setSignal,
+  signal,
+  type Root,
+  type Signal
+} from "./core/index.js";
+import { accessor, type Accessor } from "./signals.js";
+import { attrHooks } from "./core/attribution-hooks.js";
+import { $TRACK } from "./store/types.js";
+
+export type Maybe<T> = T | void | null | undefined | false;
+
+/**
+ * Reactively maps an array, reusing the previously-mapped value for unchanged
+ * items.
+ *
+ * The callback shape follows the keying mode:
+ * - default / `keyed: true` receives `(item, index)` where `item` is the raw
+ *   row value and `index` is an accessor.
+ * - `keyed: false` receives `(item, index)` where `item` is an accessor and
+ *   `index` is a stable number.
+ * - `keyed: item => key` receives accessors for both arguments.
+ *
+ * This is the underlying helper that powers `<For>`. App code should use
+ * `<For>` directly; reach for `mapArray` when implementing custom list
+ * components.
+ *
+ * - `options.keyed` — `true` (default for primitives) compares by identity;
+ *   `false` falls back to index-only mapping; pass a function `(item) => key`
+ *   for stable identity by extracted key.
+ * - `options.fallback` — accessor returning a value to show when the input is
+ *   empty.
+ *
+ * @example
+ * ```ts
+ * const view = mapArray(
+ *   items,
+ *   (item, index) => `${index()}: ${item.label}`,
+ *   { fallback: () => "no items" }
+ * );
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/map-array
+ */
+export function mapArray<Item, MappedItem>(
+  list: Accessor<Maybe<readonly Item[]>>,
+  map: (value: Item, index: Accessor<number>) => MappedItem,
+  options?: { keyed?: true; fallback?: Accessor<any>; name?: string }
+): Accessor<MappedItem[]>;
+export function mapArray<Item, MappedItem>(
+  list: Accessor<Maybe<readonly Item[]>>,
+  map: (value: Accessor<Item>, index: number) => MappedItem,
+  options: { keyed: false; fallback?: Accessor<any>; name?: string }
+): Accessor<MappedItem[]>;
+export function mapArray<Item, MappedItem>(
+  list: Accessor<Maybe<readonly Item[]>>,
+  map: (value: Accessor<Item>, index: Accessor<number>) => MappedItem,
+  options: { keyed: (item: Item) => any; fallback?: Accessor<any>; name?: string }
+): Accessor<MappedItem[]>;
+export function mapArray<Item, MappedItem>(
+  list: Accessor<Maybe<readonly Item[]>>,
+  map:
+    | ((value: Item, index: Accessor<number>) => MappedItem)
+    | ((value: Accessor<Item>, index: number) => MappedItem)
+    | ((value: Accessor<Item>, index: Accessor<number>) => MappedItem),
+  options?: { keyed?: boolean | ((item: Item) => any); fallback?: Accessor<any>; name?: string }
+): Accessor<MappedItem[]> {
+  const keyFn = typeof options?.keyed === "function" ? options.keyed : undefined;
+  const indexes = map.length > 1;
+  const wrappedMap =
+    (process.env.NODE_ENV !== "production") && options?.name
+      ? (((...args: any[]) => {
+          setStrictRead(options!.name!);
+          try {
+            return (map as any)(...args);
+          } finally {
+            setStrictRead(false);
+          }
+        }) as typeof map)
+      : map;
+  const data: MapData<Item, MappedItem> = {
+    _owner: createOwner(),
+    _len: 0,
+    _list: list,
+    _items: [],
+    _map: wrappedMap,
+    _mappings: [],
+    _nodes: [],
+    _key: keyFn,
+    _rows: keyFn || options?.keyed === false ? [] : undefined,
+    _indexes: indexes && options?.keyed !== false ? [] : undefined,
+    _byIndex: options?.keyed === false,
+    _fallback: options?.fallback
+  };
+  const node = computed(
+    updateKeyedMap.bind(data as MapData<unknown, unknown>),
+    (process.env.NODE_ENV !== "production") && options?.name ? { name: options.name } : undefined
+  );
+  node._config &= ~CONFIG_AUTO_DISPOSE;
+  return accessor(node);
+}
+
+const pureOptions = { ownedWrite: true };
+
+// Exception safety (#2903): a map callback can throw NotReadyError mid-pass
+// (async read), and the computed re-runs the whole pass after settle. Every
+// pass therefore STAGES its work — new rows are created into temp arrays and
+// removals are deferred — and commits to `this` only after every mapper
+// succeeded. An aborted pass disposes just the owners it created and leaves
+// `_items`/`_mappings`/`_nodes`/`_rows`/`_indexes`/`_len` exactly as they
+// were, so the retry diffs against uncorrupted state. Consequence of the
+// strong-abort ordering: removed rows now dispose AFTER the pass's new rows
+// are created (you cannot destroy state before knowing the pass will land).
+
+/** SMALL-MOVE fast path (jfb-reorder profile, 2026-09-02): rotates, swaps,
+ * small displacements, and removals leave a keyed window that is the old
+ * window SHIFTED, with 32-or-fewer genuinely displaced identities — but the
+ * general diff pays O(newLen) regardless (window key-map, four full-length
+ * staged arrays, element-copied prefix/suffix): ~50-140µs/op on 1000 rows
+ * against ~20µs of actual DOM work.
+ *
+ * Scoped to the PLAIN identity-keyed mode (no row signals, no index
+ * accessors — the hot For shape); other modes keep the general path, which
+ * halves this function's size for the same benchmark wins.
+ *
+ * PHASE 1 (scan, zero allocation beyond two small ledgers): a two-pointer
+ * walk records ALIGNED RUNS — at most ledger+1 — realigning at boundaries
+ * with bounded lookahead (interleaved splices stack shift offsets past
+ * single-step). A compare BUDGET bails hopeless shapes (reverse, shuffle)
+ * almost immediately. PHASE 2 (commit, success only): slice() the live
+ * arrays (native memcpy keeps the fresh-identity contract downstream change
+ * propagation relies on), copy only shifted runs, patch displaced pairs,
+ * dispose leftover sources (dif < 0). Unmatched destinations (replacements,
+ * insertions) bail with nothing staged. Kept OUT of updateKeyedMap:
+ * inlining deoptimized the general path (JIT function-size budget). */
+/** Dev-only engagement counter (tests prove the fast path actually ran). */
+let smallMoveHits = 0;
+/** @internal */
+export function __smallMoveHits(): number {
+  return smallMoveHits;
+}
+
+function trySmallMove<Item, MappedItem>(
+  data: MapData<Item, MappedItem>,
+  newItems: Item[],
+  newLen: number,
+  start: number
+): boolean {
+  const oldItems = data._items;
+  const oldEnd = data._len - 1;
+  const srcPos: number[] = [];
+  const dstPos: number[] = [];
+  const runs: number[] = []; // flat triples: oldStart, newStart, length
+  let budget = 256;
+  let i = start;
+  let j = start;
+  let inRun = false;
+  while (i <= oldEnd && j <= newLen - 1) {
+    const oldItem = oldItems[i];
+    const newItem = newItems[j];
+    if (oldItem === newItem) {
+      if (!inRun) {
+        runs.push(i, j, 0);
+        inRun = true;
+      }
+      runs[runs.length - 1]++;
+      i++;
+      j++;
+      continue;
+    }
+    inRun = false;
+    // Bounded realignment lookahead, shorter distance wins.
+    let del = -1;
+    let lim = Math.min(32 - srcPos.length, oldEnd - i, budget);
+    for (let a = 1; a <= lim; a++) {
+      if (oldItems[i + a] === newItem) {
+        del = a;
+        break;
+      }
+    }
+    budget -= del === -1 ? lim : del;
+    let ins = -1;
+    lim = Math.min(32 - dstPos.length, newLen - 1 - j, budget);
+    for (let a = 1; a <= lim; a++) {
+      if (newItems[j + a] === oldItem) {
+        ins = a;
+        break;
+      }
+    }
+    budget -= ins === -1 ? lim : ins;
+    if (del !== -1 && (ins === -1 || del <= ins)) {
+      while (del-- > 0) srcPos.push(i++);
+      continue;
+    }
+    if (ins !== -1) {
+      while (ins-- > 0) dstPos.push(j++);
+      continue;
+    }
+    if (budget <= 0 || srcPos.length === 32 || dstPos.length === 32) return false;
+    srcPos.push(i++);
+    dstPos.push(j++);
+  }
+  for (; i <= oldEnd; i++) {
+    if (srcPos.length === 32) return false;
+    srcPos.push(i);
+  }
+  for (; j <= newLen - 1; j++) {
+    if (dstPos.length === 32) return false;
+    dstPos.push(j);
+  }
+  return commitSmallMove(data, newItems, newLen, srcPos, dstPos, runs);
+}
+
+/** PHASE 2 of the small-move path, in its OWN function so that a pass which
+ * only SCANS and bails (a full replace: the first structural pass of a page,
+ * typically) compiles nothing but the scan — V8 parses and compiles lazily
+ * per function, and cold `replace` measured +0.5 ms with both phases in one
+ * body. Pairs displaced sources with destinations (an unmatched destination
+ * is a replacement/insertion → general path), then commits: slice() the live
+ * arrays, copy shifted runs, patch displaced pairs, dispose leftovers. */
+function commitSmallMove<Item, MappedItem>(
+  data: MapData<Item, MappedItem>,
+  newItems: Item[],
+  newLen: number,
+  srcPos: number[],
+  dstPos: number[],
+  runs: number[]
+): boolean {
+  const oldItems = data._items;
+  let i: number;
+  let j: number;
+  let consumed: boolean[] | undefined;
+  if (dstPos.length !== 0) {
+    consumed = new Array(srcPos.length);
+    for (j = 0; j < dstPos.length; j++) {
+      let found = -1;
+      for (i = 0; i < srcPos.length; i++) {
+        if (!consumed[i] && oldItems[srcPos[i]] === newItems[dstPos[j]]) {
+          found = i;
+          break;
+        }
+      }
+      if (found === -1) return false;
+      consumed[found] = true;
+      dstPos[j] = (dstPos[j] << 6) | found; // pack pairing (found < 32)
+    }
+  }
+  // DUPLICATES: the general path pairs equal identities by OCCURRENCE ORDER
+  // (the chained index map). Displaced↔displaced pairing above is ascending
+  // on both sides, so it agrees; but an aligned run was matched by POSITION,
+  // and if a displaced identity also occurs inside a run the two algorithms
+  // can hand different occurrences different owners (row-local state moves;
+  // a shrink could dispose the wrong one). Decline that case — general path.
+  if (srcPos.length !== 0 || dstPos.length !== 0) {
+    const displaced = new Set<Item>();
+    for (i = 0; i < srcPos.length; i++) displaced.add(oldItems[srcPos[i]]);
+    for (j = 0; j < dstPos.length; j++) displaced.add(newItems[dstPos[j] >> 6]);
+    for (let r = 0; r < runs.length; r += 3) {
+      const ro = runs[r];
+      for (let a = 0, n = runs[r + 2]; a < n; a++)
+        if (displaced.has(oldItems[ro + a])) return false;
+    }
+  }
+  // PHASE 2: commit.
+  if ((process.env.NODE_ENV !== "production")) smallMoveHits++;
+  const oldMappings = data._mappings;
+  const oldNodes = data._nodes;
+  const mappings = oldMappings.slice(0, newLen);
+  const nodes = oldNodes.slice(0, newLen);
+  for (let r = 0; r < runs.length; r += 3) {
+    const ro = runs[r];
+    const rn = runs[r + 1];
+    if (ro !== rn) {
+      for (let a = 0; a < runs[r + 2]; a++) {
+        mappings[rn + a] = oldMappings[ro + a];
+        nodes[rn + a] = oldNodes[ro + a];
+      }
+    }
+  }
+  for (j = 0; j < dstPos.length; j++) {
+    const p = dstPos[j] >> 6;
+    const q = srcPos[dstPos[j] & 63];
+    mappings[p] = oldMappings[q];
+    nodes[p] = oldNodes[q];
+  }
+  data._mappings = mappings;
+  data._nodes = nodes;
+  data._len = newLen;
+  data._items = newItems.slice(0);
+  // Dispose unmatched sources LAST (general-path ordering).
+  for (i = 0; i < srcPos.length; i++) {
+    if (consumed === undefined || !consumed[i]) oldNodes[srcPos[i]].dispose();
+  }
+  return true;
+}
+
+function updateKeyedMap<Item, MappedItem>(this: MapData<Item, MappedItem>): any[] {
+  // Untracked reads inside the internal owner resolve via _parentComputed:
+  // routed through the node, a store-proxy lookup sees pending writes (not a
+  // stale _value) and an async read in a row callback registers the node as
+  // the flight's reader (pending tracking + post-settle retry) instead of
+  // vanishing. Set per pass: the first pass runs inside `computed()`, before
+  // the node exists to the caller.
+  (this._owner as Root)._parentComputed = getOwner() as Root["_parentComputed"];
+  const newItems = this._list() || [],
+    newLen = newItems.length;
+  (newItems as any)[$TRACK]; // top level tracking (a store array's container node)
+
+  runWithOwner(this._owner, () => {
+    let i: number,
+      j: number,
+      rows: Signal<Item>[] | undefined,
+      indexes: Signal<number>[] | undefined,
+      // Mappers write freshly-created row/index signals into the STAGE
+      // arrays (`rows`/`indexes`), never into `this._rows`/`this._indexes`.
+      mapper = this._rows
+        ? this._byIndex
+          ? () => {
+              rows![j] = signal(newItems[j], pureOptions);
+              return this._map(accessor(rows![j]), j);
+            }
+          : () => {
+              rows![j] = signal(newItems[j], pureOptions);
+              indexes && (indexes[j] = signal(j, pureOptions));
+              return this._map(
+                accessor(rows![j]),
+                indexes ? accessor(indexes[j]) : (undefined as any)
+              );
+            }
+        : this._indexes
+          ? () => {
+              const item = newItems[j];
+              indexes![j] = signal(j, pureOptions);
+              return this._map(item, accessor<number>(indexes![j]));
+            }
+          : () => {
+              const item = newItems[j];
+              return (this._map as (value: Item) => MappedItem)(item);
+            };
+
+    // fast path for empty arrays
+    if (newLen === 0) {
+      if (this._len !== 0) {
+        this._owner.dispose(false);
+        this._nodes = [];
+        this._items = [];
+        this._mappings = [];
+        this._len = 0;
+        this._rows && (this._rows = []);
+        this._indexes && (this._indexes = []);
+      }
+      if (this._fallback && !this._mappings[0]) {
+        // an aborted fallback attempt leaves an owner without a mapping;
+        // dispose it before re-creating
+        this._nodes[0]?.dispose();
+        this._mappings[0] = runWithOwner<MappedItem>(
+          (this._nodes[0] = createOwner()),
+          this._fallback
+        );
+      }
+    }
+    // fast path for new create
+    else if (this._len === 0) {
+      const mappings: MappedItem[] = new Array(newLen);
+      const nodes: Root[] = new Array(newLen);
+      rows = this._rows && new Array(newLen);
+      indexes = this._indexes && new Array(newLen);
+
+      try {
+        for (j = 0; j < newLen; j++)
+          mappings[j] = runWithOwner<MappedItem>((nodes[j] = createOwner()), mapper)!;
+      } catch (err) {
+        for (i = 0; i <= j!; i++) nodes[i]?.dispose();
+        throw err;
+      }
+
+      // commit
+      if (this._nodes[0]) this._nodes[0].dispose(); // previous fallback
+      this._mappings = mappings;
+      this._nodes = nodes;
+      rows && (this._rows = rows);
+      indexes && (this._indexes = indexes);
+      this._items = newItems.slice(0);
+      this._len = newLen;
+    } else {
+      let start: number,
+        end: number,
+        newEnd: number,
+        item: Item,
+        key: any,
+        newIndices: Map<Item, number>,
+        newIndicesNext: number[],
+        removed: Root[] | undefined,
+        created: Root[] | undefined,
+        // Dev (attribution engine installed): the items behind the exited and
+        // entered rows, for the list-identity census.
+        removedItems: Item[] | undefined,
+        createdItems: Item[] | undefined;
+
+      // The pass's write to a per-slot signal (a row accessor in index mode,
+      // an index accessor in keyed mode). The list's frame lives in these
+      // writes as much as in the computed's result, so under a LANE pass they
+      // are the lane's frame too (F1): a plain `setSignal` staged them into
+      // the action's transaction and the row readers were served the
+      // committed value until the action landed — `<For>` without `keyed`
+      // showed the pre-action list for the whole action while the keyed modes
+      // showed the optimistic one. The engine publishes the write as a
+      // derived override on the slot (lanes stage, A17) and lands or
+      // supersedes it when a plain pass later writes a slot still carrying
+      // one (A18) — `landOnOverride`'s slot arm. Decided once per pass, not
+      // per slot: a lane pass marks the map (`_laneSlots`: its slots may
+      // carry overrides), a marked map routes every slot write through the
+      // engine while any lane is live — a slot's override resolves with its
+      // lane's transaction, or with the batch for an orphan lane
+      // (resolveOptimisticNodes, then cleanupCompletedLanes, both before the
+      // completion wakes any recompute), so a pass that finds no lane live
+      // knows the slots are clean and drops the mark — and an unmarked map
+      // takes `setSignal` directly. The engine is installed whenever a lane
+      // is active.
+      // CARVE 2: the lane-slot arm (`_landOnOverride`, F1) went with the engine.
+      const write: <T>(el: Signal<T>, v: T) => unknown = setSignal;
+
+      // skip common prefix
+      for (
+        start = 0, end = Math.min(this._len, newLen);
+        start < end &&
+        (this._items[start] === newItems[start] ||
+          (this._rows && compare(this._key, this._items[start], newItems[start])));
+        start++
+      ) {
+        if (this._rows) write(this._rows[start], newItems[start]);
+      }
+
+      // skip common suffix — counted only; retained entries land in one pass
+      // at commit instead of being staged and copied twice
+      for (
+        end = this._len - 1, newEnd = newLen - 1;
+        end >= start &&
+        newEnd >= start &&
+        (this._items[end] === newItems[newEnd] ||
+          (this._rows && compare(this._key, this._items[end], newItems[newEnd])));
+        end--, newEnd--
+      );
+
+      // no structural change (every position matched in place at equal
+      // length — the common post-reconcile shape): keep the same mapped
+      // array identity so downstream consumers don't re-run at all
+      if (start === newLen && this._len === newLen) {
+        this._items = newItems.slice(0);
+        return;
+      }
+
+      // SMALL-MOVE FAST PATH: extracted to its own function — inlining it
+      // here bloats updateKeyedMap past the JIT's optimization budget and
+      // deoptimizes the GENERAL path (measured 2x on reverse). Gated to
+      // LARGE trimmed windows: when the trims already shrank the window
+      // (plain removals, tail edits), the general path is window-
+      // proportional and cheap — the fast path would only re-walk what the
+      // trims proved.
+      if (
+        newLen <= this._len &&
+        end - start > 64 &&
+        this._rows === undefined &&
+        this._indexes === undefined
+      ) {
+        // PROBE before the scan: a small move keeps a mid-window item within
+        // ±32 of its old position; a REPLACE (all fresh items — the shape
+        // every page's first structural pass usually is) has it nowhere.
+        // ~65 compares, no allocation, and the scan function is never
+        // compiled for a replace (its cold first-call compile was the cost).
+        const m = start + ((newEnd - start) >> 1);
+        const probe = newItems[m];
+        const hi = Math.min(end, m + 32);
+        let k = Math.max(start, m - 32);
+        while (k <= hi && this._items[k] !== probe) k++;
+        if (k <= hi && trySmallMove(this, newItems as Item[], newLen, start)) return;
+      }
+
+      const dif = newLen - this._len;
+      const temp: MappedItem[] = new Array(newLen);
+      const tempNodes: Root[] = new Array(newLen);
+      rows = this._rows ? new Array(newLen) : undefined;
+      indexes = this._indexes ? new Array(newLen) : undefined;
+
+      // 0) prepare a map of all indices in the changed window of newItems,
+      // scanning backwards so we encounter them in natural order
+      newIndices = new Map<Item, number>();
+      newIndicesNext = new Array(newEnd + 1);
+      for (j = newEnd; j >= start; j--) {
+        item = newItems[j];
+        key = this._key ? this._key(item) : item;
+        i = newIndices.get(key)!;
+        newIndicesNext[j] = i === undefined ? -1 : i;
+        newIndices.set(key, j);
+      }
+
+      // 1) step through the old changed window and see if items can be found
+      // in the new set; if so, stage them at their new positions; if not,
+      // queue them for disposal at commit
+      for (i = start; i <= end; i++) {
+        item = this._items[i];
+        key = this._key ? this._key(item) : item;
+        j = newIndices.get(key)!;
+        if (j !== undefined && j !== -1) {
+          temp[j] = this._mappings[i];
+          tempNodes[j] = this._nodes[i];
+          rows && (rows[j] = this._rows![i]);
+          indexes && (indexes[j] = this._indexes![i]);
+          j = newIndicesNext[j];
+          newIndices.set(key, j);
+        } else {
+          (removed ??= []).push(this._nodes[i]);
+          if ((process.env.NODE_ENV !== "production") && attrHooks !== null) (removedItems ??= []).push(item);
+        }
+      }
+
+      // 2) create new rows into the temp arrays; an abort disposes only these
+      try {
+        for (j = start; j <= newEnd; j++) {
+          if (tempNodes[j] !== undefined) continue;
+          (created ??= []).push((tempNodes[j] = createOwner()));
+          if ((process.env.NODE_ENV !== "production") && attrHooks !== null) (createdItems ??= []).push(newItems[j]);
+          temp[j] = runWithOwner<MappedItem>(tempNodes[j], mapper)!;
+        }
+      } catch (err) {
+        if (created) for (i = 0; i < created.length; i++) created[i].dispose();
+        throw err;
+      }
+
+      // 3) commit: land the retained prefix and suffix plus the staged window
+      // into the fresh arrays, swap them in (new identity for downstream
+      // change propagation), then dispose exited rows
+      for (i = 0; i < start; i++) {
+        temp[i] = this._mappings[i];
+        tempNodes[i] = this._nodes[i];
+        rows && (rows[i] = this._rows![i]);
+        indexes && (indexes[i] = this._indexes![i]);
+      }
+      for (j = start; j <= newEnd; j++) {
+        if (rows) write(rows[j], newItems[j]);
+        if (indexes) write(indexes[j], j);
+      }
+      for (j = newEnd + 1; j < newLen; j++) {
+        temp[j] = this._mappings[j - dif];
+        tempNodes[j] = this._nodes[j - dif];
+        if (rows) {
+          rows[j] = this._rows![j - dif];
+          write(rows[j], newItems[j]);
+        }
+        if (indexes) {
+          indexes[j] = this._indexes![j - dif];
+          if (dif !== 0) write(indexes[j], j);
+        }
+      }
+      this._mappings = temp;
+      this._nodes = tempNodes;
+      rows && (this._rows = rows);
+      indexes && (this._indexes = indexes);
+      this._len = newLen;
+      // save a copy of the mapped items for the next update
+      this._items = newItems.slice(0);
+      if (removed) for (i = 0; i < removed.length; i++) removed[i].dispose();
+      if (
+        (process.env.NODE_ENV !== "production") &&
+        attrHooks !== null &&
+        removedItems !== undefined &&
+        createdItems !== undefined
+      )
+        attrHooks.listChurn(
+          this._owner._parentComputed!,
+          removedItems,
+          createdItems,
+          newLen,
+          this._key !== undefined
+        );
+    }
+  });
+
+  return this._mappings;
+}
+
+/**
+ * Reactively renders a callback `count` times, reusing previously-rendered
+ * entries when only the count changes. Underlying helper for `<Repeat>`.
+ *
+ * - `options.from` — start index (default `0`); useful for offset/windowed
+ *   rendering.
+ * - `options.fallback` — accessor returning a value to show when count is `0`.
+ *
+ * @example
+ * ```ts
+ * const view = repeat(count, i => `Item ${i}`, { fallback: () => "empty" });
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/reactive-utilities/repeat
+ */
+export function repeat(
+  count: Accessor<number>,
+  map: (index: number) => any,
+  options?: {
+    from?: Accessor<number | undefined>;
+    fallback?: Accessor<any>;
+    name?: string;
+  }
+): Accessor<any[]> {
+  const wrappedMap =
+    (process.env.NODE_ENV !== "production") && options?.name
+      ? (i: number) => {
+          setStrictRead(options!.name!);
+          try {
+            return map(i);
+          } finally {
+            setStrictRead(false);
+          }
+        }
+      : map;
+  const data: RepeatData = {
+    _owner: createOwner(),
+    _len: 0,
+    _offset: 0,
+    _count: count,
+    _map: wrappedMap,
+    _nodes: [],
+    _mappings: [],
+    _from: options?.from,
+    _fallback: options?.fallback
+  };
+  const node = computed(updateRepeat.bind(data));
+  node._config &= ~CONFIG_AUTO_DISPOSE;
+  return accessor(node);
+}
+
+// Same staged-commit discipline as `updateKeyedMap` (#2903): the retained
+// window overlap is copied into fresh arrays, missing indexes are created
+// into them, and `this` is only touched — including disposal of rows leaving
+// the window — after every `_map` call succeeded. A NotReadyError mid-pass
+// disposes only the owners this pass created and leaves prior state intact
+// for the post-settle retry. The overlap math also subsumes the previous
+// disjoint-window/front-clear/end-clear/shift special cases.
+function updateRepeat<MappedItem>(this: RepeatData<MappedItem>): any[] {
+  // As in updateKeyedMap: the node is the row callbacks' reader, per pass.
+  (this._owner as Root)._parentComputed = getOwner() as Root["_parentComputed"];
+  const newLen = this._count();
+  const from = this._from?.() || 0;
+  runWithOwner(this._owner, () => {
+    if (newLen === 0) {
+      if (this._len !== 0) {
+        this._owner.dispose(false);
+        this._nodes = [];
+        this._mappings = [];
+        this._len = 0;
+        // Reset offset to match the cleared data (#2767, repro 2).
+        this._offset = 0;
+      }
+      if (this._fallback && !this._mappings[0]) {
+        // an aborted fallback attempt leaves an owner without a mapping;
+        // dispose it before re-creating
+        this._nodes[0]?.dispose();
+        this._mappings[0] = runWithOwner<MappedItem>(
+          (this._nodes[0] = createOwner()),
+          this._fallback
+        );
+      }
+      return;
+    }
+    const to = from + newLen;
+    const prevTo = this._offset + this._len;
+    // Retained overlap [keepStart, keepEnd) in global indexes; empty when the
+    // windows are disjoint or when coming from empty/fallback.
+    const keepStart = Math.max(from, this._offset);
+    const keepEnd = Math.min(to, prevTo);
+
+    const mappings: MappedItem[] = new Array(newLen);
+    const nodes: Root[] = new Array(newLen);
+    for (let i = keepStart; i < keepEnd; i++) {
+      nodes[i - from] = this._nodes[i - this._offset];
+      mappings[i - from] = this._mappings[i - this._offset];
+    }
+    try {
+      for (let i = from; i < to; i++) {
+        if (i >= keepStart && i < keepEnd) continue;
+        mappings[i - from] = runWithOwner<MappedItem>((nodes[i - from] = createOwner()), () =>
+          this._map(i)
+        )!;
+      }
+    } catch (err) {
+      for (let i = from; i < to; i++)
+        if ((i < keepStart || i >= keepEnd) && nodes[i - from]) nodes[i - from].dispose();
+      throw err;
+    }
+
+    // commit: dispose the previous fallback or the rows leaving the window
+    if (this._len === 0) this._nodes[0]?.dispose();
+    else
+      for (let i = this._offset; i < prevTo; i++)
+        if (i < from || i >= to) this._nodes[i - this._offset].dispose();
+    this._mappings = mappings;
+    this._nodes = nodes;
+    this._offset = from;
+    this._len = newLen;
+  });
+  return this._mappings;
+}
+
+function compare<Item>(key: ((i: any) => any) | undefined, a: Item, b: Item): boolean {
+  return key ? key(a) === key(b) : true;
+}
+
+interface RepeatData<MappedItem = any> {
+  _owner: Root;
+  _len: number;
+  _count: Accessor<number>;
+  _map: (index: number) => MappedItem;
+  _mappings: MappedItem[];
+  _nodes: Root[];
+  _offset: number;
+  _from?: Accessor<number | undefined>;
+  _fallback?: Accessor<any>;
+}
+
+interface MapData<Item = any, MappedItem = any> {
+  _owner: Root;
+  _len: number;
+  _list: Accessor<Maybe<readonly Item[]>>;
+  _items: Item[];
+  _mappings: MappedItem[];
+  _nodes: Root[];
+  _map: (value: any, index: any) => any;
+  _key: ((i: any) => any) | undefined;
+  _rows?: Signal<Item>[];
+  _indexes?: Signal<number>[];
+  _byIndex: boolean;
+  _fallback?: Accessor<any>;
+  /** A lane pass has run over this map: its slot signals may carry a lane's
+   * derived override, so every slot write routes through the engine (F1). */
+}

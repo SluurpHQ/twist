@@ -1,0 +1,234 @@
+import { CONFIG_CHILDREN_FORBIDDEN } from "./constants.js";
+import { isThenable } from "./async.js";
+import { enterCallback, exitCallback } from "./core.js";
+import { getOwner } from "./owner.js";
+import { emitDiagnostic } from "./dev.js";
+import { attrHooks } from "./attribution-hooks.js";
+import {
+  actionDepth,
+  enterAction,
+  exitAction,
+  flush,
+  inEffectCallback,
+  joinFuture,
+  newTransaction,
+  nextQuestion,
+  question,
+  resolveTx,
+  schedule,
+  setEffectCallback,
+  setQuestion,
+  type Transaction
+} from "./scheduler.js";
+
+const ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE =
+  "[ACTION_CALLED_IN_OWNED_SCOPE] Calling an action inside an owned scope (component, computation) is not allowed. " +
+  "Call it from an event handler or another imperative scope.";
+
+/** A slice of the body runs in the action's transaction: the flush that
+ * carries its writes parks into it (`joinFuture` — merging whatever the tick
+ * already joined: O1, an action that opens in a tick owns it; a second
+ * action in the tick, or one called from the body, merges into the first).
+ * A resumed slice drains at once: the seam parks what it wrote (the action
+ * holds the transaction open) or, the body having returned, lands it. A
+ * nested action resuming synchronously inside the outer body does not drain
+ * — that would park the outer's remaining writes' frame mid-slice; the outer
+ * step's own return does. */
+function inTransaction<T>(t: Transaction, q: number, fn: () => T): T {
+  // The slice and its flush ask this action's question (A18 provenance):
+  // the guesses it writes and the flights it starts are stamped with it.
+  const prevQ = question;
+  setQuestion(q);
+  joinFuture(t);
+  const result = fn();
+  if (actionDepth === 0) flush();
+  setQuestion(prevQ);
+  return result;
+}
+
+/**
+ * The primitive for mutations: imperative async workflows whose *writes span
+ * an async gap* — optimistic write, server round-trip, reconciling write —
+ * where intermediate state must not leak and failure must revert cleanly
+ * (pair with `createOptimistic` / `createOptimisticStore`).
+ *
+ * Navigation-shaped updates do not need an action. A plain setter call is
+ * enough: reads pull the async, and downstream async computeds hold their
+ * previous values per-node until the new ones are ready (`isPending` /
+ * `latest` expose the in-flight state). Reach for `action` only when writes
+ * happen *after* async work, not merely upstream of it.
+ *
+ * Framework-level actions (router form actions, server actions) are
+ * specializations of this primitive: they are actions in exactly this sense —
+ * the same transactional semantics — with form binding, serialization, and
+ * submission tracking layered on top. The shared name is deliberate.
+ *
+ * Wraps a generator function so each invocation runs as a single transaction
+ * that holds every signal/store write between yields. The surrounding UI sees
+ * one atomic update when the action completes; nothing is committed until
+ * every action in the transaction has returned.
+ *
+ * `yield` is the transaction-safe suspension point: the action waits for a
+ * yielded promise and re-enters the transaction before running the code after
+ * it. A plain `await` does NOT — the runtime has no hook into an async
+ * generator's internal await continuations, so code between an `await` and
+ * the next `yield` runs OUTSIDE the transaction: writes to fresh signals
+ * commit immediately, and anything that creates a reader there — `until()`,
+ * `latest()`, a memo or effect, a mount — is created mainline, where a read of
+ * this action's held state makes it born held (A29): staged with the
+ * transaction and replayed at its commit. `await` is still the ergonomic
+ * choice for typed results; just put a bare `yield` before any write or
+ * reader creation that follows it — including the expression of the next
+ * `yield`, which is evaluated before the step re-enters:
+ *
+ * ```ts
+ * const saved = await api.createTodo(text); // typed result
+ * yield; // re-enter the transaction before writing or reading
+ * setTodos(t => { ... });
+ * yield until(() => todos.some(t => t.id === saved.id));
+ * ```
+ *
+ * (For the same reason, don't call `flush()` inside an action body — it
+ * cannot reveal the held writes and is refused.)
+ *
+ * Each call returns a `Promise` that resolves with the generator's return
+ * value, or rejects if it throws. Pair with `createOptimistic` /
+ * `createOptimisticStore` to apply tentative writes that auto-revert if the
+ * action fails.
+ *
+ * @example
+ * ```ts
+ * const [todos, setTodos] = createOptimisticStore<Todo[]>([]);
+ *
+ * const addTodo = action(async function* (text: string) {
+ *   const tempId = crypto.randomUUID();
+ *   setTodos(t => { t.push({ id: tempId, text, pending: true }); }); // optimistic
+ *   const saved = await api.createTodo(text); // network round-trip, typed
+ *   yield; // re-enter the transaction
+ *   setTodos(t => {
+ *     const i = t.findIndex(x => x.id === tempId);
+ *     if (i >= 0) t[i] = saved;
+ *   });
+ *   return saved;
+ * });
+ *
+ * await addTodo("buy milk");
+ * ```
+ */
+export function action<Args extends any[], Y, R>(
+  genFn: (...args: Args) => Generator<Y, R, any> | AsyncGenerator<Y, R, any>
+) {
+  return (...args: Args): Promise<R> => {
+    // Invoking an action opens a transaction — like a write, it is invalid
+    // synchronously inside an owned scope. The write guard can't catch this
+    // at the real hazard point: post-await writes run with no ambient owner,
+    // and a computation tracking what its action writes livelocks (every
+    // write retriggers the compute, which fires a fresh invocation). Same
+    // scope test as setSignal: leaf imperative scopes (tracked effects,
+    // onSettled) stay legal.
+    if ((process.env.NODE_ENV !== "production")) {
+      const owner = getOwner();
+      if (owner && !(owner._config & CONFIG_CHILDREN_FORBIDDEN)) {
+        emitDiagnostic({
+          code: "ACTION_CALLED_IN_OWNED_SCOPE",
+          kind: "write",
+          severity: "error",
+          message: ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE,
+          ownerId: owner.id,
+          ownerName: (owner as any)._name
+        });
+        throw new Error(ACTION_CALLED_IN_OWNED_SCOPE_MESSAGE);
+      }
+    }
+    return new Promise((resolve, reject) => {
+      const it = genFn(...args);
+      // The action's transaction, held open until the body returns. The
+      // first slice's writes are carried by the tick's scheduled flush.
+      const t = newTransaction(false);
+      t._open = 1;
+      t._acted = true;
+      const q = nextQuestion();
+      const done = (v?: R, e?: any, failed = false) => {
+        resolveTx(t)._open--;
+        schedule();
+        failed ? reject(e) : resolve(v!);
+      };
+      const step = (v?: any, err?: boolean): void => {
+        let r: IteratorResult<Y, R> | Promise<IteratorResult<Y, R>>;
+        // Attribution hooks bracket the synchronous slice of generator body
+        // this step runs (up to the next yield): writes inside are the
+        // action's. Both sites sit outside the try (attribution-hooks.ts).
+        if ((process.env.NODE_ENV !== "production") && attrHooks !== null)
+          attrHooks.actionStepStart(it, genFn.name || undefined);
+        // The body is on the stack between these brackets: flush() is
+        // refused inside (FLUSH_IN_ACTION, scheduler.ts).
+        enterAction();
+        // Dev: the body's reads are imperative, not post-await reads of the
+        // continuation that invoked the action (UNTRACKED_READ_AFTER_AWAIT);
+        // and it is an imperative scope of its own, not the effect callback
+        // it may have been called from — a root created in it (`until`,
+        // `resolve`) is deliberate (PRIMITIVE_IN_EFFECT_CALLBACK is off).
+        let effectCallback = false;
+        if ((process.env.NODE_ENV !== "production")) {
+          enterCallback();
+          effectCallback = inEffectCallback;
+          setEffectCallback(false);
+        }
+        try {
+          r = err ? it.throw!(v) : it.next(v);
+        } catch (e) {
+          exitAction();
+          if ((process.env.NODE_ENV !== "production")) (exitCallback(), setEffectCallback(effectCallback));
+          if ((process.env.NODE_ENV !== "production") && attrHooks !== null) attrHooks.actionStepEnd(it);
+          return done(undefined, e, true);
+        }
+        exitAction();
+        if ((process.env.NODE_ENV !== "production")) (exitCallback(), setEffectCallback(effectCallback));
+        if ((process.env.NODE_ENV !== "production") && attrHooks !== null) attrHooks.actionStepEnd(it);
+        // A rejected iterator result (async generators) means the error already
+        // escaped the generator body — it is completed, and throwing back in
+        // would just reject again forever. Settle instead.
+        if (isThenable(r)) return void r.then(run, e => done(undefined, e, true));
+        run(r);
+      };
+      const run = (r: IteratorResult<Y, R>) => {
+        if (r.done) return done(r.value);
+        // Thenable assimilation can itself throw synchronously (a `then`
+        // getter, or a `then()` method that throws — #2918). Match `await`
+        // semantics: the failure is thrown back into the generator at the
+        // yield point (catchable there); if uncaught, step()'s guard settles
+        // the action. The settled flag implements A+ 2.3.3.3.4.1: a throw
+        // after the thenable already called a callback is ignored.
+        let settled = false;
+        try {
+          if (isThenable(r.value))
+            return void r.value.then(
+              v => {
+                if (settled) return;
+                settled = true;
+                inTransaction(t, q, () => step(v));
+              },
+              e => {
+                if (settled) return;
+                settled = true;
+                inTransaction(t, q, () => step(e, true));
+              }
+            );
+        } catch (e) {
+          if (settled) return;
+          settled = true;
+          return void inTransaction(t, q, () => step(e, true));
+        }
+        inTransaction(t, q, () => step(r.value));
+      };
+      // The first slice's writes are carried by the tick's scheduled flush;
+      // the slice itself asks the action's question (its guesses are stamped
+      // at the write).
+      joinFuture(t);
+      const prevQ = question;
+      setQuestion(q);
+      step();
+      setQuestion(prevQ);
+    });
+  };
+}
