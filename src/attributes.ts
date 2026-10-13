@@ -76,46 +76,76 @@ export function inertEmpty(value: any, side = "client") {
  * The attribute `name` on `tag` becomes, and its value: [attribute, value] to write, [attribute, null] to leave out,
  * or null when the prop is not an attribute at all (events, children, value…, handled elsewhere).
  */
+/** What kind of attribute a prop name is, worked out once per name (a render asks for the same few many times). */
+// (Plain numbers, not an enum: the source runs as it is where types are only stripped.)
+const K_HANDLER = 0;
+const K_BOOLEAN = 1;
+const K_BOOLEANISH = 2;
+const K_OVERLOADED = 3;
+const K_POSITIVENUMBER = 4;
+const K_NUMBER = 5;
+const K_XML = 6;
+const K_URL = 7;
+const K_KNOWN = 8;
+const K_OTHER = 9;
+const kinds = new Map<string, number>();
+function kindOf(name: string): number {
+  const known = kinds.get(name);
+  if (known !== undefined) return known;
+  // Anything named on… is never written (an event handler, or a string posing as one).
+  const k =
+    name.length > 2 && (name[0] === "o" || name[0] === "O") && (name[1] === "n" || name[1] === "N") ? K_HANDLER
+    : BOOLEAN.has(name) ? K_BOOLEAN
+    : BOOLEANISH.has(name) ? K_BOOLEANISH
+    : OVERLOADED_BOOLEAN.has(name) ? K_OVERLOADED
+    : POSITIVE_NUMBER.has(name) ? K_POSITIVENUMBER
+    : NUMBER.has(name) ? K_NUMBER
+    : name in XML ? K_XML
+    : URL.has(name) ? K_URL
+    : KNOWN.has(name) ? K_KNOWN
+    : K_OTHER;
+  kinds.set(name, k);
+  return k;
+}
+
 export function attribute(tag: string, name: string, value: any, svg: boolean, side = "client"): [string, string | null] | null {
   const t = typeof value;
-  // Anything named on… is never written (an event handler, or a string posing as one).
-  if (name.length > 2 && (name[0] === "o" || name[0] === "O") && (name[1] === "n" || name[1] === "N")) return null;
-  if (BOOLEAN.has(name)) {
-    if (name === "inert") inertEmpty(value, side);
-    return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
-  }
-  if (BOOLEANISH.has(name)) {
-    if (value == null || t === "function" || t === "symbol") return [name, null];
-    return [name, attributeString(value, name)];
-  }
-  if (OVERLOADED_BOOLEAN.has(name)) {
-    if (value === true) return [name, ""];
-    if (value == null || value === false || t === "function" || t === "symbol") return [name, null];
-    return [name, attributeString(value, name)];
-  }
-  if (POSITIVE_NUMBER.has(name)) return [name, value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) && value >= 1 ? attributeString(value, name) : null];
-  if (NUMBER.has(name)) return [name.toLowerCase(), value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) ? attributeString(value, name) : null];
-  if (name in XML) {
-    if (value == null || t === "function" || t === "symbol" || t === "boolean") return [XML[name]!, null];
-    return [XML[name]!, name === "xlinkHref" ? sanitizeURL(attributeString(value, name)) : attributeString(value, name)];
-  }
-  // data is a URL only on <object> (React sanitizes it there alone).
-  if (URL.has(name) && (name !== "data" || tag === "object")) {
-    if (value === "" && !(tag === "a" && name === "href") && (name === "src" || name === "href" || name === "data")) {
-      warn(`An empty string ("") was passed to the ${name} attribute. ${name === "src" ? "This may cause the browser to download the whole page again over the network. " : ""}To fix this, either do not render the element at all or pass null to ${name} instead of an empty string.`);
-      return [name, null];
+  switch (kindOf(name)) {
+    case K_HANDLER:
+      return null;
+    case K_BOOLEAN:
+      if (name === "inert") inertEmpty(value, side);
+      return [name.toLowerCase(), value && t !== "function" && t !== "symbol" ? "" : null];
+    case K_BOOLEANISH:
+      if (value == null || t === "function" || t === "symbol") return [name, null];
+      return [name, attributeString(value, name)];
+    case K_OVERLOADED:
+      if (value === true) return [name, ""];
+      if (value == null || value === false || t === "function" || t === "symbol") return [name, null];
+      return [name, attributeString(value, name)];
+    case K_POSITIVENUMBER:
+      return [name, value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) && value >= 1 ? attributeString(value, name) : null];
+    case K_NUMBER:
+      return [name.toLowerCase(), value != null && t !== "function" && t !== "symbol" && t !== "boolean" && !isNaN(value) ? attributeString(value, name) : null];
+    case K_XML:
+      if (value == null || t === "function" || t === "symbol" || t === "boolean") return [XML[name]!, null];
+      return [XML[name]!, name === "xlinkHref" ? sanitizeURL(attributeString(value, name)) : attributeString(value, name)];
+    case K_URL:
+      // data is a URL only on <object> (React sanitizes it there alone).
+      if (name !== "data" || tag === "object") {
+        if (value === "" && !(tag === "a" && name === "href") && (name === "src" || name === "href" || name === "data")) {
+          warn(`An empty string ("") was passed to the ${name} attribute. ${name === "src" ? "This may cause the browser to download the whole page again over the network. " : ""}To fix this, either do not render the element at all or pass null to ${name} instead of an empty string.`);
+          return [name, null];
+        }
+        if (value == null || t === "function" || t === "symbol" || t === "boolean") return [name, null];
+        return [name, sanitizeURL(attributeString(value, name))];
+      }
+      break;
+    case K_KNOWN: {
+      const attr = ALIASES[name] ?? name;
+      if (value == null || t === "function" || t === "symbol" || t === "boolean") return [attr, null];
+      return [attr, attributeString(value, name)];
     }
-    if (value == null || t === "function" || t === "symbol" || t === "boolean") {
-      return [name, null];
-    }
-    return [name, sanitizeURL(attributeString(value, name))];
-  }
-  if (KNOWN.has(name)) {
-    const attr = ALIASES[name] ?? name;
-    if (value == null || t === "function" || t === "symbol" || t === "boolean") {
-      return [attr, null];
-    }
-    return [attr, attributeString(value, name)];
   }
   // Everything else: data- and aria- take booleans as text; any other attribute leaves booleans out.
   if (!attributeNameSafe(name)) return null;

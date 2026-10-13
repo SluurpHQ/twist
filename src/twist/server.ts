@@ -242,7 +242,11 @@ function runOps(ops: Op[], values: unknown[], keyed: boolean): string {
   // (The children list being written, and those it is inside.)
   let cur: Parts | null = null;
   const outer: (Parts | null)[] = [];
-  const emit = (t: string) => (cur ? cur.add(t, false, false) : (out += t));
+  // (Markup in a list held until a hole needs the list's state: one part for a run of it, as each would be one.)
+  let buf = "";
+  const outerBuf: string[] = [];
+  const emit = (t: string) => (cur ? (buf += t) : (out += t));
+  const settle = () => buf && (cur!.add(buf, false, false), (buf = ""));
   for (let j = 0; j < ops.length; j++) {
     const op = ops[j]!;
     if (typeof op === "string") {
@@ -265,20 +269,23 @@ function runOps(ops: Op[], values: unknown[], keyed: boolean): string {
       case 3: {
         // (As collect() writes a child among others: a function or a component between markers.)
         const x: any = holeValue(op.spec, values, at);
-        if ((typeof x === "function" && !x.$esc) || (x && x[COMP])) cur!.add("<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, true)) + "<!--/-->", false, false);
-        else collect([x], true, true, false, cur!);
+        if ((typeof x === "function" && !x.$esc) || (x && x[COMP])) buf += "<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, true)) + "<!--/-->";
+        else settle(), collect([x], true, true, false, cur!);
         break;
       }
       case 4:
         emit(element(described(op.spec, values, at, op.meta), false));
         break;
       case 5:
-        outer.push(cur);
+        outer.push(cur), outerBuf.push(buf);
         cur = new Parts();
+        buf = "";
         break;
       case 6: {
+        settle();
         const done = cur!.out;
         cur = outer.pop()!;
+        buf = outerBuf.pop()!;
         emit(done);
         break;
       }
