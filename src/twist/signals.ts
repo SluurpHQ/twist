@@ -5457,6 +5457,17 @@ export function endWith(tx: Transaction | null, end: () => void) {
  * On a server, an async iterable answers with its first value. Rendering a response that stays open (a frame's: its
  * context commits), the values after it are taken too, each a commit the response sends on.
  */
+/** A node taking its own stream's first value: not answered again from what its id had (that is this stream). */
+let firstOf: Computation<any> | null = null;
+function flyFirst<T>(c: Computation<T>, p: PromiseLike<T>) {
+  const was = firstOf;
+  firstOf = c;
+  try {
+    c.fly(p);
+  } finally {
+    firstOf = was;
+  }
+}
 function serverStreamOf<T>(c: Computation<T>, iterable: AsyncIterable<T>, tee?: Tee<T>): void {
   const ctx = sharedConfig.context as any;
   // (A render tried again: the source, or the slot, answered on an earlier pass — its first value, its client
@@ -5489,7 +5500,7 @@ function serverStreamOf<T>(c: Computation<T>, iterable: AsyncIterable<T>, tee?: 
   c.closeStream = split ? () => (close(), split[2]()) : close;
   if (liveScope || ((iterable as any)[LIVE_SOURCE] && !pumps)) {
     first.then((r) => !r.done && close(), noop);
-    return c.fly(first.then((r: IteratorResult<T>) => r.value));
+    return flyFirst(c, first.then((r: IteratorResult<T>) => r.value));
   }
   if (pumps) {
     // The response stays open while the source can still yield (in a document, said after a while: it is live).
@@ -5508,7 +5519,7 @@ function serverStreamOf<T>(c: Computation<T>, iterable: AsyncIterable<T>, tee?: 
         (e) => !c.disposed && (c.fail(e), ctx.commit(), release()),
       );
     first.then((r) => (r.done || c.disposed ? release() : pump()), release);
-    return c.fly(first.then((r: IteratorResult<T>) => r.value));
+    return flyFirst(c, first.then((r: IteratorResult<T>) => r.value));
   }
   // (A streaming derived store: its later values landed too, each a patch batch to the client, until it ends.)
   if ((c as any).answerStream) {
@@ -5525,7 +5536,7 @@ function serverStreamOf<T>(c: Computation<T>, iterable: AsyncIterable<T>, tee?: 
     first.then((r) => (r.done ? (c as any).answerEnd?.() : pump()), () => (c as any).answerEnd?.());
   }
   // (Not split: read as before, its first value the answer.)
-  if (!split) return c.fly(first.then((r: IteratorResult<T>) => r.value));
+  if (!split) return flyFirst(c, first.then((r: IteratorResult<T>) => r.value));
   // The client gets every value (its reader is the hydration record); c render, the first.
   if (!sent) serverFly?.(c, split[1]);
   first.then(close, noop);
@@ -5538,7 +5549,7 @@ function serverStreamOf<T>(c: Computation<T>, iterable: AsyncIterable<T>, tee?: 
 function serverPreFly(c: Computation<any>, p: PromiseLike<any>, streamed: boolean): boolean {
   const answers = serverAnswers;
   const id = (c as any).id as string | undefined;
-  const known = serverRender && !streamed ? answered.get(p as object) ?? (answers && id != null ? answers.get(id) : undefined) : undefined;
+  const known = serverRender && !streamed ? answered.get(p as object) ?? (answers && id != null && firstOf !== c ? answers.get(id) : undefined) : undefined;
   if (known) {
     if (serverFly) {
       // (A failure sent as a rejected promise, handled here so nothing reports it as unhandled.)

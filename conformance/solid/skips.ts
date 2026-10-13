@@ -10,6 +10,19 @@ export type Change = { file: string; why: string } & (
 );
 
 export const CHANGES: Change[] = [
+  // ---- Solid's compiled output
+  {
+    file: "web/test/server/lazy-assets-livelock.spec.tsx",
+    find: `import { lazy } from "solid-js";`,
+    replace: `import { lazy, children } from "solid-js";`,
+    why: "calls what <Child /> compiles to (a function in Solid's output, a component description in Twist's); resolved with children() instead, in the same run, so the re-creation loop it bounds is the same",
+  },
+  {
+    file: "web/test/server/lazy-assets-livelock.spec.tsx",
+    find: `    return el();`,
+    replace: `    return children(() => el)();`,
+    why: "calls what <Child /> compiles to (a function in Solid's output, a component description in Twist's); resolved with children() instead, in the same run",
+  },
   // ---- Solid's private structures
   {
     file: "signals/tests/store/optimistic-draft-visibility-3665.test.ts",
