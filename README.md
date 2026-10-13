@@ -61,19 +61,22 @@ All three are development-only: a production build leaves them out.
 Measured with the keyed table of [js-framework-benchmark](https://github.com/krausest/js-framework-benchmark), in
 Chromium (milliseconds, lower is better; `bench/` in this repository):
 
-| | create 1,000 rows | replace 1,000 rows | create 10,000 rows | bundle (minified) |
-|---|---|---|---|---|
-| Solid 2 | 19.9 | 20.7 | 208 | 64.5 KB |
-| Twist, Solid's API | 21.0 | 22.3 | 238 | 62.7 KB |
-| React 19.3 | 22.5 | 26.1 | 256 | 210 KB |
-| Twist, React's API | 21.4 | 26.4 | 255 | 159 KB |
+| | create 1,000 rows | replace 1,000 rows | swap rows | create 10,000 rows | memory a row | server render, 1,000 rows | bundle (minified) |
+|---|---|---|---|---|---|---|---|
+| Solid 2 | 20.7 | 23.0 | 1.5 | 223 | 1,454 B | 0.14 | 65 KB |
+| Twist, Solid's API | 21.7 | 23.8 | 1.4 | 255 | 1,178 B | 0.31 | 103 KB |
+| React 19.3 | 23.6 | 26.8 | 19.7 | 319 | 1,736 B | 0.85 | 210 KB |
+| Twist, React's API | 22.9 | 27.2 | 1.6 | 264 | 1,991 B | 0.87 | 148 KB |
+
+Memory is the heap each row keeps after a garbage collection; the server render is in Bun.
 
 ## Compatibility
 
 Twist is checked against React's and Solid's own test suites (`conformance/`):
 
-- React 19: 4,037 tests pass, 29 fail.
-- Solid 2: 8,411 tests pass, 110 fail. Most of the failures are Solid 2's newest rules for optimistic updates running
+- React 19: 4,052 tests pass, 14 fail. Most of the failures need React's render phase apart from its commit: a
+  transition that yields midway and is interrupted, or snapshots taken children first before anything changes.
+- Solid 2: 8,428 tests pass, 92 fail. Most of the failures are Solid 2's newest rules for optimistic updates running
   side by side, and for when a pending update holds what is on screen. Tests that only check Solid's private
   structures or its own build files are left out, each with its reason (`conformance/solid/skips.ts`).
 
