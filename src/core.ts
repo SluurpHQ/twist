@@ -814,8 +814,8 @@ function profilerBegins(f: Fiber) {
 }
 
 /** A component drawn in `self` time: counted in each Profiler around it. */
-function profile(f: Fiber, self: number) {
-  (f as any).selfTime = self;
+function profile(f: Fiber, self: number, last = self) {
+  (f as any).selfTime = last;
   for (let p = f.parent; p; p = p.parent) if (p.type === PROFILER) profiled.set(p, (profiled.get(p) ?? 0) + self);
 }
 
@@ -2959,6 +2959,10 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   }
   // Timed only once a Profiler is about (two clock reads and a walk up per component otherwise).
   const began = profilersMounted ? now() : 0;
+  // (A render in slices: a Profiler mounted in it begins when its first component is drawn, as React's work reaches it.)
+  if (profilersMounted && work)
+    for (let p = f.parent; p; p = p.parent)
+      if (p.type === PROFILER && (p as any).beganIn === renderSerial && (p as any).unitIn !== renderSerial) ((p as any).unitIn = renderSerial), ((p as any).began = began);
   const outerNested = nestedTime;
   nestedTime = 0;
   f.insertion = f.layout = f.passive = NO_EFFECTS;
@@ -3041,8 +3045,12 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     }
   }
   // A boundary that caught while mounting: its children dropped, and mounted again in its error state.
+  // (Its last pass, timed apart: its base time is that one's, its actual time all of them.)
+  let lastPass = began;
+  let nestedBefore = 0;
   for (let tries = 0; (f as any).redo && tries < 3; tries++) {
     (f as any).redo = false;
+    if (profilersMounted && f.type.getDerivedStateFromError) (lastPass = now()), (nestedBefore = nestedTime);
     for (const c of f.children) unmount(c, true);
     f.children = [];
     f.insertion = f.layout = f.passive = NO_EFFECTS;
@@ -3087,7 +3095,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   }
   if (profilersMounted) {
     const took = now() - began;
-    if (!kept) profile(f, took - nestedTime);
+    if (!kept) profile(f, took - nestedTime, now() - lastPass - (nestedTime - nestedBefore));
     nestedTime = outerNested + took;
   }
   insertionQueue.push(...f.insertion);
@@ -4896,6 +4904,14 @@ export function createRoot(container: Element | Document | DocumentFragment, opt
     scheduleWork(() => performWork());
   }
   function renderNow(children: any) {
+      // A first render still in slices (a transition's): thrown away, this one drawn instead (React's interruption).
+      if (work && work.root === state && depth === 0) {
+        work = null;
+        for (const c of top.children) unmount(c, false);
+        top.children = [];
+        top.dom = container;
+        first = true;
+      }
       if (depth > 0) {
         if (++nested > LIMIT) {
           nested = 0;

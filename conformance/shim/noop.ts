@@ -9,6 +9,19 @@ import { flushSync as domFlushSync } from "../../src/core.ts";
 if (!("type" in Element.prototype))
   Object.defineProperty(Element.prototype, "type", { configurable: true, get(this: Element) { return this.localName; } });
 
+// The noop host config's own failure: an `errorInCompletePhase` instance throws as it is made (React Native's nesting
+// checks, in its tests).
+{
+  // (On the class that has it: a test DOM's document may define its own.)
+  let proto: any = Object.getPrototypeOf(document);
+  while (proto && !Object.hasOwn(proto, "createElement")) proto = Object.getPrototypeOf(proto);
+  const make = proto.createElement;
+  proto.createElement = function (this: Document, tag: string, options?: any) {
+    if (tag === "errorInCompletePhase") throw new Error("Error in host config.");
+    return make.call(this, tag, options);
+  } as any;
+}
+
 function toJSX(node: Node): any {
   if (node.nodeType === 3) return (node as Text).data;
   const el = node as any;
