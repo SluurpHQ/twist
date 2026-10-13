@@ -1,8 +1,11 @@
 // The hooks a component calls: the browser's (state in signals) or, while the server renders, the server's.
-import { client } from "./core.ts";
+import type { client as Client } from "./core.ts";
 
-type Hooks = typeof client;
-// Set while another renderer (the server, a dry run) renders; the browser's otherwise (read late: core imports this).
+type Hooks = typeof Client;
+/** The browser's hooks (core.ts gives them as it loads: no import here, so no module waits on another in a cycle). */
+let client: Hooks;
+export const setClientHooks = (hooks: Hooks) => void (client = hooks);
+// Set while another renderer (the server, a dry run) renders; the browser's otherwise.
 let d: Hooks | null = null;
 const cur = (): Hooks => d ?? client;
 export function withHooks<T>(hooks: Hooks, fn: () => T): T {
@@ -38,8 +41,7 @@ export const useEffectEvent: Hooks["useEffectEvent"] = (fn) => cur().useEffectEv
 export const use: Hooks["use"] = (u) => cur().use(u);
 
 /** A transition's dry run (dryrun.ts): not the server, though its hooks are not the browser's either. */
-// (`var`: set by dryrun.ts while this module may still be loading, in an import cycle through core.ts.)
-var dryHooks: Hooks | null | undefined; // (no initializer: one here would undo what dryrun.ts set first)
+let dryHooks: Hooks | null = null;
 export function setDryHooks(hooks: Hooks) {
   dryHooks = hooks;
 }

@@ -15,6 +15,7 @@ import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
+import { setClientHooks } from "./hooks.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
 import { getOffsets, setOffsets } from "./dom-selection.ts";
@@ -4363,6 +4364,7 @@ export const client = {
     return readThenable(usable);
   },
 };
+setClientHooks(client);
 
 function effectHook(create: () => any, deps: any[] | undefined, phase: "insertion" | "layout" | "passive") {
   const f = current!;
