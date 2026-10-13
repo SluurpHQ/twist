@@ -4868,8 +4868,16 @@ export function createRoot(container: Element | Document | DocumentFragment, opt
       };
       // Its stylesheets loaded first, when it has some that are not (React's suspensey commit).
       const ready = commitWhenReady(wait);
-      if (ready) ready(go);
-      else go();
+      if (!ready) return go();
+      // (What it queued for its commit set aside meanwhile: another root's commit does not run it.)
+      const held = [insertionQueue.splice(0), propsQueue.splice(0), layoutQueue.splice(0), passiveQueue.splice(0)] as const;
+      ready(() => {
+        insertionQueue.unshift(...held[0]);
+        propsQueue.unshift(...held[1]);
+        layoutQueue.unshift(...held[2]);
+        passiveQueue.unshift(...held[3]);
+        go();
+      });
     };
     const w: Work = (work = { units: [], at: 0, deferring: true, finish, wait, recover: true, root: state });
     top.dom = frag;

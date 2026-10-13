@@ -1001,8 +1001,11 @@ function hoist(tag: string, props: any, ctx: Ctx): string | undefined {
         !(props.loading === "lazy" || (!src && !srcSet) || (typeof src !== "string" && src != null) || (typeof srcSet !== "string" && srcSet != null) || props.fetchPriority === "low" || ctx.picture || ctx.noscript) &&
         !data(src) &&
         !data(srcSet)
-      )
+      ) {
+        // (Appearing inside a <ViewTransition>: its boundary waits for it, to animate in (React's suspenseyImages).)
+        if (ctx.scope & VT_APPEARING && r.boundary?.own) (r.boundary as any).images = true;
         r.image_(props);
+      }
       return undefined;
     }
   }
@@ -1203,7 +1206,7 @@ function bootstrap(options: any, nonce?: string, formReplay = false, wholeDocume
 }
 
 /** A boundary's fallback rendered under React's "Suspense Fallback" frame (in place of "Suspense"). */
-function fallbackFrame(ctx: Ctx, fn: () => string): string {
+function fallbackFrame(ctx: Ctx, fn: () => string, keep?: { sheets: Set<any>; styles: Set<any> }): string {
   const inner = fn;
   fn = () => suspenseFrame(ctx, true, inner);
   const i = ctx.stack.length - 1;
@@ -1211,8 +1214,9 @@ function fallbackFrame(ctx: Ctx, fn: () => string): string {
   const fallback = ctx.fallback;
   if (was === "Suspense") ctx.stack[i] = "Suspense Fallback";
   ctx.fallback = true;
+  // (Inside a boundary: its stylesheets apart, the parent's only while it shows, kept in `keep`.)
   const deps = ctx.res.boundary;
-  if (deps) ctx.res.boundary = { sheets: new Set(), styles: new Set() };
+  if (deps) ctx.res.boundary = keep ?? { sheets: new Set(), styles: new Set() };
   try {
     return fn();
   } finally {
@@ -1261,7 +1265,7 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   const s = ctx.streaming!;
   const bounds = (s.shared.bounds ??= []);
   const parent = ctx.container ?? null;
-  const b: SBoundary = { idx: bounds.length, id: -1, prefix: ctx.idPrefix, status: 0, pending: 0, content: "", fallback: "", parent, flushed: false, deps: { sheets: new Set(), styles: new Set() }, wrap: segmentWrap(ctx), stack: ctx.stack.slice(), fallbackTasks: new Set(), canPre: !ctx.svg && (ctx.parent === null || ctx.parent === "html") };
+  const b: SBoundary = { idx: bounds.length, id: -1, prefix: ctx.idPrefix, status: 0, pending: 0, content: "", fallback: "", parent, flushed: false, deps: { sheets: new Set(), styles: new Set(), own: new Set() }, wrap: segmentWrap(ctx), stack: ctx.stack.slice(), fallbackTasks: new Set(), canPre: !ctx.svg && (ctx.parent === null || ctx.parent === "html") };
   bounds.push(b);
   // Where it is (what a resume finds it by): its components and its place among siblings.
   b.key = `${ctx.stack.join(">")}|${ctx.tree.id}:${ctx.tree.overflow}`;
@@ -1272,7 +1276,7 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
     ctx.fallbackOf = b;
     ctx.lastText = false;
     try {
-      b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks));
+      b.fallback = fallbackFrame(ctx, () => render(props.fallback, ctx, hooks), (b.fallbackDeps = { sheets: new Set(), styles: new Set() }));
     } finally {
       ctx.fallbackOf = was;
     }
@@ -1309,10 +1313,7 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
     b.status = 2;
     b.error = { digest: (s.shared as any).rootAborted ? undefined : s.onError(why.reason, at), message: aborted((why.reason as any)?.message ?? String(why.reason)), at };
   }
-  if (b.status === 0 && b.pending === 0) {
-    b.status = 1;
-    mergeDeps(b, parentDeps);
-  }
+  if (b.status === 0 && b.pending === 0) b.status = 1;
   if (b.status !== 1) {
     if (!fallbackDone) renderFallback();
     // (In React its fallback is a task of its own, rendered after the part in flight: one the shell's abort reaches
@@ -1325,7 +1326,7 @@ function streamSuspense(props: any, ctx: Ctx, hooks: any): string {
   return `\u0000B${b.idx}\u0000`;
 }
 
-/** A boundary done before its parent is out: its stylesheets and style rules are its parent's (React hoists them). */
+/** A boundary written inline in its parent: its stylesheets and style rules are the parent's (React hoists them). */
 function mergeDeps(b: SBoundary, into: { sheets: Set<any>; styles: Set<any> } | null | undefined) {
   if (into) for (const k of ["sheets", "styles"] as const) for (const x of b.deps[k]) into[k].add(x);
 }
@@ -1503,7 +1504,10 @@ type SBoundary = {
   /** Its content sent (hidden, for its swap), and the swap itself. */
   rootWritten?: boolean;
   revealed?: boolean;
-  deps: { sheets: Set<any>; styles: Set<any> };
+  /** Its stylesheets and style rules (with its children's that completed in it); `own`, its content's alone. */
+  deps: { sheets: Set<any>; styles: Set<any>; own?: Set<any> };
+  /** Its fallback's stylesheets and style rules: the parent waits for them only if it is written showing it. */
+  fallbackDeps?: { sheets: Set<any>; styles: Set<any> };
   wrap: [string, string];
   stack: string[];
   fallbackTasks: Set<STask>;
@@ -1788,7 +1792,6 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
   };
   const complete = (b: SBoundary) => {
     b.status = 1;
-    if (!b.flushed) mergeDeps(b, b.parent ? b.parent.deps : null);
     // Its fallback is not needed: what it waits on is dropped (React's abortTaskSoft).
     for (const t of [...b.fallbackTasks]) if (t.state === 0) settled(t, 2);
   };
@@ -1864,7 +1867,18 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     }
   };
   /** Markup with its markers resolved: tasks' parts in place, boundaries as they now are (React's flushSegment). */
-  const assemble = (html: string, into: SBoundary | null, partial = false): string =>
+  /** In a partial boundary's flush (React's flushingPartialBoundaries): nothing in it is outlined. */
+  let inPartial = false;
+  const assemble = (html: string, into: SBoundary | null, partial = false): string => {
+    const outer = inPartial;
+    if (partial && into?.status === 0) inPartial = true;
+    try {
+      return assembled(html, into, partial);
+    } finally {
+      inPartial = outer;
+    }
+  };
+  const assembled = (html: string, into: SBoundary | null, partial: boolean): string =>
     html.replace(/\u0000([TB])(\d+)\u0000/g, (_m, kind: string, n: string) => {
       if (kind === "T") {
         const t = tasks[+n]!;
@@ -1879,28 +1893,44 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       }
       const b = (shared as any).bounds[+n] as SBoundary;
       if (b.status === 1) {
-        const inner = assemble(b.content, b);
-        const size = utf8Bytes(inner);
-        // Large (past React's progressiveChunkSize with what was inlined before it): sent after its parent.
-        // (Never one that gives the document its preamble: it is written with it.)
-        if (size > 500 && shared.inlined + size > shared.chunk && !b.preamble && b.renderFallback) {
+        // Sent after its parent, its fallback in its place (React outlines it). (Never one that gives the document its
+        // preamble: it is written with it.)
+        const outline = () => {
+          if (b.preamble || !b.renderFallback) return null;
           let fallback: string | null = null;
           try {
             fallback = b.renderFallback();
           } catch {}
-          if (fallback !== null) {
-            b.id = shared.next++;
-            b.flushed = true;
-            b.fallback = fallback;
-            flushedBounds.push(b);
-            return `<!--$?--><template id="${b.prefix}B:${b.id}"></template>${fallback}<!--/$-->`;
-          }
+          if (fallback === null) return null;
+          b.id = shared.next++;
+          b.flushed = true;
+          b.fallback = fallback;
+          flushedBounds.push(b);
+          return `<!--$?--><template id="${b.prefix}B:${b.id}"></template>${fallback}<!--/$-->`;
+        };
+        // After the shell, one that waits for stylesheets: its parent shows sooner. (Decided before its content is
+        // put together: what is in it is written with it.)
+        // (Images appearing in a view transition: even in the shell.)
+        if (!inPartial && ((b.deps as any).images || (!flushingShell && b.deps.own && res.waitsForSheets({ sheets: b.deps.own })))) {
+          const out = outline();
+          if (out !== null) return out;
+        }
+        const inner = assemble(b.content, b);
+        const size = utf8Bytes(inner);
+        // Large (past React's progressiveChunkSize with what was inlined before it).
+        if (size > 500 && shared.inlined + size > shared.chunk) {
+          const out = outline();
+          if (out !== null) return out;
         }
         shared.inlined += size;
+        // (Written inline: its stylesheets are its parent's to wait for, as React hoists them when it flushes.)
+        mergeDeps(b, into?.deps);
         return `<!--$-->${inner}<!--/$-->`;
       }
       // (Going out early, its fallback still loading: a placeholder its part fills, as for content.)
       const fallback = assemble(b.fallback, into, partial);
+      // (Shown with its parent: the fallback's stylesheets are the parent's to wait for, as React hoists them.)
+      if (into && b.fallbackDeps) for (const k of ["sheets", "styles"] as const) for (const x of b.fallbackDeps[k]) into.deps[k].add(x);
       if (b.status === 2) {
         const e = b.error!;
         return `<!--$!-->${errorTemplate(e.digest, e.message, e.error, e.at)}${fallback}<!--/$-->`;
@@ -1912,6 +1942,8 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
       return `<!--$?--><template id="${b.prefix}B:${b.id}"></template>${fallback}<!--/$-->`;
     });
   let anyPending = false;
+  /** The shell being written (a boundary in it is not outlined for its stylesheets). */
+  let flushingShell = false;
   let shellDone = false;
   let shellWritten = false;
   const shellReady = () => {
@@ -1960,8 +1992,14 @@ function startStream(node: any, options: any, write: (chunk: string) => void, fi
     if (!ready) return;
     shellWritten = true;
     anyPending = false;
-    const shell = assemble(rootContent, null);
-    const inners = found.inners.map((h) => assemble(h, null)).join("");
+    flushingShell = true;
+    let shell: string, inners: string;
+    try {
+      shell = assemble(rootContent, null);
+      inners = found.inners.map((h) => assemble(h, null)).join("");
+    } finally {
+      flushingShell = false;
+    }
     // The preamble (an import map, the bootstrap scripts' preloads) in the document's <head>, or before the shell;
     // the bootstrap scripts after it, as React writes them.
     const resources = res.preamble(importMap(options, nonce), bootstrapPreloads(options, nonce, res));

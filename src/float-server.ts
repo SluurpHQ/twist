@@ -42,7 +42,7 @@ export class Resources {
   hoistables: string[] = [];
   preloads = { images: new Map<string, Chunk>(), stylesheets: new Map<string, Chunk>(), scripts: new Map<string, Chunk>(), moduleScripts: new Map<string, Chunk>() };
   /** Stylesheets and style rules met in the boundary being rendered: sent with it when it completes. */
-  boundary: { sheets: Set<Sheet>; styles: Set<StyleQueue>; emitted?: string[] } | null = null;
+  boundary: { sheets: Set<Sheet>; styles: Set<StyleQueue>; own?: Set<Sheet>; emitted?: string[] } | null = null;
   /** Hoistables a boundary sent in an earlier render of it: not sent again when it renders once more. */
   replay: Map<string, number> | null = null;
 
@@ -209,9 +209,10 @@ export class Resources {
       q.sheets.set(href, sheet);
       this.sheetByHref.set(href, sheet);
       this.boundary?.sheets.add(sheet);
+      this.boundary?.own?.add(sheet);
     } else {
       const sheet = this.sheetByHref.get(href);
-      if (sheet) this.boundary?.sheets.add(sheet);
+      if (sheet) this.boundary?.sheets.add(sheet), this.boundary?.own?.add(sheet);
     }
   }
 
@@ -380,6 +381,12 @@ export class Resources {
   }
   /** Late style tags were sent: the next boundary revealed moves them into <head> (React's stylesToHoist). */
   stylesToHoist = false;
+
+  /** Whether a boundary's content waits for stylesheets not sent with the shell (React's hasSuspenseyContent). */
+  waitsForSheets(state: { sheets: Set<Sheet> }): boolean {
+    for (const s of state.sheets) if (s.state !== PREAMBLE) return true;
+    return false;
+  }
 
   boundaryStyles(state: { sheets: Set<Sheet>; styles: Set<StyleQueue> }) {
     const styleTags = this.lateStyleTags(state);
