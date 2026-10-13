@@ -53,7 +53,7 @@ const solid = (generate: "dom" | "ssr"): Plugin => ({
 const twist = (server: boolean): Plugin => {
   const web = server ? "twist/server.ts" : "twist/web.ts";
   const jsx = server ? "twist/jsx/server/jsx-runtime.ts" : "twist/web.ts";
-  const files = at(src, { "solid-js": server ? "twist/server-solid.ts" : "twist/index.ts", "@solidjs/web": web, "@solidjs/web/jsx-runtime": jsx, "@solidjs/web/jsx-dev-runtime": jsx });
+  const files = at(src, { "solid-js": server ? "twist/server-solid.ts" : "twist/client/index.ts", "@solidjs/web": web, "@solidjs/web/jsx-runtime": jsx, "@solidjs/web/jsx-dev-runtime": jsx });
   return {
     name: "twist",
     setup: (b) => {

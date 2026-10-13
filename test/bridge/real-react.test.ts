@@ -7,7 +7,7 @@ import { installBridge } from "../../src/twist/bridge.ts";
 import { installServerBridge } from "../../src/twist/bridge-server.ts";
 import * as server from "../../src/twist/server.ts";
 import * as web from "../../src/twist/web.ts";
-import { createSignal, flush } from "../../src/twist/signals.ts";
+import { createSignal, flush } from "../../src/twist/client/index.ts";
 
 const { createElement } = React;
 const settle = async () => {

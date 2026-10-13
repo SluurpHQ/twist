@@ -25,17 +25,18 @@ export const REACT = {
 
 /** Solid's module names (and Twist's own) → [browser file, server file], under src/. */
 export const SOLID = {
-  "solid-js": ["twist/index.ts", "twist/server-solid.ts"],
-  "solid-js/store": ["twist/index.ts", "twist/server-solid.ts"],
+  "solid-js": ["twist/client/index.ts", "twist/server-solid.ts"],
+  "solid-js/internal": ["twist/internal.ts", "twist/internal.server.ts"],
+  "solid-js/store": ["twist/client/index.ts", "twist/server-solid.ts"],
   "@solidjs/web": ["twist/web.ts", "twist/server.ts"],
   "@solidjs/web/jsx-runtime": ["twist/jsx/client/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
   "@solidjs/web/jsx-dev-runtime": ["twist/jsx/client/jsx-dev-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
-  "@sluurp/twist": ["twist/index.ts", "twist/server-solid.ts"],
+  "@sluurp/twist": ["twist/client/index.ts", "twist/server-solid.ts"],
   "@sluurp/twist/web": ["twist/web.ts", "twist/server.ts"],
   "@sluurp/twist/jsx-runtime": ["twist/jsx/client/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
   "@sluurp/twist/jsx-dev-runtime": ["twist/jsx/client/jsx-dev-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
-  "solid-js/refresh": ["twist/refresh.ts", "twist/refresh.ts"],
-  "@sluurp/twist/refresh": ["twist/refresh.ts", "twist/refresh.ts"],
+  "solid-js/refresh": ["twist/client/refresh.ts", "twist/client/refresh.ts"],
+  "@sluurp/twist/refresh": ["twist/client/refresh.ts", "twist/client/refresh.ts"],
   "@solidjs/web/performance-tracks": ["twist/performance-tracks.ts", "twist/performance-tracks.ts"],
   "@sluurp/twist/performance-tracks": ["twist/performance-tracks.ts", "twist/performance-tracks.ts"],
   "@sluurp/twist/bridge": ["twist/react-bridge.ts", "twist/react-bridge-server.ts"],
@@ -46,8 +47,8 @@ export const SOLID1 = {
   "solid-js": ["twist/solid1/index.ts", "twist/solid1/index.server.ts"],
   "solid-js/web": ["twist/solid1/web.ts", "twist/solid1/server.ts"],
   "solid-js/store": ["twist/solid1/store.ts", "twist/solid1/store.ts"],
-  "solid-js/jsx-runtime": ["twist/jsx/client/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
-  "solid-js/jsx-dev-runtime": ["twist/jsx/client/jsx-dev-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
+  "solid-js/jsx-runtime": ["twist/solid1/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
+  "solid-js/jsx-dev-runtime": ["twist/solid1/jsx-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
 };
 
 /** Signals, for code written on them directly. */

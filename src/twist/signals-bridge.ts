@@ -2,7 +2,8 @@
 // either read where the other is tracking is followed there. Each read across gets a mirror on the tracking side, a
 // counter the other side bumps when the value changes; the value itself is always read from where it lives.
 import * as sluurp from "../signals.js";
-import { createRenderEffect, createRoot, createSignal, isTracking, setForeignRead, untrack } from "./signals.ts";
+import { createRenderEffect, createRoot, createSignal, getObserver, untrack } from "./core/index.ts";
+import { read as readNode, setForeignRead } from "./core/core/index.ts";
 
 let installed = false;
 
@@ -14,7 +15,7 @@ export function installSignalsBridge() {
   // Sluurp's signal read in a Twist computation: a Twist counter it reads, bumped by a Sluurp effect on each change.
   const twistMirrors = new WeakMap<object, () => number>();
   sluurp.setForeignRead((node: object) => {
-    if (!isTracking()) return;
+    if (getObserver() === null) return;
     let read = twistMirrors.get(node);
     if (!read) {
       const [count, setCount] = createSignal(0, { ownedWrite: true });
@@ -45,7 +46,7 @@ export function installSignalsBridge() {
         createRenderEffect(
           () => {
             try {
-              return node.read();
+              return readNode(node);
             } catch {
               return undefined;
             }

@@ -1,6 +1,6 @@
 // Solid 2's own tests, fetched (a sparse clone of solidjs/solid at REF) into solid-tests/, unchanged: they are run
-// against Twist (bun run.ts), the modules they import redirected by preload.ts. Only the tests are taken, never
-// Solid's code: Twist is written clean room.
+// against Twist (bun run.ts), the modules they import redirected to Twist's: its port of @solidjs/signals and of
+// solid-js's client layer (src/twist/core, src/twist/client), its own web runtime and server.
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { CHANGES, type Change } from "./skips.ts";
@@ -11,8 +11,6 @@ const REF = process.env.SOLID_REF ?? "solid-js@2.0.0-rc.14";
 const here = import.meta.dir;
 const clone = join(tmpdir(), "twist-solid-tests");
 const PARTS: Record<string, string> = { "packages/signals/tests": "signals/tests", "packages/solid/test": "solid/test", "packages/web/test": "web/test" };
-/** What each package's own `src/index.js` is in Twist. */
-const SRC: Record<string, string> = { signals: "index.ts", solid: "index.ts", web: "web.ts" };
 
 const git = (args: string[], cwd?: string) => {
   const r = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -55,7 +53,7 @@ function applyChanges(rel: string, t: string): string {
 // Chai-style `expect(x).to.toBe(…)` (Vitest allows the `.to`; Bun's expect has none): the same assertion without it.
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((f) => (f.isDirectory() ? walk(join(d, f.name)) : [join(d, f.name)]));
 for (const f of walk(out)) {
-  if (!/\.tsx?$/.test(f)) continue;
+  if (!/\.(tsx?|js)$/.test(f)) continue;
   const s = readFileSync(f, "utf8");
   let t = s.replace(/\r\n/g, "\n").replace(/\)\.to\.(to[A-Z]|not\.)/g, ").$1");
   // Vitest's `test.fails` (a test that must fail) is Bun's `test.failing`.
@@ -82,20 +80,28 @@ for (const f of walk(out)) {
       .replace(/(["'])@solidjs\/web\1/g, '"@twist/web-server"')
       .replace(/(@jsxImportSource\s+)@solidjs\/web\b/g, "$1@twist/web-server")
       .replace(/(["'])solid-js\1/g, '"@twist/solid-server"')
+      .replace(/(["'])solid-js\/internal\1/g, '"@twist/solid-server/internal"')
       .replace(/(["'])\.\.\/harness\/(?!__artifacts__)/g, "$1./_harness/")
       .replace(/(["'])\.\.\/\.\.\/src\/server\.js\1/g, '"@twist/web-server"');
+  // (A test of the server runtime outside the server folder: its sharedConfig is the server's.)
+  else if (/["'](\.\.\/)+src\/server\.js["']/.test(t)) t = t.replace(/(["'])solid-js\/internal\1/g, '"@twist/solid-server/internal"');
   if (t !== s) writeFileSync(f, t);
 }
 for (const c of CHANGES) if (!used.has(c)) throw new Error(`skips.ts: no file ${c.file}`);
-// Where the tests reach for their package itself (../src/index.js): Twist's module for it.
 const twist = (f: string) => join(here, "..", "..", "src", "twist", f).split("\\").join("/");
-for (const [pkg, file] of Object.entries(SRC)) {
-  mkdirSync(join(out, pkg, "src"), { recursive: true });
-  await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist(file))};\n`);
-}
 // On a server, Solid's DEV is undefined (devtools run in the browser).
 const serverDev = `export const DEV = undefined;\n`;
-for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
+// The signals package: Twist's port of it (src/twist/core), every module at its own path.
+const corePort = join(here, "..", "..", "src", "twist", "core");
+for (const f of walk(corePort)) {
+  if (!f.endsWith(".ts") || f.endsWith(".d.ts")) continue;
+  const at = join(out, "signals", "src", relative(corePort, f).replace(/\.ts$/, ".js"));
+  mkdirSync(join(at, ".."), { recursive: true });
+  await Bun.write(at, `export * from ${JSON.stringify(f.split("\\").join("/"))};\n`);
+}
+// solid-js in the browser: Twist's port of its client layer (src/twist/client), each module at its path.
+const client = (f: string) => twist("client/" + f);
+await Bun.write(join(out, "solid", "src", "index.js"), `export * from ${JSON.stringify(client("index.ts"))};\n`);
 await Bun.write(join(out, "web", "src", "index.js"), `export * from ${JSON.stringify(twist("web.ts"))};\n`);
 // (Its client entry, which the runtime tests import directly: the same module; its server entry, response and cookie
 // helpers, Twist's.)
@@ -114,31 +120,13 @@ const reveal = /const REVEAL = (`[^`]+`)/.exec(await Bun.file(twist("server.ts")
 await Bun.write(join(out, "web", "src", "server.ts"), `export * from ${JSON.stringify(twist("server.ts"))};\nconst REPLACE_SCRIPT = ${reveal};\n`);
 // (Specs that load the built server by path, `<cwd>/dist/server.js`: Twist's server.)
 await Bun.write(join(here, "dist", "server.js"), `export * from ${JSON.stringify(twist("server.ts"))};\n`);
-// The signals package's core entry is its public core too.
-mkdirSync(join(out, "signals", "src", "core"), { recursive: true });
-await Bun.write(join(out, "signals", "src", "core", "index.js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
-// (Its development module: the diagnostics channel's emit, report, owner path and console footer, Twist's.)
-await Bun.write(
-  join(out, "signals", "src", "core", "dev.js"),
-  `export { emitDiagnostic, ownerPath, reportDiagnostic, setConsoleFooter, GRAPH_SIZE_WARN_AT, GRAPH_SIZE_WARN_EVERY } from ${JSON.stringify(twist("diagnostics.ts"))};\nexport const asyncTailFlights = 0;\n`,
-);
-// (The attribution engine, at the package's and the core's paths: Twist's.)
-for (const pkg of ["signals", "solid"]) await Bun.write(join(out, pkg, "src", "attribution.js"), `export * from ${JSON.stringify(twist("attribution/index.ts"))};\n`);
-for (const name of ["attribution", "attribution-hooks", "attribution-queries", "attribution-costs", "attribution-feedback"])
-  await Bun.write(join(out, "signals", "src", "core", name + ".js"), `export * from ${JSON.stringify(twist(`attribution/${name}.ts`))};\n`);
-// (Its error module: the public not-ready error.)
-await Bun.write(join(out, "signals", "src", "core", "error.js"), `export { NotReadyError } from ${JSON.stringify(twist("index.ts"))};\n`);
-// (Its core module: the hydration snapshot scope.)
-await Bun.write(join(out, "signals", "src", "core", "core.js"), `export { clearSnapshots, markSnapshotScope, setSnapshotCapture } from ${JSON.stringify(twist("signals.ts"))};\n`);
-// (Its node flags: names only — the assertions on them are taken out in skips.ts.)
-await Bun.write(join(out, "signals", "src", "core", "constants.js"), `export const CONFIG_HELD = 0;\n`);
-// Solid's client and server modules, by their paths: Twist's public entries.
+await Bun.write(join(out, "solid", "src", "attribution.js"), `export * from ${JSON.stringify(twist("core/attribution.ts"))};\n`);
+await Bun.write(join(out, "solid", "src", "internal.js"), `export * from ${JSON.stringify(twist("internal.ts"))};\n`);
+// Solid's client and server modules, by their paths: Twist's.
 mkdirSync(join(out, "solid", "src", "client"), { recursive: true });
 mkdirSync(join(out, "solid", "src", "server"), { recursive: true });
 for (const name of ["hydration", "flow", "component", "core", "container-trace"])
-  await Bun.write(join(out, "solid", "src", "client", name + ".js"), `export * from ${JSON.stringify(twist("index.ts"))};\n`);
-await Bun.write(join(out, "solid", "src", "client", "container-trace.js"), `export * from ${JSON.stringify(twist("container-trace.ts"))};\n`);
-await Bun.write(join(out, "solid", "src", "client", "core.js"), `export * from ${JSON.stringify(twist("index.ts"))};\nexport { createComponent as observedComponent } from ${JSON.stringify(twist("control.ts"))};\n`);
+  await Bun.write(join(out, "solid", "src", "client", name + ".js"), `export * from ${JSON.stringify(client(name + ".ts"))};\n`);
 // (With Twist's names for what Solid's server modules export besides its public API.)
 const serverInternals =
   `export { ssrHandleError, getProjectionTrace, shareAsyncIterable, runInServerComponentScope, NoHydrateContext } from ${JSON.stringify(twist("server-internal.ts"))};\n` +
@@ -146,23 +134,20 @@ const serverInternals =
   `export const ownerId = (o) => o.id;\n`;
 for (const name of ["index", "flow", "hydration", "shared", "signals"])
   await Bun.write(join(out, "solid", "src", "server", name + ".js"), `export * from ${JSON.stringify(twist("server-solid.ts"))};\n` + serverInternals);
-mkdirSync(join(out, "signals", "src", "store"), { recursive: true });
-await Bun.write(join(out, "signals", "src", "store", "store.js"), `export * from ${JSON.stringify(twist("store.ts"))};\n`);
-const ours = twist("index.ts");
 // And by package name: packages that are ours (Bun's resolver finds packages; a plugin cannot invent them).
-for (const name of ["solid-js", "@solidjs/signals"]) {
+const packages: Record<string, Record<string, string>> = {
+  "solid-js": { index: client("index.ts"), internal: twist("internal.ts"), "container-trace": client("container-trace.ts"), attribution: twist("core/attribution.ts"), refresh: client("refresh.ts") },
+  "@solidjs/signals": { index: twist("core/index.ts"), attribution: twist("core/attribution.ts") },
+};
+for (const [name, files] of Object.entries(packages)) {
   const dir = join(here, "node_modules", name);
   mkdirSync(dir, { recursive: true });
   await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", main: "index.js", exports: { ".": "./index.js", "./internal": "./internal.js", "./internal/container-trace": "./container-trace.js", "./attribution": "./attribution.js", "./refresh": "./refresh.js" } }));
-  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(ours)};\n`);
-  await Bun.write(join(dir, "internal.js"), `export * from ${JSON.stringify(twist("internal.ts"))};\n`);
-  await Bun.write(join(dir, "container-trace.js"), `export * from ${JSON.stringify(twist("container-trace.ts"))};\n`);
-  await Bun.write(join(dir, "attribution.js"), `export * from ${JSON.stringify(twist("attribution/index.ts"))};\n`);
-  await Bun.write(join(dir, "refresh.js"), `export * from ${JSON.stringify(twist("refresh.ts"))};\n`);
+  for (const [file, to] of Object.entries(files)) await Bun.write(join(dir, file + ".js"), `export * from ${JSON.stringify(to)};\n`);
 }
 // (Solid's refresh runtime, by its path.)
 mkdirSync(join(out, "solid", "src", "refresh"), { recursive: true });
-await Bun.write(join(out, "solid", "src", "refresh", "index.js"), `export * from ${JSON.stringify(twist("refresh.ts"))};\n`);
+await Bun.write(join(out, "solid", "src", "refresh", "index.js"), `export * from ${JSON.stringify(client("refresh.ts"))};\n`);
 // The web runtime, and the JSX runtime Bun's transform imports from it.
 const web = join(here, "..", "..", "src", "twist", "web.ts").split("\\").join("/");
 const webDir = join(here, "node_modules", "@solidjs", "web");
@@ -204,8 +189,9 @@ await Bun.write(join(webDir, "frames-server.js"), `export * from ${JSON.stringif
 for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-server", "server-solid.ts"]]) {
   const dir = join(here, "node_modules", ...name.split("/"));
   mkdirSync(dir, { recursive: true });
-  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js" } }));
+  await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js", "./internal": "./internal.js" } }));
   await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(twist(file))};\n` + (name === "@twist/solid-server" ? serverDev : ""));
+  await Bun.write(join(dir, "internal.js"), `export * from ${JSON.stringify(twist("internal.server.ts"))};\n`);
 }
 {
   const dir = join(here, "node_modules", "@twist", "vitest");

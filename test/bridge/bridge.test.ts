@@ -8,7 +8,7 @@ import { installBridge } from "../../src/twist/bridge.ts";
 const { createElement, useState } = React;
 installBridge(React as any, createReactRoot as any);
 import { jsx as h, render, __twist_d, __twist_mark } from "../../src/twist/web.ts";
-import { createSignal, flush } from "../../src/twist/signals.ts";
+import { createSignal, flush } from "../../src/twist/client/index.ts";
 
 const tick = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();

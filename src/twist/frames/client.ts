@@ -10,8 +10,8 @@ import {
   onCleanup,
   runWithOwner,
   untrack
-} from "../index.ts";
-import type { Element as SolidElement } from "../index.ts";
+} from "../client/index.ts";
+import type { Element as SolidElement } from "../client/index.ts";
 // `insert` MUST resolve to the shared @solidjs/web instance the compiled app
 import { insert } from "../web.ts";
 import {

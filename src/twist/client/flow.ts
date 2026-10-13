@@ -1,0 +1,567 @@
+import { children } from "./core.js";
+import {
+  createMemo,
+  untrack,
+  mapArray,
+  repeat,
+  createRevealOrder,
+  getOwner,
+  runWithOwner
+} from "../core/index.js";
+import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydration.js";
+import type { Accessor, RevealOrder } from "../core/index.js";
+export type { RevealOrder };
+import type { Element as SolidElement } from "./types.js";
+
+type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
+  ? never
+  : T;
+type ErrorAccessor = Accessor<unknown>;
+type ConditionalRenderCallback<T> = (item: Accessor<NonNullable<T>>) => SolidElement;
+type KeyedConditionalRenderCallback<T> = (item: NonNullable<T>) => SolidElement;
+type ConditionalRenderChildren<
+  T,
+  F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>
+> = SolidElement | NonZeroParams<F>;
+type KeyedConditionalRenderChildren<
+  T,
+  F extends KeyedConditionalRenderCallback<T> = KeyedConditionalRenderCallback<T>
+> = SolidElement | NonZeroParams<F>;
+type ForOptions<T> = {
+  keyed?: boolean | ((item: T) => any);
+  fallback?: Accessor<SolidElement>;
+  name?: string;
+};
+
+const narrowedError = (name: string) =>
+  (process.env.NODE_ENV !== "production")
+    ? `Attempting to access a stale value from <${name}> that could possibly be undefined. This may occur because you are reading the accessor returned from the component at a time where it has already been unmounted. We recommend cleaning up any stale timers or async, or reading from the initial condition.`
+    : `Stale read from <${name}>.`;
+
+/**
+ * Creates a list of elements from a list.
+ *
+ * Receives a map function as its child and returns a JSX element for each
+ * list item; if the list is empty, an optional `fallback` is rendered instead.
+ *
+ * The child callback shape follows the keying mode:
+ * - default / `keyed={true}` receives `(item, index)` where `item` is the raw
+ *   row value and `index` is an accessor.
+ * - `keyed={false}` receives `(item, index)` where `item` is an accessor and
+ *   `index` is a stable number.
+ * - `keyed={(item) => key}` receives accessors for both arguments.
+ *
+ * @example
+ * ```tsx
+ * <For each={items} fallback={<div>No items</div>}>
+ *   {(item, index) => <div data-index={index()}>{item.label}</div>}
+ * </For>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/for
+ */
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed?: true;
+  children: (item: T[number], index: Accessor<number>) => U;
+}): SolidElement;
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed: false;
+  children: (item: Accessor<T[number]>, index: number) => U;
+}): SolidElement;
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed: (item: T[number]) => any;
+  children: (item: Accessor<T[number]>, index: Accessor<number>) => U;
+}): SolidElement;
+export function For<T extends readonly any[], U extends SolidElement>(props: {
+  each: T | undefined | null | false;
+  fallback?: SolidElement;
+  keyed?: boolean | ((item: T[number]) => any);
+  children: (item: any, index: any) => U;
+}): SolidElement {
+  const options: ForOptions<T[number]> =
+    "fallback" in props
+      ? { keyed: props.keyed, fallback: () => props.fallback }
+      : { keyed: props.keyed };
+  if ((process.env.NODE_ENV !== "production")) options.name = "<For>";
+  const owner = getOwner();
+  let mapped: (() => any) | undefined;
+  const create = () =>
+    runWithOwner(owner, () =>
+      mapArray(() => props.each, props.children as any, options as any)
+    ) as () => any;
+  // Hydration id parity (#3161): hydration ids mint at CREATION time, and
+  // the server spends the list's id slot at For's source position — so a
+  // hydrating client must create the map HERE, not on first read. Deferred
+  // creation ran at insert's hole evaluation, AFTER later siblings had
+  // already claimed their template keys, shifting every hydration id after
+  // the list (the siblings hydrated detached: dead buttons). Outside
+  // hydration the laziness stands: an unread list never builds its
+  // mapArray at all.
+  if (sharedConfig.hydrating) mapped = create();
+  const list = () => (mapped ?? (mapped = create()))();
+  return list as unknown as SolidElement;
+}
+
+/**
+ * Creates a list of elements from a count.
+ *
+ * Receives a map function as its child that takes the index and returns a JSX
+ * element; if the count is zero, an optional `fallback` is rendered instead.
+ *
+ * @example
+ * ```tsx
+ * <Repeat count={items.length} fallback={<div>No items</div>}>
+ *   {(index) => <div data-index={index}>{items[index]}</div>}
+ * </Repeat>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/repeat
+ */
+export function Repeat<T extends SolidElement>(props: {
+  count: number;
+  from?: number | undefined;
+  fallback?: SolidElement;
+  children: ((index: number) => T) | T;
+}) {
+  const options: {
+    fallback?: Accessor<SolidElement>;
+    from?: Accessor<number | undefined>;
+    name?: string;
+  } = "fallback" in props ? { fallback: () => props.fallback } : {};
+  options.from = () => props.from;
+  if ((process.env.NODE_ENV !== "production")) options.name = "<Repeat>";
+  return repeat(
+    () => props.count,
+    index => (typeof props.children === "function" ? props.children(index) : props.children),
+    options
+  ) as unknown as SolidElement;
+}
+
+/**
+ * Conditionally renders its children when `when` is truthy, otherwise renders
+ * the optional `fallback`.
+ *
+ * The function-child form receives a narrowed value. Without `keyed`
+ * (default), it receives an accessor and the child is preserved across truthy
+ * values; with `keyed`, it receives the raw value and remounts whenever the
+ * value's identity changes.
+ *
+ * @example
+ * ```tsx
+ * <Show when={user()} fallback={<SignIn />}>
+ *   {u => <Greeting name={u().name} />}
+ * </Show>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/show
+ */
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  fallback?: SolidElement;
+  children: SolidElement;
+}): SolidElement;
+export function Show<T, F extends KeyedConditionalRenderCallback<T>>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  fallback?: SolidElement;
+  children: NonZeroParams<F>;
+}): SolidElement;
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  fallback?: SolidElement;
+  children: SolidElement;
+}): SolidElement;
+export function Show<T, F extends ConditionalRenderCallback<T>>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  fallback?: SolidElement;
+  children: NonZeroParams<F>;
+}): SolidElement;
+export function Show<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: boolean;
+  fallback?: SolidElement;
+  children: SolidElement | ((item: any) => SolidElement);
+}): SolidElement {
+  const keyed = props.keyed;
+  // `props.when` is user input — may be a pending async read. Keep this memo
+  // async-shape aware (no `sync: true`) so a Promise/AsyncIterable returned by
+  // the user's reactive expression flows through `handleAsync`.
+  const conditionValue = createMemo<T | undefined | null | boolean>(
+    () => props.when,
+    (process.env.NODE_ENV !== "production") ? { name: "condition value" } : undefined
+  );
+  // `condition` and the outer value memo only consume `conditionValue()` and
+  // pick a child / fallback. Their bodies are statically synchronous (they
+  // never return a Promise / AsyncIterable), so `sync: true` skips the
+  // per-recompute async-shape probe in `recompute`.
+  const condition = keyed
+    ? conditionValue
+    : createMemo(
+        conditionValue,
+        (process.env.NODE_ENV !== "production")
+          ? {
+              equals: (a, b) => !a === !b,
+              name: "condition",
+              sync: true
+            }
+          : { equals: (a, b) => !a === !b, sync: true }
+      );
+  return createMemo(
+    () => {
+      const c = condition();
+      if (c) {
+        const child = props.children;
+        const fn = typeof child === "function" && child.length > 0;
+        return fn
+          ? keyed
+            ? untrack(() => (child as any)(c), (process.env.NODE_ENV !== "production") && "<Show>")
+            : untrack(
+                () =>
+                  (child as any)(() => {
+                    if (!untrack(condition)) throw narrowedError("Show");
+                    return conditionValue();
+                  }),
+                (process.env.NODE_ENV !== "production") && "<Show>"
+              )
+          : child;
+      }
+      return props.fallback;
+    },
+    (process.env.NODE_ENV !== "production") ? { name: "value", sync: true } : { sync: true }
+  ) as unknown as SolidElement;
+}
+
+type EvalConditions = readonly [number, unknown, Accessor<unknown>, AnyMatchProps<unknown>];
+
+/**
+ * Switches between content based on mutually exclusive conditions. Renders
+ * the first `<Match>` whose `when` is truthy; falls back to `fallback` when
+ * none match.
+ *
+ * @example
+ * ```tsx
+ * <Switch fallback={<FourOhFour />}>
+ *   <Match when={state.route === 'home'}>
+ *     <Home />
+ *   </Match>
+ *   <Match when={state.route === 'settings'}>
+ *     <Settings />
+ *   </Match>
+ * </Switch>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/switch-and-match
+ */
+export function Switch(props: { fallback?: SolidElement; children: SolidElement }): SolidElement {
+  const chs = children(() => props.children);
+  // `switchFunc` body just walks `chs.toArray()` and builds a selector
+  // function. Synchronous by construction.
+  const switchFunc = createMemo<Accessor<EvalConditions | undefined>>(
+    () => {
+      const mps = chs.toArray() as unknown as AnyMatchProps<unknown>[];
+      let func: Accessor<EvalConditions | undefined> = () => undefined;
+      for (let i = 0; i < mps.length; i++) {
+        const index = i;
+        const mp = mps[i];
+        // A conditionally excluded Match (false <Show> around it) resolves to
+        // a nullish slot — skip it like boolean children already are (#2911).
+        if (mp == null) continue;
+        const prevFunc = func;
+        // Per-match `mp.when` is user input — keep async-shape aware.
+        const conditionValue = createMemo(
+          () => (prevFunc() ? undefined : mp.when),
+          (process.env.NODE_ENV !== "production") ? { name: "condition value" } : undefined
+        );
+        // Stale-protection wrapper. Body is sync; just normalises identity.
+        const condition = mp.keyed
+          ? conditionValue
+          : createMemo(
+              conditionValue,
+              (process.env.NODE_ENV !== "production")
+                ? {
+                    equals: (a, b) => !a === !b,
+                    name: "condition",
+                    sync: true
+                  }
+                : { equals: (a, b) => !a === !b, sync: true }
+            );
+        func = () => {
+          const prev = prevFunc();
+          if (prev) return prev;
+          const c = condition();
+          return c ? [index, c, conditionValue, mp] : undefined;
+        };
+      }
+      return func;
+    },
+    (process.env.NODE_ENV !== "production") ? { name: "conditions", sync: true } : { sync: true }
+  );
+  return createMemo(
+    () => {
+      const sel = switchFunc()();
+      if (!sel) return props.fallback;
+      const [index, value, conditionValue, mp] = sel;
+      const child = mp.children;
+      const fn = typeof child === "function" && child.length > 0;
+      return fn
+        ? mp.keyed
+          ? untrack(() => (child as any)(value), (process.env.NODE_ENV !== "production") && "<Match>")
+          : untrack(
+              () =>
+                (child as any)(() => {
+                  if (untrack(switchFunc)()?.[0] !== index) throw narrowedError("Match");
+                  return conditionValue();
+                }),
+              (process.env.NODE_ENV !== "production") && "<Match>"
+            )
+        : child;
+    },
+    (process.env.NODE_ENV !== "production") ? { name: "eval conditions", sync: true } : { sync: true }
+  ) as unknown as SolidElement;
+}
+
+export type MatchProps<T, F extends ConditionalRenderCallback<T> = ConditionalRenderCallback<T>> = {
+  when: T | undefined | null | false;
+  keyed?: false;
+  children: ConditionalRenderChildren<T, F>;
+};
+export type KeyedMatchProps<
+  T,
+  F extends KeyedConditionalRenderCallback<T> = KeyedConditionalRenderCallback<T>
+> = {
+  when: T | undefined | null | false;
+  keyed: true;
+  children: KeyedConditionalRenderChildren<T, F>;
+};
+export type AnyMatchProps<T> =
+  | MatchProps<T>
+  | KeyedMatchProps<T>
+  | {
+      when: T | undefined | null | false;
+      keyed?: boolean;
+      children: SolidElement;
+    };
+/**
+ * A branch inside a `<Switch>`. The first `<Match>` whose `when` is truthy
+ * wins; remaining matches are skipped.
+ *
+ * Like `<Show>`, `<Match>` supports a function child. Non-keyed children
+ * receive an accessor for the narrowed value; keyed children receive the raw
+ * narrowed value.
+ *
+ * @example
+ * ```tsx
+ * <Switch fallback={<NotFound />}>
+ *   <Match when={user()}>
+ *     {u => <Profile name={u().name} />}
+ *   </Match>
+ *   <Match when={loading()}>
+ *     <Spinner />
+ *   </Match>
+ * </Switch>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/switch-and-match
+ */
+export function Match<T>(props: {
+  when: T | undefined | null | false;
+  keyed: true;
+  children: SolidElement;
+}): SolidElement;
+export function Match<T, F extends KeyedConditionalRenderCallback<T>>(
+  props: KeyedMatchProps<T, F>
+): SolidElement;
+export function Match<T>(props: {
+  when: T | undefined | null | false;
+  keyed?: false;
+  children: SolidElement;
+}): SolidElement;
+export function Match<T, F extends ConditionalRenderCallback<T>>(
+  props: MatchProps<T, F>
+): SolidElement;
+export function Match<T>(props: AnyMatchProps<T>): SolidElement;
+export function Match<T>(props: AnyMatchProps<T>) {
+  return props as unknown as SolidElement;
+}
+
+/**
+ * Catches uncaught errors inside its subtree and renders fallback content
+ * instead. The `fallback` prop can be a JSX element, or a callback that
+ * receives the error and a `reset()` function for retry affordances.
+ *
+ * Errors thrown from the fallback itself can be caught by a parent
+ * `<Errored>`.
+ *
+ * @example
+ * ```tsx
+ * <Errored fallback={(err, reset) => (
+ *   <div onClick={reset}>Error: {err().toString()}</div>
+ * )}>
+ *   <MyComp />
+ * </Errored>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/error-boundary
+ */
+export function Errored(props: {
+  fallback: SolidElement | ((err: ErrorAccessor, reset: () => void) => SolidElement);
+  children: SolidElement;
+}): SolidElement {
+  return createErrorBoundary(
+    () => props.children,
+    (err: ErrorAccessor, reset) => {
+      const f = props.fallback;
+      // A fallback that cannot see the error — a value, or a zero-arity
+      // thunk — would swallow it silently; dev logs it.
+      if ((process.env.NODE_ENV !== "production") && (typeof f !== "function" || f.length == 0)) console.error(err());
+      // A function-valued fallback is called HERE, whatever its arity, the
+      // way <Show> resolves a function child inside its own memo: this runs
+      // under the boundary's output computed, so the content's ids nest
+      // under the boundary on both sides. Handing a zero-arity thunk back
+      // unresolved left the CONSUMING hole to build it on the enclosing
+      // counter — the client at the statement, the server inside the ssr()
+      // walk after every scoped sibling had reserved its slot — and the keys
+      // permuted whenever a scoped hole followed the boundary (#3620).
+      return typeof f === "function" ? f(err, reset) : f;
+    }
+  ) as unknown as SolidElement;
+}
+
+/**
+ * Renders a `fallback` while pending async reads inside the subtree settle.
+ *
+ * Any computation (`createMemo`, `createSignal(fn)`, `createStore(fn)`,
+ * `lazy(...)`, etc.) that throws because data isn't ready is caught by the
+ * nearest enclosing `<Loading>`. The boundary swaps to its `fallback` until
+ * every pending read has resolved, then renders the children.
+ *
+ * Once content has rendered, a refetch keeps it visible: the boundary reads
+ * the pending value like any other reader and holds the write that made it
+ * pending until the data lands (`isPending()` flips meanwhile).
+ *
+ * The optional `on` prop is a dependency list. The expression is tracked and
+ * its value is irrelevant — what matters is what it reads. Whenever anything
+ * it reads changes (a plain write, an optimistic write, a source going
+ * pending or landing), the boundary stops waiting on its current content and
+ * shows `fallback` again if something under it is still pending, until the
+ * new content is ready; if nothing is pending, nothing happens. The fallback
+ * lands with the same frame as the change that caused it: immediately when
+ * nothing else holds that frame; together with the rest of the new page
+ * during a held navigation (a write inside an `action`, or one whose data
+ * other readers are still waiting on) — never a spinner beside a page the
+ * change has not reached yet. If the same data is also read outside the
+ * boundary, the frame waits on it and the fallback can never be seen; DEV
+ * warns `LOADING_ON_OUTSIDE_HOLD`, and the fix is structural — move the
+ * outside read under the boundary so one hold owns the data. A frame held
+ * past the content's landing by something else (the write's action, other
+ * pending data) shows no fallback either; that is a race, a legitimate
+ * outcome, and not reported — show the wait with `isPending()` instead.
+ * A display-ahead read in `on` (`latest()`) shows the fallback now, beside
+ * the held frame; that is a capability, not the recommended shape. The
+ * children are not re-created; they stay alive behind the fallback.
+ *
+ * Scope `<Loading>` around the data-dependent slot, not the surrounding
+ * shell. Wrapping layout chrome (header, nav, footer) in the same boundary
+ * as the data means revalidation replaces the entire screen with the
+ * fallback; rendering chrome outside the boundary keeps it stable while
+ * only the affordance flips.
+ *
+ * @example
+ * ```tsx
+ * const Profile = lazy(() => import("./Profile"));
+ *
+ * <Loading fallback={<Spinner />}>
+ *   <Profile />
+ * </Loading>
+ * ```
+ *
+ * @example
+ * ```tsx
+ * // Depend on the route: a navigation shows the skeleton with the new route
+ * // while the page loads; a refetch of the same route keeps the page visible.
+ * <Loading fallback={<Skeleton />} on={route()}>
+ *   <Page />
+ * </Loading>
+ *
+ * // Several dependencies: a change to any of them shows the fallback.
+ * <Loading fallback={<Skeleton />} on={[query(), page()]}>
+ *   <Results />
+ * </Loading>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/suspense
+ */
+export function Loading(props: {
+  fallback?: SolidElement;
+  on?: any;
+  children: SolidElement;
+}): SolidElement {
+  const onOpt = "on" in props ? { on: () => props.on } : undefined;
+  return createLoadingBoundary(
+    () => props.children,
+    () => props.fallback,
+    onOpt
+  ) as unknown as SolidElement;
+}
+
+export type RevealProps = {
+  order?: RevealOrder;
+  collapsed?: boolean;
+  children: SolidElement;
+};
+
+/**
+ * Coordinates the reveal timing of sibling `<Loading>` boundaries.
+ *
+ * The `order` prop picks the reveal policy:
+ * - `"sequential"` (default) — boundaries reveal in registration order; later boundaries
+ *   stay on their fallback until earlier ones resolve.
+ * - `"together"` — every direct slot stays on its fallback until the whole group is
+ *   "minimally ready" (every direct slot has its own first visible content available),
+ *   then the group releases in one cohesive reveal.
+ * - `"natural"` — each boundary reveals as its own data resolves. At the top level
+ *   this is equivalent to omitting `<Reveal>`; the mode exists for nesting, where
+ *   the group registers as a single composite slot in an enclosing `<Reveal>`.
+ *
+ * The `collapsed` prop is only consulted when `order="sequential"` (the default);
+ * it is ignored under `"together"` and `"natural"`. When set, tail boundaries past
+ * the frontier suppress their own fallback output.
+ *
+ * Nested `<Reveal>` groups compose: the inner group is one slot in the outer order
+ * and is held on its fallbacks until the outer releases the slot. Once released, the
+ * inner group runs its own `order` locally over whatever is still pending. There is
+ * no escape hatch — nesting under an outer group means participating in its ordering.
+ * See `documentation/solid-2.0/03-control-flow.md` for the full nesting matrix and the
+ * "minimally ready" definition per order.
+ *
+ * @example
+ * ```tsx
+ * // Default order is "sequential"; the inner group composes as one slot
+ * // and runs its own "natural" order locally once the outer releases it.
+ * <Reveal>
+ *   <Loading fallback={<Skeleton />}><ProfileHeader /></Loading>
+ *   <Reveal order="natural">
+ *     <Loading fallback={<Skeleton />}><PostA /></Loading>
+ *     <Loading fallback={<Skeleton />}><PostB /></Loading>
+ *   </Reveal>
+ *   <Loading fallback={<Skeleton />}><Comments /></Loading>
+ * </Reveal>
+ * ```
+ *
+ * @description https://docs.solidjs.com/reference/components/reveal
+ */
+export function Reveal(props: RevealProps): SolidElement {
+  return createRevealOrder(() => props.children, {
+    order: () => props.order ?? "sequential",
+    collapsed: () => !!props.collapsed
+  }) as unknown as SolidElement;
+}

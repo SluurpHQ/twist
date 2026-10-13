@@ -1558,7 +1558,7 @@ function settleBoundary(r: Render | null, t: BoundaryTrack, outcome: string, err
 }
 function tellBoundary(t: BoundaryTrack, revealAt: number) {
   t.told = true;
-  const records = OBSERVE?.records;
+  const records = OBSERVE?.records as any;
   if (!records) return;
   const event: Record<string, unknown> = { id: t.id, at: t.at, durationMs: t.settledAt! - t.at, passes: t.passes, outcome: t.outcome, streamed: t.streamed, heldMs: revealAt - t.settledAt! };
   if (t.group) event.revealGroup = t.group;
@@ -2223,7 +2223,7 @@ function traceOfRender(ctx: object) {
 /** A server render's "render" record, when something listens: told once, at settle. */
 function renderRecord(ctx: any, mode: "string" | "stream") {
   // (Timed whenever records exist: the response's Server-Timing reads the shell's time from the trace.)
-  const records = OBSERVE?.records;
+  const records = OBSERVE?.records as any;
   if (!records) return null;
   const at = Date.now();
   const started = performance.now();
