@@ -2,7 +2,7 @@
 // wait for the end of the outermost update (a root, a batch, a write outside both), and writes are allowed anywhere.
 import * as K from "../signals.ts";
 import { mapArray as mapRows, LIVE } from "../flow.ts";
-import { Loading, Errored, Show, Switch, Match, createComponent, lazy, builtin, isChildren } from "../control.ts";
+import { Loading, Errored, Show, Switch, Match, createComponent, lazy, builtin, isChildren, __twist_c, __twist_d } from "../control.ts";
 import { $PROXY, $TRACK } from "../store.ts";
 
 export { $PROXY, $TRACK, Show, Switch, Match, createComponent, lazy };
@@ -197,8 +197,25 @@ export function onError(fn: (err: Error) => void) {
   o.catch = (e: unknown) => (fn(castError(e)), was?.(e), true);
 }
 
+/**
+ * A boundary component as JSX makes it (the renderer's: hydration claims a Loading or Errored where the server drew it).
+ * Set by the web runtime; a plain call until then.
+ */
+let jsx: ((fn: (props: any) => any, raw: any) => any) | null = null;
+export const setDescribe = (f: typeof jsx) => void (jsx = f);
+function describe(fn: (props: any) => any, props: any): any {
+  if (!jsx) return fn(props);
+  // (Its getters as the compiler marks them: read where the boundary reads them, children inside it.)
+  const raw: any = {};
+  for (const k of Object.keys(props)) {
+    const get = Object.getOwnPropertyDescriptor(props, k)!.get;
+    raw[k] = !get ? props[k] : k === "children" ? __twist_c(get) : __twist_d(get);
+  }
+  return jsx(fn, raw);
+}
+
 export const ErrorBoundary = builtin(function ErrorBoundary(props: { fallback: any; children: any }) {
-  return Errored({
+  return describe(Errored, {
     get fallback() {
       const f = props.fallback;
       if (typeof f !== "function") return f;
@@ -421,22 +438,21 @@ export const Index = builtin(function Index<T>(props: { each: readonly T[] | und
 const SUSPENSE = Symbol("solid1.suspense");
 
 /** A Suspense: `boundary` (the renderer's Loading) made under an owner that resource reads know as one. */
-export function suspense<R>(boundary: (props: { fallback?: any; children: any }) => R, props: { fallback?: any; children: any }): R {
-  const o = K.createOwner() as any;
-  o.context = { ...o.context, [SUSPENSE]: true };
-  return K.runWithOwner(o, () =>
-    boundary({
-      get fallback() {
-        return props.fallback;
-      },
-      get children() {
-        return props.children;
-      },
-    }),
-  );
+export function suspense<R>(boundary: (props: { fallback?: any; children?: any }) => R, props: { fallback?: any; children?: any }): R {
+  // (Marked on the owner its content is made under: no owner of its own, so ids match the server's.)
+  return boundary({
+    get fallback() {
+      return props.fallback;
+    },
+    get children() {
+      const o = K.getOwner();
+      if (o) o.context = { ...o.context, [SUSPENSE]: true };
+      return props.children;
+    },
+  });
 }
 export const Suspense = builtin(function Suspense(props: { fallback?: any; children: any }) {
-  return suspense(Loading, props);
+  return suspense((p) => describe(Loading, p), props);
 });
 /** The order the Suspense boundaries directly inside show their content: together, or one after another. */
 export const SuspenseList = builtin(function SuspenseList(props: { children: any; revealOrder?: "forwards" | "backwards" | "together"; tail?: "collapsed" | "hidden" }) {
@@ -456,6 +472,10 @@ export function createResource<T, S = true>(...args: any[]): [Resource<T>, { mut
   if (typeof args[1] === "function") (source = args[0]), (fetcher = args[1]), (options = args[2] || {});
   else (source = true), (fetcher = args[0]), (options = args[1] || {});
   let pr: Promise<T> | null = null;
+  // Rendered on a server, or hydrating: an id of its place, under which the server sends what it loaded.
+  const owner = K.getOwner();
+  const sc = K.sharedConfig as any;
+  const ssrId = owner && (K.isServerRender() || sc.hydrating) ? K.getNextChildId(owner) : undefined;
   /** The load in flight is a transition's: what it had shows meanwhile. */
   let held = false;
   let resolved = "initialValue" in options;
@@ -506,7 +526,15 @@ export function createResource<T, S = true>(...args: any[]): [Resource<T>, { mut
     }
     let p: T | Promise<T>;
     try {
-      p = untrack(() => fetcher(lookup as S, { value: untrack(value), refetching: refetching as any }));
+      // (Hydrating: what the server loaded, taken once in place of the first fetch.)
+      const sent = refetching === false && ssrId !== undefined && sc.hydrating && sc.has?.(ssrId);
+      if (sent) {
+        const v = sc.load(ssrId);
+        p = v && typeof v.then === "function" && v.s === 1 ? v.v : v;
+      } else p = untrack(() => fetcher(lookup as S, { value: untrack(value), refetching: refetching as any }));
+      // (On a server: sent for the client to take; a pending one only where the render waits for it.)
+      const ctx = K.isServerRender() ? sc.context : null;
+      if (ctx?.serialize && ssrId !== undefined && (ctx.async || !(p && typeof (p as any).then === "function"))) ctx.serialize(ssrId, p);
     } catch (e) {
       pr = null;
       batch(() => {

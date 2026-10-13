@@ -85,6 +85,7 @@ Twist is checked against React's and Solid's own test suites (`conformance/`):
   structures or its own build files are left out, each with its reason (`conformance/solid/skips.ts`).
 - Solid 1.9: 424 tests pass, 11 fail. The failures are writes held by a transition until it settles, cycle errors,
   the order memos run in after their sources change, and markup details (Twist marks dynamic children with comments).
+  Rendered on a server, resources send what they loaded and the page hydrates without fetching again.
 
 ## Working on Twist
 
