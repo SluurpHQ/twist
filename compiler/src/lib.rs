@@ -102,7 +102,7 @@ pub fn compile_with(source: &str, path: &str, hot: bool) -> Result<String, Strin
     }
     let mut out = if pass.edits.is_empty() { source.to_string() } else { apply(source, pass.edits) };
     if pass.used || marks > 0 {
-        out = format!("import {{ __twist_d, __twist_c, __twist_ref, __twist_k, __twist_mark, __twist_memo }} from \"{RUNTIME}\";\n{out}");
+        out = format!("import {{ __twist_d, __twist_c, __twist_ref, __twist_use, __twist_k, __twist_mark, __twist_memo }} from \"{RUNTIME}\";\n{out}");
     }
     Ok(templates(&out, kind))
 }
@@ -196,6 +196,13 @@ struct Pass<'s> {
 impl Pass<'_> {
     fn text(&self, s: Span) -> &str {
         &self.source[s.start as usize..s.end as usize]
+    }
+    /// A ref's text among several: a variable it can assign is assigned (as a lone `ref={el}` is).
+    fn ref_text(&self, e: &Expression) -> String {
+        match e {
+            Expression::Identifier(id) if self.assignable.contains(id.name.as_str()) => format!("__twist_ref({0}, (v) => ({0} = v))", id.name),
+            _ => self.text(e.span()).to_string(),
+        }
     }
     fn wrap(&mut self, e: &Expression, f: &str) {
         self.used = true;
@@ -309,8 +316,40 @@ impl<'a> Visit<'a> for Pass<'_> {
                     _ => None,
                 })
                 .collect();
-            if refs.len() > 1 && exprs.len() == refs.len() {
-                let joined = exprs.iter().map(|e| self.text(e.span()).to_string()).collect::<Vec<_>>().join(", ");
+            // Solid 1's directives (`use:name={value}`): refs calling `name(el, () => value)`.
+            let uses: Vec<(&JSXAttribute, String)> = open
+                .attributes
+                .iter()
+                .filter_map(|a| match a {
+                    JSXAttributeItem::Attribute(a) => match &a.name {
+                        JSXAttributeName::NamespacedName(n) if n.namespace.name == "use" => {
+                            let value = match &a.value {
+                                Some(JSXAttributeValue::ExpressionContainer(x)) => x.expression.as_expression().map(|e| self.text(e.span()).to_string()),
+                                Some(JSXAttributeValue::StringLiteral(s)) => Some(format!("{:?}", s.value.as_str())),
+                                _ => None,
+                            }
+                            .unwrap_or_else(|| "true".into());
+                            Some((&**a, format!("__twist_use({}, () => ({value}))", n.name.name)))
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect();
+            if !uses.is_empty() && exprs.len() == refs.len() {
+                self.used = true;
+                let all: Vec<String> = exprs.iter().map(|e| self.ref_text(e)).chain(uses.iter().map(|(_, t)| t.clone())).collect();
+                let text = if all.len() > 1 { format!("ref={{[{}]}}", all.join(", ")) } else { format!("ref={{{}}}", all[0]) };
+                let first = refs.first().map(|a| a.span).unwrap_or(uses[0].0.span);
+                self.edits.push(Edit { start: first.start, end: first.end, text });
+                for a in refs.iter().skip(1).copied().chain(uses.iter().map(|(a, _)| *a)) {
+                    if a.span != first {
+                        self.edits.push(Edit { start: a.span.start, end: a.span.end, text: String::new() });
+                    }
+                }
+                merged_refs = true;
+            } else if refs.len() > 1 && exprs.len() == refs.len() {
+                let joined = exprs.iter().map(|e| self.ref_text(e)).collect::<Vec<_>>().join(", ");
                 let first = exprs[0].span();
                 self.edits.push(Edit { start: first.start, end: first.end, text: format!("[{joined}]") });
                 for a in &refs[1..] {
@@ -322,7 +361,7 @@ impl<'a> Visit<'a> for Pass<'_> {
         for a in &open.attributes {
             if merged_refs
                 && let JSXAttributeItem::Attribute(x) = a
-                && matches!(&x.name, JSXAttributeName::Identifier(i) if i.name == "ref")
+                && (matches!(&x.name, JSXAttributeName::Identifier(i) if i.name == "ref") || matches!(&x.name, JSXAttributeName::NamespacedName(n) if n.namespace.name == "use"))
             {
                 continue;
             }
@@ -787,7 +826,7 @@ mod tests {
         assert!(out.contains("{__twist_memo(() => (count()))}"), "one of several children: a memo: {out}");
         assert!(out.contains("{x}"), "{out}");
         assert!(out.contains("\nA = __twist_mark(A);"), "{out}");
-        assert!(out.contains("import { __twist_d, __twist_c, __twist_ref, __twist_k, __twist_mark, __twist_memo } from \"@solidjs/web\";"), "{out}");
+        assert!(out.contains("import { __twist_d, __twist_c, __twist_ref, __twist_use, __twist_k, __twist_mark, __twist_memo } from \"@solidjs/web\";"), "{out}");
         // A component's prop with JSX in it: a getter (a function returning JSX stays as it is).
         let jsx = c("const B = () => <Loading fallback={<Spinner />} render={(e) => <i>{e}</i>} />;");
         assert!(jsx.contains("fallback={__twist_d(() => (<Spinner />))}"), "{jsx}");
@@ -839,6 +878,14 @@ mod tests {
         assert!(out.contains("__twist_k(<i"), "{out}");
         let kept = c("const el = 1; const x = <i ref={el} />;");
         assert!(kept.contains("_tmpl$0([el])"), "{kept}");
+    }
+
+    #[test]
+    fn directives() {
+        let out = c("let el; const x = <i use:tip={t()} ref={el} />;");
+        assert!(out.contains("_tmpl$0([[__twist_ref(el, (v) => (el = v)), __twist_use(tip, () => (t()))]])"), "{out}");
+        let lone = c("const x = <i use:focus />;");
+        assert!(lone.contains("_tmpl$0([__twist_use(focus, () => (true))])"), "{lone}");
     }
 
     #[test]

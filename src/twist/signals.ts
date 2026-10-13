@@ -668,7 +668,7 @@ export function untrack<T>(fn: () => T, strictReadLabel?: string): T {
   const prevOuter = untrackedBy;
   if (prev) untrackedBy = prev;
   listener = null;
-  strictRead = strictReadLabel || false;
+  strictRead = (strictReads && strictReadLabel) || false;
   if (counted) untrackDepth++;
   try {
     return fn();
@@ -684,6 +684,9 @@ let untrackedBy: Computation<any> | null = null;
 
 /** The strict-read scope we are in (a component body's label), or none. */
 let strictRead: string | false = false;
+/** Whether component bodies and effect callbacks are strict-read scopes (Solid 2's rule; Solid 1 reads there freely). */
+let strictReads = true;
+export const setStrictReads = (on: boolean) => void (strictReads = on);
 /** A read outside tracking in a strict scope: reported (a store's property read too). */
 export function checkStrictRead(n: { name?: string; store?: boolean }) {
   if (strictRead && !listener) strictReadUntracked(n as Node<any>);
@@ -1506,7 +1509,7 @@ export class Computation<T> extends Node<T> implements Owner {
   constructor(kind: number, fn: (prev?: T) => T, options?: SignalOptions<T>) {
     ownerCreations++;
     super();
-    if ((owner as any)?.tracked) {
+    if ((owner as any)?.tracked && !(owner as any).plain) {
       const message = "Cannot create reactive primitives inside createTrackedEffect or owner-backed onSettled";
       if (process.env.NODE_ENV !== "production") emitDiagnostic({ code: "PRIMITIVE_IN_FORBIDDEN_SCOPE", kind: "lifecycle", severity: "error", message: "[PRIMITIVE_IN_FORBIDDEN_SCOPE] " + message, ownerId: owner!.id, ownerName: (owner as any).name });
       throw new Error(message);
@@ -2338,7 +2341,7 @@ export class Computation<T> extends Node<T> implements Owner {
       c?.();
       // (Unowned and untracked: what it reads there will not make it run again.)
       owner = listener = null;
-      strictRead = "an effect callback";
+      strictRead = strictReads && "an effect callback";
       done = this.apply!(this.value as T, prev);
     } catch (e) {
       // The effect's own code threw: not its error handler's (that is for its compute) — the nearest boundary, else
@@ -5271,6 +5274,21 @@ export function createTrackedEffect(fn: () => void | (() => void)) {
   e.state = DIRTY;
   queue(e);
   onCleanup(() => typeof clean === "function" && clean());
+}
+
+/**
+ * Solid 1's effect: `fn` runs in the effect phase, tracked, its run its side effect (writes and onCleanup allowed), and
+ * again when what it read changes.
+ */
+export function createPlainEffect(fn: () => void): Computation<void> {
+  const e = new Computation<void>(EFFECT, fn);
+  (e as any).allowWrites = true;
+  (e as any).plain = true;
+  e.tracked = true;
+  e.apply = () => {};
+  e.state = DIRTY;
+  queue(e);
+  return e;
 }
 
 /** Declares that the work in progress will change `target`: it reads as pending until that work lands. */

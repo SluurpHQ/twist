@@ -14,6 +14,9 @@ signals: no virtual DOM, no re-running components to find what changed.
   server rendering, streaming and hydration, on signals instead of a virtual DOM.
 - **Solid 2's API** (`solid-js`, `@solidjs/web`): signals, memos, stores, projections, `<For>`, `<Show>`,
   `<Loading>`, `<Errored>`, server rendering and hydration.
+- **Solid 1's API** (`solid-js` 1.x, `solid-js/web`, `solid-js/store`), for apps still on Solid 1: writes seen at
+  once, effects after the update, path setters, `produce` and `reconcile`, `createResource` with `<Suspense>`,
+  `classList` and `use:` directives. The Vite plugin picks it when the app's `solid-js` is a 1.x.
 - **Both in one app:** a React component can render a Solid-style one and the other way round, with React's own runtime
   or with Twist answering React's API too.
 - **A compiler in Rust:** Solid-style JSX is compiled to templates (fixed markup copied with `cloneNode`, only the parts
@@ -39,8 +42,9 @@ Each file is read for what it is. A file that imports `solid-js` or `@solidjs/we
 and not `solid-js`, Solid-style otherwise. When a file of one kind imports a component of the other, Twist adds the
 bridge that lets each render the other; an app of one kind never loads it.
 
-The `examples/` folder has three apps, all on Twist: `vite-react` (a React app), `vite-solid` (a Solid app) and
-`vite-mixed` (a Solid app that uses React-style components, with their own state and hooks).
+The `examples/` folder has four apps, all on Twist: `vite-react` (a React app), `vite-solid` (a Solid app),
+`vite-solid1` (a Solid 1 app) and `vite-mixed` (a Solid app that uses React-style components, with their own state
+and hooks).
 
 ## Development tools
 
@@ -79,6 +83,8 @@ Twist is checked against React's and Solid's own test suites (`conformance/`):
 - Solid 2: 8,428 tests pass, 92 fail. Most of the failures are Solid 2's newest rules for optimistic updates running
   side by side, and for when a pending update holds what is on screen. Tests that only check Solid's private
   structures or its own build files are left out, each with its reason (`conformance/solid/skips.ts`).
+- Solid 1.9: 424 tests pass, 11 fail. The failures are writes held by a transition until it settles, cycle errors,
+  the order memos run in after their sources change, and markup details (Twist marks dynamic children with comments).
 
 ## Working on Twist
 
@@ -88,6 +94,7 @@ node scripts/build-compiler.mjs        # the compiler's native addon, for this p
 cd test/bridge && bun test             # React and Solid in one tree
 cd conformance && bun prepare.ts && bun run.ts          # React's tests
 cd conformance/solid && bun prepare.ts && bun run.ts    # Solid's tests
+cd conformance/solid1 && bun prepare.ts && bun run.ts   # Solid 1's tests
 ```
 
 ## Licence

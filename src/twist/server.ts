@@ -1081,8 +1081,8 @@ const CONTENT_PROPS = new Set(["children", "innerHTML", "textContent", "value", 
 
 /** One attribute: ` name="value"`, a bare name when true, nothing when absent. */
 export function ssrAttribute(name: string, value: any): string {
-  // (`className`, as React code writes it: the class.)
-  if (name === "className") name = "class";
+  // (`className`, as React code writes it, and Solid 1's `classList`: the class.)
+  if (name === "className" || name === "classList") name = "class";
   if (name === "class") value = ssrClassName(value);
   else if (name === "style") value = ssrStyle(value);
   if (value == null || value === false) return "";

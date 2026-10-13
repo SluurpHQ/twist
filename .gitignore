@@ -9,5 +9,9 @@ conformance/solid/errors.txt
 conformance/report.json
 conformance/solid/report.json
 conformance/solid/failures.txt
+conformance/solid1/solid-tests/
+conformance/solid1/node_modules/
+conformance/solid1/errors.txt
+conformance/solid1/report.json
 examples/*/dist/
 npm/

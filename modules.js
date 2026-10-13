@@ -41,6 +41,15 @@ export const SOLID = {
   "@sluurp/twist/bridge": ["twist/react-bridge.ts", "twist/react-bridge-server.ts"],
 };
 
+/** Solid 1's module names, for an app on solid-js 1.x: Solid 1's API on Twist (ahead of SOLID). */
+export const SOLID1 = {
+  "solid-js": ["twist/solid1/index.ts", "twist/solid1/index.server.ts"],
+  "solid-js/web": ["twist/solid1/web.ts", "twist/solid1/server.ts"],
+  "solid-js/store": ["twist/solid1/store.ts", "twist/solid1/store.ts"],
+  "solid-js/jsx-runtime": ["twist/jsx/client/jsx-runtime.ts", "twist/jsx/server/jsx-runtime.ts"],
+  "solid-js/jsx-dev-runtime": ["twist/jsx/client/jsx-dev-runtime.ts", "twist/jsx/server/jsx-dev-runtime.ts"],
+};
+
 /** Signals, for code written on them directly. */
 export const SIGNALS = { "@sluurp/twist/signals": ["signals.js", "signals.js"] };
 

@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
-import { REACT, SIGNALS, SOLID, SOLID_STYLE, SRC, fileFor } from "./modules.js";
+import { REACT, SIGNALS, SOLID, SOLID1, SOLID_STYLE, SRC, fileFor } from "./modules.js";
 import { compile } from "./napi/index.js";
 
 // Vite's own default conditions (6 and later), which a plugin that adds one must repeat.
@@ -77,6 +77,15 @@ function dependencies(root) {
   }
 }
 
+/** Whether the app is on Solid 1: the solid-js it installed (or lists) is a 1.x. */
+function onSolid1(root, deps) {
+  let version = deps["solid-js"];
+  try {
+    version = JSON.parse(readFileSync(createRequire(join(root, "package.json")).resolve("solid-js/package.json"), "utf8")).version;
+  } catch {}
+  return typeof version === "string" && /^[\^~>=v\s]*1\./.test(version);
+}
+
 /** Whether a module in node_modules is written for React: its package needs React and is not one of React's own. */
 function reactPackage(file) {
   const at = file.lastIndexOf("/node_modules/") + 14;
@@ -101,11 +110,13 @@ function reactPackage(file) {
 export default function twist() {
   let serving = false;
   let reactByDefault = false;
+  /** The module tables, in order: Solid 1's first for an app on Solid 1. */
+  let tables = [SOLID, SIGNALS, REACT];
   const styleOf = (code) => (SOLID_STYLE.test(code) ? "solid" : REACT_STYLE.test(code) ? "react" : reactByDefault ? "react" : "solid");
   /** Whether a file imports a component of the other kind (then the bridge is loaded with it). */
   async function importsOther(ctx, code, id, style) {
     for (const [, spec] of code.matchAll(IMPORTS)) {
-      if (SOLID[spec] || REACT[spec] || SIGNALS[spec]) continue;
+      if (SOLID[spec] || SOLID1[spec] || REACT[spec] || SIGNALS[spec]) continue;
       const resolved = await ctx.resolve(spec, id, { skipSelf: true });
       const file = resolved?.id.split("?")[0].replace(/\\/g, "/");
       if (!file || !JSX_FILE.test(file) && !file.includes("/node_modules/")) continue;
@@ -129,6 +140,7 @@ export default function twist() {
       const root = config.root ?? process.cwd();
       const deps = dependencies(root);
       reactByDefault = !!deps.react && !deps["solid-js"];
+      if (onSolid1(root, deps)) tables = [SOLID1, SOLID, SIGNALS, REACT];
       const libraries = solidLibraries(root);
       const answered = [...OWN, ...Object.keys(REACT)];
       return {
@@ -141,7 +153,7 @@ export default function twist() {
       };
     },
     resolveId(id, _importer, opts) {
-      for (const table of [SOLID, SIGNALS, REACT]) {
+      for (const table of tables) {
         const file = fileFor(table, id, !!opts?.ssr);
         if (file) return file;
       }

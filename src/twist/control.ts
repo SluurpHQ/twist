@@ -68,7 +68,10 @@ export const __twist_k = <T>(v: T) => v;
 /** `ref={el}` with a bare variable: called when it is a function, else assigned. */
 export const __twist_ref = (current: unknown, assign: (el: unknown) => void) => (typeof current === "function" ? current : assign);
 
-export const isDynamic = (v: any): v is () => any => typeof v === "function" && v[DYNAMIC] === true;
+/** `use:fn={value}` (Solid 1's directive): a ref calling `fn(el, () => value)`, untracked. */
+export const __twist_use = (fn: (el: unknown, value: () => unknown) => void, value: () => unknown) => (el: unknown) => untrack(() => fn(el, value));
+
+export const isDynamic =(v: any): v is () => any => typeof v === "function" && v[DYNAMIC] === true;
 export const isChildren = (v: any): v is () => any => typeof v === "function" && v[CHILDREN] === true;
 
 

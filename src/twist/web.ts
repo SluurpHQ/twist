@@ -244,7 +244,7 @@ class PropBinding extends Computation<any> {
 // (A style or class object is read whole: one changed in place applies again.)
 function propCompute(this: PropBinding) {
   const v = this.source();
-  return this.prop === "style" || this.prop === "class" ? readShallow(v) : v;
+  return this.prop === "style" || this.prop === "class" || this.prop === "classList" ? readShallow(v) : v;
 }
 Object.assign(PropBinding.prototype, { adopt: false, apply: propApply, transparent: true });
 function propApply(this: PropBinding, v: any, prev: any) {
@@ -343,6 +343,7 @@ export function assignProp(el: Element, name: string, value: any, prev: any) {
   // (`className`, as React code writes it: the class.)
   if (name === "class" || name === "className") return className(el, value, prev);
   if (name === "style") return style(el as HTMLElement, value, prev);
+  if (name === "classList") return classList(el, value);
   if (name === "innerHTML" || name === "textContent" || name === "innerText") return void ((el as any)[name] = value ?? "");
   if (PROPS[name]?.has(el.nodeName)) return setProperty(el, name, value);
   setAttribute(el, name, value);
@@ -432,6 +433,15 @@ export function className(el: Element, value: any, prev?: any) {
   for (const c of now) if (!before.has(c)) el.classList.add(c);
 }
 
+/** Solid 1's `classList`: an object of name → on, toggled apart from `class`. */
+function classList(el: Element, value: any) {
+  const now = classes(value);
+  const before: Set<string> | undefined = (el as any).$$classList;
+  (el as any).$$classList = now;
+  if (before) for (const c of before) if (!now.has(c)) el.classList.remove(c);
+  for (const c of now) if (!before?.has(c)) el.classList.add(c);
+}
+
 function classes(v: any, out = new Set<string>()): Set<string> {
   if (v == null || typeof v === "boolean" || v === "") return out;
   if (typeof v === "string") for (const c of v.split(/\s+/)) c && out.add(c);
@@ -494,7 +504,7 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
         for (const k of Object.keys(sources[i])) {
           if (k === "children" || k in next || skip?.(k)) continue;
           const v = sources[i][k];
-          next[k] = k === "style" || k === "class" ? readShallow(v) : v;
+          next[k] = k === "style" || k === "class" || k === "classList" ? readShallow(v) : v;
         }
       return next;
     },
@@ -530,7 +540,7 @@ function spreadOn(el: Element, props: any, skipChildren: boolean, claiming: bool
 
 const delegated = new Set<string>();
 const roots = new Set<Node>();
-const listening = new WeakMap<Node, Set<string>>();
+const listening = new WeakMap<Node, Map<string, (e: Event) => void>>();
 
 /** `onX` handlers: kept on the element, run by the root's listener as the event bubbles. */
 const eventKeys = new Map<string, [string, string]>();
@@ -599,11 +609,23 @@ export function delegateEvents(names: string[]) {
 
 function listen(root: Node, type: string) {
   let types = listening.get(root);
-  if (!types) listening.set(root, (types = new Set()));
+  if (!types) listening.set(root, (types = new Map()));
   if (types.has(type)) return;
-  types.add(type);
   // (A portal's mount outside every root listens for the root its portal is in: events go on there.)
-  root.addEventListener(type, (e) => (process.env.NODE_ENV !== "production" ? dispatchAsInteraction(e, () => dispatch(e, containers.get(root) ?? root)) : dispatch(e, containers.get(root) ?? root)));
+  const l = (e: Event) => (process.env.NODE_ENV !== "production" ? dispatchAsInteraction(e, () => dispatch(e, containers.get(root) ?? root)) : dispatch(e, containers.get(root) ?? root));
+  types.set(type, l);
+  root.addEventListener(type, l);
+}
+
+/** Every delegated listener in `doc` taken off (a later handler delegates its event again). */
+export function clearDelegatedEvents(doc: Document = document) {
+  for (const root of [...roots, ...containers.keys()]) {
+    const types = listening.get(root);
+    if (!types || !doc.contains(root)) continue;
+    for (const [t, l] of types) root.removeEventListener(t, l);
+    listening.delete(root);
+  }
+  delegated.clear();
 }
 
 /** Portal mounts outside every render root → the root their portal sits in. */
@@ -1096,7 +1118,12 @@ function portal(props: { mount?: Node; children?: any }) {
     // (After what it sits in is mounted: where it sits is known.)
     { schedule: true } as any,
   );
-  // A mount outside the root the portal sits in listens for that root (one inside it needs nothing: events reach it).
+  listenForMount(mount, tree);
+  return tree;
+}
+
+/** A mount outside the root `tree` sits in listens for that root (one inside it needs nothing: events reach it). */
+function listenForMount(mount: () => Node, tree: Node) {
   createEffect(mount, () => {
     const m = untrack(mount);
     let root: Node | null = tree.parentNode;
@@ -1106,6 +1133,21 @@ function portal(props: { mount?: Node; children?: any }) {
     for (const t of delegated) listen(m, t);
     return () => void containers.delete(m);
   });
+}
+
+/** One node appended to `mount` (Solid 1's Portal container), its host where the returned marker sits. @internal */
+export function portalNode(mount: () => Node, node: Node): Node {
+  const tree = document.createTextNode("");
+  tagHost(node, () => tree.parentNode);
+  createRenderEffect(
+    mount,
+    (m) => {
+      m.appendChild(node);
+      return () => void (node.parentNode === m && m.removeChild(node));
+    },
+    { schedule: true } as any,
+  );
+  listenForMount(mount, tree);
   return tree;
 }
 
