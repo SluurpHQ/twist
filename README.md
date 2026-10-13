@@ -13,7 +13,9 @@ signals: no virtual DOM, no re-running components to find what changed.
 - **React's API** (`react`, `react-dom`, `react-dom/client`, `react-dom/server`): hooks, Suspense, transitions,
   server rendering, streaming and hydration, on signals instead of a virtual DOM.
 - **Solid 2's API** (`solid-js`, `@solidjs/web`): signals, memos, stores, projections, `<For>`, `<Show>`,
-  `<Loading>`, `<Errored>`, server rendering and hydration.
+  `<Loading>`, `<Errored>`, server rendering and hydration. In the browser it runs on Solid's own reactive core and
+  client layer (ported from Solid 2.0.0-rc.14, MIT: `src/twist/core`, `src/twist/client`), under Twist's compiler and
+  web runtime.
 - **Solid 1's API** (`solid-js` 1.x, `solid-js/web`, `solid-js/store`), for apps still on Solid 1: writes seen at
   once, effects after the update, path setters, `produce` and `reconcile`, `createResource` with `<Suspense>`,
   `classList` and `use:` directives. The Vite plugin picks it when the app's `solid-js` is a 1.x.
@@ -68,8 +70,8 @@ rounds taken in turn):
 
 | | create 1,000 rows | replace 1,000 rows | swap rows | create 10,000 rows | memory a row | server render, 1,000 rows | bundle (minified) |
 |---|---|---|---|---|---|---|---|
-| Solid 2 | 18.4 | 20.0 | 1.1 | 207 | 1,454 B | 0.14 | 65 KB |
-| Twist, Solid's API | 18.6 | 20.5 | 1.2 | 225 | 1,211 B | 0.21 | 103 KB |
+| Solid 2 | 17.8 | 19.9 | 1.1 | 203 | 1,454 B | 0.14 | 65 KB |
+| Twist, Solid's API | 18.3 | 19.8 | 1.1 | 211 | 1,279 B | 0.21 | 86 KB |
 | React 19.3 | 19.8 | 24.0 | 17.8 | 300 | 1,735 B | 0.89 | 210 KB |
 | Twist, React's API | 21.1 | 24.2 | 1.4 | 239 | 1,760 B | 1.03 | 148 KB |
 
@@ -81,8 +83,8 @@ Twist is checked against React's and Solid's own test suites (`conformance/`):
 
 - React 19: 4,052 tests pass, 14 fail. Most of the failures need React's render phase apart from its commit: a
   transition that yields midway and is interrupted, or snapshots taken children first before anything changes.
-- Solid 2: 8,431 tests pass, 89 fail. Most of the failures are Solid 2's newest rules for optimistic updates running
-  side by side, and for when a pending update holds what is on screen. Tests that only check Solid's private
+- Solid 2: 8,639 tests pass, 12 fail. Most of the failures are Solid's own at release candidate 14 (its published
+  build fails them too), and a server render reading the browser's reactive core. Tests that only check Solid's private
   structures or its own build files are left out, each with its reason (`conformance/solid/skips.ts`).
 - Solid 1.9: 424 tests pass, 11 fail. The failures are writes held by a transition until it settles, cycle errors,
   the order memos run in after their sources change, and markup details (Twist marks dynamic children with comments).
