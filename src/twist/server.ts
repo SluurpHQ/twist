@@ -55,10 +55,14 @@ setDescribedNode((v) => (v && v[COMP] ? createComponent(v.fn, componentProps(v.p
 
 const EL = Symbol("twist.ssr.element");
 const COMP = Symbol("twist.ssr.component");
+/** A template's own element with nothing special about it: written straight from its spec when its parent is (no
+ * description made), from `start` in its template's values. */
+const LAZY = Symbol("twist.ssr.lazy-element");
+type Lazy_ = { [LAZY]: true; spec: Spec; meta: SpecMeta; values: unknown[]; start: number; keyed?: boolean };
 /** Whether `v` is markup made here and not rendered yet (Twist's JSX describes; html() renders). */
-export const isServerNode = (v: any) => !!v && typeof v === "object" && (v[EL] === true || v[COMP] === true);
+export const isServerNode = (v: any) => !!v && typeof v === "object" && (v[EL] === true || v[COMP] === true || v[LAZY] === true);
 
-type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; owner?: any; skip?: (k: string) => boolean; attrs?: string; sources?: boolean; keys?: string[]; tagIs?: TagFacts };
+type Element_ = { [EL]: true; tag: string; props: any; children?: any; keyed?: boolean; owner?: any; skip?: (k: string) => boolean; attrs?: string; sources?: boolean; keys?: string[]; tagIs?: TagFacts; ops?: Op[]; values?: unknown[]; made?: any };
 type Component_ = { [COMP]: true; fn: (props: any) => any; props: Record<string, any> };
 
 export const Fragment = (props: { children?: unknown }) => props.children;
@@ -72,15 +76,58 @@ export const __twist_t = (spec: Spec) => {
   let meta: SpecMeta | undefined;
   return (values: unknown[]) => {
     // (Keyed under the owner that made it, as Solid's template takes its key where it is made.)
-    const d = described(spec, values, { i: 0 }, spec[4] ? undefined : (meta ??= metaOf(spec)));
+    meta ??= spec[4] ? undefined : metaOf(spec);
+    // (Plain all through: written from its compiled parts; its props made only if something reads them.)
+    if (meta?.plain) return new PlainEl(spec, meta, values, getOwner());
+    const d = described(spec, values, { i: 0 }, meta);
     if (d && d[EL]) d.owner = getOwner();
     return d;
   };
 };
+/** A plain template's element: what element() needs at hand, its props (a description's) made the first time they are
+ * read. Written from its compiled parts while they are the ones it made. */
+class PlainEl {
+  declare owner: any;
+  declare ops: Op[];
+  declare values: unknown[];
+  declare tag: string;
+  declare keyed?: boolean;
+  declare made?: any;
+  declare spec: Spec;
+  declare meta: SpecMeta;
+  constructor(spec: Spec, meta: SpecMeta, values: unknown[], owner: any) {
+    this.spec = spec;
+    this.meta = meta;
+    this.values = values;
+    this.owner = owner;
+    this.tag = spec[0];
+    this.ops = opsOf(spec, meta);
+    if (process.env.NODE_ENV !== "production") for (const [sp, i] of (this.ops as any).holes as [Spec, number][]) holeValue(sp, values, { i });
+  }
+  get props(): any {
+    const d = described(this.spec, this.values, { i: 0 }, this.meta);
+    Object.defineProperty(this, "props", { value: d.props, writable: true, configurable: true, enumerable: true });
+    this.made = d.props;
+    return d.props;
+  }
+  set props(v: any) {
+    Object.defineProperty(this, "props", { value: v, writable: true, configurable: true, enumerable: true });
+  }
+  get attrs() {
+    return this.meta.attrs;
+  }
+  get keys() {
+    return this.meta.keys!;
+  }
+  get tagIs() {
+    return this.meta.tagIs;
+  }
+}
+(PlainEl.prototype as any)[EL] = true;
 const fixedHtml = new WeakMap<Spec, { t: string }>();
 /** What a template element's spec gives every element made from it, worked out once: its fixed attributes, its fixed
  * text (escaped), and its prop keys when they need no checking (no spread among them). */
-type SpecMeta = { attrs: string; kids: any[]; kinds: number[]; inner: (SpecMeta | undefined)[]; keys: string[] | null; tagIs: TagFacts };
+type SpecMeta = { attrs: string; kids: any[]; kinds: number[]; inner: (SpecMeta | undefined)[]; keys: string[] | null; tagIs: TagFacts; size: number; plain: boolean };
 /** A template child: a hole, text, an element with holes, a fixed element (its HTML kept in `kids` once made). */
 const HOLE = 0;
 const TEXT = 1;
@@ -101,9 +148,21 @@ function metaOf(spec: Spec): SpecMeta {
   // (Plain attribute names only: anything else goes through the general checks.)
   const keys = slots.every((k) => !k.startsWith("$spread$") && ATTR_NAME.test(k)) ? [...slots, ...(kids.length ? ["children"] : [])] : null;
   validTag(tag);
-  specMeta.set(spec, (m = { attrs, kids: texts, kinds, inner, keys, tagIs: { void: VOID.has(tag), raw: RAW_TEXT.has(tag) } }));
+  // (How many of the template's values it takes; whether it can be written without its description.)
+  let size = slots.length;
+  for (let i = 0; i < kids.length; i++) size += kinds[i] === HOLE ? 1 : kinds[i] === INNER ? (inner[i]?.size ?? countValues(kids[i] as Spec)) : 0;
+  const plain = keys !== null && !SPECIAL_TAGS.has(tag) && kinds.every((k, i) => k !== INNER || inner[i] !== undefined) && slots.every((k) => k !== "children" && k !== "ref" && k !== "innerHTML" && k !== "textContent" && !/^on[A-Z]/.test(k) && !k.startsWith("prop:"));
+  specMeta.set(spec, (m = { attrs, kids: texts, kinds, inner, keys, tagIs: { void: VOID.has(tag), raw: RAW_TEXT.has(tag) }, size, plain }));
   return m;
 }
+/** The values a spec with a spread takes (each of its slots and holes, and its own elements'). */
+function countValues(spec: Spec): number {
+  let n = spec[2].length;
+  for (const k of spec[3]) n += k === 0 ? 1 : typeof k === "string" ? 0 : countValues(k);
+  return n;
+}
+/** Tags whose markup depends on more than their attributes and children (written through their description). */
+const SPECIAL_TAGS = /* @__PURE__ */ new Set(["html", "head", "body", "select", "option", "textarea", "script", "style", "title", "meta", "link", "base", "template"]);
 function described(spec: Spec, values: unknown[], at: { i: number }, meta?: SpecMeta): any {
   if (spec[4]) return expand(spec, values, at, jsx, jsxs);
   const [tag, , slots, kids] = spec;
@@ -114,13 +173,148 @@ function described(spec: Spec, values: unknown[], at: { i: number }, meta?: Spec
   const children: any[] = [];
   for (let i = 0; i < kinds.length; i++) {
     const kind = kinds[i];
-    children.push(kind === HOLE ? holeValue(spec, values, at) : kind === TEXT ? parts[i] : kind === INNER ? described(kids[i] as Spec, values, at, inner[i]) : (parts[i] ??= fixedPart(kids[i] as Spec)));
+    children.push(kind === HOLE ? holeValue(spec, values, at) : kind === TEXT ? parts[i] : kind === INNER ? innerElement(kids[i] as Spec, values, at, inner[i]) : (parts[i] ??= fixedPart(kids[i] as Spec)));
   }
   if (children.length > 1) ((children as any)[OWN] = true), (props.children = children);
   else if (children.length) props.children = children[0];
   const d = { [EL]: true, tag, props, attrs: meta.attrs, tagIs: meta.tagIs } as Element_;
   if (meta.keys) d.keys = meta.keys;
   return d;
+}
+/** A template's own element: lazy when plain (written from its spec), else described. */
+function innerElement(spec: Spec, values: unknown[], at: { i: number }, meta: SpecMeta | undefined): any {
+  if (!meta?.plain) return described(spec, values, at, meta);
+  const z: Lazy_ = { [LAZY]: true, spec, meta, values, start: at.i };
+  at.i += meta.size;
+  return z;
+}
+/**
+ * A plain template compiled once, as Solid compiles its server templates: its fixed markup in strings, and between them
+ * what each render fills in, in the order the template's values come (an element's attributes, then its children).
+ */
+type Op =
+  | string
+  | { k: 0 } // the root's hydration key, when it is keyed
+  | { k: 1; name: string } // an attribute's value
+  | { k: 2; spec: Spec } // a lone hole: the element's only child
+  | { k: 3; spec: Spec } // a hole among other children
+  | { k: 4; spec: Spec; meta: SpecMeta | undefined } // an element with something special: described, then written
+  | { k: 5 } // children begin: what follows goes into their list, as collect() writes it
+  | { k: 6 }; // children end
+const compiled = new WeakMap<Spec, Op[]>();
+function opsOf(spec: Spec, meta: SpecMeta): Op[] {
+  let ops = compiled.get(spec);
+  if (ops) return ops;
+  const out: Op[] = [];
+  // (Where each hole's value is, with its element's spec: registered as the template is made, in development.)
+  const holes: [Spec, number][] = [];
+  let n = 0;
+  const str = (t: string) => (typeof out[out.length - 1] === "string" ? (out[out.length - 1] = (out[out.length - 1] as string) + t) : out.push(t));
+  const walk = (sp: Spec, m: SpecMeta, root: boolean) => {
+    const [tag, , slots, kids] = sp;
+    str("<" + tag);
+    if (root) out.push({ k: 0 });
+    for (const name of slots) out.push({ k: 1, name }), n++;
+    str(m.attrs + ">");
+    if (m.tagIs.void) return;
+    const lone = kids.length === 1;
+    if (!lone && kids.length) out.push({ k: 5 });
+    for (let i = 0; i < kids.length; i++) {
+      const kind = m.kinds[i];
+      if (kind === HOLE) out.push({ k: lone ? 2 : 3, spec: sp }), holes.push([sp, n++]);
+      else if (kind === TEXT) str(m.kids[i].t ?? m.kids[i]);
+      else if (kind === FIXED) str(fixedPart(kids[i] as Spec).t);
+      else if (m.inner[i]?.plain) walk(kids[i] as Spec, m.inner[i]!, false);
+      else out.push({ k: 4, spec: kids[i] as Spec, meta: m.inner[i] }), (n += m.inner[i]?.size ?? countValues(kids[i] as Spec));
+    }
+    if (!lone && kids.length) out.push({ k: 6 });
+    str("</" + tag + ">");
+  };
+  walk(spec, meta, true);
+  (out as any).holes = holes;
+  compiled.set(spec, (ops = out));
+  return ops;
+}
+/** A compiled template written with these values. */
+function runOps(ops: Op[], values: unknown[], keyed: boolean): string {
+  const at = { i: 0 };
+  let out = "";
+  // (The children list being written, and those it is inside.)
+  let cur: Parts | null = null;
+  const outer: (Parts | null)[] = [];
+  const emit = (t: string) => (cur ? cur.add(t, false, false) : (out += t));
+  for (let j = 0; j < ops.length; j++) {
+    const op = ops[j]!;
+    if (typeof op === "string") {
+      emit(op);
+      continue;
+    }
+    switch (op.k) {
+      case 0:
+        if (keyed) emit(ssrHydrationKey());
+        break;
+      case 1:
+        emit(ssrAttribute(op.name, read(values[at.i++])));
+        break;
+      case 2: {
+        // (As children() writes an element's one child.)
+        const raw = holeValue(op.spec, values, at);
+        emit(isDynamic(raw) ? dynamicKids(raw) : children(read(raw)));
+        break;
+      }
+      case 3: {
+        // (As collect() writes a child among others: a function or a component between markers.)
+        const x: any = holeValue(op.spec, values, at);
+        if ((typeof x === "function" && !x.$esc) || (x && x[COMP])) cur!.add("<!--$-->" + (x[COMP] ? html(x, false) : list([x], false, true)) + "<!--/-->", false, false);
+        else collect([x], true, true, false, cur!);
+        break;
+      }
+      case 4:
+        emit(element(described(op.spec, values, at, op.meta), false));
+        break;
+      case 5:
+        outer.push(cur);
+        cur = new Parts();
+        break;
+      case 6: {
+        const done = cur!.out;
+        cur = outer.pop()!;
+        emit(done);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** A lazy element written: as element() writes its description (in a live frame's claims, through it). */
+function lazyElement(z: Lazy_, keyed: boolean): string {
+  const { spec, meta, values } = z;
+  if ((sharedConfig.context as any)?.claims !== undefined) return element(described(spec, values, { i: z.start }, meta), keyed);
+  const [tag, , slots, kids] = spec;
+  const at = { i: z.start };
+  let out = "<" + tag + (keyed ? ssrHydrationKey() : "");
+  for (let i = 0; i < slots.length; i++) out += ssrAttribute(slots[i]!, read(values[at.i++]));
+  out += meta.attrs;
+  if (meta.tagIs.void) return out + ">";
+  out += ">";
+  if (kids.length === 1 && meta.kinds[0] === HOLE) {
+    // (One hole, the commonest: no list.)
+    const raw = holeValue(spec, values, at);
+    out += isDynamic(raw) ? dynamicKids(raw) : children(read(raw));
+  } else if (kids.length) {
+    const { kids: parts, kinds, inner } = meta;
+    const list: any[] = [];
+    for (let i = 0; i < kinds.length; i++) {
+      const kind = kinds[i];
+      list.push(kind === HOLE ? holeValue(spec, values, at) : kind === TEXT ? parts[i] : kind === INNER ? innerElement(kids[i] as Spec, values, at, inner[i]) : (parts[i] ??= fixedPart(kids[i] as Spec)));
+    }
+    let raw: any;
+    if (list.length > 1) ((list as any)[OWN] = true), (raw = list);
+    else raw = list[0];
+    out += children(isDynamic(raw) ? { [DYNAMIC_KIDS]: raw } : read(raw));
+  }
+  return out + "</" + tag + ">";
 }
 /** A bare function at a template's hole (not compiled as dynamic): where it was registered, to check what it allocates. */
 const holeSites = new WeakMap<Function, { spec: Spec; hole: number; registered: number }>();
@@ -536,6 +730,7 @@ export function html(v: any, inTemplate: boolean): string {
   // (A template's dynamic hole: its own id scope, as the client's binding is.)
   if (typeof v === "function") return inTemplate && isDynamic(v) ? hole(idScope(() => liveHole(v) ?? html(v(), false)), true) : hole(() => liveHole(v) ?? html(v(), false));
   if (v[EL]) return element(v, v.keyed ?? !inTemplate);
+  if (v[LAZY]) return lazyElement(v, v.keyed ?? !inTemplate);
   if (v[COMP]) return renderComponent(v.fn, componentProps(v.props), (out) => html(out, false));
   if (typeof v.t === "string") return v.t;
   // A binding-slot value as text: the markers the client writes between.
@@ -591,6 +786,7 @@ function element(el: Element_, keyed: boolean): string {
   // (Rendered, all of it, under the owner it takes its key under: as Solid's template makes its parts where it is made.)
   const under = el.owner ? keyOwnerOf(el.owner) : null;
   if (under && under !== getOwner()) return runWithOwner(under, () => element(el, keyed));
+  if (el.ops && (!Object.hasOwn(el, "props") || el.props === el.made) && !el.skip && !el.sources && el.children === undefined && (sharedConfig.context as any)?.claims === undefined) return runOps(el.ops, el.values!, keyed);
   const { tag } = el;
   let is = el.tagIs;
   if (!is) validTag(tag), (is = { void: VOID.has(tag), raw: RAW_TEXT.has(tag) });
@@ -696,17 +892,20 @@ function propsOf(el: Element_): Record<string, any> {
 const DYNAMIC_KIDS = Symbol("twist.ssr.dynamic-children");
 
 /** Elements given as values (not a template's own children): keyed, as Solid's templates each take an id. */
-const keyedKids = (v: any): any => (Array.isArray(v) ? Object.assign(v.map(keyedKids), { [OWN]: (v as any)[OWN] }) : v && v[EL] && v.keyed === undefined ? { ...v, keyed: true } : v);
+const keyedKids = (v: any): any =>
+  Array.isArray(v) ? Object.assign(v.map(keyedKids), { [OWN]: (v as any)[OWN] }) : v && v[EL] && v.keyed === undefined ? Object.assign(Object.create(Object.getPrototypeOf(v)), v, { keyed: true }) : v;
+
+/** Children that can change: rendered in an id scope of their own, a live frame's hole when there is one. */
+function dynamicKids(raw: any): string {
+  return hole(idScope(() => liveHole(() => read(raw)) ?? children(read(raw))), true);
+}
 
 function children(c: any): string {
   if (Array.isArray(c)) return list(c, !!(c as any)[OWN], true);
   if (typeof c === "function") return hole(() => list([c], true, true));
   if (c === null || typeof c !== "object") return html(c, false);
-  if (c[DYNAMIC_KIDS]) {
-    const raw = c[DYNAMIC_KIDS];
-    return hole(idScope(() => liveHole(() => read(raw)) ?? children(read(raw))), true);
-  }
-  return c[EL] ? element(c, c.keyed ?? false) : html(c, false);
+  if (c[DYNAMIC_KIDS]) return dynamicKids(c[DYNAMIC_KIDS]);
+  return c[EL] ? element(c, c.keyed ?? false) : c[LAZY] ? lazyElement(c, c.keyed ?? false) : html(c, false);
 }
 
 /** HTML written part by part: text beside text split where the client would see two nodes. */
@@ -809,6 +1008,7 @@ function collect(items: any[], own: boolean, inTemplate: boolean, viaFn: boolean
     }
     else if (typeof x === "string" || typeof x === "number") parts.add(typeof x === "string" ? escape(x) : String(x), true, !own || fn);
     else if (x[EL]) parts.add(element(x, x.keyed ?? !(inTemplate && own && !fn)), false, false);
+    else if (x[LAZY]) parts.add(lazyElement(x, x.keyed ?? !(inTemplate && own && !fn)), false, false);
     else parts.add(html(x, false), false, false);
     if (siteOwner && childIdCount(siteOwner) !== siteBefore) unscopedHole(site!, siteBefore, childIdCount(siteOwner));
   }

@@ -120,16 +120,37 @@ export const setChildIdCount = (o: Owner | null, n: number) => void (o && (idOwn
 export function peekNextChildId(o: Owner): string {
   const at = idOwner(o);
   if (at.id == null) throw new Error("Cannot get child id from owner without an id");
-  return at.id + (at.childCount ?? 0).toString(36);
+  return childIdOf(idValue(at), at.childCount ?? 0);
 }
 
 /** The id the next child of `o` takes: taken. */
 export function getNextChildId(o: Owner): string {
-  const id = peekNextChildId(o);
   const at = idOwner(o);
-  at.childCount = (at.childCount ?? 0) + 1;
-  return id;
+  if (at.id == null) throw new Error("Cannot get child id from owner without an id");
+  const n = at.childCount ?? 0;
+  at.childCount = n + 1;
+  return childIdOf(idValue(at), n);
 }
+/** An owner's id as a string: a scope's, made from its parent's and its slot the first time it is asked for (most
+ * holes take no id inside, Solid's materializeId). */
+function idValue(at: Owner): string {
+  const slot = (at as any).slot as number | undefined;
+  if (slot !== undefined) ((at as any).slot = undefined), (at.id = childIdOf(at.id!, slot));
+  return at.id!;
+}
+/**
+ * A child's id: the parent's, then the count in base 36 after a letter for its length past one digit (A two, B
+ * three…), so no id is another's prefix (Solid's formatId).
+ */
+function childIdOf(id: string, n: number): string {
+  return id + (n < 1024 ? (childSuffix[n] ??= suffixOf(n)) : suffixOf(n));
+}
+const suffixOf = (n: number) => {
+  const t = n.toString(36);
+  return (t.length > 1 ? String.fromCharCode(64 + t.length - 1) : "") + t;
+};
+/** Suffixes made once (an id is taken for every keyed element a server render writes). */
+const childSuffix: string[] = [];
 
 /** The next child id of `o` taken, for a scope of its own (undefined where ids are not given). */
 export function scopeIdOf(o: Owner): string | undefined {
@@ -144,16 +165,21 @@ export function scopeIdOf(o: Owner): string | undefined {
 export function idScope<T>(fn: () => T): () => T {
   const at = owner && idOwner(owner);
   if (!at || at.id == null) return fn;
-  const id = getNextChildId(at);
+  const prefix = idValue(at);
+  const slot = at.childCount ?? 0;
+  at.childCount = slot + 1;
   return () => {
     const was = at.id;
+    const wasSlot = (at as any).slot;
     const count = at.childCount;
-    at.id = id;
+    at.id = prefix;
+    (at as any).slot = slot;
     at.childCount = 0;
     try {
       return fn();
     } finally {
       at.id = was;
+      (at as any).slot = wasSlot;
       at.childCount = count;
     }
   };
@@ -163,16 +189,19 @@ export function idScope<T>(fn: () => T): () => T {
 export function idPlace(o: Owner | null): <T>(fn: () => T) => T {
   const at = o && idOwner(o);
   if (!at) return (fn) => fn();
-  const id = at.id;
+  const id = at.id == null ? at.id : idValue(at);
   return (fn) => {
-    if (at.id === id) return fn();
+    if (at.id === id && (at as any).slot === undefined) return fn();
     const was = at.id;
+    const wasSlot = (at as any).slot;
     const count = at.childCount;
     at.id = id;
+    (at as any).slot = undefined;
     try {
       return fn();
     } finally {
       at.id = was;
+      (at as any).slot = wasSlot;
       at.childCount = count;
     }
   };
@@ -181,7 +210,7 @@ export function idPlace(o: Owner | null): <T>(fn: () => T) => T {
 /** An owner made under `parent` given its id (unless transparent, which shares its parent's). */
 function giveId(o: Owner, parent: Owner | null) {
   if (!parent || idOwner(parent).id == null) return;
-  if (o.transparent) o.id = idOwner(parent).id;
+  if (o.transparent) o.id = idValue(idOwner(parent));
   else o.id = getNextChildId(parent);
 }
 
