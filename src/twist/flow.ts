@@ -129,8 +129,9 @@ export function mapArray<T, U>(
       const outIndexes: ReturnType<typeof cell<number>>[] = indexed ? new Array(next.length) : indexes;
       const outItems: ReturnType<typeof cell<T>>[] = typeof keyed === "function" ? new Array(next.length) : items;
       const kept = new Uint8Array(keys.length);
-      // (What this pass changed, undone if it throws.)
-      const made: Owner[] = [];
+      // (What this pass changed, undone if it throws: the rows it made, by place, and the cells it moved.)
+      let made: Uint8Array | null = null;
+      let madeCount = 0;
       const undo: (() => void)[] = [];
       const keep = (i: number, j: number) => {
         kept[i] = 1;
@@ -170,22 +171,22 @@ export function mapArray<T, U>(
           try {
             out[j] = scope(parent, outOwners, j, fn, item ? item.read : next[j], index?.read);
           } finally {
-            if (outOwners[j]) made.push(outOwners[j]!);
+            if (outOwners[j]) (made ??= new Uint8Array(next.length))[j] = 1, madeCount++;
           }
         }
       }
       } catch (e) {
-        for (const o of made) end(o);
+        if (made) for (let j = 0; j < made.length; j++) if (made[j]) end(outOwners[j]!);
         for (let k = undo.length - 1; k >= 0; k--) undo[k]!();
         throw e;
       }
       // (Development, an attribution engine installed: rows let go of and made, told — a list that remakes rows for
       // equivalent items is keyed by something unstable.)
-      if (process.env.NODE_ENV !== "production" && attrHooks !== null && made.length && made.length < next.length + 1) {
+      if (process.env.NODE_ENV !== "production" && attrHooks !== null && madeCount && madeCount < next.length + 1) {
         const removedItems: unknown[] = [];
         for (let i = 0; i < keys.length; i++) if (!kept[i]) removedItems.push(typeof keyed === "function" ? untrack(items[i]!.read) : keys[i]);
         const createdItems: unknown[] = [];
-        for (let j = 0; j < next.length; j++) if (made.includes(outOwners[j]!)) createdItems.push(next[j]);
+        for (let j = 0; j < next.length; j++) if (made![j]) createdItems.push(next[j]);
         if (removedItems.length) attrHooks.listChurn(self, removedItems, createdItems, next.length, typeof keyed === "function");
       }
       for (let i = 0; i < keys.length; i++) if (!kept[i]) end(owners[i]!);
