@@ -1968,7 +1968,8 @@ export class Computation<T> extends Node<T> implements Owner {
     }
     // (A first pass joining a hold makes the pass that created it part of the hold: membership is the tick's.)
     const firstPass = this.ranAt === -1;
-    if (this.readHeld && firstPass && prevListener === this.parent && prevListener && !prevListener.tx && !prevListener.readHeld) prevListener.readHeld = this.readHeld;
+    const maker = this.readHeld && firstPass ? makerOf(this) : null;
+    if (maker && !maker.tx && !maker.readHeld && (maker === prevListener || !prevListener)) maker.readHeld = this.readHeld;
     this.state = CLEAN;
     this.ranAt = clock;
     // (A list's rows memo reads each item by construction: the insert that resolves them is the fan-in told.)

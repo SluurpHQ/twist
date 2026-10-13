@@ -10,7 +10,7 @@ if (process.env.SSR_PROFILE_CHILD) {
   for (let i = 0; i < +n; i++) render();
 } else {
   const dir = mkdtempSync(join(tmpdir(), "ssr-prof-"));
-  Bun.spawnSync([process.execPath, "--cpu-prof", `--cpu-prof-dir=${dir}`, import.meta.path, name, n], { env: { ...process.env, SSR_PROFILE_CHILD: "1" }, stdio: ["inherit", "inherit", "inherit"] });
+  Bun.spawnSync([process.execPath, "--cpu-prof", "--cpu-prof-interval=100", `--cpu-prof-dir=${dir}`, import.meta.path, name, n], { env: { ...process.env, SSR_PROFILE_CHILD: "1" }, stdio: ["inherit", "inherit", "inherit"] });
   const file = readdirSync(dir).find((f) => f.endsWith(".cpuprofile"))!;
   const profile = JSON.parse(readFileSync(join(dir, file), "utf8"));
   console.log(summary(profile, `ssr-${name}`));
