@@ -41,7 +41,7 @@ function solidLibraries(root) {
 }
 
 /**
- * A compiled module made hot: its components registered with the refresh runtime (src/twist/refresh.ts), kept by name
+ * A compiled module made hot: its components registered with the refresh runtime (src/twist/client/refresh.ts), kept by name
  * across edits; an edit taken in place when it exports components only, else passed on to its importers.
  */
 function hotModule(out) {
