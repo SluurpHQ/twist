@@ -169,13 +169,17 @@ export function __twist_t(spec: Spec) {
  * last one with something to do (null: none) — past a fixed node, into a fixed element with values below, or a value
  * put before its marker.
  */
-type Plan = { slots: string[]; events: string[]; steps: Step[] | null };
-type Step = { place: Place; value: boolean; inner: Plan | null };
+type Plan = { slots: string[]; events: string[]; steps: Step[] | null; walks: boolean };
+/** (`lone`: a value that is its element's only child — nothing else there to keep.) */
+type Step = { place: Place; value: boolean; inner: Plan | null; lone: boolean };
 function planOf(spec: Spec): Plan {
   const where = places(spec);
-  const steps: Step[] = spec[3].map((k, i) => ({ place: where[i]!, value: k === 0, inner: k !== 0 && typeof k !== "string" && hasHoles(k) ? planOf(k) : null }));
+  const lone = spec[3].length === 1;
+  const steps: Step[] = spec[3].map((k, i) => ({ place: where[i]!, value: k === 0, inner: k !== 0 && typeof k !== "string" && hasHoles(k) ? planOf(k) : null, lone: lone && k === 0 }));
   while (steps.length && !steps[steps.length - 1]!.value && !steps[steps.length - 1]!.inner) steps.pop();
-  return { slots: spec[2], events: spec[2].map(eventOf), steps: steps.length ? steps : null };
+  // (Only values at the end: no child of the copy is looked at.)
+  const walks = steps.some((t) => !t.value || t.place !== Place.End);
+  return { slots: spec[2], events: spec[2].map(eventOf), steps: steps.length ? steps : null, walks };
 }
 function build(spec: Spec): Element {
   const [tag, fixed, , kids] = spec;
@@ -197,12 +201,12 @@ function fill(el: Element, plan: Plan, values: unknown[], at: { i: number }) {
   }
   const steps = plan.steps;
   if (!steps) return;
-  let node = el.firstChild;
+  let node = plan.walks ? el.firstChild : null;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]!;
     // (Put before the node the walk is at, or at the end: never in the way of what is left to walk.)
     if (step.value) {
-      insertHosted(el, values[at.i++], step.place === Place.End ? null : node);
+      insertHosted(el, values[at.i++], step.place === Place.End ? null : node, undefined, undefined, undefined, false, step.lone);
       if (step.place === Place.Comment) node = node!.nextSibling;
       continue;
     }
@@ -773,7 +777,7 @@ function cleanupFragment(id: string) {
 }
 
 /** `insert`, with each node told its portal host. */
-function insertHosted(parent: Node, value: any, marker: Node | null, initial?: Node[], host?: () => Node | null, name?: string | null, slot = false) {
+function insertHosted(parent: Node, value: any, marker: Node | null, initial?: Node[], host?: () => Node | null, name?: string | null, slot = false, lone = false) {
   // Children given as a list: static ones put in place; a part that can change, bound where it sits (before an empty
   // anchor of its own when more follows it).
   if (Array.isArray(value) && value.some((v) => typeof v === "function")) {
@@ -795,11 +799,11 @@ function insertHosted(parent: Node, value: any, marker: Node | null, initial?: N
     else for (const n of next) parent.insertBefore(n, marker);
     return;
   }
-  bind(parent, value, marker, undefined, host, initial, name);
+  bind(parent, value, marker, undefined, host, initial, name, false, lone);
 }
 
 /** A part that can change, rendered before `end` (at the end of `parent` when null) and kept current. */
-function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null, scoped = false) {
+function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor, host?: () => Node | null, initial?: Node[], name?: string | null, scoped = false, lone = false) {
   const options = name === undefined ? bindingNamed(parent, "children") : bindingOptions(name);
   // A template's dynamic hole: an id scope of its own, as Solid's insert effect (and the server's hole) is.
   const o = scoped && isDynamic(value) ? getOwner() : null;
@@ -812,6 +816,7 @@ function bind(parent: Node, value: () => any, end: Node | null, claimed?: Cursor
   if (initial?.length) b.nodes = initial;
   if (claimed) b.first = claimed;
   if (host) b.host = host;
+  if (lone) b.lone = true;
   startEffect(b);
   // (A template hole that read nothing: written once. Spread's children keep their effect, as Solid's do.)
   if (name === undefined) releaseIfConstant(b);
@@ -837,6 +842,8 @@ class Binding extends Computation<any> {
   /** A first claim made after the walk (its value was pending): the server's keys it claims from. */
   declare lateRegistry: Map<string, Element> | undefined;
   declare host: (() => Node | null) | undefined;
+  /** Its element's only child (a template's lone hole): its text can be set as the element's. */
+  declare lone: boolean;
   /** A value's nodes in place: claimed from the server's the first time when hydrating. */
   show(v: any) {
     // Hydrating: its first value claims the server's nodes where it sits (under this binding, as the server ran it).
@@ -874,7 +881,7 @@ class Binding extends Computation<any> {
     return CLAIMED;
   }
 }
-Object.assign(Binding.prototype, { text: null, said: undefined, nodes: NO_NODES, endAt: null, first: undefined, lateRegistry: undefined, host: undefined, apply: bindingApply, transparent: true });
+Object.assign(Binding.prototype, { text: null, said: undefined, nodes: NO_NODES, endAt: null, first: undefined, lateRegistry: undefined, host: undefined, lone: false, apply: bindingApply, transparent: true });
 /** A list with nothing to call and nothing nested in it: shown as it is. */
 function plainList(v: any[]) {
   for (let i = 0; i < v.length; i++) {
@@ -908,7 +915,7 @@ function bindingApply(this: Binding, v: any) {
     const current = this.nodes;
     if (current.length === 1 && current[0]!.nodeType === 3) return void (((this.text = current[0] as Text), (this.nodes = NO_NODES)), bindingApply.call(this, t));
     // Into an empty element, at its end: its text set, the node the browser makes kept (as Solid does).
-    if (!current.length && end === null && !this.host && !parent.firstChild && parent.nodeType === 1) {
+    if (!current.length && end === null && !this.host && (this.lone || (!parent.firstChild && parent.nodeType === 1))) {
       (parent as Element).textContent = t;
       return void ((this.text = IN_PLACE), (this.said = t));
     }
