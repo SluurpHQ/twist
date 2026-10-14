@@ -58,10 +58,24 @@
     "./vite": "./vite.js",
     "./compiler": "./napi/index.js"
   },
-  "files": ["src", "napi/index.js", "napi/platform.js", "modules.js", "vite.js", "LICENSE", "README.md"],
+  "files": [
+    "src",
+    "napi/index.js",
+    "napi/platform.js",
+    "modules.js",
+    "vite.js",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build:compiler": "node scripts/build-compiler.mjs",
     "test": "cd test/bridge && bun test"
+  },
+  "dependencies": {
+    "@types/react": "~19.3.0",
+    "@types/react-dom": "~19.3.0",
+    "solid-js": "2.0.0-rc.14",
+    "@solidjs/web": "2.0.0-rc.14"
   },
   "peerDependencies": {
     "vite": ">=6",
@@ -80,8 +94,6 @@
     }
   },
   "devDependencies": {
-    "@types/react": "19",
-    "@types/react-dom": "19",
     "fast-check": "3.23.2",
     "oxc-parser": "0.151.0",
     "react": "19",
