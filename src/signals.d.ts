@@ -118,6 +118,8 @@ export function selector<T>(source: () => T): (key: T) => boolean;
 export function untrack<T>(fn: () => T): T;
 /** Run `fn` without subscribing, and say how many signals it read (none: what it answers never changes). */
 export function readCount<T>(fn: () => T): { value: T; count: number };
+/** Run `fn` noting what it reads (not subscribed): the value, the nodes read, and the version each had. */
+export function readsOf<T>(fn: () => T): { value: T; sources: any[]; versions: number[] };
 
 /** State that is an object, tracked property by property; changed on a draft. */
 export function store<T extends object>(initial: T): [T, (change: ((draft: T) => void | Partial<T>) | Partial<T>) => void];

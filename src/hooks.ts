@@ -47,4 +47,9 @@ export function setDryHooks(hooks: Hooks) {
 }
 
 /** Whether the component rendering now is rendered on the server (renderToString or a stream). */
-export const rendersOnServer = () => d !== null && d !== client && d !== dryHooks;
+export const rendersOnServer = () => d !== null && d !== client && d !== dryHooks && d !== recordHooks;
+/** The browser's hooks as a transition's dry run records a render with them (core.ts). */
+let recordHooks: Hooks | null = null;
+export function setRecordHooks(hooks: Hooks) {
+  recordHooks = hooks;
+}

@@ -3,7 +3,7 @@
 // suspends there holds the whole transition (React keeps the screen as it is until the data is there); otherwise
 // the transition is applied and drawn as usual. React gets the same from rendering a draft tree it can throw away.
 import { CONSUMER, CONTEXT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, readLazy, readThenable } from "./element.ts";
-import { type Fiber, depsChanged, keyOf, readContext, typeOf } from "./core.ts";
+import { type Fiber, clearRecorded, depsChanged, keyOf, readContext, recordRender, typeOf } from "./core.ts";
 import { setDryHooks, withHooks } from "./hooks.ts";
 import { stylesheetPending } from "./float-client.ts";
 
@@ -170,7 +170,11 @@ function touches(f: Fiber): boolean {
 }
 
 function renderComponent(fiber: Fiber | null, at: Fiber, contexts: [any, any][], type: any, props: any) {
-  if (!type.prototype?.isReactComponent) return renderDry(fiber, at, contexts, () => type(props));
+  if (!type.prototype?.isReactComponent) {
+    // With the real hooks, kept for the transition's draw (no second render).
+    const r = fiber ? recordRender(fiber, props, preview.states, contexts) : null;
+    return r ? r.out : renderDry(fiber, at, contexts, () => type(props));
+  }
   const inst = fiber?.inst;
   if (!inst) {
     const made = new type(props, type.contextType ? readCtx(type.contextType) : undefined);
@@ -198,6 +202,7 @@ let inBoundary = 0;
 export function tryTransition(changed: Fiber[], p: Preview, isUrgent = false): PromiseLike<any> | null {
   preview = p;
   urgent = isUrgent;
+  clearRecorded();
   inBoundary = 0;
   // Only the outermost of those changed: the others render as part of them.
   const set = new Set(changed);
@@ -224,6 +229,8 @@ export function tryTransition(changed: Fiber[], p: Preview, isUrgent = false): P
     }
     return null;
   } catch (e: any) {
+    // (Its records dropped: what holds it, or an error the real render meets again.)
+    clearRecorded();
     if (e && typeof e.then === "function") return e;
     // Any other error: left to the real render, where boundaries catch it.
     return null;

@@ -2,7 +2,7 @@
 // (its state, a context, any signal) re-renders it alone. A parent re-renders a child only when the child's props
 // changed (shallowly); nothing cascades past that. Rendering is synchronous: no time slicing, no lanes.
 declare const process: { env: Record<string, string | undefined> };
-import { effect, effectNode, endEffect, type EffectNode, flush as flushSignals, holdFlushes, onBatch, runWithOwner, signal, untrack } from "./signals.js";
+import { effect, effectNode, endEffect, type EffectNode, flush as flushSignals, followNode, holdFlushes, onBatch, readsOf, runWithOwner, signal, untrack } from "./signals.js";
 import { ACTIVITY, VIEW_TRANSITION, CONSUMER, CONTEXT, ELEMENT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, PROFILER, STRICT, SUSPENSE, SUSPENSE_LIST, callComponent, callRender, createElement, formatOwnerStack, invalidType, objectChild, ownerNow, readLazy, readThenable, setOwnerSource, unwrapChild } from "./element.ts";
 import { inOrder } from "./shared/in-order.ts";
 import { DiffScope, describeDiff, describeServerNode, firstDiffFiber, propName, styleObject } from "./hydration-diff.ts";
@@ -15,7 +15,7 @@ import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
 import { type Preview, tryTransition } from "./dryrun.ts";
-import { setClientHooks } from "./hooks.ts";
+import { setClientHooks, setRecordHooks, withHooks } from "./hooks.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
 import { getOffsets, setOffsets } from "./dom-selection.ts";
@@ -3020,8 +3020,16 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   current = f;
   hookAt = 0;
   internals.A = asyncDispatcher;
+  const rec = recorded.size ? takeRecorded(f) : null;
   try {
-    for (let pass = 0; ; pass++) {
+    if (rec) {
+      for (const s of rec.sources) followNode(s);
+      f.insertion = rec.insertion;
+      f.layout = rec.layout;
+      f.passive = rec.passive;
+      hookAt = rec.hooks;
+      out = rec.out;
+    } else for (let pass = 0; ; pass++) {
       (f as any).again = false;
       out = f.render!(f, f.props);
       if (!(f as any).again && (f as any).strict && f.render !== renderClass && typeof f.type === "function" && (process.env.NODE_ENV !== "production" && dev())) {
@@ -3167,7 +3175,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     return;
   }
   if (profilersMounted) {
-    const took = now() - began;
+    const took = now() - began + (rec ? rec.took : 0);
     if (!kept) profile(f, took - nestedTime, now() - lastPass - (nestedTime - nestedBefore));
     nestedTime = outerNested + took;
   }
@@ -4062,7 +4070,11 @@ function holdForStylesheets(apply: () => void, dry: () => PromiseLike<any> | nul
 }
 
 function enqueueUpdate(f: Fiber, apply: () => void, preview: (p: Preview) => void) {
-  if (current === f) return apply();
+  if (current === f) {
+    // (Set while its render is recorded: that render is not kept, it runs again for real.)
+    if (recordStates) throw NOT_RECORDABLE;
+    return apply();
+  }
   if (inTransition(apply, preview, f)) return;
   if (holdForStylesheets(apply, () => dryRun([f], preview))) return;
   if (!duringContinuousEvent()) return apply();
@@ -4114,7 +4126,8 @@ function state(f: Fiber, initial: any) {
   const sig: Sig<number> = signal(0);
   const box: any = {
     v: initial,
-    read: () => (sig(), box.v),
+    read: () => (sig(), recordStates !== null && recordStates.has(box) ? recordStates.get(box) : box.v),
+    node: (sig as any).node,
     put: (next: any) => {
       if (Object.is(next, box.v)) return;
       box.v = next;
@@ -4183,6 +4196,7 @@ export const client = {
       box.dispatch = (a: any) => {
         updateWhileRendering(f);
         // While its own component renders: kept for the next pass, reduced there with the reducer given then.
+        if (current === f && recordStates) throw NOT_RECORDABLE;
         if (current === f) return void (box.rendering ??= []).push(a), ((f as any).again = true);
         const apply = () => box.put(strictTwice(f, () => box.reducer(box.v, a), true));
         const preview = (p: Preview) => p.states.set(box, box.reducer(p.states.has(box) ? p.states.get(box) : box.v, a));
@@ -4240,12 +4254,12 @@ export const client = {
     // Inside a hook's own function (React's nested-hooks dispatcher): read, and warned about.
     if (inHook)
       warn("Context can only be read while React is rendering. In classes, you can read it in the render method or getDerivedStateFromProps. In function components, you can read it directly in the function body, but not inside Hooks like useReducer() or useMemo().");
-    return readContext(current, ctx);
+    return contextFor(current, ctx);
   },
   useContext(ctx: any) {
     // A hook like the others: not in a class's render (React's dispatcher there throws).
     if (!current || current.inst) throw new Error(INVALID_HOOK_CALL);
-    return readContext(current, ctx);
+    return contextFor(current, ctx);
   },
   useId() {
     const f = current!;
@@ -4430,13 +4444,101 @@ export const client = {
     return h.call;
   },
   use(usable: any) {
-    if (usable && usable.$$typeof === CONTEXT) return readContext(current!, usable);
+    if (usable && usable.$$typeof === CONTEXT) return contextFor(current!, usable);
     // browser(): in the browser, nothing to wait for.
     if (usable && usable.$$typeof === RECOVERABLE) return undefined;
     return readThenable(usable);
   },
 };
 setClientHooks(client);
+
+// ---------------------------------------------------------------- recorded renders
+
+/**
+ * A component rendered in a transition's dry run with the real hooks: its output, the effects it asked for and what it
+ * read, kept so that the transition's draw takes them rather than calling it again (React renders it once).
+ */
+type Recorded = {
+  props: any;
+  out: any;
+  insertion: (() => void)[];
+  layout: (() => void)[];
+  passive: (() => void)[];
+  hooks: number;
+  sources: any[];
+  versions: number[];
+  /** The state it read with the transition's values: the signal of each, and the value it showed. */
+  previewed: Map<any, [any, any]>;
+  took: number;
+};
+const recorded = new Map<Fiber, Recorded>();
+/** While a render is recorded: the transition's state values, and the contexts its dry run provides. */
+let recordStates: Map<any, any> | null = null;
+let recordContexts: [any, any][] | null = null;
+/** Thrown where a recorded render would change something (state set while rendering, a hook that keeps state of its
+ * own as it renders): that render is dropped and the component renders for real later. */
+const NOT_RECORDABLE = Symbol("not recordable");
+const notRecordable = () => {
+  throw NOT_RECORDABLE;
+};
+const recordHooks: any = { ...client, useDeferredValue: notRecordable, useActionState: notRecordable, useOptimistic: notRecordable, useEffectEvent: notRecordable };
+setRecordHooks(recordHooks);
+
+/** A context's value for `f`, as its dry run provides it when recorded (the provider's signal read all the same). */
+function contextFor(f: Fiber, ctx: any) {
+  const v = readContext(f, ctx);
+  if (recordContexts) for (let i = recordContexts.length - 1; i >= 0; i--) if (recordContexts[i]![0] === ctx) return recordContexts[i]![1];
+  return v;
+}
+
+/** `f`'s render with `props` recorded, the transition's `states` and `contexts` seen: its output, or null when it
+ * cannot be (a class, StrictMode's double render, something it does that a record cannot keep). */
+export function recordRender(f: Fiber, props: any, states: Map<any, any>, contexts: [any, any][]): { out: any } | null {
+  if ((f.render !== renderFunction && f.render !== renderMemo) || f.strict || f.dead) return null;
+  const saved = [f.insertion, f.layout, f.passive];
+  const was = { current, hookAt, recordStates, recordContexts, A: internals.A };
+  f.insertion = f.layout = f.passive = NO_EFFECTS;
+  current = f;
+  hookAt = 0;
+  recordStates = states;
+  recordContexts = contexts;
+  internals.A = asyncDispatcher;
+  const began = profilersMounted ? now() : 0;
+  try {
+    const r = readsOf(() => withHooks(recordHooks, () => f.render!(f, props)));
+    const previewed = new Map<any, [any, any]>();
+    for (const [box, v] of states) if (box.node) previewed.set(box.node, [box, v]);
+    recorded.set(f, { props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, took: profilersMounted ? now() - began : 0 });
+    return { out: r.value };
+  } catch (e) {
+    if (e === NOT_RECORDABLE) return null;
+    throw e;
+  } finally {
+    [f.insertion, f.layout, f.passive] = saved as any;
+    current = was.current;
+    hookAt = was.hookAt;
+    recordStates = was.recordStates;
+    recordContexts = was.recordContexts;
+    internals.A = was.A;
+  }
+}
+export const clearRecorded = () => recorded.clear();
+
+/** The record of `f`'s render, taken, if it still holds: the same props, and nothing it read changed since but the
+ * state it read with the transition's values, now holding them. */
+function takeRecorded(f: Fiber): Recorded | null {
+  const r = recorded.get(f);
+  if (!r) return null;
+  recorded.delete(f);
+  if (r.props !== f.props) return null;
+  for (let i = 0; i < r.sources.length; i++) {
+    const s = r.sources[i];
+    if (s.version === r.versions[i]) continue;
+    const p = r.previewed.get(s);
+    if (!p || !Object.is(p[0].v, p[1])) return null;
+  }
+  return r;
+}
 
 function effectHook(create: () => any, deps: any[] | undefined, phase: "insertion" | "layout" | "passive") {
   const f = current!;
@@ -4682,6 +4784,7 @@ function applyTransitions(): boolean {
     flushSignals();
   } finally {
     applyingTransition = false;
+    recorded.clear();
   }
   return true;
 }
@@ -5390,7 +5493,7 @@ export function useFormStatus() {
     if (p.kind !== HOST || p.type !== "form") continue;
     const status = formStatus(p)();
     // Pending is optimistic, as React's: shown by urgent renders, already over in the transition's own render.
-    return applyingTransition ? IDLE_FORM : status;
+    return applyingTransition || recordStates ? IDLE_FORM : status;
   }
   return IDLE_FORM;
 }

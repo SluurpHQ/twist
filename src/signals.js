@@ -227,6 +227,7 @@ export function signal(initial) {
   read.update = (fn) => read.set(fn(node.value));
   read.peek = () => node.value;
   read.isSignal = true;
+  read.node = node;
   return read;
 }
 
@@ -728,6 +729,21 @@ export function readCount(fn) {
   try {
     const value = fn();
     return { value, count: probe.sources.length };
+  } finally {
+    S.listener = previous;
+    for (const source of probe.sources) dropReader(source, probe);
+  }
+}
+
+/** Run `fn` noting what it reads (not subscribed): the value, the nodes read, and the version each had. */
+export function readsOf(fn) {
+  const previous = S.listener;
+  const probe = { sources: NOTHING_YET, seen: NOTHING_YET };
+  S.listener = probe;
+  try {
+    const value = fn();
+    const sources = probe.sources === NOTHING_YET ? [] : [...probe.sources];
+    return { value, sources, versions: sources.map((s) => s.version) };
   } finally {
     S.listener = previous;
     for (const source of probe.sources) dropReader(source, probe);
