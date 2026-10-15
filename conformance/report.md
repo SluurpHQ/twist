@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4060 pass, 5 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
+4062 pass, 3 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -30,7 +30,7 @@
 | react-dom/ReactDOMEventListener-test.js | 23 | 0 | 0 |  |
 | react-dom/ReactDOMEventPropagation-test.js | 92 | 0 | 0 |  |
 | react-dom/ReactDOMFiber-test.js | 31 | 0 | 6 |  |
-| react-dom/ReactDOMFiberAsync-test.js | 16 | 2 | 1 |  |
+| react-dom/ReactDOMFiberAsync-test.js | 17 | 1 | 1 |  |
 | react-dom/ReactDOMFizzDeferredValue-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMFizzForm-test.js | 15 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServer-test.js | 169 | 1 | 14 |  |
@@ -52,7 +52,7 @@
 | react-dom/ReactDOMHostComponentTransitions-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMHydrationDiff-test.js | 39 | 0 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMImageLoad-test.internal.js | 8 | 2 | 0 |  |
+| react-dom/ReactDOMImageLoad-test.internal.js | 9 | 1 | 0 |  |
 | react-dom/ReactDOMInput-test.js | 120 | 0 | 4 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |

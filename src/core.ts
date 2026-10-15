@@ -14,7 +14,7 @@ import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
-import { PAUSED, type Preview, dropPausedTransition, resumeTransition, transitionPaused, tryTransition } from "./dryrun.ts";
+import { PAUSED, type Preview, dropPausedTransition, dryHeldAt, resumeTransition, transitionPaused, tryTransition } from "./dryrun.ts";
 import { setClientHooks, setRecordHooks, withHooks } from "./hooks.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
@@ -3879,7 +3879,11 @@ function commit() {
       prewarm();
     });
   }
-  if ((passiveQueue.length || passiveUnmounts.length) && !passiveBooked) {
+  if (!passiveQueue.length && !passiveUnmounts.length) return;
+  // A render an update in the commit set off (a layout effect's): React's sync lane, whose passive effects run at the
+  // end of its commit.
+  if (renderIsNested && depth === 0 && !committing && !inPassive) return runPassive(true);
+  if (!passiveBooked) {
     passiveBooked = true;
     afterPaint(() => runPassive(true));
   }
@@ -4662,12 +4666,18 @@ function takeRecorded(f: Fiber): Recorded | null {
   const r = recorded.get(f);
   if (!r) return null;
   recorded.delete(f);
+  if (r.props !== f.props) {
   if (r.props !== f.props) return null;
+    return null;
+  }
   for (let i = 0; i < r.sources.length; i++) {
     const s = r.sources[i];
     if (s.version === r.versions[i]) continue;
     const holds = r.previewed.get(s);
+    if (!holds || !holds()) {
     if (!holds || !holds()) return null;
+      return null;
+    }
   }
   if (r.cls) {
     const q = f.inst?.__queue;
@@ -4857,6 +4867,8 @@ let transitionRetried = false;
 
 /** A paused dry run's start: the transition work it renders, and the render count then (anything drawn since stales it). */
 let dryWork: TransitionUpdate[] = [];
+/** A held transition's pre-warming render, to run in the next round of transitions. */
+let heldPrewarm: (() => void) | null = null;
 let drySerial = 0;
 let dryStart = 0;
 
@@ -4866,6 +4878,14 @@ export function flushTransitions(shouldYield?: () => boolean): boolean {
   if (continuousWork.length) {
     for (const apply of continuousWork.splice(0)) apply();
     flushSignals();
+  }
+  // A transition held with no boundary above what suspended: rendered once more, its output dropped (React's
+  // pre-warming, which starts loading what the rest of it waits for).
+  if (heldPrewarm) {
+    const p = heldPrewarm;
+    heldPrewarm = null;
+    p();
+    return true;
   }
   if (!transitionWork.length && !transitionEnds.length) return false;
   // (Held: tried again only when a new transition came meanwhile, which interrupts the held one, as React renders it.)
@@ -4886,7 +4906,7 @@ export function flushTransitions(shouldYield?: () => boolean): boolean {
   if (transitionPaused() && (renderSerial !== drySerial || dryWork.length !== transitionWork.length || dryWork.some((w, i) => w !== transitionWork[i]))) dropPausedTransition();
   let waits: ReturnType<typeof tryTransition> = null;
   if (transitionPaused()) waits = resumeTransition(shouldYield);
-  else if (!retried && previewed.length) {
+  else if (previewed.length) {
     const preview: Preview = { states: new Map(), classes: new Map() };
     for (const w of previewed) w.preview!(preview);
     // Its ends drawn with it (nothing in it can suspend): seen by its render too.
@@ -4904,6 +4924,18 @@ export function flushTransitions(shouldYield?: () => boolean): boolean {
   if (waits) {
     transitionHeld = waits;
     heldWork = transitionWork.length;
+    const at = dryHeldAt();
+    if (!(waits as any)[STYLESHEET_WAIT] && at && !boundaryOf(at) && !retried) {
+      const work = previewed.slice();
+      heldPrewarm = () => {
+        if (transitionHeld !== waits) return;
+        const preview: Preview = { states: new Map(), classes: new Map() };
+        for (const w of work) if (!w.fiber!.dead) w.preview!(preview);
+        tryTransition(work.map((w) => w.fiber!), preview);
+        clearRecorded();
+      };
+      if (!transitionBooked) (transitionBooked = true), scheduleTransitions(flushTransitions);
+    }
     const retry = () => {
       // (A hold a newer transition replaced: nothing to retry for it.)
       if (transitionHeld !== waits) return;

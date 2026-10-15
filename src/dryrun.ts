@@ -124,7 +124,9 @@ function* walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, a
     if (fiber && (fiber as any).dehydrated && (fiber as any).region?.start?.data === "$?") return;
     inBoundary++;
     try {
-      yield* walk(props.children, fiber, at, contexts);
+      // (Its children are kept under its content fragment, key "c": matched against that.)
+      const content = fiber ? (fiber.children.find((c) => c.key === "c" && !c.dead) ?? null) : null;
+      yield* walk(props.children, content, content ?? at, contexts);
     } catch (e: any) {
       // Suspending inside a boundary already on the page holds the transition; a new one shows its fallback.
       if (e && typeof e.then === "function" && fiber && !(fiber.pending && fiber.pending.peek() > 0)) {
@@ -169,12 +171,14 @@ function* walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, a
   if (fiber && fiber.props === props && !touches(fiber)) return;
   // New: rendered on a fiber of its own, kept for the real mount.
   if (!fiber && typeOf(node) === type) {
+    renderingAt = at;
     const r = recordNew(type, keyOf(node, i), props, at, preview.states, contexts);
     if (r) {
       yield;
       return yield* walk(r.out, null, r.fiber, contexts);
     }
   }
+  renderingAt = at;
   const out = renderComponent(fiber, at, contexts, type, props);
   yield;
   yield* walk(out, fiber, at, contexts);
@@ -230,6 +234,11 @@ let inBoundary = 0;
 /** Said by tryTransition and resumeTransition when the render stopped between two components, to go on later. */
 export const PAUSED = Symbol("paused");
 type Outcome = PromiseLike<any> | null | typeof PAUSED;
+/** The component the dry run renders now (or the fiber above a new one): where a hold comes from. */
+let renderingAt: Fiber | null = null;
+/** Where the last dry run that held its transition suspended. */
+let heldAt: Fiber | null = null;
+export const dryHeldAt = () => heldAt;
 /** A dry run stopped between two components: where it is, and what it renders with. */
 let paused: { it: Generator<void, void, void>; preview: Preview; urgent: boolean; inBoundary: number } | null = null;
 
@@ -268,6 +277,7 @@ function* renderAll(p: Preview, tops: Fiber[]): Generator<void, void, void> {
       continue;
     }
     if (typeof type !== "function") continue;
+    renderingAt = f;
     const out = renderComponent(f, f, [], type, props);
     yield;
     yield* walk(out, f, f, []);
@@ -309,6 +319,7 @@ function drive(it: Generator<void, void, void>, shouldYield?: () => boolean): Ou
   } catch (e: any) {
     // (Its records dropped: what holds it, or an error the real render meets again.)
     clearRecorded();
+    heldAt = renderingAt;
     if (e && typeof e.then === "function") return e;
     // Any other error: left to the real render, where boundaries catch it.
     return null;
