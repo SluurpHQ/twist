@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4064 pass, 1 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
+4065 pass, 0 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -52,7 +52,7 @@
 | react-dom/ReactDOMHostComponentTransitions-test.js | 2 | 0 | 0 |  |
 | react-dom/ReactDOMHydrationDiff-test.js | 39 | 0 | 0 |  |
 | react-dom/ReactDOMIframe-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactDOMImageLoad-test.internal.js | 9 | 1 | 0 |  |
+| react-dom/ReactDOMImageLoad-test.internal.js | 10 | 0 | 0 |  |
 | react-dom/ReactDOMInput-test.js | 120 | 0 | 4 |  |
 | react-dom/ReactDOMInReactServer-test.js | 0 | 0 | 1 |  |
 | react-dom/ReactDOMInvalidARIAHook-test.js | 7 | 0 | 0 |  |

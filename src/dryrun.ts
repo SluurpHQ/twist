@@ -3,7 +3,7 @@
 // suspends there holds the whole transition (React keeps the screen as it is until the data is there); otherwise
 // the transition is applied and drawn as usual. React gets the same from rendering a draft tree it can throw away.
 import { CONSUMER, CONTEXT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, readLazy, readThenable } from "./element.ts";
-import { type Fiber, clearRecorded, depsChanged, keyOf, readContext, recordDone, recordNew, recordRender, typeOf } from "./core.ts";
+import { type Fiber, clearRecorded, depsChanged, draftHost, keyOf, readContext, recordDone, recordNew, recordRender, typeOf } from "./core.ts";
 import { setDryHooks, withHooks } from "./hooks.ts";
 import { stylesheetPending } from "./float-client.ts";
 
@@ -127,7 +127,15 @@ function* walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, a
       const pending = stylesheetPending(document, props);
       if (pending) throw pending;
     }
-    return yield* walk(props.children, fiber, at, contexts);
+    // New, in HTML: made now, as React makes it in its render phase (not in SVG or MathML, not for an urgent update).
+    const foreign = type === "svg" || type === "math" || type === "foreignObject";
+    if (!fiber && !urgent && !foreignDepth && !at.ns && !foreign) draftHost(type, props);
+    if (foreign) foreignDepth++;
+    try {
+      return yield* walk(props.children, fiber, at, contexts);
+    } finally {
+      if (foreign) foreignDepth--;
+    }
   }
   if (type?.$$typeof === LAZY) type = readLazy(type._payload);
   if (type === SUSPENSE) {
@@ -242,6 +250,8 @@ function renderComponent(fiber: Fiber | null, at: Fiber, contexts: [any, any][],
 let urgent = false;
 /** Suspense boundaries the walk is inside. */
 let inBoundary = 0;
+/** SVG, MathML or foreignObject elements the walk is inside: no element made there ahead. */
+let foreignDepth = 0;
 /** Said by tryTransition and resumeTransition when the render stopped between two components, to go on later. */
 export const PAUSED = Symbol("paused");
 type Outcome = PromiseLike<any> | null | typeof PAUSED;
@@ -253,7 +263,7 @@ export const dryHeldAt = () => heldAt;
 /** Whether the dry run running now is an urgent update's (not a transition's). */
 export const dryUrgent = () => urgent;
 /** A dry run stopped between two components: where it is, and what it renders with. */
-let paused: { it: Generator<void, void, void>; preview: Preview; urgent: boolean; inBoundary: number } | null = null;
+let paused: { it: Generator<void, void, void>; preview: Preview; urgent: boolean; inBoundary: number; foreignDepth: number } | null = null;
 
 /** The transition's components rendered dry: the thenable that holds it if one suspends, PAUSED if `shouldYield` stopped
  * it between two components (resumeTransition goes on), else null. */
@@ -306,6 +316,7 @@ export function resumeTransition(shouldYield?: () => boolean): Outcome {
   preview = p.preview;
   urgent = p.urgent;
   inBoundary = p.inBoundary;
+  foreignDepth = p.foreignDepth;
   return drive(p.it, shouldYield);
 }
 export const transitionPaused = () => paused !== null;
@@ -325,7 +336,7 @@ function drive(it: Generator<void, void, void>, shouldYield?: () => boolean): Ou
     for (;;) {
       if (it.next().done) return null;
       if (shouldYield?.()) {
-        paused = { it, preview, urgent, inBoundary };
+        paused = { it, preview, urgent, inBoundary, foreignDepth };
         return PAUSED;
       }
     }
@@ -339,6 +350,7 @@ function drive(it: Generator<void, void, void>, shouldYield?: () => boolean): Ou
   } finally {
     preview = { states: new Map(), classes: new Map() };
     inBoundary = 0;
+    foreignDepth = 0;
   }
 }
 

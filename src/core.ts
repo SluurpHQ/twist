@@ -2317,9 +2317,10 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
     }
     if (single && !hydrating && !held) while (single.attributes.length) single.removeAttributeNode(single.attributes[0]!);
     const server = single ?? (hydrating ? (claim(host, (n) => n.nodeType === 1 && (n as Element).localName.toLowerCase() === type.toLowerCase() && (!hiddenInput(n) || (props.type === "hidden" && (n as Element).getAttribute("name") === (props.name == null ? null : "" + props.name))) && (!rootOrSingleton(host) || looseMatch(n as Element, type, props))) as Element | null) : null);
-    // A customized built-in (is="…") is made as one.
+    // A customized built-in (is="…") is made as one. (Made already by a transition's dry run: that one.)
     const doc = docOf(host);
-    const el = (f.dom = server ?? (ns ? doc.createElementNS(ns, type) : type === "script" ? inertScript(doc) : typeof props.is === "string" ? doc.createElement(type, { is: props.is }) : doc.createElement(type)));
+    const drafted = !server && !ns && !held && hostDrafts.size ? takeHostDraft(props, type, doc) : null;
+    const el = (f.dom = server ?? drafted ?? (ns ? doc.createElementNS(ns, type) : type === "script" ? inertScript(doc) : typeof props.is === "string" ? doc.createElement(type, { is: props.is }) : doc.createElement(type)));
     // Its fiber, for tools that look from the page into the tree.
     if (!held) (el as any)[FIBER] = f;
     if (!held) (el as any)[PROPS] = null;
@@ -2359,7 +2360,7 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
         hydrateProps(el, props, ns === SVG_NS);
         if ((process.env.NODE_ENV !== "production" && dev()) && customTag(type)) for (const k in props) if (READ_ONLY.has(k)) console.error(`Assignment to read-only property will result in a no-op: \`${k}\``);
       }
-      else if (!held) setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
+      else if (!held && !drafted) setProps(el, props, null, ns === SVG_NS), setDefaults(el, props);
       // A noscript's children are not drawn on the client (React leaves them to the server).
       // (Hydrating <html>: what it holds besides <head> and <body> the server wrote in <body>, as React does.)
       const into = hydrating && single && type === "html" && (el as Element).ownerDocument?.body ? (el as Element).ownerDocument!.body : el;
@@ -4697,7 +4698,29 @@ export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [
     internals.A = was.A;
   }
 }
-export const clearRecorded = () => (recorded.clear(), drafts.clear(), (snapshots.length = 0));
+export const clearRecorded = () => (recorded.clear(), drafts.clear(), hostDrafts.clear(), (snapshots.length = 0));
+
+/** Elements a transition's dry run made for new plain HTML elements, by their element's props (React makes host
+ * instances in its render phase: an image starts loading then). */
+const hostDrafts = new Map<any, Element>();
+/** A new plain HTML element the dry run meets (not a form field, nothing hoisted, no singleton, no custom element):
+ * made now, its props set, for the real mount to take. */
+export function draftHost(type: string, props: any) {
+  if (typeof document === "undefined" || hostDrafts.has(props)) return;
+  if (FORM_TAGS.has(type) || type.includes("-") || typeof props.is === "string" || /^(html|head|body|script|noscript|template|svg|math)$/.test(type)) return;
+  if (isHoistable(type, props, false, false, () => {})) return;
+  const el = document.createElement(type);
+  (el as any)[PROPS] = props;
+  setProps(el, props, null, false);
+  setDefaults(el, props);
+  hostDrafts.set(props, el);
+}
+function takeHostDraft(props: any, type: string, doc: Document): Element | null {
+  const el = hostDrafts.get(props);
+  if (!el) return null;
+  hostDrafts.delete(props);
+  return el.localName === type && el.ownerDocument === doc ? el : null;
+}
 /** `f`'s subtree rendered in the dry run: its snapshot, if it takes one, queued after its children's. */
 export function recordDone(f: Fiber | null) {
   const s = f ? recorded.get(f)?.snapshot : undefined;
