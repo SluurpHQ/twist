@@ -1037,7 +1037,10 @@ Object.assign(FiberNode.prototype, { dead: false, committed: false, placed: fals
 class ComponentFiber extends FiberNode {}
 
 function fiber(kind: number, type: any, key: Key, props: any, parent: Fiber): Fiber {
-  const f = new (kind === HOST || kind === TEXT ? FiberNode : ComponentFiber)(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber;
+  return placed(new (kind === HOST || kind === TEXT ? FiberNode : ComponentFiber)(kind, type, key, props, parent, parent.kind === HOST ? childNs(parent) : parent.ns, parent.root) as Fiber, parent);
+}
+/** A fiber made (or one a dry run made, adopted) taking its place under `parent`. */
+function placed(f: Fiber, parent: Fiber): Fiber {
   if (nextTree) (f.tree = nextTree), (nextTree = null);
   if (nextOwner) Object.defineProperty(f, "owner", { value: nextOwner, enumerable: false }), (nextOwner = null);
   if (nextStack) Object.defineProperty(f, "debugStack", { value: nextStack, enumerable: false }), (nextStack = null);
@@ -2422,9 +2425,21 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
     reconcile(f, toList(props.children), host, before);
     return f;
   }
-  const f = fiber(COMP, type, key, props, parent);
-  f.render = renderer(type, f);
-  f.hooks = NO_EFFECTS;
+  // Rendered already by a transition's dry run: that fiber, its hooks and its record kept.
+  const d = drafts.size ? drafts.get(props) : undefined;
+  if (d) drafts.delete(props);
+  let f: Fiber;
+  if (d && d.type === type && !d.dead && d.strict === (parent.strict || parent.type === STRICT)) {
+    d.key = key;
+    d.parent = parent;
+    d.ns = parent.kind === HOST ? childNs(parent) : parent.ns;
+    d.root = parent.root;
+    f = placed(d, parent);
+  } else {
+    f = fiber(COMP, type, key, props, parent);
+    f.render = renderer(type, f);
+    f.hooks = NO_EFFECTS;
+  }
   // In a render that can stop between components: drawn when the work loop reaches it, where it is then.
   if (work && work.deferring) {
     work.units.splice(work.at++, 0, () => !f.dead && start(f, hostParentOf(f), nextDomAfter(f)));
@@ -3024,6 +3039,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   try {
     if (rec) {
       for (const s of rec.sources) followNode(s);
+      for (const s of rec.follows) followNode(s);
       f.insertion = rec.insertion;
       f.layout = rec.layout;
       f.passive = rec.passive;
@@ -4309,7 +4325,8 @@ export const client = {
       const p: Sig<number> = signal(0);
       return { p, start: (fn: () => any) => startTransitionWith(fn, p) };
     });
-    return [h.p() > 0, h.start];
+    const n = h.p();
+    return [(recordStates !== null && recordStates.has(h.p) ? recordStates.get(h.p) : n) > 0, h.start];
   },
   useDeferredValue<T>(value: T, initial?: T) {
     // The value shown so far in an urgent render, the new one drawn after as a transition (React's deferred lane).
@@ -4469,12 +4486,17 @@ type Recorded = {
   versions: number[];
   /** The state it read with the transition's values: the signal of each, and the value it showed. */
   previewed: Map<any, [any, any]>;
+  /** What it follows whose changes do not change what it drew. */
+  follows: any[];
   took: number;
 };
 const recorded = new Map<Fiber, Recorded>();
+/** Components a dry run rendered that have no fiber yet: the fiber it made for each, by its element's props. */
+const drafts = new Map<any, Fiber>();
 /** While a render is recorded: the transition's state values, and the contexts its dry run provides. */
 let recordStates: Map<any, any> | null = null;
 let recordContexts: [any, any][] | null = null;
+let recordFollows: any[] | null = null;
 /** Thrown where a recorded render would change something (state set while rendering, a hook that keeps state of its
  * own as it renders): that render is dropped and the component renders for real later. */
 const NOT_RECORDABLE = Symbol("not recordable");
@@ -4496,19 +4518,20 @@ function contextFor(f: Fiber, ctx: any) {
 export function recordRender(f: Fiber, props: any, states: Map<any, any>, contexts: [any, any][]): { out: any } | null {
   if ((f.render !== renderFunction && f.render !== renderMemo) || f.strict || f.dead) return null;
   const saved = [f.insertion, f.layout, f.passive];
-  const was = { current, hookAt, recordStates, recordContexts, A: internals.A };
+  const was = { current, hookAt, recordStates, recordContexts, recordFollows, A: internals.A };
   f.insertion = f.layout = f.passive = NO_EFFECTS;
   current = f;
   hookAt = 0;
   recordStates = states;
   recordContexts = contexts;
+  const follows: any[] = (recordFollows = []);
   internals.A = asyncDispatcher;
   const began = profilersMounted ? now() : 0;
   try {
     const r = readsOf(() => withHooks(recordHooks, () => f.render!(f, props)));
     const previewed = new Map<any, [any, any]>();
     for (const [box, v] of states) if (box.node) previewed.set(box.node, [box, v]);
-    recorded.set(f, { props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, took: profilersMounted ? now() - began : 0 });
+    recorded.set(f, { props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, follows, took: profilersMounted ? now() - began : 0 });
     return { out: r.value };
   } catch (e) {
     if (e === NOT_RECORDABLE) return null;
@@ -4519,10 +4542,25 @@ export function recordRender(f: Fiber, props: any, states: Map<any, any>, contex
     hookAt = was.hookAt;
     recordStates = was.recordStates;
     recordContexts = was.recordContexts;
+    recordFollows = was.recordFollows;
     internals.A = was.A;
   }
 }
-export const clearRecorded = () => recorded.clear();
+export const clearRecorded = () => (recorded.clear(), drafts.clear());
+
+/** A function component the dry run meets with no fiber (`type` a function, or a memo of one): rendered recorded on a
+ * fiber of its own under `anchor`, which the real mount takes. Its output and that fiber, or null. */
+export function recordNew(type: any, key: Key, props: any, anchor: Fiber, states: Map<any, any>, contexts: [any, any][]): { out: any; fiber: Fiber } | null {
+  const f = new ComponentFiber(COMP, type, key, props, anchor, anchor.kind === HOST ? childNs(anchor) : anchor.ns, anchor.root) as Fiber;
+  if (anchor.strict || anchor.type === STRICT) return null;
+  f.hooks = NO_EFFECTS;
+  if (type?.$$typeof === MEMO) (f.compare = type.compare ?? shallowEqual), (f.render = renderMemo);
+  else f.render = renderFunction;
+  const r = recordRender(f, props, states, contexts);
+  if (!r) return null;
+  drafts.set(props, f);
+  return { out: r.out, fiber: f };
+}
 
 /** The record of `f`'s render, taken, if it still holds: the same props, and nothing it read changed since but the
  * state it read with the transition's values, now holding them. */
@@ -4530,12 +4568,18 @@ function takeRecorded(f: Fiber): Recorded | null {
   const r = recorded.get(f);
   if (!r) return null;
   recorded.delete(f);
+  if (r.props !== f.props) {
   if (r.props !== f.props) return null;
+    return null;
+  }
   for (let i = 0; i < r.sources.length; i++) {
     const s = r.sources[i];
     if (s.version === r.versions[i]) continue;
     const p = r.previewed.get(s);
+    if (!p || !Object.is(typeof p[0] === "function" ? p[0].peek() : p[0].v, p[1])) {
     if (!p || !Object.is(p[0].v, p[1])) return null;
+      return null;
+    }
   }
   return r;
 }
@@ -4659,7 +4703,8 @@ export function setTransitionScheduler(fn: typeof scheduleTransitions) {
 const transitionEnds: (() => void)[] = [];
 /** What the transition being drawn suspended on. */
 const transitionWaits: PromiseLike<any>[] = [];
-function endTransition(fn: () => void) {
+function endTransition(fn: () => void, preview?: (p: Preview) => void) {
+  if (preview) (fn as any).preview = preview;
   transitionEnds.push(fn);
   if (transitionBooked) return;
   transitionBooked = true;
@@ -4716,9 +4761,11 @@ export function flushTransitions(): boolean {
   // costs a second render.
   const retried = transitionRetried;
   transitionRetried = false;
-  if (!retried && previewed.length && previewed.some((w) => mightSuspend(w.fiber!) || (w.fiber!.kind === ROOT && bringsStylesheet(w)))) {
+  if (!retried && previewed.length) {
     const preview: Preview = { states: new Map(), classes: new Map() };
     for (const w of previewed) w.preview!(preview);
+    // Its ends drawn with it (nothing in it can suspend): seen by its render too.
+    if (!transitionsSuspended && !actionsRunning && transitionWork.every((w) => w.fiber && !mightSuspend(w.fiber))) for (const e of transitionEnds) (e as any).preview?.(preview);
     const waits = tryTransition(previewed.map((w) => w.fiber!), preview);
     if (waits) {
       transitionHeld = waits;
@@ -4784,7 +4831,7 @@ function applyTransitions(): boolean {
     flushSignals();
   } finally {
     applyingTransition = false;
-    recorded.clear();
+    clearRecorded();
   }
   return true;
 }
@@ -4903,7 +4950,11 @@ function startTransitionWith(fn: () => any, pending?: Sig<number>) {
   const async = r && typeof r.then === "function";
   if (async) actionStarted(r);
   if (!pending) return;
-  const done = () => endTransition(() => pending.set(pending.peek() - 1));
+  const done = () =>
+    endTransition(
+      () => pending.set(pending.peek() - 1),
+      (p) => p.states.set(pending, (p.states.has(pending) ? p.states.get(pending) : pending.peek()) - 1),
+    );
   if (async) r.then(done, done);
   else done();
 }
@@ -5491,9 +5542,10 @@ export function requestFormReset(form: any) {
 export function useFormStatus() {
   for (let p = current?.parent ?? null; p; p = p.parent) {
     if (p.kind !== HOST || p.type !== "form") continue;
-    const status = formStatus(p)();
     // Pending is optimistic, as React's: shown by urgent renders, already over in the transition's own render.
-    return applyingTransition || recordStates ? IDLE_FORM : status;
+    if (recordStates) return recordFollows!.push((formStatus(p) as any).node), IDLE_FORM;
+    const status = formStatus(p)();
+    return applyingTransition ? IDLE_FORM : status;
   }
   return IDLE_FORM;
 }

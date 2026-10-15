@@ -3,7 +3,7 @@
 // suspends there holds the whole transition (React keeps the screen as it is until the data is there); otherwise
 // the transition is applied and drawn as usual. React gets the same from rendering a draft tree it can throw away.
 import { CONSUMER, CONTEXT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, readLazy, readThenable } from "./element.ts";
-import { type Fiber, clearRecorded, depsChanged, keyOf, readContext, recordRender, typeOf } from "./core.ts";
+import { type Fiber, clearRecorded, depsChanged, keyOf, readContext, recordNew, recordRender, typeOf } from "./core.ts";
 import { setDryHooks, withHooks } from "./hooks.ts";
 import { stylesheetPending } from "./float-client.ts";
 
@@ -144,6 +144,10 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
   }
   if (type?.$$typeof === MEMO) {
     if (fiber && fiber.props && (type.compare ?? shallowEqual)(fiber.props, props) && !preview.states.size) return;
+    if (!fiber && typeof type.type === "function" && !type.type.prototype?.isReactComponent) {
+      const r = recordNew(type, keyOf(node, i), props, at, preview.states, contexts);
+      if (r) return walk(r.out, null, r.fiber, contexts);
+    }
     return walk({ ...node, type: type.type }, parent, anchor, contexts, i);
   }
   if (type?.$$typeof === FORWARD_REF) {
@@ -153,6 +157,11 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
   if (typeof type !== "function") return;
   // Given the same props, and nothing of its own in the transition: as it is.
   if (fiber && fiber.props === props && !touches(fiber)) return;
+  // New: rendered on a fiber of its own, kept for the real mount.
+  if (!fiber && !type.prototype?.isReactComponent && typeOf(node) === type) {
+    const r = recordNew(type, keyOf(node, i), props, at, preview.states, contexts);
+    if (r) return walk(r.out, null, r.fiber, contexts);
+  }
   walk(renderComponent(fiber, at, contexts, type, props), fiber, at, contexts);
 }
 
