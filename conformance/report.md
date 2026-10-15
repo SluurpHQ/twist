@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4058 pass, 7 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
+4060 pass, 5 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -14,7 +14,7 @@
 | react-dom/ReactChildReconciler-test.js | 5 | 0 | 0 |  |
 | react-dom/ReactClassComponentPropResolutionFizz-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactComponent-test.js | 19 | 0 | 2 |  |
-| react-dom/ReactComponentLifeCycle-test.js | 25 | 1 | 0 |  |
+| react-dom/ReactComponentLifeCycle-test.js | 26 | 0 | 0 |  |
 | react-dom/ReactCompositeComponent-test.js | 40 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
@@ -104,7 +104,7 @@
 | react-dom/ReactDOMUseId-test.js | 12 | 0 | 5 |  |
 | react-dom/ReactDOMViewTransition-test.js | 14 | 0 | 12 |  |
 | react-dom/ReactEmptyComponent-test.js | 24 | 0 | 0 |  |
-| react-dom/ReactErrorBoundaries-test.internal.js | 39 | 1 | 10 |  |
+| react-dom/ReactErrorBoundaries-test.internal.js | 40 | 0 | 10 |  |
 | react-dom/ReactErrorBoundariesHooks-test.internal.js | 1 | 0 | 0 |  |
 | react-dom/ReactErrorLoggingRecovery-test.js | 1 | 0 | 0 |  |
 | react-dom/ReactEventIndependence-test.js | 3 | 0 | 0 |  |

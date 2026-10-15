@@ -3039,6 +3039,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   current = f;
   hookAt = 0;
   internals.A = asyncDispatcher;
+  if (f.render === renderClass && f.inst?.getSnapshotBeforeUpdate && f.committed && !f.strict && !hydrating && !applyingTransition && !recorded.has(f)) renderAhead(f);
   const rec = recorded.size ? takeRecorded(f) : null;
   try {
     if (rec) {
@@ -3416,9 +3417,17 @@ function renderClass(f: Fiber, withRef: any) {
   inst.state = state;
   inst.context = ctx;
   const out = strictTwice(f, () => classRender(inst), true);
-  // After its render, before its output changes the page (React calls it at commit, before the mutations).
-  const snapshot = inst.getSnapshotBeforeUpdate ? inst.getSnapshotBeforeUpdate(prevProps, prevState) : undefined;
-  if (inst.getSnapshotBeforeUpdate) checkSnapshot(C, snapshot);
+  // After its render, before its output changes the page (React calls it at commit, before the mutations). Recorded:
+  // taken once the whole render is done, with the others, before the page changes (see takeSnapshots).
+  let snapshot: any;
+  const takeSnapshot = () => {
+    snapshot = inst.getSnapshotBeforeUpdate(prevProps, prevState);
+    checkSnapshot(C, snapshot);
+  };
+  if (inst.getSnapshotBeforeUpdate) {
+    if (recordStates) recordedSnapshot = takeSnapshot;
+    else takeSnapshot();
+  }
   propsReassigned(C, inst, props);
   if (inst.componentDidUpdate) effectsOf(f, "layout").push(() => !f.dead && lifecycle(f, () => inst.componentDidUpdate(prevProps, prevState, snapshot)));
   const done = inst.__done?.splice(0);
@@ -4494,6 +4503,8 @@ type Recorded = {
   versions: number[];
   /** The reads the transition changes (its state): for each, whether it holds what the render saw. */
   previewed: Map<any, () => boolean>;
+  /** A class's getSnapshotBeforeUpdate, called with its instance as its render left it. */
+  snapshot?: () => void;
   /** A class's: its instance's fields after the render, the updates it took, what it let go of. */
   cls?: { after: any; queue: any[]; doneBefore: any[] | undefined; deletions: (() => void)[] };
   /** What it follows whose changes do not change what it drew. */
@@ -4509,6 +4520,10 @@ const drafts = new Map<any, Fiber>();
 let recordStates: Map<any, any> | null = null;
 let recordContexts: [any, any][] | null = null;
 let recordFollows: any[] | null = null;
+/** A recorded class render's getSnapshotBeforeUpdate, kept for later. */
+let recordedSnapshot: (() => void) | null = null;
+/** The snapshots of the renders recorded, in the order their subtrees were done (children before their parents). */
+const snapshots: (() => void)[] = [];
 /** Thrown where a recorded render would change something (state set while rendering, a hook that keeps state of its
  * own as it renders): that render is dropped and the component renders for real later. */
 const NOT_RECORDABLE = Symbol("not recordable");
@@ -4545,6 +4560,7 @@ export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [
     inst.__done = was0!.done ? [...was0!.done] : was0!.done;
   }
   const deletionsFrom = deletions.length;
+  recordedSnapshot = null;
   const saved = [f.insertion, f.layout, f.passive];
   const was = { current, hookAt, recordStates, recordContexts, recordFollows, A: internals.A };
   f.insertion = f.layout = f.passive = NO_EFFECTS;
@@ -4567,7 +4583,21 @@ export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [
           deletions: deletions.splice(deletionsFrom),
         }
       : undefined;
+    const take = recordedSnapshot;
+    const after = cls?.after;
     recorded.set(f, {
+      snapshot:
+        take && after
+          ? () => {
+              const was = [inst.props, inst.state, inst.context];
+              [inst.props, inst.state, inst.context] = [after.props, after.state, after.context];
+              try {
+                lifecycle(f, take);
+              } finally {
+                [inst.props, inst.state, inst.context] = was;
+              }
+            }
+          : undefined,
       cls, props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, follows, took: profilersMounted ? now() - began : 0 });
     return { out: r.value };
   } catch (e) {
@@ -4594,7 +4624,22 @@ export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [
     internals.A = was.A;
   }
 }
-export const clearRecorded = () => (recorded.clear(), drafts.clear());
+export const clearRecorded = () => (recorded.clear(), drafts.clear(), (snapshots.length = 0));
+/** `f`'s subtree rendered in the dry run: its snapshot, if it takes one, queued after its children's. */
+export function recordDone(f: Fiber | null) {
+  const s = f ? recorded.get(f)?.snapshot : undefined;
+  if (s) snapshots.push(s);
+}
+/** The snapshots of a render done, taken before it changes the page. */
+function takeSnapshots() {
+  for (const s of snapshots.splice(0)) s();
+}
+/** A class taking snapshots, updated outside a transition: its subtree rendered first (recorded, to be replayed), so
+ * that every snapshot is taken before the page changes, children first, as React does at commit. */
+function renderAhead(f: Fiber) {
+  tryTransition([f], { states: new Map(), classes: new Map() }, true);
+  takeSnapshots();
+}
 
 /** A function component the dry run meets with no fiber (`type` a function, or a memo of one): rendered recorded on a
  * fiber of its own under `anchor`, which the real mount takes. Its output and that fiber, or null. */
@@ -4895,6 +4940,7 @@ function applyTransitions(): boolean {
   applyingTransition = true;
   // Rendered in its dry run already: its render began then (a Profiler's start time).
   renderBegan = recorded.size || drafts.size ? dryStart : -1;
+  takeSnapshots();
   viewTransitionsBegin();
   try {
     const work = transitionWork.splice(0);

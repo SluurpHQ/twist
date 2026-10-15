@@ -3,7 +3,7 @@
 // suspends there holds the whole transition (React keeps the screen as it is until the data is there); otherwise
 // the transition is applied and drawn as usual. React gets the same from rendering a draft tree it can throw away.
 import { CONSUMER, CONTEXT, FORWARD_REF, FRAGMENT, LAZY, MEMO, PORTAL, SUSPENSE, readLazy, readThenable } from "./element.ts";
-import { type Fiber, clearRecorded, depsChanged, keyOf, readContext, recordNew, recordRender, typeOf } from "./core.ts";
+import { type Fiber, clearRecorded, depsChanged, keyOf, readContext, recordDone, recordNew, recordRender, typeOf } from "./core.ts";
 import { setDryHooks, withHooks } from "./hooks.ts";
 import { stylesheetPending } from "./float-client.ts";
 
@@ -178,6 +178,7 @@ function* walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, a
   const out = renderComponent(fiber, at, contexts, type, props);
   yield;
   yield* walk(out, fiber, at, contexts);
+  recordDone(fiber);
 }
 
 const shallowEqual = (a: any, b: any) => {
@@ -270,6 +271,7 @@ function* renderAll(p: Preview, tops: Fiber[]): Generator<void, void, void> {
     const out = renderComponent(f, f, [], type, props);
     yield;
     yield* walk(out, f, f, []);
+    recordDone(f);
   }
 }
 
