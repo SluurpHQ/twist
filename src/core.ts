@@ -1327,14 +1327,20 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   const region = { start: raw as Comment, end };
   hydrating!.set(host, end.nextSibling);
   (f as any).region = region;
-  if (kind === "$?" || kind === "$~") {
+  if ((kind === "$?" || kind === "$~") && !serverGaveUpOn(region.start)) {
     // Still streaming (or its content here, its stylesheets loading): the server's fallback stays until the
-    // stream's script says it is done.
-    (raw as any)._reactRetry = () => deferTransition(() => retryBoundary(f));
+    // stream's script says it is done, or the document stops loading without it (React's rule).
+    const retry = () => deferTransition(() => retryBoundary(f));
+    (raw as any)._reactRetry = retry;
+    if (kind === "$?") {
+      const doc = raw!.ownerDocument!;
+      const loaded = () => doc.readyState !== "loading" && (doc.removeEventListener("DOMContentLoaded", loaded), retry());
+      doc.addEventListener("DOMContentLoaded", loaded);
+    }
     setDehydrated(f, true);
     return;
   }
-  if (kind === "$!") {
+  if (kind === "$!" || kind === "$?") {
     serverGaveUp(f, region);
     // What the server drew there, kept until this render commits: an error boundary above that draws again while
     // hydrating puts it back, to stay until its own commit (see serverLeftIn).
@@ -1663,6 +1669,11 @@ function drawnOrKept(f: Fiber, sb: Fiber, host: Node, region: { start: Comment; 
 }
 
 /** A boundary the server gave to the client: reported with the server's reason (in development) and digest. */
+/** A boundary the server gave up on, or one still pending when the document is no longer loading. */
+function serverGaveUpOn(start: Comment): boolean {
+  return start.data === "$!" || (start.data === "$?" && start.ownerDocument.readyState !== "loading");
+}
+
 function serverGaveUp(f: Fiber, region: { start: Comment }) {
   const t = region.start.nextSibling as HTMLElement | null;
   const data: any = t && t.nodeName === "TEMPLATE" ? (t as any).dataset ?? {} : {};
@@ -1736,7 +1747,7 @@ function retryBoundary(f: Fiber) {
   if (!region || f.dead || hydrating || !(f as any).dehydrated) return;
   const host = region.start.parentNode;
   if (!host) return;
-  if (region.start.data === "$!") {
+  if (serverGaveUpOn(region.start)) {
     serverGaveUp(f, region);
     const after = removeRegion(region);
     (f as any).region = undefined;

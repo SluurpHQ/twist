@@ -480,12 +480,15 @@ const ours: Record<string, string> = {
 
 // (A package that is not installed is not resolved through the plugin: given as a module.)
 (await import("bun:test")).mock.module("web-streams-polyfill/ponyfill/es6", () => ({ ReadableStream, WritableStream, TransformStream }));
-// A window a test makes with jsdom: its style keeps no priority either, as the jsdom React's tests run on.
+// A window a test makes with jsdom: its style keeps no priority either, and its document stays loading until a test
+// sets readyState, as the jsdom React's tests run on (internal-test-utils/ReactJSDOM.js).
 {
   const jsdom: any = await import("jsdom");
+  const { setupDocumentReadyState } = await import(join(import.meta.dir, "react-tests", "internal-test-utils", "ReactJSDOMUtils.js"));
   class JSDOM extends jsdom.JSDOM {
     constructor(...args: any[]) {
       super(...args);
+      setupDocumentReadyState((this as any).window.document, (this as any).window.Event);
       const proto = (this as any).window.CSSStyleDeclaration?.prototype;
       const set = proto?.setProperty;
       if (set) proto.setProperty = function (name: string, value: string) {

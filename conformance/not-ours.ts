@@ -120,4 +120,8 @@ export const NOT_OURS: Record<string, Record<string, string>> = {
     'the "S" in "</?[Ss]cript" strings are replaced with unicode escaped lowercase s or S depending on case, preserving case sensitivity of nearby characters':
       HAPPY_DOM + " (script parsing after <!--)",
   },
+  "react-dom/ReactDOMFizzStaticNode-test.js": {
+    "includes the suspended call site when aborting in the same rendering task":
+      "needs the frame of the component that made the element; JavaScriptCore (Bun) runs `return <X />` as a proper tail call and drops that frame, which V8 keeps",
+  },
 };
