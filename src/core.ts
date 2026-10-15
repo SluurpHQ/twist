@@ -14,7 +14,7 @@ import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
-import { type Preview, tryTransition } from "./dryrun.ts";
+import { PAUSED, type Preview, dropPausedTransition, resumeTransition, transitionPaused, tryTransition } from "./dryrun.ts";
 import { setClientHooks, setRecordHooks, withHooks } from "./hooks.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
@@ -790,6 +790,8 @@ let lastFallbackAt = -Infinity;
 const FALLBACK_THROTTLE = 300;
 /** When the render now under way began, and the time spent in nested draws of the draw running now. */
 let renderStart = 0;
+/** When the render about to start began, if earlier than now (a transition rendered in its dry run first). */
+let renderBegan = -1;
 let nestedTime = 0;
 /** Profilers whose subtree rendered since the last commit, with the time their components took. */
 const profiled = new Map<Fiber, number>();
@@ -3021,6 +3023,8 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   }
   // Timed only once a Profiler is about (two clock reads and a walk up per component otherwise).
   const began = profilersMounted ? now() : 0;
+  // (Renders replayed from a dry run below this one: their time, taken then, counted in its own.)
+  const replayedBase = replayedTime;
   // (A render in slices: a Profiler mounted in it begins when its first component is drawn, as React's work reaches it.)
   if (profilersMounted && work)
     for (let p = f.parent; p; p = p.parent)
@@ -3045,6 +3049,8 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
       f.passive = rec.passive;
       hookAt = rec.hooks;
       out = rec.out;
+      if (rec.cls) replayClass(f, rec);
+      replayedTime += rec.took;
     } else for (let pass = 0; ; pass++) {
       (f as any).again = false;
       out = f.render!(f, f.props);
@@ -3118,10 +3124,11 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   // A boundary that caught while mounting: its children dropped, and mounted again in its error state.
   // (Its last pass, timed apart: its base time is that one's, its actual time all of them.)
   let lastPass = began;
+  let lastReplayed = replayedBase;
   let nestedBefore = 0;
   for (let tries = 0; (f as any).redo && tries < 3; tries++) {
     (f as any).redo = false;
-    if (profilersMounted && f.type.getDerivedStateFromError) (lastPass = now()), (nestedBefore = nestedTime);
+    if (profilersMounted && f.type.getDerivedStateFromError) (lastPass = now()), (lastReplayed = replayedTime), (nestedBefore = nestedTime);
     // Caught while hydrating: the server's markup stays on the page until its error state is ready to replace it.
     const server = hydrating ? f.children.flatMap((c) => [...serverLeftIn(c), ...domNodes(c)]) : null;
     for (const c of f.children) unmount(c, !server);
@@ -3191,8 +3198,8 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     return;
   }
   if (profilersMounted) {
-    const took = now() - began + (rec ? rec.took : 0);
-    if (!kept) profile(f, took - nestedTime, now() - lastPass - (nestedTime - nestedBefore));
+    const took = now() - began + (replayedTime - replayedBase);
+    if (!kept) profile(f, took - nestedTime, now() - lastPass + (replayedTime - lastReplayed) - (nestedTime - nestedBefore));
     nestedTime = outerNested + took;
   }
   insertionQueue.push(...f.insertion);
@@ -3222,7 +3229,8 @@ function startRender() {
     focusedBefore = document.activeElement;
     selectionBefore = focusedBefore && selectable(focusedBefore) ? selectionIn(focusedBefore) : null;
   }
-  renderStart = now();
+  renderStart = renderBegan >= 0 ? renderBegan : now();
+  renderBegan = -1;
   renderIsNested = nestedUpdate;
   nestedUpdate = false;
 }
@@ -3305,7 +3313,7 @@ function renderClass(f: Fiber, withRef: any) {
             : ` However, it is set to an object with keys {${Object.keys(ct).join(", ")}}.`;
     warn(`${nameOf(C)} defines an invalid contextType. contextType should point to the Context object returned by React.createContext().${why}`, "invalid-context-type:" + nameOf(C));
   }
-  const ctx = validCt ? readContext(f, ct) : EMPTY_CONTEXT;
+  const ctx = validCt ? contextFor(f, ct) : EMPTY_CONTEXT;
   // React calls the legacy will-lifecycles only for a class that does not use the newer static ones.
   const legacy = !C.getDerivedStateFromProps && !f.inst?.getSnapshotBeforeUpdate && !C.prototype.getSnapshotBeforeUpdate;
   // Both names when both are there, as React calls them; this.state assigned in one is React's replaceState,
@@ -4063,7 +4071,7 @@ const CONTINUOUS_EVENTS = new Set("drag dragenter dragexit dragleave dragover mo
 function dryRun(fibers: Fiber[], preview: (p: Preview) => void): PromiseLike<any> | null {
   const p: Preview = { states: new Map(), classes: new Map() };
   preview(p);
-  return tryTransition(fibers, p, true);
+  return tryTransition(fibers, p, true) as PromiseLike<any> | null;
 }
 const heldDefault: (() => void)[] = [];
 let heldWait: PromiseLike<void> | null = null;
@@ -4484,13 +4492,17 @@ type Recorded = {
   hooks: number;
   sources: any[];
   versions: number[];
-  /** The state it read with the transition's values: the signal of each, and the value it showed. */
-  previewed: Map<any, [any, any]>;
+  /** The reads the transition changes (its state): for each, whether it holds what the render saw. */
+  previewed: Map<any, () => boolean>;
+  /** A class's: its instance's fields after the render, the updates it took, what it let go of. */
+  cls?: { after: any; queue: any[]; doneBefore: any[] | undefined; deletions: (() => void)[] };
   /** What it follows whose changes do not change what it drew. */
   follows: any[];
   took: number;
 };
 const recorded = new Map<Fiber, Recorded>();
+/** The render time of the records replayed so far (for a Profiler: what a draw that replayed took is that). */
+let replayedTime = 0;
 /** Components a dry run rendered that have no fiber yet: the fiber it made for each, by its element's props. */
 const drafts = new Map<any, Fiber>();
 /** While a render is recorded: the transition's state values, and the contexts its dry run provides. */
@@ -4515,8 +4527,24 @@ function contextFor(f: Fiber, ctx: any) {
 
 /** `f`'s render with `props` recorded, the transition's `states` and `contexts` seen: its output, or null when it
  * cannot be (a class, StrictMode's double render, something it does that a record cannot keep). */
-export function recordRender(f: Fiber, props: any, states: Map<any, any>, contexts: [any, any][]): { out: any } | null {
-  if ((f.render !== renderFunction && f.render !== renderMemo) || f.strict || f.dead) return null;
+export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [any, any][]): { out: any } | null {
+  const isClass = f.render === renderClass;
+  if ((f.render !== renderFunction && f.render !== renderMemo && !isClass) || f.strict || f.dead) return null;
+  const states = preview.states;
+  // A class's instance as it is, put back after; its render takes the transition's updates.
+  const inst = isClass ? f.inst : null;
+  if (inst?.__remount) return null;
+  const was0 = inst && {
+    props: inst.props, state: inst.state, context: inst.context, queue: inst.__queue, done: inst.__done,
+    classRef: (f as any).classRef, propsGiven: (f as any).propsGiven, propsResolved: (f as any).propsResolved,
+  };
+  let queue: any[] = [];
+  if (inst) {
+    inst.__queue = queue = [...was0!.queue, ...(preview.classes.get(inst) ?? [])];
+    queue = [...queue];
+    inst.__done = was0!.done ? [...was0!.done] : was0!.done;
+  }
+  const deletionsFrom = deletions.length;
   const saved = [f.insertion, f.layout, f.passive];
   const was = { current, hookAt, recordStates, recordContexts, recordFollows, A: internals.A };
   f.insertion = f.layout = f.passive = NO_EFFECTS;
@@ -4529,14 +4557,34 @@ export function recordRender(f: Fiber, props: any, states: Map<any, any>, contex
   const began = profilersMounted ? now() : 0;
   try {
     const r = readsOf(() => withHooks(recordHooks, () => f.render!(f, props)));
-    const previewed = new Map<any, [any, any]>();
-    for (const [box, v] of states) if (box.node) previewed.set(box.node, [box, v]);
-    recorded.set(f, { props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, follows, took: profilersMounted ? now() - began : 0 });
+    const previewed = new Map<any, () => boolean>();
+    for (const [box, v] of states) if (box.node) previewed.set(box.node, typeof box === "function" ? () => Object.is(box.peek(), v) : () => Object.is(box.v, v));
+    const cls = inst
+      ? {
+          after: { props: inst.props, state: inst.state, context: inst.context, done: inst.__done, classRef: (f as any).classRef, propsGiven: (f as any).propsGiven, propsResolved: (f as any).propsResolved },
+          queue,
+          doneBefore: was0!.done,
+          deletions: deletions.splice(deletionsFrom),
+        }
+      : undefined;
+    recorded.set(f, {
+      cls, props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, follows, took: profilersMounted ? now() - began : 0 });
     return { out: r.value };
   } catch (e) {
     if (e === NOT_RECORDABLE) return null;
     throw e;
   } finally {
+    if (inst) {
+      deletions.length = Math.min(deletions.length, deletionsFrom);
+      inst.props = was0!.props;
+      inst.state = was0!.state;
+      inst.context = was0!.context;
+      inst.__queue = was0!.queue;
+      inst.__done = was0!.done;
+      (f as any).classRef = was0!.classRef;
+      (f as any).propsGiven = was0!.propsGiven;
+      (f as any).propsResolved = was0!.propsResolved;
+    }
     [f.insertion, f.layout, f.passive] = saved as any;
     current = was.current;
     hookAt = was.hookAt;
@@ -4555,33 +4603,50 @@ export function recordNew(type: any, key: Key, props: any, anchor: Fiber, states
   if (anchor.strict || anchor.type === STRICT) return null;
   f.hooks = NO_EFFECTS;
   if (type?.$$typeof === MEMO) (f.compare = type.compare ?? shallowEqual), (f.render = renderMemo);
+  else if (type.prototype?.isReactComponent) (f.tick = signal(0)), (f.render = renderClass);
   else f.render = renderFunction;
-  const r = recordRender(f, props, states, contexts);
+  const r = recordRender(f, props, { states, classes: new Map() }, contexts);
   if (!r) return null;
   drafts.set(props, f);
   return { out: r.out, fiber: f };
 }
 
-/** The record of `f`'s render, taken, if it still holds: the same props, and nothing it read changed since but the
- * state it read with the transition's values, now holding them. */
+/** The record of `f`'s render, taken, if it still holds: the same props, nothing it read changed since but what the
+ * transition changes (holding what it saw), and for a class, the updates it took queued now and nothing else. */
 function takeRecorded(f: Fiber): Recorded | null {
   const r = recorded.get(f);
   if (!r) return null;
   recorded.delete(f);
-  if (r.props !== f.props) {
   if (r.props !== f.props) return null;
-    return null;
-  }
   for (let i = 0; i < r.sources.length; i++) {
     const s = r.sources[i];
     if (s.version === r.versions[i]) continue;
-    const p = r.previewed.get(s);
-    if (!p || !Object.is(typeof p[0] === "function" ? p[0].peek() : p[0].v, p[1])) {
-    if (!p || !Object.is(p[0].v, p[1])) return null;
-      return null;
-    }
+    const holds = r.previewed.get(s);
+    if (!holds || !holds()) return null;
+  }
+  if (r.cls) {
+    const q = f.inst?.__queue;
+    if (!q || f.inst.__remount || q.length !== r.cls.queue.length || q.some((u: any, i: number) => u !== r.cls!.queue[i])) return null;
   }
   return r;
+}
+
+/** A class's record put in place: its instance as the render left it, what it let go of, the callbacks of the
+ * updates it took (queued with them as they were applied) run after its layout work. */
+function replayClass(f: Fiber, r: Recorded) {
+  const inst = f.inst;
+  const c = r.cls!;
+  const fresh = (inst.__done ?? []).filter((cb: any) => !c.doneBefore?.includes(cb));
+  inst.props = c.after.props;
+  inst.state = c.after.state;
+  inst.context = c.after.context;
+  inst.__queue = [];
+  inst.__done = c.after.done;
+  (f as any).classRef = c.after.classRef;
+  (f as any).propsGiven = c.after.propsGiven;
+  (f as any).propsResolved = c.after.propsResolved;
+  deletions.push(...c.deletions);
+  if (fresh.length) effectsOf(f, "layout").push(() => lifecycle(f, () => fresh.forEach((cb: any) => callCallback(cb, inst))));
 }
 
 function effectHook(create: () => any, deps: any[] | undefined, phase: "insertion" | "layout" | "passive") {
@@ -4687,13 +4752,18 @@ function deferTransition(apply: () => void, preview?: (p: Preview) => void, fibe
 
 /** When a transition's updates are drawn: in a task of their own, after what is urgent has been painted (as React's
  * scheduler runs the transition lane); a test's scheduler can take this over. */
-let scheduleTransitions: (run: () => void) => void = (run) => {
+let scheduleTransitions: (run: (shouldYield?: () => boolean) => void) => void = (run) => {
   if (typeof MessageChannel === "function") {
     const ch = new MessageChannel();
-    ch.port1.onmessage = () => run();
+    ch.port1.onmessage = () => run(slice());
     ch.port2.postMessage(null);
-  } else setTimeout(run, 0);
+  } else setTimeout(() => run(slice()), 0);
 };
+/** What stops a transition's render in the browser: 5 ms of it (React's frame interval), the rest in the next task. */
+function slice(): () => boolean {
+  const end = performance.now() + 5;
+  return () => performance.now() >= end;
+}
 export function setTransitionScheduler(fn: typeof scheduleTransitions) {
   scheduleTransitions = fn;
 }
@@ -4740,7 +4810,12 @@ let transitionHeld: PromiseLike<any> | null = null;
 let heldWork = 0;
 let transitionRetried = false;
 
-export function flushTransitions(): boolean {
+/** A paused dry run's start: the transition work it renders, and the render count then (anything drawn since stales it). */
+let dryWork: TransitionUpdate[] = [];
+let drySerial = 0;
+let dryStart = 0;
+
+export function flushTransitions(shouldYield?: () => boolean): boolean {
   transitionBooked = false;
   // What continuous events updated (their own lane, ahead of transitions).
   if (continuousWork.length) {
@@ -4761,28 +4836,41 @@ export function flushTransitions(): boolean {
   // costs a second render.
   const retried = transitionRetried;
   transitionRetried = false;
-  if (!retried && previewed.length) {
+  // A dry run stopped between two components: gone on with, unless something was drawn since or the work changed (then
+  // it starts again, as React restarts an interrupted render).
+  if (transitionPaused() && (renderSerial !== drySerial || dryWork.length !== transitionWork.length || dryWork.some((w, i) => w !== transitionWork[i]))) dropPausedTransition();
+  let waits: ReturnType<typeof tryTransition> = null;
+  if (transitionPaused()) waits = resumeTransition(shouldYield);
+  else if (!retried && previewed.length) {
     const preview: Preview = { states: new Map(), classes: new Map() };
     for (const w of previewed) w.preview!(preview);
     // Its ends drawn with it (nothing in it can suspend): seen by its render too.
     if (!transitionsSuspended && !actionsRunning && transitionWork.every((w) => w.fiber && !mightSuspend(w.fiber))) for (const e of transitionEnds) (e as any).preview?.(preview);
-    const waits = tryTransition(previewed.map((w) => w.fiber!), preview);
-    if (waits) {
-      transitionHeld = waits;
-      heldWork = transitionWork.length;
-      const retry = () => {
-        // (A hold a newer transition replaced: nothing to retry for it.)
-        if (transitionHeld !== waits) return;
-        transitionHeld = null;
-        // Its data is there: drawn once now, as React renders the retry (the screen is kept if it suspends again).
-        transitionRetried = true;
-        // (Held for stylesheets alone: React's render was done, and it commits in their load event.)
-        if ((waits as any)[STYLESHEET_WAIT]) return void flushTransitions();
-        if (!transitionBooked) (transitionBooked = true), scheduleTransitions(flushTransitions);
-      };
-      waits.then(retry, retry);
-      return true;
-    }
+    dryWork = [...transitionWork];
+    dryStart = now();
+    drySerial = renderSerial;
+    waits = tryTransition(previewed.map((w) => w.fiber!), preview, false, shouldYield);
+  }
+  // Stopped between two components: the rest in a task of its own.
+  if (waits === PAUSED) {
+    if (!transitionBooked) (transitionBooked = true), scheduleTransitions(flushTransitions);
+    return true;
+  }
+  if (waits) {
+    transitionHeld = waits;
+    heldWork = transitionWork.length;
+    const retry = () => {
+      // (A hold a newer transition replaced: nothing to retry for it.)
+      if (transitionHeld !== waits) return;
+      transitionHeld = null;
+      // Its data is there: drawn once now, as React renders the retry (the screen is kept if it suspends again).
+      transitionRetried = true;
+      // (Held for stylesheets alone: React's render was done, and it commits in their load event.)
+      if ((waits as any)[STYLESHEET_WAIT]) return void flushTransitions();
+      if (!transitionBooked) (transitionBooked = true), scheduleTransitions(flushTransitions);
+    };
+    waits.then(retry, retry);
+    return true;
   }
   // With boundaries on the page, drawn inside the browser's view transition (the old state captured first).
   if (!viewTransitionWaiting) {
@@ -4805,6 +4893,8 @@ let viewTransitionWaiting = false;
 
 function applyTransitions(): boolean {
   applyingTransition = true;
+  // Rendered in its dry run already: its render began then (a Profiler's start time).
+  renderBegan = recorded.size || drafts.size ? dryStart : -1;
   viewTransitionsBegin();
   try {
     const work = transitionWork.splice(0);
@@ -4831,6 +4921,7 @@ function applyTransitions(): boolean {
     flushSignals();
   } finally {
     applyingTransition = false;
+    renderBegan = -1;
     clearRecorded();
   }
   return true;

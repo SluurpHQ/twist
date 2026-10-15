@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4056 pass, 9 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
+4058 pass, 7 fail, 362 skipped (gated off for stable React 19), 61 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -151,7 +151,7 @@
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 18 | 0 | 1 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 10 |  |
-| react/ReactProfiler-test.internal.js | 31 | 2 | 1 |  |
+| react/ReactProfiler-test.internal.js | 33 | 0 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 7 | 0 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 0 | 3 |  |
 | react/ReactPureComponent-test.js | 4 | 0 | 0 |  |

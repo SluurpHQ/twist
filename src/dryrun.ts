@@ -94,12 +94,16 @@ function renderDry(fiber: Fiber | null, anchor: Fiber, contexts: [any, any][], f
   }
 }
 
-function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, any][], i = 0): void {
+/** The transition's render below `node`, a component at a time: it stops (yields) after each. */
+function* walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, any][], i = 0): Generator<void, void, void> {
   if (node == null || typeof node === "boolean" || typeof node !== "object") return;
-  if (Array.isArray(node)) return node.forEach((c, j) => walk(c, parent, anchor, contexts, j));
-  if (typeof node.then === "function") return walk(readThenable(node), parent, anchor, contexts, i);
-  if (node.$$typeof === PORTAL) return walk(node.children, null, anchor, contexts);
-  if (!node.$$typeof && typeof node[Symbol.iterator] === "function") return walk([...node], parent, anchor, contexts, i);
+  if (Array.isArray(node)) {
+    for (let j = 0; j < node.length; j++) yield* walk(node[j], parent, anchor, contexts, j);
+    return;
+  }
+  if (typeof node.then === "function") return yield* walk(readThenable(node), parent, anchor, contexts, i);
+  if (node.$$typeof === PORTAL) return yield* walk(node.children, null, anchor, contexts);
+  if (!node.$$typeof && typeof node[Symbol.iterator] === "function") return yield* walk([...node], parent, anchor, contexts, i);
   let { type } = node;
   const props = node.props ?? {};
   const fiber = matching(parent, node, i);
@@ -112,7 +116,7 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
       const pending = stylesheetPending(document, props);
       if (pending) throw pending;
     }
-    return walk(props.children, fiber, at, contexts);
+    return yield* walk(props.children, fiber, at, contexts);
   }
   if (type?.$$typeof === LAZY) type = readLazy(type._payload);
   if (type === SUSPENSE) {
@@ -120,13 +124,13 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
     if (fiber && (fiber as any).dehydrated && (fiber as any).region?.start?.data === "$?") return;
     inBoundary++;
     try {
-      walk(props.children, fiber, at, contexts);
+      yield* walk(props.children, fiber, at, contexts);
     } catch (e: any) {
       // Suspending inside a boundary already on the page holds the transition; a new one shows its fallback.
       if (e && typeof e.then === "function" && fiber && !(fiber.pending && fiber.pending.peek() > 0)) {
         // React renders the fallback too before it holds the transition.
         try {
-          walk(props.fallback, null, at, contexts);
+          for (const _ of walk(props.fallback, null, at, contexts));
         } catch {}
         throw e;
       }
@@ -136,33 +140,44 @@ function walk(node: any, parent: Fiber | null, anchor: Fiber, contexts: [any, an
     }
     return;
   }
-  if (typeof type === "symbol" || type === FRAGMENT) return walk(props.children, fiber, at, contexts);
-  if (type?.$$typeof === CONTEXT) return walk(props.children, fiber, at, [...contexts, [type, props.value]]);
+  if (typeof type === "symbol" || type === FRAGMENT) return yield* walk(props.children, fiber, at, contexts);
+  if (type?.$$typeof === CONTEXT) return yield* walk(props.children, fiber, at, [...contexts, [type, props.value]]);
   if (type?.$$typeof === CONSUMER) {
     const value = renderDry(fiber, at, contexts, () => dryHooks.useContext(type._context));
-    return walk(props.children(value), fiber, at, contexts);
+    yield;
+    return yield* walk(props.children(value), fiber, at, contexts);
   }
   if (type?.$$typeof === MEMO) {
     if (fiber && fiber.props && (type.compare ?? shallowEqual)(fiber.props, props) && !preview.states.size) return;
     if (!fiber && typeof type.type === "function" && !type.type.prototype?.isReactComponent) {
       const r = recordNew(type, keyOf(node, i), props, at, preview.states, contexts);
-      if (r) return walk(r.out, null, r.fiber, contexts);
+      if (r) {
+        yield;
+        return yield* walk(r.out, null, r.fiber, contexts);
+      }
     }
-    return walk({ ...node, type: type.type }, parent, anchor, contexts, i);
+    return yield* walk({ ...node, type: type.type }, parent, anchor, contexts, i);
   }
   if (type?.$$typeof === FORWARD_REF) {
     const { ref, ...rest } = props;
-    return walk(renderDry(fiber, at, contexts, () => type.render(rest, ref ?? null)), fiber, at, contexts);
+    const out = renderDry(fiber, at, contexts, () => type.render(rest, ref ?? null));
+    yield;
+    return yield* walk(out, fiber, at, contexts);
   }
   if (typeof type !== "function") return;
   // Given the same props, and nothing of its own in the transition: as it is.
   if (fiber && fiber.props === props && !touches(fiber)) return;
   // New: rendered on a fiber of its own, kept for the real mount.
-  if (!fiber && !type.prototype?.isReactComponent && typeOf(node) === type) {
+  if (!fiber && typeOf(node) === type) {
     const r = recordNew(type, keyOf(node, i), props, at, preview.states, contexts);
-    if (r) return walk(r.out, null, r.fiber, contexts);
+    if (r) {
+      yield;
+      return yield* walk(r.out, null, r.fiber, contexts);
+    }
   }
-  walk(renderComponent(fiber, at, contexts, type, props), fiber, at, contexts);
+  const out = renderComponent(fiber, at, contexts, type, props);
+  yield;
+  yield* walk(out, fiber, at, contexts);
 }
 
 const shallowEqual = (a: any, b: any) => {
@@ -181,8 +196,12 @@ function touches(f: Fiber): boolean {
 function renderComponent(fiber: Fiber | null, at: Fiber, contexts: [any, any][], type: any, props: any) {
   if (!type.prototype?.isReactComponent) {
     // With the real hooks, kept for the transition's draw (no second render).
-    const r = fiber ? recordRender(fiber, props, preview.states, contexts) : null;
+    const r = fiber ? recordRender(fiber, props, preview, contexts) : null;
     return r ? r.out : renderDry(fiber, at, contexts, () => type(props));
+  }
+  if (fiber?.inst) {
+    const r = recordRender(fiber, props, preview, contexts);
+    if (r) return r.out;
   }
   const inst = fiber?.inst;
   if (!inst) {
@@ -203,12 +222,20 @@ function renderComponent(fiber: Fiber | null, at: Fiber, contexts: [any, any][],
   }
 }
 
-/** The transition's components rendered dry: the thenable that holds it if one suspends, else null. */
 /** Whether the update tried is urgent (not a transition): it is held only for stylesheets outside any boundary. */
 let urgent = false;
 /** Suspense boundaries the walk is inside. */
 let inBoundary = 0;
-export function tryTransition(changed: Fiber[], p: Preview, isUrgent = false): PromiseLike<any> | null {
+/** Said by tryTransition and resumeTransition when the render stopped between two components, to go on later. */
+export const PAUSED = Symbol("paused");
+type Outcome = PromiseLike<any> | null | typeof PAUSED;
+/** A dry run stopped between two components: where it is, and what it renders with. */
+let paused: { it: Generator<void, void, void>; preview: Preview; urgent: boolean; inBoundary: number } | null = null;
+
+/** The transition's components rendered dry: the thenable that holds it if one suspends, PAUSED if `shouldYield` stopped
+ * it between two components (resumeTransition goes on), else null. */
+export function tryTransition(changed: Fiber[], p: Preview, isUrgent = false, shouldYield?: () => boolean): Outcome {
+  dropPausedTransition();
   preview = p;
   urgent = isUrgent;
   clearRecorded();
@@ -219,24 +246,64 @@ export function tryTransition(changed: Fiber[], p: Preview, isUrgent = false): P
     for (let q = f.parent; q; q = q.parent) if (set.has(q)) return false;
     return !f.dead;
   });
-  try {
-    // A root given new children: those, matched against what it has.
-    for (const [f, children] of p.roots ?? []) if (!f.dead) walk(children, f, f, []);
-    for (const f of tops) {
-      // The fiber itself, from its own hooks; what it renders matched against its children.
-      let type = f.type;
-      let props = f.props ?? {};
-      if (type?.$$typeof === MEMO) type = type.type;
-      if (type?.$$typeof === FORWARD_REF) {
-        const render = type.render;
-        const { ref, ...rest } = props;
-        walk(renderDry(f, f, [], () => render(rest, ref ?? null)), f, f, []);
-        continue;
-      }
-      if (typeof type !== "function") continue;
-      walk(renderComponent(f, f, [], type, props), f, f, []);
+  return drive(renderAll(p, tops), shouldYield);
+}
+
+function* renderAll(p: Preview, tops: Fiber[]): Generator<void, void, void> {
+  // A root given new children: those, matched against what it has.
+  for (const [f, children] of p.roots ?? []) if (!f.dead) yield* walk(children, f, f, []);
+  for (const f of tops) {
+    if (f.dead) continue;
+    // The fiber itself, from its own hooks; what it renders matched against its children.
+    let type = f.type;
+    let props = f.props ?? {};
+    if (type?.$$typeof === MEMO) type = type.type;
+    if (type?.$$typeof === FORWARD_REF) {
+      const render = type.render;
+      const { ref, ...rest } = props;
+      const out = renderDry(f, f, [], () => render(rest, ref ?? null));
+      yield;
+      yield* walk(out, f, f, []);
+      continue;
     }
-    return null;
+    if (typeof type !== "function") continue;
+    const out = renderComponent(f, f, [], type, props);
+    yield;
+    yield* walk(out, f, f, []);
+  }
+}
+
+/** The dry run stopped earlier gone on with: as tryTransition answers. */
+export function resumeTransition(shouldYield?: () => boolean): Outcome {
+  const p = paused;
+  if (!p) return null;
+  paused = null;
+  preview = p.preview;
+  urgent = p.urgent;
+  inBoundary = p.inBoundary;
+  return drive(p.it, shouldYield);
+}
+export const transitionPaused = () => paused !== null;
+/** A dry run stopped earlier given up (something else was drawn meanwhile): its records go too. */
+export function dropPausedTransition() {
+  const p = paused;
+  if (!p) return;
+  paused = null;
+  try {
+    p.it.return();
+  } catch {}
+  clearRecorded();
+}
+
+function drive(it: Generator<void, void, void>, shouldYield?: () => boolean): Outcome {
+  try {
+    for (;;) {
+      if (it.next().done) return null;
+      if (shouldYield?.()) {
+        paused = { it, preview, urgent, inBoundary };
+        return PAUSED;
+      }
+    }
   } catch (e: any) {
     // (Its records dropped: what holds it, or an error the real render meets again.)
     clearRecorded();
@@ -245,6 +312,7 @@ export function tryTransition(changed: Fiber[], p: Preview, isUrgent = false): P
     return null;
   } finally {
     preview = { states: new Map(), classes: new Map() };
+    inBoundary = 0;
   }
 }
 
