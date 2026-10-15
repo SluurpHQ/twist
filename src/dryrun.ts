@@ -79,8 +79,19 @@ function matching(parent: Fiber | null, el: any, i: number): Fiber | null {
   if (!parent) return null;
   const key = keyOf(el, i);
   const type = typeOf(el);
-  for (const c of parent.children) if (c.key === key && c.type === type && !c.dead) return c;
-  return null;
+  // (In its place, most often; else looked up by key, the parent's children mapped once.)
+  const at = parent.children[i];
+  const c = at && at.key === key ? at : byKey(parent).get(key);
+  return c && c.type === type && !c.dead ? c : null;
+}
+const keyMaps = new WeakMap<Fiber, { children: Fiber[]; map: Map<any, Fiber> }>();
+function byKey(parent: Fiber): Map<any, Fiber> {
+  const had = keyMaps.get(parent);
+  if (had && had.children === parent.children) return had.map;
+  const map = new Map<any, Fiber>();
+  for (const c of parent.children) if (!map.has(c.key)) map.set(c.key, c);
+  keyMaps.set(parent, { children: parent.children, map });
+  return map;
 }
 
 /** A component rendered dry: its output, from its fiber's hooks (with the preview) or new ones. */

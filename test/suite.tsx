@@ -502,6 +502,38 @@ test("ViewTransition: drawn inside the browser's view transition, callbacks told
   }
 });
 
+test("a long transition renders in slices, each component once", async (box) => {
+  let renders = 0;
+  const spin = (ms: number) => {
+    const end = performance.now() + ms;
+    while (performance.now() < end);
+  };
+  function Item({ n }: { n: number }) {
+    renders++;
+    spin(0.05);
+    return <i>{n}</i>;
+  }
+  let set!: (n: number) => void;
+  function List() {
+    const [n, setN] = useState(0);
+    set = setN;
+    return <div>{Array.from({ length: 400 }, (_, i) => <Item key={i} n={n} />)}</div>;
+  }
+  const root = createRoot(box);
+  flushSync(() => root.render(<List />));
+  renders = 0;
+  ReactAll.startTransition(() => set(1));
+  // A task queued after the transition's first: it runs between two slices, the page still as it was.
+  const seenBetween = await new Promise<string>((done) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => done(box.querySelector("i")!.textContent!);
+    ch.port2.postMessage(null);
+  });
+  await until(() => box.querySelector("i")?.textContent === "1");
+  eq([seenBetween, box.querySelector("i")!.textContent, renders], ["0", "1", 400]);
+  root.unmount();
+});
+
 test("server render", () => {
   const Ctx = createContext(1);
   const C = () => {
@@ -513,7 +545,9 @@ test("server render", () => {
 
 (async () => {
   const results: { name: string; ok: boolean; error?: string }[] = [];
-  for (const t of tests) {
+  // ?only=words: the checks whose name has them.
+  const only = new URLSearchParams(location.search).get("only");
+  for (const t of only ? tests.filter((t) => t.name.includes(only)) : tests) {
     const box = document.createElement("div");
     document.body.append(box);
     try {
