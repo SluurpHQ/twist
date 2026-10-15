@@ -391,6 +391,18 @@ function singletonNodes(f: Fiber, out: Node[] = []): Node[] {
   return out;
 }
 
+/** Server markup below `f` that a boundary the server gave up on took away in this render: put back, and given. */
+function serverLeftIn(f: Fiber, out: Node[] = []): Node[] {
+  const r = (f as any).serverLeft as { nodes: Node[]; host: Node; after: Node | null } | null | undefined;
+  if (r) {
+    (f as any).serverLeft = null;
+    const into = r.after?.parentNode ?? domParent(r.host);
+    for (const n of r.nodes) into.insertBefore(n, r.after), out.push(n);
+  }
+  for (const c of f.children) serverLeftIn(c, out);
+  return out;
+}
+
 function domNodes(f: Fiber, out: Node[] = []): Node[] {
   // A singleton stays where the document has it: not moved or removed with its parent's nodes.
   if ((f as any).singleton) return out;
@@ -1324,7 +1336,17 @@ function hydrateBoundary(f: Fiber, host: Node, before: Node | null) {
   }
   if (kind === "$!") {
     serverGaveUp(f, region);
-    drawFresh(f, host, removeRegion(region));
+    // What the server drew there, kept until this render commits: an error boundary above that draws again while
+    // hydrating puts it back, to stay until its own commit (see serverLeftIn).
+    const nodes: Node[] = [];
+    for (let n: Node | null = region.start; n; n = n.nextSibling) {
+      nodes.push(n);
+      if (n === region.end) break;
+    }
+    const after = removeRegion(region);
+    (f as any).serverLeft = { nodes, host, after };
+    drawFresh(f, host, after);
+    layoutQueue.push(() => void ((f as any).serverLeft = null));
     return;
   }
   (region.start as any)[BOUNDARY] = f;
@@ -1913,7 +1935,7 @@ function mountHoist(f: Fiber, host: Node) {
   (f as any).hoistRoot = root;
   if (resource?.type === "stylesheet") renderSheets?.push(f);
   // A stylesheet not in the document yet: a render that can wait commits once it has loaded.
-  if (resource && work) suspendResource(work.wait, root, resource, f.props);
+  if (resource && (work || retryWait)) suspendResource(work?.wait ?? retryWait!, root, resource, f.props);
   // Inside a Suspense, outside a transition: the boundary shows its fallback until the stylesheet has loaded.
   else if (resource?.type === "stylesheet" && !hydrating && !applyingTransition && suspenseAbove(f)) {
     const st = newCommitWait();
@@ -2423,6 +2445,8 @@ type Work = {
   errored?: { error: unknown };
 };
 let work: Work | null = null;
+/** An error boundary's error state drawn while hydrating (see draw): what its stylesheets wait for before it commits. */
+let retryWait: CommitWait | null = null;
 /** When the work loop runs: at once by default; a test's scheduler can take it over. */
 let scheduleWork: (run: () => void) => void = (run) => run();
 /** What is scheduled now started (a root's render begun), without finishing a concurrent render: for a test. */
@@ -3063,7 +3087,9 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   for (let tries = 0; (f as any).redo && tries < 3; tries++) {
     (f as any).redo = false;
     if (profilersMounted && f.type.getDerivedStateFromError) (lastPass = now()), (nestedBefore = nestedTime);
-    for (const c of f.children) unmount(c, true);
+    // Caught while hydrating: the server's markup stays on the page until its error state is ready to replace it.
+    const server = hydrating ? f.children.flatMap((c) => [...serverLeftIn(c), ...domNodes(c)]) : null;
+    for (const c of f.children) unmount(c, !server);
     f.children = [];
     f.insertion = f.layout = f.passive = NO_EFFECTS;
     // Mounting: mounted again; updating: updated again, with the error's state.
@@ -3083,12 +3109,36 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
       hookAt = prevAt;
     }
     f.out = out;
+    // Caught while hydrating: its error state drawn on the client, off the page, as React renders it rather than
+    // hydrating it; it replaces the server's markup once its stylesheets have loaded (React's suspended commit).
+    const wasHydrating = hydrating;
+    const frag = server ? docOf(host).createDocumentFragment() : null;
+    const wait = frag ? newCommitWait() : null;
+    // (Its layout work, stylesheets put in place among it, held with it: the subtree's own, from here on.)
+    const layoutFrom = layoutQueue.length;
+    if (frag) (hydrating = null), (retryWait = wait);
     try {
-      reconcile(f, toList(out), host, before);
+      reconcile(f, toList(out), frag ?? host, frag ? null : before);
     } catch (e) {
       caught(f, e, true);
     } finally {
+      hydrating = wasHydrating;
+      if (frag) retryWait = null;
       (f as any).retrying = false;
+    }
+    if (frag) {
+      const held = layoutQueue.splice(layoutFrom);
+      const put = () => {
+        if (f.dead) return;
+        const anchor = server!.find((n) => n.parentNode);
+        const parent = anchor?.parentNode ?? domParent(hostParentOf(f));
+        parent.insertBefore(frag, anchor ?? nextDomAfter(f));
+        for (const n of server!) n.parentNode?.removeChild(n);
+        for (const fn of held) fn();
+      };
+      const ready = commitWhenReady(wait!);
+      if (ready) ready(put);
+      else layoutQueue.push(put);
     }
   }
   drawing.delete(f);
@@ -3270,6 +3320,9 @@ function renderClass(f: Fiber, withRef: any) {
     }
     if (C.getDerivedStateFromProps) inst.state = { ...inst.state, ...derived(f, C, props, inst.state) };
     call("componentWillMount");
+    // this.state assigned there (React's replaceState): its update is still queued after the mount, so React renders
+    // once more then, and calls the setState callbacks again.
+    const replaced = inst.__queue.some((u: any) => u && typeof u === "object" && REPLACE in u);
     // setState in componentWillMount: taken into this first render.
     inst.state = apply(inst.state, props)[0];
     const out = strictTwice(f, () => classRender(inst), true);
@@ -3279,6 +3332,13 @@ function renderClass(f: Fiber, withRef: any) {
     const done = inst.__done?.splice(0);
     if (done?.length) effectsOf(f, "layout").push(() => lifecycle(f, () => done.forEach((cb: any) => callCallback(cb, inst))));
     if (ref != null) effectsOf(f, "layout").push(() => !f.dead && setRef(f, ref, inst));
+    if (replaced)
+      effectsOf(f, "layout").push(() => {
+        if (f.dead) return;
+        inst.__queue.push(FORCE);
+        if (done?.length) (inst.__done ??= []).push(...done);
+        f.tick!.set(f.tick!.peek() + 1);
+      });
     return out;
   }
   const prevProps = inst.props;

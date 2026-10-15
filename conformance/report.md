@@ -1,6 +1,6 @@
 # React's tests on @sluurp/dom
 
-4037 pass, 29 fail, 362 skipped (gated off for stable React 19), 60 set aside as not ours (not-ours.ts).
+4054 pass, 12 fail, 362 skipped (gated off for stable React 19), 60 set aside as not ours (not-ours.ts).
 
 | File | Pass | Fail | Skip | |
 |---|---:|---:|---:|---|
@@ -18,7 +18,7 @@
 | react-dom/ReactCompositeComponent-test.js | 40 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentDOMMinimalism-test.js | 3 | 0 | 0 |  |
 | react-dom/ReactCompositeComponentNestedState-test.js | 1 | 0 | 0 |  |
-| react-dom/ReactCompositeComponentState-test.js | 7 | 1 | 1 |  |
+| react-dom/ReactCompositeComponentState-test.js | 8 | 0 | 1 |  |
 | react-dom/ReactDOM-test.js | 16 | 0 | 2 |  |
 | react-dom/ReactDOMActivity-test.js | 7 | 0 | 1 |  |
 | react-dom/ReactDOMAttribute-test.js | 13 | 0 | 0 |  |
@@ -36,7 +36,7 @@
 | react-dom/ReactDOMFizzServer-test.js | 167 | 3 | 14 |  |
 | react-dom/ReactDOMFizzServerBrowser-test.js | 17 | 0 | 0 |  |
 | react-dom/ReactDOMFizzServerEdge-test.js | 2 | 0 | 0 |  |
-| react-dom/ReactDOMFizzServerNode-test.js | 20 | 1 | 0 |  |
+| react-dom/ReactDOMFizzServerNode-test.js | 21 | 0 | 0 |  |
 | react-dom/ReactDOMFizzShellHydration-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMFizzStatic-test.js | 6 | 0 | 0 |  |
 | react-dom/ReactDOMFizzStaticBrowser-test.js | 32 | 0 | 2 |  |
@@ -44,7 +44,7 @@
 | react-dom/ReactDOMFizzSuppressHydrationWarning-test.js | 12 | 0 | 0 |  |
 | react-dom/ReactDOMFizzSuspenseList-test.js | 0 | 0 | 13 |  |
 | react-dom/ReactDOMFizzViewTransition-test.js | 5 | 0 | 6 |  |
-| react-dom/ReactDOMFloat-test.js | 129 | 11 | 3 |  |
+| react-dom/ReactDOMFloat-test.js | 140 | 0 | 3 |  |
 | react-dom/ReactDOMForm-test.js | 40 | 0 | 5 |  |
 | react-dom/ReactDOMFragmentRefs-test.js | 89 | 0 | 0 |  |
 | react-dom/ReactDOMFragmentRefsDocument-test.js | 10 | 0 | 0 |  |
@@ -151,7 +151,7 @@
 | react/ReactJSXRuntime-test.js | 15 | 0 | 0 |  |
 | react/ReactJSXTransformIntegration-test.js | 18 | 0 | 1 |  |
 | react/ReactMismatchedVersions-test.js | 0 | 0 | 10 |  |
-| react/ReactProfiler-test.internal.js | 27 | 6 | 1 |  |
+| react/ReactProfiler-test.internal.js | 31 | 2 | 1 |  |
 | react/ReactProfilerComponent-test.internal.js | 7 | 0 | 0 |  |
 | react/ReactProfilerDevToolsIntegration-test.internal.js | 0 | 0 | 3 |  |
 | react/ReactPureComponent-test.js | 4 | 0 | 0 |  |

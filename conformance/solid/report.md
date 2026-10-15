@@ -1,739 +1,727 @@
 # Solid's tests on Twist
 
-5689 pass, 1012 fail, 714 files (32 did not load, 121 test Solid's internals)
+8897 pass, 12 fail, 714 files (0 did not load, 15 test Solid's internals), 87 tests skipped (by Solid, or by skips.ts)
+
+0 more pass that Solid itself fails (its own `.fails` tests, pinning its known bugs)
 
 ## Why files did not load
 
-- 9 × SyntaxError: Export named 'httpStatus' not found
-- 4 × Cannot find module '../../src/server.js'
-- 4 × SyntaxError: Export named 'createSSRResponse' not found
-- 3 × SyntaxError: [class SyntaxError extends Error],
-- 3 × SyntaxError: Export named 'getHydrationWriter' not found
-- 1 × SyntaxError: Export named 'enforceLoadingBoundary' not found
-- 1 × SyntaxError: Export named 'hasStaticKeys' not found
-- 1 × Cannot find module '../src/response.js'
-- 1 × SyntaxError: Export named 'waitAsset' not found
-- 1 × Cannot find module '../../src/response.js'
-- 1 × SyntaxError: Export named 'httpHeader' not found
-- 1 × SyntaxError: Export named 'getServerFunctionRPC' not found
-- 1 × SyntaxError: Export named 'viewOf' not found
-- 1 × SyntaxError: Export named 'getTraceContext' not found
 
 ## Files
 
-| file | pass | fail | note |
-|---|---|---|---|
-| signals/tests/a34-writes-then-derivations.test.ts | 8 | 0 |  |
-| signals/tests/action-await-contract.test.ts | 4 | 0 |  |
-| signals/tests/action-completion-race.test.ts | 0 | 1 |  |
-| signals/tests/action-done-window.test.ts | 0 | 3 |  |
-| signals/tests/action-loading-rail.test.ts | 5 | 0 |  |
-| signals/tests/action-thenable-assimilation.test.ts | 1 | 3 |  |
-| signals/tests/action.test.ts | 66 | 1 |  |
-| signals/tests/adoption-unchanged-key-read-3706.test.ts | 8 | 11 |  |
-| signals/tests/affects-audit-2893.test.ts | 7 | 1 |  |
-| signals/tests/affects-propagation.test.ts | 7 | 2 |  |
-| signals/tests/async-chain-supersession.test.ts | 6 | 2 |  |
-| signals/tests/async-landing-deps-3461.test.ts | 0 | 2 |  |
-| signals/tests/async-lane-landing-equals-order.test.ts | 1 | 0 |  |
-| signals/tests/attribution-benchmark-eval.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-current-origin.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-effect-cycle.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-engine-cost.test.ts | 0 | 0 |  |
-| signals/tests/attribution-fan-out.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-feedback-findings.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-feedback.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-graph-growth.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-holds.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-immutable-update.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-interactions.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-lean-gate.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/attribution.js' |
-| signals/tests/attribution-list-identity.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-navigation.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-optimistic-revert.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-provenance.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-relay-tear.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-timeline.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-unstable-memo.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-values.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-wasted-recompute.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-waterfall-eval.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution-wide-scope.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/attribution.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/autodispose-contract.test.ts | 2 | 2 |  |
-| signals/tests/autodispose-pending-release.test.ts | 5 | 1 |  |
-| signals/tests/body-end-supersession-visibility.test.ts | 1 | 0 |  |
-| signals/tests/born-held.test.ts | 4 | 0 |  |
-| signals/tests/boundary-not-born-held-3540.test.ts | 8 | 4 |  |
-| signals/tests/boundary-output-frame-reader.test.ts | 4 | 0 |  |
-| signals/tests/client-error-hook.test.ts | 5 | 2 |  |
-| signals/tests/compute-write-joins-transition.test.ts | 1 | 1 |  |
-| signals/tests/contested-effect.test.ts | 1 | 2 |  |
-| signals/tests/context.test.ts | 3 | 3 |  |
-| signals/tests/createEffect.test.ts | 24 | 0 |  |
-| signals/tests/createErrorBoundary.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
-| signals/tests/createLoadingBoundary.on.test.ts | 7 | 0 |  |
-| signals/tests/createLoadingBoundary.test.ts | 19 | 7 |  |
-| signals/tests/createMemo.test.ts | 69 | 11 |  |
-| signals/tests/createOptimistic.test.ts | 59 | 9 |  |
-| signals/tests/createProjection.draft-lifetime-3585.test.ts | 10 | 7 |  |
-| signals/tests/createReaction.test.ts | 2 | 3 |  |
-| signals/tests/createRevealOrder.test.ts | 38 | 0 |  |
-| signals/tests/createRoot.test.ts | 21 | 1 |  |
-| signals/tests/createSignal.test.ts | 10 | 0 |  |
-| signals/tests/createTrackedEffect.test.ts | 18 | 1 |  |
-| signals/tests/derived-write-then-derivation-3733.test.ts | 36 | 1 |  |
-| signals/tests/dev.test.ts | 28 | 0 |  |
-| signals/tests/diagnostics.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
-| signals/tests/direct-commit-readers-posture.test.ts | 1 | 2 |  |
-| signals/tests/direction-rule-probe.test.ts | 2 | 2 |  |
-| signals/tests/disposed-read-lifecycle.test.ts | 5 | 0 |  |
-| signals/tests/dist-artifacts.test.ts | 1 | 21 | not ours: runs Solid's built packages in a child process |
-| signals/tests/dormant-memo-chain-3554.test.ts | 2 | 4 |  |
-| signals/tests/effect-error-phases.test.ts | 10 | 1 |  |
-| signals/tests/effect-mainline-ownership-3412.test.ts | 4 | 0 |  |
-| signals/tests/effect-phase-writes.test.ts | 9 | 1 |  |
-| signals/tests/enableExternalSource.test.ts | 0 | 1 | not ours: SyntaxError: Export named '_resetExternalSourceConfig' not found |
-| signals/tests/enforceLoadingBoundary.test.ts | 0 | 1 | SyntaxError: Export named 'enforceLoadingBoundary' not found |
-| signals/tests/equals-comparator-errors.test.ts | 2 | 4 |  |
-| signals/tests/error-silent-recovery.test.ts | 6 | 1 |  |
-| signals/tests/errorHalt.test.ts | 8 | 1 |  |
-| signals/tests/falsy-error-identity.test.ts | 20 | 0 |  |
-| signals/tests/finalize-reentry.test.ts | 0 | 4 |  |
-| signals/tests/first-observer-stale-reader.test.ts | 1 | 0 |  |
-| signals/tests/flatten-async-iterable.test.ts | 5 | 6 |  |
-| signals/tests/flatten-needs-unwrap.test.ts | 1 | 2 |  |
-| signals/tests/flush-in-action.test.ts | 3 | 3 |  |
-| signals/tests/flush.test.ts | 6 | 0 |  |
-| signals/tests/fuzz-findings-l2.test.ts | 17 | 3 |  |
-| signals/tests/gc.test.ts | 1 | 0 |  |
-| signals/tests/getOwner.test.ts | 2 | 0 |  |
-| signals/tests/graph-size-diagnostics.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
-| signals/tests/graph.test.ts | 21 | 0 |  |
-| signals/tests/heap-mark-incremental.test.ts | 1 | 1 |  |
-| signals/tests/held-conditional-effect.test.ts | 0 | 1 |  |
-| signals/tests/held-conditional-memo.test.ts | 1 | 1 |  |
-| signals/tests/held-derivation-not-a-proposal-3612.test.ts | 14 | 5 |  |
-| signals/tests/held-effect-restage-run-3802.test.ts | 1 | 1 |  |
-| signals/tests/held-frame-dependencies.test.ts | 0 | 2 |  |
-| signals/tests/held-restore.test.ts | 4 | 0 |  |
-| signals/tests/held-truth-lane-only.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/constants.js' |
-| signals/tests/inv4-projection-dispose-shadow.test.ts | 1 | 0 |  |
-| signals/tests/ispending-combined-atomic-3442.test.ts | 0 | 3 |  |
-| signals/tests/isPending-held-sync-memo.test.ts | 1 | 0 |  |
-| signals/tests/ispending-in-boundary-on-3528.test.ts | 3 | 3 |  |
-| signals/tests/isPending-memo-consistency.test.ts | 2 | 3 |  |
-| signals/tests/ispending-memo-gate-3766.test.ts | 6 | 0 |  |
-| signals/tests/ispending-memo-unstamped-hold-3457.test.ts | 1 | 0 |  |
-| signals/tests/issue-3800-repro.test.ts | 8 | 0 |  |
-| signals/tests/iterator-supersede-close.test.ts | 0 | 2 |  |
-| signals/tests/l2-contract.test.ts | 3 | 12 |  |
-| signals/tests/l2-fuzz-existing-rules.test.ts | 0 | 5 |  |
-| signals/tests/lane-ambient-write-replay.test.ts | 3 | 0 |  |
-| signals/tests/lane-contract.test.ts | 15 | 1 |  |
-| signals/tests/lane-frame-deferred-run-3662.test.ts | 0 | 3 |  |
-| signals/tests/lane-frame-held-lane-3662.test.ts | 1 | 4 |  |
-| signals/tests/lane-hold-on-observation.test.ts | 4 | 5 |  |
-| signals/tests/lane-outside-view.test.ts | 2 | 6 |  |
-| signals/tests/lane-pass-stamped-effect-3662.test.ts | 0 | 1 |  |
-| signals/tests/lane-uninitialized-landing-3648.test.ts | 3 | 2 |  |
-| signals/tests/late-pending-equality.test.ts | 6 | 2 |  |
-| signals/tests/latest-async.test.ts | 1 | 0 |  |
-| signals/tests/latest-created-inside-window.test.ts | 2 | 0 |  |
-| signals/tests/latest-held-till-flush.test.ts | 19 | 3 |  |
-| signals/tests/latest-isPending-consistency.test.ts | 6 | 2 |  |
-| signals/tests/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |
-| signals/tests/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |
-| signals/tests/latest-plain-write-purity.test.ts | 4 | 0 |  |
-| signals/tests/latest-probe-order-independence.test.ts | 1 | 1 |  |
-| signals/tests/latest-repeated-writes.test.ts | 4 | 0 |  |
-| signals/tests/latest-shadow-owned-write.test.ts | 2 | 0 |  |
-| signals/tests/latest-unobserved-memo.test.ts | 3 | 0 |  |
-| signals/tests/loading-fallback-in-flush-3540.test.ts | 29 | 43 |  |
-| signals/tests/loading-fallback-release-3540.test.ts | 1 | 1 |  |
-| signals/tests/loading-on-frame-following-3540.test.ts | 19 | 6 |  |
-| signals/tests/loading-on-rearm-3540.test.ts | 6 | 1 |  |
-| signals/tests/loading-on-rearm-reveal-3540.test.ts | 4 | 3 |  |
-| signals/tests/loading-reset-collects-forwarded-3459.test.ts | 0 | 1 |  |
-| signals/tests/loading-value.test.ts | 26 | 10 |  |
-| signals/tests/mapArray-notready-safety.test.ts | 3 | 9 |  |
-| signals/tests/mapArray-smallmove.test.ts | 0 | 1 | not ours: Cannot find module '../src/map.js' |
-| signals/tests/maparray-store-nonkeyed.test.ts | 2 | 0 |  |
-| signals/tests/mapArray.test.ts | 7 | 0 |  |
-| signals/tests/mount-over-foreign-hold-3761.test.ts | 5 | 0 |  |
-| signals/tests/nested-render-effect-async-cleanup.test.ts | 0 | 5 |  |
-| signals/tests/observe-exclude.test.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| signals/tests/observe-idle-cost.test.ts | 0 | 0 |  |
-| signals/tests/observe-records.test.ts | 15 | 0 |  |
-| signals/tests/oncleanup-reentrant-dispose-3601.test.ts | 5 | 0 |  |
-| signals/tests/onCleanup.test.ts | 5 | 0 |  |
-| signals/tests/onSettled.test.ts | 13 | 0 |  |
-| signals/tests/optimistic-lane-release.test.ts | 1 | 3 |  |
-| signals/tests/optimistic-lane-transaction-ownership.test.ts | 1 | 1 |  |
-| signals/tests/optimistic-mount-binding-3835.test.ts | 0 | 2 |  |
-| signals/tests/optimistic-mount-nested-memo-3835.test.ts | 1 | 3 |  |
-| signals/tests/optimistic-move-duplicate-3548.test.ts | 1 | 0 |  |
-| signals/tests/optimistic-move-keyed-show-3662.test.ts | 2 | 0 |  |
-| signals/tests/optimistic-outside-refetch-619.test.ts | 0 | 5 |  |
-| signals/tests/optimistic-over-held-row-3796.test.ts | 2 | 0 |  |
-| signals/tests/optimistic-read-lane-not-transaction-3698.test.ts | 3 | 3 |  |
-| signals/tests/optimistic-refetch-longer-3568.test.ts | 4 | 0 |  |
-| signals/tests/optimistic-settle-verdicts.test.ts | 1 | 2 |  |
-| signals/tests/optimistic-signal-refetch-hold.test.ts | 2 | 0 |  |
-| signals/tests/optimistic-store-layer-scope.test.ts | 4 | 1 |  |
-| signals/tests/optimistic-store-refetch-hold.test.ts | 3 | 2 |  |
-| signals/tests/optimistic-undefined-override.test.ts | 6 | 0 |  |
-| signals/tests/overlapping-flights.test.ts | 2 | 1 |  |
-| signals/tests/owned-scope-write-guard.test.ts | 14 | 0 |  |
-| signals/tests/pending-companion-lane-parent.test.ts | 0 | 1 |  |
-| signals/tests/pending-gated-landing-replay.test.ts | 1 | 0 |  |
-| signals/tests/pending-source-repark.test.ts | 1 | 1 |  |
-| signals/tests/posture-born-held-and-observation.test.ts | 1 | 4 |  |
-| signals/tests/posture-store-parity.test.ts | 0 | 1 | not ours: Cannot find module '../src/store/store.js' |
-| signals/tests/propagation-isolation.test.ts | 2 | 0 |  |
-| signals/tests/question-scoped-pending.test.ts | 20 | 18 |  |
-| signals/tests/recompute-missed-wake.test.ts | 2 | 0 |  |
-| signals/tests/recompute-preserves-disposed-3621.test.ts | 0 | 1 | not ours: reads Solid's graph fields |
-| signals/tests/refresh-await.test.ts | 7 | 5 |  |
-| signals/tests/repeat.test.ts | 11 | 0 |  |
-| signals/tests/resolve-in-action.test.ts | 3 | 2 |  |
-| signals/tests/resolve.test.ts | 3 | 1 |  |
-| signals/tests/reveal-carve-out.test.ts | 3 | 1 |  |
-| signals/tests/reveal-gating-contract.test.ts | 2 | 0 |  |
-| signals/tests/root-dispose-pending-action-3561.test.ts | 2 | 7 |  |
-| signals/tests/router-transition-error-commit.test.ts | 1 | 0 |  |
-| signals/tests/rules-index.test.ts | 0 | 3 | not ours: runs Solid's built packages in a child process |
-| signals/tests/runWithOwner.test.ts | 3 | 0 |  |
-| signals/tests/scheduler-livelock.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/constants.js' |
-| signals/tests/settle-folds-queued-writes.test.ts | 1 | 1 |  |
-| signals/tests/settle-walk-invariant.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/async.js' |
-| signals/tests/shallow-store-proxy-children.test.ts | 0 | 1 | not ours: Cannot find module '../src/store/store.js' |
-| signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |
-| signals/tests/snapshot-derived-store-rows.test.ts | 4 | 1 |  |
-| signals/tests/snapshot.test.ts | 0 | 1 | not ours: SyntaxError: Export named 'clearSnapshots' not found |
-| signals/tests/spec-async-semantics.test.ts | 34 | 18 |  |
-| signals/tests/stale-read-uninitialized-cross-transition.test.ts | 1 | 1 |  |
-| signals/tests/store-unchanged-read-independent-write-3688.test.ts | 4 | 0 |  |
-| signals/tests/store/adoption-lane-rollback.test.ts | 0 | 2 |  |
-| signals/tests/store/async-setter.test.ts | 6 | 2 |  |
-| signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |
-| signals/tests/store/createOptimisticStore.test.ts | 70 | 10 |  |
-| signals/tests/store/createProjection.async.test.ts | 0 | 1 |  |
-| signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |
-| signals/tests/store/createProjection.test.ts | 7 | 13 |  |
-| signals/tests/store/createStore.test.ts | 56 | 9 |  |
-| signals/tests/store/deep-chained-view.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
-| signals/tests/store/deep-held-visibility.test.ts | 0 | 1 |  |
-| signals/tests/store/deep-overlay-rewalk.test.ts | 3 | 0 |  |
-| signals/tests/store/derived-optimistic-retained-row-3859.test.ts | 2 | 0 |  |
-| signals/tests/store/derived-optimistic-shadow.test.ts | 4 | 0 |  |
-| signals/tests/store/derived-presence-async-3726.test.ts | 3 | 5 |  |
-| signals/tests/store/derived-retained-draft-row-3767.test.ts | 2 | 1 |  |
-| signals/tests/store/enumerator-presence-nodes.test.ts | 2 | 16 |  |
-| signals/tests/store/flight-owned-transaction.test.ts | 3 | 1 |  |
-| signals/tests/store/fold-3164.test.ts | 0 | 2 |  |
-| signals/tests/store/fold-privatization-order.test.ts | 10 | 0 |  |
-| signals/tests/store/fold-scheduling.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
-| signals/tests/store/fold-slot-identity.test.ts | 0 | 6 |  |
-| signals/tests/store/kanban-a17-fixture.test.ts | 2 | 1 |  |
-| signals/tests/store/lane-authority-twins.test.ts | 3 | 4 |  |
-| signals/tests/store/latest-read-after-write-3576.test.ts | 0 | 1 |  |
-| signals/tests/store/native-collections.test.ts | 9 | 1 |  |
-| signals/tests/store/next-smoke.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/target.js' |
-| signals/tests/store/optimistic-ambient-capture.test.ts | 1 | 0 |  |
-| signals/tests/store/optimistic-chained-revert-3672-memo.test.ts | 1 | 5 |  |
-| signals/tests/store/optimistic-chained-revert-3672.test.ts | 0 | 4 |  |
-| signals/tests/store/optimistic-draft-visibility-3665.test.ts | 2 | 6 |  |
-| signals/tests/store/optimistic-list-mutation-matrix.test.ts | 892 | 8 |  |
-| signals/tests/store/optimistic-maparray-index-frame-f1.test.ts | 43 | 0 |  |
-| signals/tests/store/optimistic-observer-invariance.test.ts | 2 | 0 |  |
-| signals/tests/store/optimistic-removed-prop-3883.test.ts | 6 | 0 |  |
-| signals/tests/store/optimistic-untracked-reads-f3-f5.test.ts | 9 | 2 |  |
-| signals/tests/store/overlay-rebuild-3689.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
-| signals/tests/store/overlay.test.ts | 8 | 3 |  |
-| signals/tests/store/owner-stamp.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/target.js' |
-| signals/tests/store/pr3017-function-leaves.test.ts | 4 | 0 |  |
-| signals/tests/store/privatization-observer-identity.test.ts | 0 | 2 |  |
-| signals/tests/store/projection-absent-key-tracking.test.ts | 4 | 0 |  |
-| signals/tests/store/projection-root-overlay.test.ts | 4 | 2 |  |
-| signals/tests/store/projection-slot-release.test.ts | 0 | 6 |  |
-| signals/tests/store/projection-transition-isolation.test.ts | 1 | 3 |  |
-| signals/tests/store/reconcile-captured-proxies.test.ts | 7 | 2 |  |
-| signals/tests/store/reconcile-resend-identity.test.ts | 2 | 2 |  |
-| signals/tests/store/reconcile.test.ts | 45 | 2 |  |
-| signals/tests/store/recursive-effects.test.ts | 4 | 0 |  |
-| signals/tests/store/retained-draft-row-3767.test.ts | 1 | 0 |  |
-| signals/tests/store/shallow-loading.test.ts | 8 | 0 |  |
-| signals/tests/store/shallow.test.ts | 0 | 1 | not ours: Cannot find module '../../src/store/store.js' |
-| signals/tests/store/shared-child-multiparent.test.ts | 1 | 2 |  |
-| signals/tests/store/sidecar-composition.test.ts | 1 | 0 |  |
-| signals/tests/store/signal-store-twins-qd.test.ts | 1 | 3 |  |
-| signals/tests/store/store-in-store-tracking.test.ts | 2 | 5 |  |
-| signals/tests/store/storePath.test.ts | 29 | 0 |  |
-| signals/tests/store/unchanged-presence-no-hold-3743.test.ts | 3 | 6 |  |
-| signals/tests/store/utilities-no-proxy.test.ts | 0 | 1 | SyntaxError: Export named 'hasStaticKeys' not found |
-| signals/tests/store/utilities.test.ts | 0 | 1 | not ours: SyntaxError: Export named '$RECORD' not found |
-| signals/tests/store/woken-transaction-adopts-staged-bump.test.ts | 1 | 0 |  |
-| signals/tests/store/write-floor.test.ts | 7 | 2 |  |
-| signals/tests/strict-read-pending-store.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/error.js' |
-| signals/tests/strict-read-snapshot-scope-3675.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/core.js' |
-| signals/tests/strictRead.test.ts | 8 | 4 |  |
-| signals/tests/superseded-before-first-commit.test.ts | 0 | 1 |  |
-| signals/tests/superseded-flight-pending-source.test.ts | 0 | 4 |  |
-| signals/tests/superseded-source-blocks-3462.test.ts | 2 | 0 |  |
-| signals/tests/syncThenable.test.ts | 22 | 5 |  |
-| signals/tests/tick-scoped-pass-transaction.test.ts | 1 | 1 |  |
-| signals/tests/transition-corpse-revival.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/constants.js' |
-| signals/tests/transition-orphan-recompute.test.ts | 1 | 1 |  |
-| signals/tests/transitionEntanglement.test.ts | 0 | 2 |  |
-| signals/tests/transitionMerge.test.ts | 0 | 1 |  |
-| signals/tests/treeshake.test.ts | 0 | 1 |  |
-| signals/tests/uninitialized-visibility.test.ts | 2 | 5 |  |
-| signals/tests/until-entanglement.test.ts | 1 | 5 |  |
-| signals/tests/until.test.ts | 11 | 6 |  |
-| signals/tests/untrack.test.ts | 3 | 0 |  |
-| signals/tests/untracked-async-read.test.ts | 1 | 2 |  |
-| signals/tests/untracked-read-after-await.test.ts | 0 | 1 | not ours: Cannot find module '../src/core/dev.js' |
-| signals/tests/verdict-contract.test.ts | 1 | 4 |  |
-| signals/tests/verdict-mount-first-pass-3851.test.ts | 0 | 3 |  |
-| signals/tests/verdict-mount-loading-flush-loop.test.ts | 4 | 0 |  |
-| signals/tests/visibility-oracle-posture.test.ts | 1184 | 0 |  |
-| signals/tests/visibility-oracle-store.test.ts | 142 | 11 |  |
-| signals/tests/visibility-oracle.test.ts | 118 | 8 |  |
-| signals/tests/write-proposals-3494.test.ts | 9 | 3 |  |
-| signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |
-| signals/tests/zombie-recompute-keeps-flag.test.ts | 1 | 0 |  |
-| signals/tests/zombie-rerun-after-commit-3546.test.ts | 1 | 2 |  |
-| solid/test/client-hydration.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/client-recovery-record.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/component.spec.ts | 0 | 1 | not ours: SyntaxError: Export named '$DEVCOMP' not found |
-| solid/test/container-trace.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/container-trace.js' |
-| solid/test/cross-package-fields.spec.ts | 0 | 0 |  |
-| solid/test/dev.spec.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| solid/test/dist-client-artifact.spec.ts | 0 | 1 | not ours: Solid's published build |
-| solid/test/hybrid-memo-handoff.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/hybrid-store-handoff.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/hydrate-window.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/hydration-latch.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/hydration-null-owner-3609.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/hydration-root-snapshot-scope-3504.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/hydration-state-api.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/id-parity.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/core.js' |
-| solid/test/internal-surface.spec.ts | 0 | 4 |  |
-| solid/test/lazy-strict-read-3675.spec.ts | 2 | 0 |  |
-| solid/test/multi-root-hydration.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/package-exports.spec.ts | 0 | 1 |  |
-| solid/test/public-boundary-exports.spec.ts | 1 | 1 |  |
-| solid/test/published-declarations.spec.ts | 0 | 1 | not ours: runs Solid's built packages in a child process |
-| solid/test/refresh-hydration.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/refresh-prod.spec.ts | 0 | 1 | not ours: Cannot find module '../src/refresh/index.js' |
-| solid/test/refresh.spec.ts | 0 | 1 | not ours: Cannot find module '../src/attribution.js' |
-| solid/test/reveal.spec.ts | 11 | 0 |  |
-| solid/test/server/async-retry-child-reset.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/console-footer.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/dist-server-artifact.spec.ts | 0 | 1 | not ours: Solid's published build |
-| solid/test/server/export-parity.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/flow.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/nohydration.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/observe-server.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/reveal-ssr.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/server-diagnostics.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/server-write-deprecation.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/shallow-projection.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/signals.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/ssr-async.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/ssr-scope-lazy-id.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/server/ssr-scope.spec.ts | 0 | 1 | not ours: Cannot find module '../../src/server/index.js' |
-| solid/test/shallow-hydration.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client/hydration.js' |
-| solid/test/signals.spec.ts | 35 | 1 |  |
-| web/test/async-landing-deps-3461.spec.tsx | 0 | 2 |  |
-| web/test/binding-names.spec.tsx | 1 | 3 |  |
-| web/test/capturing-event-listener.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
-| web/test/class-binding.spec.tsx | 4 | 1 |  |
-| web/test/class-object-undefined.spec.tsx | 1 | 0 |  |
-| web/test/class.spec.tsx | 2 | 0 |  |
-| web/test/client-error-hook.spec.tsx | 0 | 2 |  |
-| web/test/client-only.spec.tsx | 6 | 0 |  |
-| web/test/client-records.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/conditional-jsx-held-branch-3438.spec.tsx | 0 | 2 |  |
-| web/test/consistency/adopted-swap-post-done.spec.tsx | 0 | 1 |  |
-| web/test/consistency/boundary-arrival.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c01-claim-once.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c01-claim-window-roots.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c02-revealed-occurrence-mounts.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c03-hydration-done-counts-holds.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c04-record-applies-once.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c05-data-response-scoped.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c07-store-is-truth.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c08-fanout-equal.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c09-no-phantom.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c10-ids-timing-independent.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c12-boundary-parity.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c13-sweep-atomic.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c14-dispose-clean.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c15-staging-atomic.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c16-reference-identity.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c17-gate-bound-address.spec.tsx | 0 | 1 |  |
-| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 0 | 1 |  |
-| web/test/consistency/generic/campaign.spec.tsx | 0 | 1 |  |
-| web/test/consistency/generic/preload-hold.spec.tsx | 4 | 1 |  |
-| web/test/consistency/generic/replay.spec.tsx | 0 | 1 |  |
-| web/test/consistency/harness/campaign.spec.tsx | 0 | 1 |  |
-| web/test/consistency/harness/replay.spec.tsx | 0 | 1 |  |
-| web/test/consistency/sref-table-pending-read.spec.tsx | 0 | 1 |  |
-| web/test/consistency/tier-assets-ready.spec.tsx | 0 | 1 |  |
-| web/test/consistency/tier-bind-hold.spec.tsx | 0 | 1 |  |
-| web/test/consistency/tier-prepare.spec.tsx | 0 | 1 |  |
-| web/test/consistency/tier-regions-hold.spec.tsx | 0 | 1 |  |
-| web/test/consistency/tier-trace-hold.spec.tsx | 0 | 1 |  |
-| web/test/consistency/tier-wire-preload.spec.tsx | 0 | 1 |  |
-| web/test/context.spec.tsx | 7 | 0 |  |
-| web/test/delegated-event-cross-runtime.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/client.js' |
-| web/test/delegated-event-listener-object.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
-| web/test/derived-presence-async-3726.spec.tsx | 1 | 1 |  |
-| web/test/dev-warning.spec.tsx | 13 | 0 |  |
-| web/test/diagnostic-element-ref.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/dist-frames-server-instance.spec.ts | 0 | 9 | not ours: runs Solid's built packages in a child process |
-| web/test/dist-nested-manifests.spec.ts | 0 | 1 | not ours: runs Solid's built packages in a child process |
-| web/test/dynamic-namespace.spec.tsx | 3 | 7 |  |
-| web/test/dynamic-static.spec.tsx | 3 | 4 |  |
-| web/test/dynamic.spec.tsx | 10 | 3 |  |
-| web/test/element.spec.tsx | 8 | 11 |  |
-| web/test/errored-async-nesting.spec.tsx | 2 | 1 |  |
-| web/test/errored.spec.tsx | 9 | 3 |  |
-| web/test/event-handler.spec.tsx | 5 | 0 |  |
-| web/test/for.nonkeyed.spec.tsx | 50 | 0 |  |
-| web/test/for.nonkeyed.store.spec.tsx | 0 | 1 |  |
-| web/test/for.spec.tsx | 50 | 0 |  |
-| web/test/frames-adopted-region-fragments.spec.tsx | 5 | 0 |  |
-| web/test/frames-assets-client.spec.ts | 17 | 0 |  |
-| web/test/frames-binding-slots.spec.tsx | 15 | 6 |  |
-| web/test/frames-client.spec.tsx | 15 | 0 |  |
-| web/test/frames-container-lazy-codec.spec.tsx | 2 | 0 |  |
-| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 |  |
-| web/test/frames-dynamic-contract.spec.tsx | 1 | 0 |  |
-| web/test/frames-errored-reset-refetch.spec.tsx | 6 | 12 |  |
-| web/test/frames-flight-delivery.spec.tsx | 0 | 1 | Cannot find module '../src/response.js' |
-| web/test/frames-get.spec.tsx | 3 | 0 |  |
-| web/test/frames-hn-client.spec.tsx | 2 | 0 |  |
-| web/test/frames-late-boundary-client.spec.tsx | 5 | 0 |  |
-| web/test/frames-live-resume.spec.tsx | 3 | 2 |  |
-| web/test/frames-live-showing.spec.tsx | 1 | 0 |  |
-| web/test/frames-live.spec.tsx | 3 | 5 |  |
-| web/test/frames-marker-corruption.spec.tsx | 1 | 0 |  |
-| web/test/frames-morph-in-transition.spec.tsx | 1 | 2 |  |
-| web/test/frames-occlusion-client.spec.tsx | 1 | 0 |  |
-| web/test/frames-optimistic-hold.spec.tsx | 5 | 1 |  |
-| web/test/frames-plain-bound.spec.tsx | 3 | 0 |  |
-| web/test/frames-slot-arg-flights-3852.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/frames-used-region-client.spec.tsx | 1 | 0 |  |
-| web/test/halt-error-logging.spec.tsx | 1 | 0 |  |
-| web/test/held-action-memo-mount-3802.spec.tsx | 1 | 0 |  |
-| web/test/hydration/adopted-claim-args-address.spec.tsx | 1 | 0 |  |
-| web/test/hydration/adopted-fallback-residue.spec.tsx | 1 | 1 |  |
-| web/test/hydration/adopted-slot-late-record.spec.tsx | 0 | 1 |  |
-| web/test/hydration/adopted-slot-live.spec.tsx | 1 | 0 |  |
-| web/test/hydration/binding-slot-adoption.spec.tsx | 0 | 1 |  |
-| web/test/hydration/buffered-projection-repeat.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/class.spec.tsx | 1 | 0 |  |
-| web/test/hydration/client-only.spec.tsx | 0 | 2 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\dist\server.js' |
-| web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
-| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 2 | 2 |  |
-| web/test/hydration/container-trace-hold-interruption.spec.tsx | 2 | 2 |  |
-| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
-| web/test/hydration/container-trace-hold-snapshot.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/internal/container-trace' |
-| web/test/hydration/diagnostics.spec.tsx | 4 | 9 |  |
-| web/test/hydration/document-live-channel.spec.tsx | 1 | 0 |  |
-| web/test/hydration/document-shell.spec.tsx | 2 | 2 |  |
-| web/test/hydration/dynamic-async-loading-3666.spec.tsx | 0 | 3 |  |
-| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 0 | 1 |  |
-| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 0 | 1 |  |
-| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 0 | 1 |  |
-| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 0 | 1 |  |
-| web/test/hydration/dynamic-hydration-events.spec.tsx | 0 | 1 |  |
-| web/test/hydration/eager-jsx-falsy-show.spec.tsx | 1 | 1 |  |
-| web/test/hydration/frame-live-document-switched.spec.tsx | 0 | 1 |  |
-| web/test/hydration/frame-live-document.spec.tsx | 0 | 2 |  |
-| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 1 | 0 |  |
-| web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |
-| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 2 | 0 |  |
-| web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 1 | 0 |  |
-| web/test/hydration/frames-adopted-error-outward.spec.tsx | 0 | 1 |  |
-| web/test/hydration/hybrid-memo-handoff.spec.tsx | 0 | 8 |  |
-| web/test/hydration/hybrid-store-handoff-3574.spec.tsx | 0 | 4 |  |
-| web/test/hydration/hydrate-falsy-sole-child-issue-3571.spec.tsx | 1 | 0 |  |
-| web/test/hydration/insert-refresh-drift.spec.tsx | 2 | 0 |  |
-| web/test/hydration/late-fragment-after-done.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/live-shell-source-3764.spec.tsx | 2 | 2 |  |
-| web/test/hydration/loading-fallback-reactive-text.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/loading-late-fragment.spec.tsx | 0 | 1 |  |
-| web/test/hydration/loading-lazy-resume-3749.spec.tsx | 1 | 2 |  |
-| web/test/hydration/multi-root-registry.spec.tsx | 1 | 0 |  |
-| web/test/hydration/nav-before-resume.spec.tsx | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
-| web/test/hydration/null-owner-3609.spec.tsx | 4 | 0 |  |
-| web/test/hydration/onsettled-hydrate.spec.tsx | 1 | 2 |  |
-| web/test/hydration/parity-harness.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/preload-failure-document-root.spec.tsx | 0 | 3 |  |
-| web/test/hydration/refresh-hmr-stream.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
-| web/test/hydration/show-fallback.spec.tsx | 4 | 0 |  |
-| web/test/hydration/slot-hydration-3567.spec.tsx | 24 | 2 |  |
-| web/test/hydration/spread-innerhtml.spec.tsx | 1 | 0 |  |
-| web/test/hydration/stateful-input-adoption.spec.tsx | 5 | 0 |  |
-| web/test/hydration/style-adoption.spec.tsx | 5 | 0 |  |
-| web/test/hydration/text-node-adoption.spec.tsx | 2 | 0 |  |
-| web/test/hydration/truncated-registry.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/truncated-stream-late-boundary.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/truncated-stream-template.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/truncated-stream.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/hydration/wait-asset-hydration.spec.tsx | 0 | 1 | SyntaxError: Export named 'waitAsset' not found |
-| web/test/hydration/welcome-status-lazy.spec.tsx | 0 | 1 | SyntaxError: [class SyntaxError extends Error], |
-| web/test/hydration/welcome-status-loaded.spec.tsx | 1 | 0 |  |
-| web/test/hydration/welcome-status-streamed.spec.tsx | 1 | 0 |  |
-| web/test/hydration/write-before-resume.spec.tsx | 0 | 1 |  |
-| web/test/inherited-dom-properties.spec.ts | 0 | 1 | not ours: Cannot find module '../src/client.js' |
-| web/test/insert-falsy-sole-child-issue-3571.spec.tsx | 8 | 0 |  |
-| web/test/insert-flatten-needs-unwrap.spec.tsx | 1 | 0 |  |
-| web/test/insert-text-reuse.spec.tsx | 3 | 1 |  |
-| web/test/interaction-frame-per-event-3754.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/interaction-provenance.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/ispending-combined-atomic-3442.spec.tsx | 3 | 0 |  |
-| web/test/ispending-gated-landing.spec.tsx | 1 | 0 |  |
-| web/test/ispending-memo-gate-3766.spec.tsx | 2 | 0 |  |
-| web/test/ispending-memo-unstamped-hold-3457.spec.tsx | 1 | 0 |  |
-| web/test/latest-async.spec.tsx | 0 | 1 |  |
-| web/test/latest-banner-landing-gap.spec.tsx | 1 | 0 |  |
-| web/test/latest-conditional-async-issue-3276.spec.tsx | 0 | 1 |  |
-| web/test/latest-ispending-issue-3041.spec.tsx | 2 | 0 |  |
-| web/test/latest-shadow-owned-write-issue-3378.spec.tsx | 1 | 0 |  |
-| web/test/lifecycle-matrix/call-driven-args.spec.tsx | 5 | 2 |  |
-| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 12 | 7 |  |
-| web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 11 | 0 |  |
-| web/test/lifecycle-matrix/container-args.spec.tsx | 1 | 2 |  |
-| web/test/lifecycle-matrix/document-adoption.spec.tsx | 5 | 1 |  |
-| web/test/lifecycle-matrix/document-live-holes.spec.tsx | 4 | 0 |  |
-| web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 1 | 0 |  |
-| web/test/lifecycle-matrix/remount.spec.tsx | 3 | 0 |  |
-| web/test/loading-fallback-in-flush-3540.spec.tsx | 1 | 2 |  |
-| web/test/loading-on-keyed-boundary-3540.spec.tsx | 5 | 5 |  |
-| web/test/loading-on-outside-reader-3412.spec.tsx | 4 | 0 |  |
-| web/test/loading-reset-collects-forwarded-3459.spec.tsx | 1 | 0 |  |
-| web/test/loading.spec.tsx | 13 | 8 |  |
-| web/test/lowercase-on-attribute.spec.tsx | 9 | 1 |  |
-| web/test/nested-render-effect-cleanup-issue-3404.spec.tsx | 0 | 1 |  |
-| web/test/optimistic-confirm-holds-signal-3706.spec.tsx | 4 | 0 |  |
-| web/test/optimistic-for-index-frame-f1.spec.tsx | 43 | 0 |  |
-| web/test/optimistic-lazy-show-preview-3706.spec.tsx | 2 | 1 |  |
-| web/test/optimistic-list-holes-f3-f5.spec.tsx | 10 | 0 |  |
-| web/test/optimistic-mount-style-3835.spec.tsx | 0 | 3 |  |
-| web/test/optimistic-move-keyed-show-3662.spec.tsx | 7 | 0 |  |
-| web/test/optimistic-nested-show-drag-3706.spec.tsx | 2 | 0 |  |
-| web/test/optimistic-playground-port.spec.tsx | 1 | 0 |  |
-| web/test/performance-tracks.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/polymorphic-chain.spec.tsx | 3 | 0 |  |
-| web/test/portal.spec.tsx | 30 | 0 |  |
-| web/test/preload-links-adopt-client.spec.tsx | 4 | 6 |  |
-| web/test/preload-links-frame-client.spec.ts | 4 | 0 |  |
-| web/test/projection-async-stream.spec.tsx | 2 | 0 |  |
-| web/test/refresh-hmr-flow.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
-| web/test/refresh-render.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/refresh' |
-| web/test/render-halt-recovery.spec.tsx | 0 | 1 |  |
-| web/test/repeat.spec.tsx | 50 | 1 |  |
-| web/test/runtime/asset-registry.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
-| web/test/runtime/chunk-reader-hardening.spec.ts | 21 | 0 |  |
-| web/test/runtime/chunk-reader.spec.ts | 4 | 0 |  |
-| web/test/runtime/cookies-client.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
-| web/test/runtime/cookies.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
-| web/test/runtime/head-takeover.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
-| web/test/runtime/head.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
-| web/test/runtime/inline-styles.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
-| web/test/runtime/insert.spec.js | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
-| web/test/runtime/preload-links.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
-| web/test/runtime/redirect-href.spec.js | 0 | 1 | Cannot find module '../../src/response.js' |
-| web/test/runtime/serializer.spec.js | 23 | 1 |  |
-| web/test/runtime/stylesheet-gate.spec.js | 0 | 1 | Cannot find module '../../src/server.js' |
-| web/test/select-multiple.spec.tsx | 4 | 0 |  |
-| web/test/server-functions-live-loop.spec.tsx | 19 | 0 |  |
-| web/test/server-mock.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/server-mock.js' |
-| web/test/server/client-hole-derived-async-3659.spec.tsx | 0 | 6 |  |
-| web/test/server/client-only-preload.spec.tsx | 2 | 2 |  |
-| web/test/server/concurrent-render-error-policy.spec.tsx | 0 | 11 |  |
-| web/test/server/concurrent-render-lazy-assets.spec.tsx | 4 | 2 |  |
-| web/test/server/concurrent-render-serialize.spec.tsx | 5 | 0 |  |
-| web/test/server/concurrent-render-trace.spec.tsx | 0 | 5 |  |
-| web/test/server/container-traces.spec.tsx | 8 | 1 |  |
-| web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 | not ours: Cannot find module '@solidjs/diagnostics' |
-| web/test/server/dist-server-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
-| web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 | not ours: Solid's published build |
-| web/test/server/dist-server-treeshake.spec.tsx | 0 | 1 | not ours: Solid's published build |
-| web/test/server/document-face-arg-tiers.spec.tsx | 3 | 1 |  |
-| web/test/server/document-live-channel-artifact.spec.tsx | 1 | 0 |  |
-| web/test/server/document-live-holes.spec.tsx | 6 | 1 |  |
-| web/test/server/document-shell.spec.tsx | 1 | 3 |  |
-| web/test/server/dynamic-async-component-diagnostic.spec.tsx | 3 | 2 |  |
-| web/test/server/dynamic-async-loading-3666.spec.tsx | 2 | 0 |  |
-| web/test/server/dynamic-component-parity.spec.tsx | 2 | 0 |  |
-| web/test/server/dynamic-hydration.spec.tsx | 3 | 0 |  |
-| web/test/server/dynamic-shell-gating.spec.tsx | 3 | 2 |  |
-| web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |
-| web/test/server/dynamic-xmlns.spec.tsx | 2 | 0 |  |
-| web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 4 | 0 |  |
-| web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |
-| web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |
-| web/test/server/exports-server-conditions.spec.tsx | 0 | 9 | not ours: runs Solid's built packages in a child process |
-| web/test/server/frame-binding-slots.spec.tsx | 24 | 8 |  |
-| web/test/server/frame-fragment-error-outcome.spec.tsx | 1 | 5 |  |
-| web/test/server/frame-get.spec.tsx | 5 | 0 |  |
-| web/test/server/frame-hn.spec.tsx | 2 | 0 |  |
-| web/test/server/frame-live-document-artifact.spec.tsx | 3 | 0 |  |
-| web/test/server/frame-live-document.spec.tsx | 3 | 3 |  |
-| web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |
-| web/test/server/frame-live-holes-chat.spec.tsx | 1 | 0 |  |
-| web/test/server/frame-live-holes-projection.spec.tsx | 5 | 1 |  |
-| web/test/server/frame-live-holes.spec.tsx | 1 | 0 |  |
-| web/test/server/frame-live-resume.spec.tsx | 4 | 5 |  |
-| web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |
-| web/test/server/frame-plain-bound.spec.tsx | 11 | 1 |  |
-| web/test/server/frame-server-component.spec.tsx | 9 | 0 |  |
-| web/test/server/frame-ssr-seam.spec.tsx | 2 | 0 |  |
-| web/test/server/frame-sweep-ops.spec.tsx | 1 | 1 |  |
-| web/test/server/frame-teardown.spec.tsx | 4 | 1 |  |
-| web/test/server/generic-hydration.gen.spec.tsx | 0 | 2 |  |
-| web/test/server/hole-retry-shared-slot-3815.spec.tsx | 3 | 0 |  |
-| web/test/server/http-components.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpHeader' not found |
-| web/test/server/hybrid-memo-handoff.spec.tsx | 4 | 0 |  |
-| web/test/server/hybrid-store-handoff-3574.spec.tsx | 1 | 1 |  |
-| web/test/server/hydration-harness.spec.tsx | 0 | 1 | SyntaxError: Export named 'httpStatus' not found |
-| web/test/server/hydration-payload-handled-rejection-3769.spec.tsx | 1 | 2 |  |
-| web/test/server/hydration-transfer.spec.tsx | 0 | 1 | not ours: Cannot find module '../../src/client.js' |
-| web/test/server/lazy-assets-livelock.spec.tsx | 0 | 2 |  |
-| web/test/server/lazy-nested-late-assets.spec.tsx | 1 | 0 |  |
-| web/test/server/lazy-shell-gating.spec.tsx | 5 | 1 |  |
-| web/test/server/live-shell-source-3764.gen.spec.tsx | 1 | 0 |  |
-| web/test/server/loading-dynamic-fragments.spec.tsx | 1 | 0 |  |
-| web/test/server/loading-recreated-async-source-3734.spec.tsx | 5 | 5 |  |
-| web/test/server/lowercase-on-attribute.spec.tsx | 5 | 0 |  |
-| web/test/server/nav-before-resume.gen.spec.tsx | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
-| web/test/server/polymorphic-chain.spec.tsx | 2 | 0 |  |
-| web/test/server/projection-body-read.spec.tsx | 1 | 3 |  |
-| web/test/server/render-to-string-dispose.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/request-event-concurrent.spec.tsx | 3 | 4 |  |
-| web/test/server/response-invariants.spec.tsx | 3 | 0 |  |
-| web/test/server/retry-robustness.spec.tsx | 5 | 0 |  |
-| web/test/server/select-value.spec.tsx | 5 | 0 |  |
-| web/test/server/server-boundary-records.spec.tsx | 4 | 16 |  |
-| web/test/server/server-component-context.spec.tsx | 5 | 1 |  |
-| web/test/server/server-diagnostics.spec.tsx | 1 | 16 |  |
-| web/test/server/server-error-hook.spec.tsx | 24 | 0 |  |
-| web/test/server/server-frame-records.spec.tsx | 6 | 1 |  |
-| web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |
-| web/test/server/server-functions-adapter-request.spec.tsx | 2 | 0 |  |
-| web/test/server/server-functions-addressing.spec.tsx | 24 | 0 |  |
-| web/test/server/server-functions-body-buffering.spec.tsx | 3 | 0 |  |
-| web/test/server/server-functions-body-cap-declaration-trust.spec.tsx | 1 | 0 |  |
-| web/test/server/server-functions-body-formats.spec.tsx | 4 | 2 |  |
-| web/test/server/server-functions-content-length.spec.tsx | 2 | 0 |  |
-| web/test/server/server-functions-cors-origin.spec.tsx | 26 | 0 |  |
-| web/test/server/server-functions-csrf.spec.tsx | 21 | 0 |  |
-| web/test/server/server-functions-decoder-rejection-ownership.spec.tsx | 3 | 0 |  |
-| web/test/server/server-functions-derived-locals.spec.tsx | 4 | 0 |  |
-| web/test/server/server-functions-dev-rebind-grant.spec.tsx | 7 | 0 |  |
-| web/test/server/server-functions-direct-provide-event-once.spec.tsx | 3 | 0 |  |
-| web/test/server/server-functions-encode-hygiene.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-error-carrier-guard.spec.tsx | 9 | 0 |  |
-| web/test/server/server-functions-event-hook.spec.tsx | 11 | 0 |  |
-| web/test/server/server-functions-extensions.spec.tsx | 12 | 0 |  |
-| web/test/server/server-functions-failure-sanitization.spec.tsx | 14 | 3 |  |
-| web/test/server/server-functions-failure-signal.spec.tsx | 6 | 0 |  |
-| web/test/server/server-functions-flash-bound-form.spec.tsx | 2 | 0 |  |
-| web/test/server/server-functions-flash-bounds.spec.tsx | 5 | 0 |  |
-| web/test/server/server-functions-flash-encryption.spec.tsx | 9 | 0 |  |
-| web/test/server/server-functions-flash-falsy-outcomes.spec.tsx | 8 | 0 |  |
-| web/test/server/server-functions-flash-key-derivation.spec.tsx | 5 | 0 |  |
-| web/test/server/server-functions-flash-url-bound.spec.tsx | 5 | 0 |  |
-| web/test/server/server-functions-flight-markup.spec.tsx | 6 | 0 |  |
-| web/test/server/server-functions-flight-result-ownership.spec.tsx | 1 | 2 |  |
-| web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |
-| web/test/server/server-functions-format-version-skew.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/server.dev.js' |
-| web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |
-| web/test/server/server-functions-http-hygiene.spec.tsx | 20 | 1 |  |
-| web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |
-| web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |
-| web/test/server/server-functions-live-framing.spec.tsx | 0 | 1 | not ours: Cannot find module '../../server-functions/dist/client.dev.js' |
-| web/test/server/server-functions-live-lifetime.spec.tsx | 12 | 5 |  |
-| web/test/server/server-functions-live-retry.spec.tsx | 9 | 0 |  |
-| web/test/server/server-functions-negative-zero.spec.tsx | 4 | 0 |  |
-| web/test/server/server-functions-nested-deferred-scope.spec.tsx | 6 | 0 |  |
-| web/test/server/server-functions-nojs-destination.spec.tsx | 9 | 0 |  |
-| web/test/server/server-functions-open-gaps.spec.tsx | 44 | 0 |  |
-| web/test/server/server-functions-outcome-digest.spec.tsx | 14 | 0 |  |
-| web/test/server/server-functions-proto-keys.spec.tsx | 5 | 0 |  |
-| web/test/server/server-functions-redirect-scheme.spec.tsx | 2 | 0 |  |
-| web/test/server/server-functions-redirect-status.spec.tsx | 22 | 0 |  |
-| web/test/server/server-functions-registry-reload.spec.tsx | 0 | 1 | SyntaxError: Export named 'getServerFunctionRPC' not found |
-| web/test/server/server-functions-request-bounds.spec.tsx | 24 | 0 |  |
-| web/test/server/server-functions-request-event-scope.spec.tsx | 5 | 0 |  |
-| web/test/server/server-functions-response-aliasing.spec.tsx | 4 | 0 |  |
-| web/test/server/server-functions-result-descriptors.spec.tsx | 27 | 0 |  |
-| web/test/server/server-functions-single-flight.spec.tsx | 22 | 0 |  |
-| web/test/server/server-functions-transform-result-thrown.spec.tsx | 6 | 0 |  |
-| web/test/server/server-functions-transport-failure.spec.tsx | 15 | 0 |  |
-| web/test/server/server-functions-undefined-arguments.spec.tsx | 7 | 0 |  |
-| web/test/server/server-functions-version-skew.spec.tsx | 6 | 0 |  |
-| web/test/server/server-functions-wrap-invocation-validation.spec.tsx | 7 | 0 |  |
-| web/test/server/server-functions-wrap-nested-direct.spec.tsx | 3 | 0 |  |
-| web/test/server/server-observe-invocations.spec.tsx | 0 | 1 | not ours: Cannot find module 'C:\Users\andre\dev\sluurp-all\sluurp\host\packages\dom\conformance\solid\server-functions\dist\serve |
-| web/test/server/server-owner-walks.spec.tsx | 0 | 5 | not ours: runs Solid's built packages in a child process |
-| web/test/server/server-render-route.spec.tsx | 2 | 7 |  |
-| web/test/server/server-trace.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/shared-async-sources.spec.tsx | 0 | 2 |  |
-| web/test/server/shell-suspend-loading-inline.spec.tsx | 8 | 0 |  |
-| web/test/server/slot-hydration-3567.spec.tsx | 28 | 3 |  |
-| web/test/server/spread-function-source.spec.tsx | 10 | 0 |  |
-| web/test/server/spread-hydration.spec.tsx | 3 | 4 |  |
-| web/test/server/spread-omit.spec.tsx | 0 | 1 | SyntaxError: Export named 'viewOf' not found |
-| web/test/server/spread-static-tail.spec.tsx | 6 | 3 |  |
-| web/test/server/spread-static-text.spec.tsx | 3 | 1 |  |
-| web/test/server/ssr-async-rejection-3569.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/ssr-async-rejection-3570.spec.tsx | 5 | 1 |  |
-| web/test/server/ssr-class-style-separators.spec.tsx | 2 | 0 |  |
-| web/test/server/ssr-class.spec.tsx | 2 | 1 |  |
-| web/test/server/ssr-element-names.spec.tsx | 8 | 2 |  |
-| web/test/server/ssr-element-nullish-attrs.spec.tsx | 4 | 0 |  |
-| web/test/server/ssr-element-sources.spec.tsx | 24 | 0 |  |
-| web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 | not ours: runs Solid's built packages in a child process |
-| web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 0 | 3 |  |
-| web/test/server/ssr-response-teardown-3768.spec.tsx | 0 | 1 | SyntaxError: Export named 'createSSRResponse' not found |
-| web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 2 | 0 |  |
-| web/test/server/ssr-stream.spec.tsx | 101 | 15 |  |
-| web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |
-| web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |
-| web/test/server/stream-cancel-iterators-3626.spec.tsx | 1 | 15 |  |
-| web/test/server/stream-hang-nested-loading-3478.spec.tsx | 0 | 3 |  |
-| web/test/server/then-shell-suspend.spec.tsx | 10 | 0 |  |
-| web/test/server/tier-announce.spec.tsx | 13 | 1 |  |
-| web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |
-| web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |
-| web/test/server/welcome-status-parity.spec.tsx | 2 | 0 |  |
-| web/test/server/write-before-resume.gen.spec.tsx | 1 | 0 |  |
-| web/test/show-in-for.spec.tsx | 1 | 0 |  |
-| web/test/show-optimistic-sync-write-3698.spec.tsx | 2 | 0 |  |
-| web/test/show.spec.tsx | 30 | 0 |  |
-| web/test/spread-enumerate.spec.tsx | 4 | 0 |  |
-| web/test/spread-nodes.spec.tsx | 12 | 14 |  |
-| web/test/spread-nullish.spec.tsx | 4 | 0 |  |
-| web/test/spread-omit.spec.tsx | 1 | 0 |  |
-| web/test/spread-sources.spec.tsx | 11 | 2 |  |
-| web/test/spread-static-text.spec.tsx | 3 | 0 |  |
-| web/test/style-class-tracked.spec.tsx | 8 | 1 |  |
-| web/test/superseded-source-blocks-3462.spec.tsx | 2 | 0 |  |
-| web/test/switch.spec.tsx | 28 | 2 |  |
-| web/test/take-hydration-value.spec.ts | 0 | 1 | SyntaxError: Export named 'getHydrationWriter' not found |
-| web/test/template-document-shell.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/client.js' |
-| web/test/trace-client.spec.tsx | 0 | 1 | SyntaxError: Export named 'getTraceContext' not found |
-| web/test/use-head-css-gating-client.spec.tsx | 1 | 4 |  |
-| web/test/use-head-loading-client.spec.tsx | 2 | 0 |  |
-| web/test/wait-asset.spec.tsx | 0 | 1 | not ours: Cannot find module '../src/render.js' |
-| web/test/wide-scope-insert-3739.spec.tsx | 0 | 1 | not ours: Cannot find module 'solid-js/attribution' |
-| web/test/zombie-show-leak-3543.spec.tsx | 1 | 0 |  |
+| file | pass | fail | skip | beyond Solid | note |
+|---|---|---|---|---|---|
+| signals/tests/a34-writes-then-derivations.test.ts | 8 | 0 |  |  |  |
+| signals/tests/action-await-contract.test.ts | 4 | 0 |  |  |  |
+| signals/tests/action-completion-race.test.ts | 1 | 0 |  |  |  |
+| signals/tests/action-done-window.test.ts | 3 | 0 |  |  |  |
+| signals/tests/action-loading-rail.test.ts | 5 | 0 |  |  |  |
+| signals/tests/action-thenable-assimilation.test.ts | 4 | 0 |  |  |  |
+| signals/tests/action.test.ts | 67 | 0 |  |  |  |
+| signals/tests/adoption-unchanged-key-read-3706.test.ts | 19 | 0 |  |  |  |
+| signals/tests/affects-audit-2893.test.ts | 8 | 0 |  |  |  |
+| signals/tests/affects-propagation.test.ts | 9 | 0 |  |  |  |
+| signals/tests/async-chain-supersession.test.ts | 8 | 0 |  |  |  |
+| signals/tests/async-landing-deps-3461.test.ts | 2 | 0 |  |  |  |
+| signals/tests/async-lane-landing-equals-order.test.ts | 1 | 0 |  |  |  |
+| signals/tests/attribution-benchmark-eval.test.ts | 5 | 0 |  |  |  |
+| signals/tests/attribution-current-origin.test.ts | 9 | 0 |  |  |  |
+| signals/tests/attribution-effect-cycle.test.ts | 8 | 0 |  |  |  |
+| signals/tests/attribution-engine-cost.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/attribution-fan-out.test.ts | 6 | 0 |  |  |  |
+| signals/tests/attribution-feedback-findings.test.ts | 7 | 0 |  |  |  |
+| signals/tests/attribution-feedback.test.ts | 11 | 0 |  |  |  |
+| signals/tests/attribution-graph-growth.test.ts | 9 | 0 |  |  |  |
+| signals/tests/attribution-holds.test.ts | 19 | 0 |  |  |  |
+| signals/tests/attribution-immutable-update.test.ts | 6 | 0 |  |  |  |
+| signals/tests/attribution-interactions.test.ts | 20 | 0 |  |  |  |
+| signals/tests/attribution-lean-gate.test.ts | 8 | 0 |  |  |  |
+| signals/tests/attribution-list-identity.test.ts | 5 | 0 |  |  |  |
+| signals/tests/attribution-navigation.test.ts | 30 | 0 |  |  |  |
+| signals/tests/attribution-optimistic-revert.test.ts | 8 | 0 |  |  |  |
+| signals/tests/attribution-provenance.test.ts | 7 | 0 |  |  |  |
+| signals/tests/attribution-relay-tear.test.ts | 9 | 0 |  |  |  |
+| signals/tests/attribution-timeline.test.ts | 14 | 0 |  |  |  |
+| signals/tests/attribution-unstable-memo.test.ts | 6 | 0 |  |  |  |
+| signals/tests/attribution-values.test.ts | 11 | 0 |  |  |  |
+| signals/tests/attribution-wasted-recompute.test.ts | 8 | 0 |  |  |  |
+| signals/tests/attribution-waterfall-eval.test.ts | 7 | 0 | 1 |  |  |
+| signals/tests/attribution-wide-scope.test.ts | 13 | 0 |  |  |  |
+| signals/tests/attribution.test.ts | 32 | 0 |  |  |  |
+| signals/tests/autodispose-contract.test.ts | 4 | 0 |  |  |  |
+| signals/tests/autodispose-pending-release.test.ts | 6 | 0 |  |  |  |
+| signals/tests/body-end-supersession-visibility.test.ts | 1 | 0 |  |  |  |
+| signals/tests/born-held.test.ts | 4 | 0 |  |  |  |
+| signals/tests/boundary-not-born-held-3540.test.ts | 12 | 0 |  |  |  |
+| signals/tests/boundary-output-frame-reader.test.ts | 4 | 0 |  |  |  |
+| signals/tests/client-error-hook.test.ts | 7 | 0 |  |  |  |
+| signals/tests/compute-write-joins-transition.test.ts | 2 | 0 |  |  |  |
+| signals/tests/contested-effect.test.ts | 3 | 0 |  |  |  |
+| signals/tests/context.test.ts | 6 | 0 |  |  |  |
+| signals/tests/createEffect.test.ts | 24 | 0 |  |  |  |
+| signals/tests/createErrorBoundary.test.ts | 29 | 0 |  |  |  |
+| signals/tests/createLoadingBoundary.on.test.ts | 7 | 0 |  |  |  |
+| signals/tests/createLoadingBoundary.test.ts | 26 | 0 |  |  |  |
+| signals/tests/createMemo.test.ts | 80 | 0 |  |  |  |
+| signals/tests/createOptimistic.test.ts | 68 | 0 |  |  |  |
+| signals/tests/createProjection.draft-lifetime-3585.test.ts | 17 | 0 |  |  |  |
+| signals/tests/createReaction.test.ts | 5 | 0 |  |  |  |
+| signals/tests/createRevealOrder.test.ts | 38 | 0 |  |  |  |
+| signals/tests/createRoot.test.ts | 22 | 0 |  |  |  |
+| signals/tests/createSignal.test.ts | 10 | 0 |  |  |  |
+| signals/tests/createTrackedEffect.test.ts | 18 | 1 |  |  |  |
+| signals/tests/derived-write-then-derivation-3733.test.ts | 37 | 0 |  |  |  |
+| signals/tests/dev.test.ts | 28 | 0 |  |  |  |
+| signals/tests/diagnostics.test.ts | 25 | 0 | 1 |  |  |
+| signals/tests/direct-commit-readers-posture.test.ts | 3 | 0 |  |  |  |
+| signals/tests/direction-rule-probe.test.ts | 3 | 1 |  |  |  |
+| signals/tests/disposed-read-lifecycle.test.ts | 5 | 0 |  |  |  |
+| signals/tests/dist-artifacts.test.ts | 1 | 21 |  |  | not ours: runs Solid's built packages in a child process |
+| signals/tests/dormant-memo-chain-3554.test.ts | 5 | 0 | 1 |  |  |
+| signals/tests/effect-error-phases.test.ts | 11 | 0 |  |  |  |
+| signals/tests/effect-mainline-ownership-3412.test.ts | 4 | 0 |  |  |  |
+| signals/tests/effect-phase-writes.test.ts | 10 | 0 |  |  |  |
+| signals/tests/enableExternalSource.test.ts | 10 | 0 |  |  |  |
+| signals/tests/enforceLoadingBoundary.test.ts | 4 | 0 |  |  |  |
+| signals/tests/equals-comparator-errors.test.ts | 6 | 0 |  |  |  |
+| signals/tests/error-silent-recovery.test.ts | 7 | 0 |  |  |  |
+| signals/tests/errorHalt.test.ts | 9 | 0 |  |  |  |
+| signals/tests/falsy-error-identity.test.ts | 20 | 0 |  |  |  |
+| signals/tests/finalize-reentry.test.ts | 4 | 0 |  |  |  |
+| signals/tests/first-observer-stale-reader.test.ts | 1 | 0 |  |  |  |
+| signals/tests/flatten-async-iterable.test.ts | 11 | 0 |  |  |  |
+| signals/tests/flatten-needs-unwrap.test.ts | 3 | 0 |  |  |  |
+| signals/tests/flush-in-action.test.ts | 6 | 0 |  |  |  |
+| signals/tests/flush.test.ts | 6 | 0 |  |  |  |
+| signals/tests/fuzz-findings-l2.test.ts | 20 | 0 |  |  |  |
+| signals/tests/gc.test.ts | 1 | 0 |  |  |  |
+| signals/tests/getOwner.test.ts | 2 | 0 |  |  |  |
+| signals/tests/graph-size-diagnostics.test.ts | 6 | 0 |  |  |  |
+| signals/tests/graph.test.ts | 21 | 0 |  |  |  |
+| signals/tests/heap-mark-incremental.test.ts | 2 | 0 |  |  |  |
+| signals/tests/held-conditional-effect.test.ts | 1 | 0 |  |  |  |
+| signals/tests/held-conditional-memo.test.ts | 2 | 0 |  |  |  |
+| signals/tests/held-derivation-not-a-proposal-3612.test.ts | 19 | 0 |  |  |  |
+| signals/tests/held-effect-restage-run-3802.test.ts | 2 | 0 |  |  |  |
+| signals/tests/held-frame-dependencies.test.ts | 2 | 0 |  |  |  |
+| signals/tests/held-restore.test.ts | 4 | 0 |  |  |  |
+| signals/tests/held-truth-lane-only.test.ts | 13 | 0 | 1 |  |  |
+| signals/tests/inv4-projection-dispose-shadow.test.ts | 1 | 0 |  |  |  |
+| signals/tests/ispending-combined-atomic-3442.test.ts | 3 | 0 |  |  |  |
+| signals/tests/isPending-held-sync-memo.test.ts | 1 | 0 |  |  |  |
+| signals/tests/ispending-in-boundary-on-3528.test.ts | 6 | 0 |  |  |  |
+| signals/tests/isPending-memo-consistency.test.ts | 5 | 0 |  |  |  |
+| signals/tests/ispending-memo-gate-3766.test.ts | 6 | 0 |  |  |  |
+| signals/tests/ispending-memo-unstamped-hold-3457.test.ts | 1 | 0 |  |  |  |
+| signals/tests/issue-3800-repro.test.ts | 8 | 0 |  |  |  |
+| signals/tests/iterator-supersede-close.test.ts | 2 | 0 |  |  |  |
+| signals/tests/l2-contract.test.ts | 15 | 0 |  |  |  |
+| signals/tests/l2-fuzz-existing-rules.test.ts | 5 | 0 |  |  |  |
+| signals/tests/lane-ambient-write-replay.test.ts | 3 | 0 |  |  |  |
+| signals/tests/lane-contract.test.ts | 15 | 0 | 1 |  |  |
+| signals/tests/lane-frame-deferred-run-3662.test.ts | 3 | 0 |  |  |  |
+| signals/tests/lane-frame-held-lane-3662.test.ts | 5 | 0 |  |  |  |
+| signals/tests/lane-hold-on-observation.test.ts | 9 | 0 |  |  |  |
+| signals/tests/lane-outside-view.test.ts | 8 | 0 |  |  |  |
+| signals/tests/lane-pass-stamped-effect-3662.test.ts | 1 | 0 |  |  |  |
+| signals/tests/lane-uninitialized-landing-3648.test.ts | 5 | 0 |  |  |  |
+| signals/tests/late-pending-equality.test.ts | 8 | 0 |  |  |  |
+| signals/tests/latest-async.test.ts | 1 | 0 |  |  |  |
+| signals/tests/latest-created-inside-window.test.ts | 2 | 0 |  |  |  |
+| signals/tests/latest-held-till-flush.test.ts | 22 | 0 |  |  |  |
+| signals/tests/latest-isPending-consistency.test.ts | 8 | 0 |  |  |  |
+| signals/tests/latest-lazy-companion-backfill.test.ts | 2 | 0 |  |  |  |
+| signals/tests/latest-pending-probe-mid-flight.test.ts | 1 | 0 |  |  |  |
+| signals/tests/latest-plain-write-purity.test.ts | 4 | 0 |  |  |  |
+| signals/tests/latest-probe-order-independence.test.ts | 2 | 0 |  |  |  |
+| signals/tests/latest-repeated-writes.test.ts | 4 | 0 |  |  |  |
+| signals/tests/latest-shadow-owned-write.test.ts | 2 | 0 |  |  |  |
+| signals/tests/latest-unobserved-memo.test.ts | 3 | 0 |  |  |  |
+| signals/tests/loading-fallback-in-flush-3540.test.ts | 69 | 3 |  |  |  |
+| signals/tests/loading-fallback-release-3540.test.ts | 2 | 0 |  |  |  |
+| signals/tests/loading-on-frame-following-3540.test.ts | 25 | 0 |  |  |  |
+| signals/tests/loading-on-rearm-3540.test.ts | 7 | 0 |  |  |  |
+| signals/tests/loading-on-rearm-reveal-3540.test.ts | 7 | 0 |  |  |  |
+| signals/tests/loading-reset-collects-forwarded-3459.test.ts | 2 | 0 |  |  |  |
+| signals/tests/loading-value.test.ts | 36 | 0 |  |  |  |
+| signals/tests/mapArray-notready-safety.test.ts | 12 | 0 |  |  |  |
+| signals/tests/mapArray-smallmove.test.ts | 15 | 0 |  |  |  |
+| signals/tests/maparray-store-nonkeyed.test.ts | 2 | 0 |  |  |  |
+| signals/tests/mapArray.test.ts | 7 | 0 |  |  |  |
+| signals/tests/mount-over-foreign-hold-3761.test.ts | 5 | 0 |  |  |  |
+| signals/tests/nested-render-effect-async-cleanup.test.ts | 5 | 0 |  |  |  |
+| signals/tests/observe-exclude.test.ts | 10 | 0 |  |  |  |
+| signals/tests/observe-idle-cost.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/observe-records.test.ts | 15 | 0 |  |  |  |
+| signals/tests/oncleanup-reentrant-dispose-3601.test.ts | 5 | 0 |  |  |  |
+| signals/tests/onCleanup.test.ts | 5 | 0 |  |  |  |
+| signals/tests/onSettled.test.ts | 13 | 0 |  |  |  |
+| signals/tests/optimistic-lane-release.test.ts | 4 | 0 |  |  |  |
+| signals/tests/optimistic-lane-transaction-ownership.test.ts | 2 | 0 |  |  |  |
+| signals/tests/optimistic-mount-binding-3835.test.ts | 2 | 0 |  |  |  |
+| signals/tests/optimistic-mount-nested-memo-3835.test.ts | 4 | 0 |  |  |  |
+| signals/tests/optimistic-move-duplicate-3548.test.ts | 1 | 0 |  |  |  |
+| signals/tests/optimistic-move-keyed-show-3662.test.ts | 2 | 0 |  |  |  |
+| signals/tests/optimistic-outside-refetch-619.test.ts | 5 | 0 |  |  |  |
+| signals/tests/optimistic-over-held-row-3796.test.ts | 2 | 0 |  |  |  |
+| signals/tests/optimistic-read-lane-not-transaction-3698.test.ts | 6 | 0 |  |  |  |
+| signals/tests/optimistic-refetch-longer-3568.test.ts | 4 | 0 |  |  |  |
+| signals/tests/optimistic-settle-verdicts.test.ts | 3 | 0 |  |  |  |
+| signals/tests/optimistic-signal-refetch-hold.test.ts | 2 | 0 |  |  |  |
+| signals/tests/optimistic-store-layer-scope.test.ts | 5 | 0 |  |  |  |
+| signals/tests/optimistic-store-refetch-hold.test.ts | 5 | 0 |  |  |  |
+| signals/tests/optimistic-undefined-override.test.ts | 6 | 0 |  |  |  |
+| signals/tests/overlapping-flights.test.ts | 3 | 0 |  |  |  |
+| signals/tests/owned-scope-write-guard.test.ts | 14 | 0 |  |  |  |
+| signals/tests/pending-companion-lane-parent.test.ts | 1 | 0 |  |  |  |
+| signals/tests/pending-gated-landing-replay.test.ts | 1 | 0 |  |  |  |
+| signals/tests/pending-source-repark.test.ts | 2 | 0 |  |  |  |
+| signals/tests/posture-born-held-and-observation.test.ts | 5 | 0 |  |  |  |
+| signals/tests/posture-store-parity.test.ts | 27 | 0 |  |  |  |
+| signals/tests/propagation-isolation.test.ts | 2 | 0 |  |  |  |
+| signals/tests/question-scoped-pending.test.ts | 38 | 0 |  |  |  |
+| signals/tests/recompute-missed-wake.test.ts | 2 | 0 |  |  |  |
+| signals/tests/recompute-preserves-disposed-3621.test.ts | 7 | 0 |  |  |  |
+| signals/tests/refresh-await.test.ts | 12 | 0 |  |  |  |
+| signals/tests/repeat.test.ts | 11 | 0 |  |  |  |
+| signals/tests/resolve-in-action.test.ts | 5 | 0 |  |  |  |
+| signals/tests/resolve.test.ts | 4 | 0 |  |  |  |
+| signals/tests/reveal-carve-out.test.ts | 4 | 0 |  |  |  |
+| signals/tests/reveal-gating-contract.test.ts | 2 | 0 |  |  |  |
+| signals/tests/root-dispose-pending-action-3561.test.ts | 9 | 0 |  |  |  |
+| signals/tests/router-transition-error-commit.test.ts | 1 | 0 |  |  |  |
+| signals/tests/rules-index.test.ts | 0 | 3 |  |  | not ours: runs Solid's built packages in a child process |
+| signals/tests/runWithOwner.test.ts | 3 | 0 |  |  |  |
+| signals/tests/scheduler-livelock.test.ts | 4 | 0 |  |  |  |
+| signals/tests/settle-folds-queued-writes.test.ts | 2 | 0 |  |  |  |
+| signals/tests/settle-walk-invariant.test.ts | 9 | 0 |  |  |  |
+| signals/tests/shallow-store-proxy-children.test.ts | 6 | 0 |  |  |  |
+| signals/tests/shared-effect-no-entangle.test.ts | 4 | 0 |  |  |  |
+| signals/tests/snapshot-derived-store-rows.test.ts | 5 | 0 |  |  |  |
+| signals/tests/snapshot.test.ts | 37 | 0 |  |  |  |
+| signals/tests/spec-async-semantics.test.ts | 52 | 0 |  |  |  |
+| signals/tests/stale-read-uninitialized-cross-transition.test.ts | 2 | 0 |  |  |  |
+| signals/tests/store-unchanged-read-independent-write-3688.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/adoption-lane-rollback.test.ts | 2 | 0 |  |  |  |
+| signals/tests/store/async-setter.test.ts | 8 | 0 |  |  |  |
+| signals/tests/store/child-companion-walk.test.ts | 2 | 0 |  |  |  |
+| signals/tests/store/createOptimisticStore.test.ts | 80 | 0 |  |  |  |
+| signals/tests/store/createProjection.async.test.ts | 32 | 0 |  |  |  |
+| signals/tests/store/createProjection.jsdom.test.ts | 1 | 0 |  |  |  |
+| signals/tests/store/createProjection.test.ts | 20 | 0 |  |  |  |
+| signals/tests/store/createStore.test.ts | 65 | 0 |  |  |  |
+| signals/tests/store/deep-chained-view.test.ts | 10 | 0 | 1 |  |  |
+| signals/tests/store/deep-held-visibility.test.ts | 1 | 0 |  |  |  |
+| signals/tests/store/deep-overlay-rewalk.test.ts | 3 | 0 |  |  |  |
+| signals/tests/store/derived-optimistic-retained-row-3859.test.ts | 2 | 0 |  |  |  |
+| signals/tests/store/derived-optimistic-shadow.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/derived-presence-async-3726.test.ts | 8 | 0 |  |  |  |
+| signals/tests/store/derived-retained-draft-row-3767.test.ts | 3 | 0 |  |  |  |
+| signals/tests/store/enumerator-presence-nodes.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/store/flight-owned-transaction.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/fold-3164.test.ts | 2 | 0 |  |  |  |
+| signals/tests/store/fold-privatization-order.test.ts | 10 | 0 |  |  |  |
+| signals/tests/store/fold-scheduling.test.ts | 3 | 0 |  |  |  |
+| signals/tests/store/fold-slot-identity.test.ts | 6 | 0 |  |  |  |
+| signals/tests/store/kanban-a17-fixture.test.ts | 3 | 0 |  |  |  |
+| signals/tests/store/lane-authority-twins.test.ts | 7 | 0 |  |  |  |
+| signals/tests/store/latest-read-after-write-3576.test.ts | 1 | 0 |  |  |  |
+| signals/tests/store/native-collections.test.ts | 10 | 0 |  |  |  |
+| signals/tests/store/next-smoke.test.ts | 5 | 0 |  |  |  |
+| signals/tests/store/optimistic-ambient-capture.test.ts | 1 | 0 |  |  |  |
+| signals/tests/store/optimistic-chained-revert-3672-memo.test.ts | 6 | 0 |  |  |  |
+| signals/tests/store/optimistic-chained-revert-3672.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/optimistic-draft-visibility-3665.test.ts | 8 | 0 |  |  |  |
+| signals/tests/store/optimistic-list-mutation-matrix.test.ts | 900 | 0 |  |  |  |
+| signals/tests/store/optimistic-maparray-index-frame-f1.test.ts | 43 | 0 |  |  |  |
+| signals/tests/store/optimistic-observer-invariance.test.ts | 2 | 0 |  |  |  |
+| signals/tests/store/optimistic-removed-prop-3883.test.ts | 6 | 0 |  |  |  |
+| signals/tests/store/optimistic-untracked-reads-f3-f5.test.ts | 11 | 0 |  |  |  |
+| signals/tests/store/overlay-rebuild-3689.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/store/overlay.test.ts | 11 | 0 |  |  |  |
+| signals/tests/store/owner-stamp.test.ts | 9 | 0 |  |  |  |
+| signals/tests/store/pr3017-function-leaves.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/privatization-observer-identity.test.ts | 2 | 0 |  |  |  |
+| signals/tests/store/projection-absent-key-tracking.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/projection-root-overlay.test.ts | 6 | 0 |  |  |  |
+| signals/tests/store/projection-slot-release.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/store/projection-transition-isolation.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/reconcile-captured-proxies.test.ts | 9 | 0 |  |  |  |
+| signals/tests/store/reconcile-resend-identity.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/reconcile.test.ts | 47 | 0 |  |  |  |
+| signals/tests/store/recursive-effects.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/retained-draft-row-3767.test.ts | 1 | 0 |  |  |  |
+| signals/tests/store/shallow-loading.test.ts | 8 | 0 |  |  |  |
+| signals/tests/store/shallow.test.ts | 18 | 0 |  |  |  |
+| signals/tests/store/shared-child-multiparent.test.ts | 3 | 0 |  |  |  |
+| signals/tests/store/sidecar-composition.test.ts | 1 | 0 |  |  |  |
+| signals/tests/store/signal-store-twins-qd.test.ts | 4 | 0 |  |  |  |
+| signals/tests/store/store-in-store-tracking.test.ts | 7 | 0 |  |  |  |
+| signals/tests/store/storePath.test.ts | 29 | 0 |  |  |  |
+| signals/tests/store/unchanged-presence-no-hold-3743.test.ts | 9 | 0 |  |  |  |
+| signals/tests/store/utilities-no-proxy.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/store/utilities.test.ts | 82 | 0 | 1 |  |  |
+| signals/tests/store/woken-transaction-adopts-staged-bump.test.ts | 1 | 0 |  |  |  |
+| signals/tests/store/write-floor.test.ts | 9 | 0 |  |  |  |
+| signals/tests/strict-read-pending-store.test.ts | 14 | 0 |  |  |  |
+| signals/tests/strict-read-snapshot-scope-3675.test.ts | 3 | 0 |  |  |  |
+| signals/tests/strictRead.test.ts | 12 | 0 |  |  |  |
+| signals/tests/superseded-before-first-commit.test.ts | 1 | 0 |  |  |  |
+| signals/tests/superseded-flight-pending-source.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/superseded-source-blocks-3462.test.ts | 2 | 0 |  |  |  |
+| signals/tests/syncThenable.test.ts | 27 | 0 |  |  |  |
+| signals/tests/tick-scoped-pass-transaction.test.ts | 2 | 0 |  |  |  |
+| signals/tests/transition-corpse-revival.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/transition-orphan-recompute.test.ts | 2 | 0 |  |  |  |
+| signals/tests/transitionEntanglement.test.ts | 2 | 0 |  |  |  |
+| signals/tests/transitionMerge.test.ts | 1 | 0 |  |  |  |
+| signals/tests/treeshake.test.ts | 0 | 0 | 1 |  |  |
+| signals/tests/uninitialized-visibility.test.ts | 7 | 0 |  |  |  |
+| signals/tests/until-entanglement.test.ts | 6 | 0 |  |  |  |
+| signals/tests/until.test.ts | 17 | 0 |  |  |  |
+| signals/tests/untrack.test.ts | 3 | 0 |  |  |  |
+| signals/tests/untracked-async-read.test.ts | 3 | 0 |  |  |  |
+| signals/tests/untracked-read-after-await.test.ts | 29 | 0 | 1 |  |  |
+| signals/tests/verdict-contract.test.ts | 5 | 0 |  |  |  |
+| signals/tests/verdict-mount-first-pass-3851.test.ts | 3 | 0 |  |  |  |
+| signals/tests/verdict-mount-loading-flush-loop.test.ts | 4 | 0 |  |  |  |
+| signals/tests/visibility-oracle-posture.test.ts | 1184 | 0 |  |  |  |
+| signals/tests/visibility-oracle-store.test.ts | 153 | 0 |  |  |  |
+| signals/tests/visibility-oracle.test.ts | 126 | 0 |  |  |  |
+| signals/tests/write-proposals-3494.test.ts | 12 | 0 |  |  |  |
+| signals/tests/zombie-create-path-keeps-flag.test.ts | 1 | 0 |  |  |  |
+| signals/tests/zombie-recompute-keeps-flag.test.ts | 1 | 0 |  |  |  |
+| signals/tests/zombie-rerun-after-commit-3546.test.ts | 3 | 0 |  |  |  |
+| solid/test/client-hydration.spec.ts | 120 | 0 | 21 |  |  |
+| solid/test/client-recovery-record.spec.ts | 1 | 0 | 3 |  |  |
+| solid/test/component.spec.ts | 16 | 0 |  |  |  |
+| solid/test/container-trace.spec.ts | 14 | 0 |  |  |  |
+| solid/test/cross-package-fields.spec.ts | 0 | 0 |  |  |  |
+| solid/test/dev.spec.ts | 20 | 0 |  |  |  |
+| solid/test/dist-client-artifact.spec.ts | 0 | 1 |  |  | not ours: Solid's published build |
+| solid/test/hybrid-memo-handoff.spec.ts | 20 | 0 | 2 |  |  |
+| solid/test/hybrid-store-handoff.spec.ts | 41 | 0 | 1 |  |  |
+| solid/test/hydrate-window.spec.ts | 4 | 0 |  |  |  |
+| solid/test/hydration-latch.spec.ts | 0 | 0 | 1 |  |  |
+| solid/test/hydration-null-owner-3609.spec.ts | 58 | 0 |  |  |  |
+| solid/test/hydration-root-snapshot-scope-3504.spec.ts | 3 | 0 |  |  |  |
+| solid/test/hydration-state-api.spec.ts | 2 | 0 | 1 |  |  |
+| solid/test/id-parity.spec.ts | 12 | 0 |  |  |  |
+| solid/test/internal-surface.spec.ts | 0 | 0 | 1 |  | not ours: Solid's published build |
+| solid/test/lazy-strict-read-3675.spec.ts | 2 | 0 |  |  |  |
+| solid/test/multi-root-hydration.spec.ts | 0 | 0 | 2 |  |  |
+| solid/test/package-exports.spec.ts | 0 | 0 | 1 |  |  |
+| solid/test/public-boundary-exports.spec.ts | 2 | 0 |  |  |  |
+| solid/test/published-declarations.spec.ts | 0 | 1 |  |  | not ours: runs Solid's built packages in a child process |
+| solid/test/refresh-hydration.spec.ts | 4 | 0 |  |  |  |
+| solid/test/refresh-prod.spec.ts | 2 | 0 |  |  |  |
+| solid/test/refresh.spec.ts | 20 | 0 |  |  |  |
+| solid/test/reveal.spec.ts | 11 | 0 |  |  |  |
+| solid/test/server/async-retry-child-reset.spec.ts | 5 | 0 |  |  |  |
+| solid/test/server/console-footer.spec.ts | 0 | 0 | 1 |  |  |
+| solid/test/server/dist-server-artifact.spec.ts | 0 | 1 |  |  | not ours: Solid's published build |
+| solid/test/server/export-parity.spec.ts | 3 | 0 |  |  |  |
+| solid/test/server/flow.spec.ts | 23 | 0 | 5 |  |  |
+| solid/test/server/nohydration.spec.ts | 31 | 0 |  |  |  |
+| solid/test/server/observe-server.spec.ts | 3 | 0 |  |  |  |
+| solid/test/server/reveal-ssr.spec.ts | 39 | 0 |  |  |  |
+| solid/test/server/server-diagnostics.spec.ts | 10 | 0 | 3 |  |  |
+| solid/test/server/server-write-deprecation.spec.ts | 5 | 0 |  |  |  |
+| solid/test/server/shallow-projection.spec.ts | 1 | 0 | 2 |  |  |
+| solid/test/server/signals.spec.ts | 59 | 0 |  |  |  |
+| solid/test/server/ssr-async.spec.ts | 183 | 0 |  |  |  |
+| solid/test/server/ssr-scope-lazy-id.spec.ts | 0 | 0 | 1 |  |  |
+| solid/test/server/ssr-scope.spec.ts | 5 | 0 |  |  |  |
+| solid/test/shallow-hydration.spec.ts | 4 | 0 |  |  |  |
+| solid/test/signals.spec.ts | 36 | 0 |  |  |  |
+| web/test/async-landing-deps-3461.spec.tsx | 2 | 0 |  |  |  |
+| web/test/binding-names.spec.tsx | 4 | 0 |  |  |  |
+| web/test/capturing-event-listener.spec.ts | 2 | 0 |  |  |  |
+| web/test/class-binding.spec.tsx | 5 | 0 |  |  |  |
+| web/test/class-object-undefined.spec.tsx | 1 | 0 |  |  |  |
+| web/test/class.spec.tsx | 2 | 0 |  |  |  |
+| web/test/client-error-hook.spec.tsx | 2 | 0 |  |  |  |
+| web/test/client-only.spec.tsx | 6 | 0 |  |  |  |
+| web/test/client-records.spec.tsx | 53 | 0 | 2 |  |  |
+| web/test/conditional-jsx-held-branch-3438.spec.tsx | 2 | 0 |  |  |  |
+| web/test/consistency/adopted-swap-post-done.spec.tsx | 4 | 0 |  |  |  |
+| web/test/consistency/boundary-arrival.spec.tsx | 4 | 0 |  |  |  |
+| web/test/consistency/c01-claim-once.spec.tsx | 3 | 0 |  |  |  |
+| web/test/consistency/c01-claim-window-roots.spec.tsx | 1 | 0 |  |  |  |
+| web/test/consistency/c02-revealed-occurrence-mounts.spec.tsx | 5 | 0 |  |  |  |
+| web/test/consistency/c03-hydration-done-counts-holds.spec.tsx | 3 | 0 |  |  |  |
+| web/test/consistency/c04-record-applies-once.spec.tsx | 6 | 0 |  |  |  |
+| web/test/consistency/c05-data-response-scoped.spec.tsx | 5 | 0 |  |  |  |
+| web/test/consistency/c06-stale-wait-never-lands.spec.tsx | 6 | 0 |  |  |  |
+| web/test/consistency/c07-store-is-truth.spec.tsx | 4 | 0 |  |  |  |
+| web/test/consistency/c08-fanout-equal.spec.tsx | 6 | 0 |  |  |  |
+| web/test/consistency/c09-no-phantom.spec.tsx | 3 | 0 |  |  |  |
+| web/test/consistency/c10-ids-timing-independent.spec.tsx | 3 | 0 |  |  |  |
+| web/test/consistency/c11-trace-equals-oracle.spec.tsx | 7 | 0 |  |  |  |
+| web/test/consistency/c12-boundary-parity.spec.tsx | 6 | 0 |  |  |  |
+| web/test/consistency/c13-sweep-atomic.spec.tsx | 4 | 0 |  |  |  |
+| web/test/consistency/c14-dispose-clean.spec.tsx | 7 | 0 |  |  |  |
+| web/test/consistency/c15-staging-atomic.spec.tsx | 5 | 0 |  |  |  |
+| web/test/consistency/c16-reference-identity.spec.tsx | 4 | 0 |  |  |  |
+| web/test/consistency/c17-gate-bound-address.spec.tsx | 10 | 0 |  |  |  |
+| web/test/consistency/c19-claim-reads-snapshot.spec.tsx | 6 | 0 |  |  |  |
+| web/test/consistency/generic/campaign.spec.tsx | 1 | 0 | 1 |  |  |
+| web/test/consistency/generic/preload-hold.spec.tsx | 5 | 0 |  |  |  |
+| web/test/consistency/generic/replay.spec.tsx | 24 | 0 |  |  |  |
+| web/test/consistency/harness/campaign.spec.tsx | 0 | 0 | 1 |  |  |
+| web/test/consistency/harness/replay.spec.tsx | 10 | 0 |  |  |  |
+| web/test/consistency/sref-table-pending-read.spec.tsx | 3 | 0 |  |  |  |
+| web/test/consistency/tier-assets-ready.spec.tsx | 9 | 0 |  |  |  |
+| web/test/consistency/tier-bind-hold.spec.tsx | 6 | 0 |  |  |  |
+| web/test/consistency/tier-prepare.spec.tsx | 8 | 0 |  |  |  |
+| web/test/consistency/tier-regions-hold.spec.tsx | 4 | 0 |  |  |  |
+| web/test/consistency/tier-trace-hold.spec.tsx | 4 | 0 |  |  |  |
+| web/test/consistency/tier-wire-preload.spec.tsx | 3 | 0 |  |  |  |
+| web/test/context.spec.tsx | 7 | 0 |  |  |  |
+| web/test/delegated-event-cross-runtime.spec.tsx | 7 | 0 | 1 |  |  |
+| web/test/delegated-event-listener-object.spec.ts | 2 | 0 |  |  |  |
+| web/test/derived-presence-async-3726.spec.tsx | 1 | 1 |  |  |  |
+| web/test/dev-warning.spec.tsx | 13 | 0 |  |  |  |
+| web/test/diagnostic-element-ref.spec.tsx | 1 | 0 |  |  |  |
+| web/test/dist-frames-server-instance.spec.ts | 0 | 9 |  |  | not ours: runs Solid's built packages in a child process |
+| web/test/dist-nested-manifests.spec.ts | 0 | 1 |  |  | not ours: runs Solid's built packages in a child process |
+| web/test/dynamic-namespace.spec.tsx | 10 | 0 |  |  |  |
+| web/test/dynamic-static.spec.tsx | 7 | 0 |  |  |  |
+| web/test/dynamic.spec.tsx | 13 | 0 |  |  |  |
+| web/test/element.spec.tsx | 19 | 0 |  |  |  |
+| web/test/errored-async-nesting.spec.tsx | 3 | 0 |  |  |  |
+| web/test/errored.spec.tsx | 12 | 0 |  |  |  |
+| web/test/event-handler.spec.tsx | 5 | 0 |  |  |  |
+| web/test/for.nonkeyed.spec.tsx | 50 | 0 |  |  |  |
+| web/test/for.nonkeyed.store.spec.tsx | 1 | 0 |  |  |  |
+| web/test/for.spec.tsx | 50 | 0 |  |  |  |
+| web/test/frames-adopted-region-fragments.spec.tsx | 5 | 0 |  |  |  |
+| web/test/frames-assets-client.spec.ts | 17 | 0 |  |  |  |
+| web/test/frames-binding-slots.spec.tsx | 21 | 0 |  |  |  |
+| web/test/frames-client.spec.tsx | 15 | 0 |  |  |  |
+| web/test/frames-container-lazy-codec.spec.tsx | 2 | 0 |  |  |  |
+| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 |  |  |  |
+| web/test/frames-dynamic-contract.spec.tsx | 1 | 0 |  |  |  |
+| web/test/frames-errored-reset-refetch.spec.tsx | 18 | 0 |  |  |  |
+| web/test/frames-flight-delivery.spec.tsx | 5 | 0 |  |  |  |
+| web/test/frames-get.spec.tsx | 3 | 0 |  |  |  |
+| web/test/frames-hn-client.spec.tsx | 2 | 0 |  |  |  |
+| web/test/frames-late-boundary-client.spec.tsx | 5 | 0 |  |  |  |
+| web/test/frames-live-resume.spec.tsx | 5 | 0 |  |  |  |
+| web/test/frames-live-showing.spec.tsx | 1 | 0 |  |  |  |
+| web/test/frames-live.spec.tsx | 8 | 0 |  |  |  |
+| web/test/frames-marker-corruption.spec.tsx | 1 | 0 |  |  |  |
+| web/test/frames-morph-in-transition.spec.tsx | 3 | 0 |  |  |  |
+| web/test/frames-occlusion-client.spec.tsx | 1 | 0 |  |  |  |
+| web/test/frames-optimistic-hold.spec.tsx | 6 | 0 |  |  |  |
+| web/test/frames-plain-bound.spec.tsx | 3 | 0 |  |  |  |
+| web/test/frames-slot-arg-flights-3852.spec.tsx | 2 | 0 |  |  |  |
+| web/test/frames-used-region-client.spec.tsx | 1 | 0 |  |  |  |
+| web/test/halt-error-logging.spec.tsx | 1 | 0 |  |  |  |
+| web/test/held-action-memo-mount-3802.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/adopted-claim-args-address.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/adopted-fallback-residue.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/adopted-slot-late-record.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/adopted-slot-live.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/binding-slot-adoption.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/buffered-projection-repeat.spec.tsx | 3 | 0 |  |  |  |
+| web/test/hydration/class.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/client-only.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/container-trace-hold-hydration-end.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/container-trace-hold-id-determinism.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/container-trace-hold-interruption.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/container-trace-hold-record-retention.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/container-trace-hold-snapshot.spec.tsx | 3 | 0 |  |  |  |
+| web/test/hydration/diagnostics.spec.tsx | 12 | 1 |  |  |  |
+| web/test/hydration/document-live-channel.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/document-shell.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/dynamic-async-loading-3666.spec.tsx | 3 | 0 |  |  |  |
+| web/test/hydration/dynamic-component-parity-inline-via-dynamic.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/dynamic-component-parity-inline.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/dynamic-component-parity-streamed-via-dynamic.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/dynamic-component-parity-streamed.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/dynamic-hydration-events.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/eager-jsx-falsy-show.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/frame-live-document-switched.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/frame-live-document.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/frame-nonlive-document-3666-async-arrow.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/frame-nonlive-document-3666-inline.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/frame-nonlive-document-3666-streamed.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/frame-nonlive-document-3666-wrapped.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/frames-adopted-error-outward.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/hybrid-memo-handoff.spec.tsx | 8 | 0 |  |  |  |
+| web/test/hydration/hybrid-store-handoff-3574.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/hydrate-falsy-sole-child-issue-3571.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/insert-refresh-drift.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/late-fragment-after-done.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/live-shell-source-3764.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/loading-fallback-reactive-text.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/loading-late-fragment.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/loading-lazy-resume-3749.spec.tsx | 3 | 0 |  |  |  |
+| web/test/hydration/multi-root-registry.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/nav-before-resume.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/null-owner-3609.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/onsettled-hydrate.spec.tsx | 3 | 0 |  |  |  |
+| web/test/hydration/parity-harness.spec.tsx | 140 | 1 |  |  |  |
+| web/test/hydration/preload-failure-document-root.spec.tsx | 3 | 0 |  |  |  |
+| web/test/hydration/refresh-hmr-stream.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/show-fallback.spec.tsx | 4 | 0 |  |  |  |
+| web/test/hydration/slot-hydration-3567.spec.tsx | 26 | 0 |  |  |  |
+| web/test/hydration/spread-innerhtml.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/stateful-input-adoption.spec.tsx | 5 | 0 |  |  |  |
+| web/test/hydration/style-adoption.spec.tsx | 5 | 0 |  |  |  |
+| web/test/hydration/text-node-adoption.spec.tsx | 2 | 0 |  |  |  |
+| web/test/hydration/truncated-registry.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/truncated-stream-late-boundary.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/truncated-stream-template.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/truncated-stream.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/wait-asset-hydration.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/welcome-status-lazy.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/welcome-status-loaded.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/welcome-status-streamed.spec.tsx | 1 | 0 |  |  |  |
+| web/test/hydration/write-before-resume.spec.tsx | 0 | 1 |  |  |  |
+| web/test/inherited-dom-properties.spec.ts | 2 | 0 |  |  |  |
+| web/test/insert-falsy-sole-child-issue-3571.spec.tsx | 8 | 0 |  |  |  |
+| web/test/insert-flatten-needs-unwrap.spec.tsx | 1 | 0 |  |  |  |
+| web/test/insert-text-reuse.spec.tsx | 4 | 0 |  |  |  |
+| web/test/interaction-frame-per-event-3754.spec.tsx | 9 | 0 |  |  |  |
+| web/test/interaction-provenance.spec.tsx | 5 | 0 |  |  |  |
+| web/test/ispending-combined-atomic-3442.spec.tsx | 3 | 0 |  |  |  |
+| web/test/ispending-gated-landing.spec.tsx | 1 | 0 |  |  |  |
+| web/test/ispending-memo-gate-3766.spec.tsx | 2 | 0 |  |  |  |
+| web/test/ispending-memo-unstamped-hold-3457.spec.tsx | 1 | 0 |  |  |  |
+| web/test/latest-async.spec.tsx | 1 | 0 |  |  |  |
+| web/test/latest-banner-landing-gap.spec.tsx | 1 | 0 |  |  |  |
+| web/test/latest-conditional-async-issue-3276.spec.tsx | 1 | 0 |  |  |  |
+| web/test/latest-ispending-issue-3041.spec.tsx | 2 | 0 |  |  |  |
+| web/test/latest-shadow-owned-write-issue-3378.spec.tsx | 1 | 0 |  |  |  |
+| web/test/lifecycle-matrix/call-driven-args.spec.tsx | 7 | 0 |  |  |  |
+| web/test/lifecycle-matrix/call-driven-lifecycle.spec.tsx | 19 | 0 |  |  |  |
+| web/test/lifecycle-matrix/call-driven-slots.spec.tsx | 11 | 0 |  |  |  |
+| web/test/lifecycle-matrix/container-args.spec.tsx | 3 | 0 |  |  |  |
+| web/test/lifecycle-matrix/document-adoption.spec.tsx | 6 | 0 |  |  |  |
+| web/test/lifecycle-matrix/document-live-holes.spec.tsx | 4 | 0 |  |  |  |
+| web/test/lifecycle-matrix/placeholder-mount.spec.tsx | 1 | 0 |  |  |  |
+| web/test/lifecycle-matrix/remount.spec.tsx | 3 | 0 |  |  |  |
+| web/test/loading-fallback-in-flush-3540.spec.tsx | 3 | 0 |  |  |  |
+| web/test/loading-on-keyed-boundary-3540.spec.tsx | 10 | 0 |  |  |  |
+| web/test/loading-on-outside-reader-3412.spec.tsx | 4 | 0 |  |  |  |
+| web/test/loading-reset-collects-forwarded-3459.spec.tsx | 1 | 0 |  |  |  |
+| web/test/loading.spec.tsx | 21 | 0 |  |  |  |
+| web/test/lowercase-on-attribute.spec.tsx | 9 | 0 | 1 |  |  |
+| web/test/nested-render-effect-cleanup-issue-3404.spec.tsx | 0 | 1 |  |  |  |
+| web/test/optimistic-confirm-holds-signal-3706.spec.tsx | 4 | 0 |  |  |  |
+| web/test/optimistic-for-index-frame-f1.spec.tsx | 43 | 0 |  |  |  |
+| web/test/optimistic-lazy-show-preview-3706.spec.tsx | 3 | 0 |  |  |  |
+| web/test/optimistic-list-holes-f3-f5.spec.tsx | 10 | 0 |  |  |  |
+| web/test/optimistic-mount-style-3835.spec.tsx | 3 | 0 |  |  |  |
+| web/test/optimistic-move-keyed-show-3662.spec.tsx | 7 | 0 |  |  |  |
+| web/test/optimistic-nested-show-drag-3706.spec.tsx | 2 | 0 |  |  |  |
+| web/test/optimistic-playground-port.spec.tsx | 1 | 0 |  |  |  |
+| web/test/performance-tracks.spec.tsx | 42 | 0 | 3 |  |  |
+| web/test/polymorphic-chain.spec.tsx | 3 | 0 |  |  |  |
+| web/test/portal.spec.tsx | 30 | 0 |  |  |  |
+| web/test/preload-links-adopt-client.spec.tsx | 10 | 0 |  |  |  |
+| web/test/preload-links-frame-client.spec.ts | 4 | 0 |  |  |  |
+| web/test/projection-async-stream.spec.tsx | 2 | 0 |  |  |  |
+| web/test/refresh-hmr-flow.spec.tsx | 3 | 0 |  |  |  |
+| web/test/refresh-render.spec.tsx | 2 | 0 |  |  |  |
+| web/test/render-halt-recovery.spec.tsx | 1 | 0 |  |  |  |
+| web/test/repeat.spec.tsx | 51 | 0 |  |  |  |
+| web/test/runtime/asset-registry.spec.js | 15 | 0 |  |  |  |
+| web/test/runtime/chunk-reader-hardening.spec.ts | 21 | 0 |  |  |  |
+| web/test/runtime/chunk-reader.spec.ts | 4 | 0 |  |  |  |
+| web/test/runtime/cookies-client.spec.js | 3 | 0 |  |  |  |
+| web/test/runtime/cookies.spec.js | 33 | 0 |  |  |  |
+| web/test/runtime/head-takeover.spec.js | 2 | 0 |  |  |  |
+| web/test/runtime/head.spec.js | 27 | 0 |  |  |  |
+| web/test/runtime/inline-styles.spec.js | 9 | 0 |  |  |  |
+| web/test/runtime/insert.spec.js | 68 | 0 |  |  |  |
+| web/test/runtime/preload-links.spec.js | 22 | 0 |  |  |  |
+| web/test/runtime/redirect-href.spec.js | 12 | 0 |  |  |  |
+| web/test/runtime/serializer.spec.js | 24 | 0 |  |  |  |
+| web/test/runtime/stylesheet-gate.spec.js | 5 | 0 |  |  |  |
+| web/test/select-multiple.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server-functions-live-loop.spec.tsx | 19 | 0 |  |  |  |
+| web/test/server-mock.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/client-hole-derived-async-3659.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/client-only-preload.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/concurrent-render-error-policy.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/concurrent-render-lazy-assets.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/concurrent-render-serialize.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/concurrent-render-trace.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/container-traces.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/diagnostics-server-scenario.spec.tsx | 0 | 1 |  |  | not ours: Cannot find module '@solidjs/diagnostics' |
+| web/test/server/dist-server-artifact.spec.tsx | 0 | 1 |  |  | not ours: Solid's published build |
+| web/test/server/dist-server-dev-artifact.spec.tsx | 0 | 1 |  |  | not ours: Solid's published build |
+| web/test/server/dist-server-treeshake.spec.tsx | 0 | 1 |  |  | not ours: Solid's published build |
+| web/test/server/document-face-arg-tiers.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/document-live-channel-artifact.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/document-live-holes.spec.tsx | 7 | 0 |  |  |  |
+| web/test/server/document-shell.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/dynamic-async-component-diagnostic.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/dynamic-async-loading-3666.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/dynamic-component-parity.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/dynamic-hydration.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/dynamic-shell-gating.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/dynamic-static.spec.tsx | 8 | 0 |  |  |  |
+| web/test/server/dynamic-xmlns.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/errored-loading-superseded-pass-3750.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/errored-sync-suspend-retry.spec.tsx | 26 | 0 |  |  |  |
+| web/test/server/escape-late-values.spec.tsx | 8 | 0 |  |  |  |
+| web/test/server/exports-server-conditions.spec.tsx | 0 | 9 |  |  | not ours: runs Solid's built packages in a child process |
+| web/test/server/frame-binding-slots.spec.tsx | 31 | 0 | 1 |  |  |
+| web/test/server/frame-fragment-error-outcome.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/frame-get.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/frame-hn.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/frame-live-document-artifact.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/frame-live-document.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/frame-live-holes-chat.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/frame-live-holes-projection.spec.tsx | 5 | 1 |  |  |  |
+| web/test/server/frame-live-holes.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/frame-live-resume.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/frame-plain-bound.spec.tsx | 12 | 0 |  |  |  |
+| web/test/server/frame-server-component.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/frame-ssr-seam.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/frame-sweep-ops.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/frame-teardown.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/generic-hydration.gen.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/hole-retry-shared-slot-3815.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/http-components.spec.tsx | 28 | 0 |  |  |  |
+| web/test/server/hybrid-memo-handoff.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/hybrid-store-handoff-3574.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/hydration-harness.spec.tsx | 99 | 0 |  |  |  |
+| web/test/server/hydration-payload-handled-rejection-3769.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/hydration-transfer.spec.tsx | 12 | 0 |  |  |  |
+| web/test/server/lazy-assets-livelock.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/lazy-nested-late-assets.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/lazy-shell-gating.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/live-shell-source-3764.gen.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/loading-dynamic-fragments.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/loading-recreated-async-source-3734.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/lowercase-on-attribute.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/nav-before-resume.gen.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/polymorphic-chain.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/projection-body-read.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/render-to-string-dispose.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/request-event-concurrent.spec.tsx | 7 | 0 |  |  |  |
+| web/test/server/response-invariants.spec.tsx | 3 | 0 | 2 |  |  |
+| web/test/server/retry-robustness.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/select-value.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/server-boundary-records.spec.tsx | 18 | 0 | 2 |  |  |
+| web/test/server/server-component-context.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/server-diagnostics.spec.tsx | 14 | 0 | 3 |  |  |
+| web/test/server/server-error-hook.spec.tsx | 24 | 0 |  |  |  |
+| web/test/server/server-frame-records.spec.tsx | 7 | 0 |  |  |  |
+| web/test/server/server-functions-abort-conforming-length.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/server-functions-adapter-request.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/server-functions-addressing.spec.tsx | 24 | 0 |  |  |  |
+| web/test/server/server-functions-body-buffering.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/server-functions-body-cap-declaration-trust.spec.tsx | 1 | 0 |  |  |  |
+| web/test/server/server-functions-body-formats.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/server-functions-content-length.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/server-functions-cors-origin.spec.tsx | 26 | 0 |  |  |  |
+| web/test/server/server-functions-csrf.spec.tsx | 21 | 0 |  |  |  |
+| web/test/server/server-functions-decoder-rejection-ownership.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/server-functions-derived-locals.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/server-functions-dev-rebind-grant.spec.tsx | 7 | 0 |  |  |  |
+| web/test/server/server-functions-direct-provide-event-once.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/server-functions-encode-hygiene.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/server-functions-error-carrier-guard.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/server-functions-event-hook.spec.tsx | 11 | 0 |  |  |  |
+| web/test/server/server-functions-extensions.spec.tsx | 12 | 0 |  |  |  |
+| web/test/server/server-functions-failure-sanitization.spec.tsx | 17 | 0 |  |  |  |
+| web/test/server/server-functions-failure-signal.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/server-functions-flash-bound-form.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/server-functions-flash-bounds.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/server-functions-flash-encryption.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/server-functions-flash-falsy-outcomes.spec.tsx | 8 | 0 |  |  |  |
+| web/test/server/server-functions-flash-key-derivation.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/server-functions-flash-url-bound.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/server-functions-flight-markup.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/server-functions-flight-result-ownership.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/server-functions-flight-source-dedupe.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/server-functions-format-version-skew.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/server-functions-get-grant-binding.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/server-functions-http-hygiene.spec.tsx | 21 | 0 |  |  |  |
+| web/test/server/server-functions-invocation-wrap.spec.tsx | 8 | 0 |  |  |  |
+| web/test/server/server-functions-invoke.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/server-functions-live-framing.spec.tsx | 21 | 0 |  |  |  |
+| web/test/server/server-functions-live-lifetime.spec.tsx | 17 | 0 |  |  |  |
+| web/test/server/server-functions-live-retry.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/server-functions-negative-zero.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/server-functions-nested-deferred-scope.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/server-functions-nojs-destination.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/server-functions-open-gaps.spec.tsx | 44 | 0 |  |  |  |
+| web/test/server/server-functions-outcome-digest.spec.tsx | 14 | 0 |  |  |  |
+| web/test/server/server-functions-proto-keys.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/server-functions-redirect-scheme.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/server-functions-redirect-status.spec.tsx | 22 | 0 |  |  |  |
+| web/test/server/server-functions-registry-reload.spec.tsx | 0 | 0 | 1 |  |  |
+| web/test/server/server-functions-request-bounds.spec.tsx | 24 | 0 |  |  |  |
+| web/test/server/server-functions-request-event-scope.spec.tsx | 5 | 0 |  |  |  |
+| web/test/server/server-functions-response-aliasing.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/server-functions-result-descriptors.spec.tsx | 27 | 0 |  |  |  |
+| web/test/server/server-functions-single-flight.spec.tsx | 22 | 0 |  |  |  |
+| web/test/server/server-functions-transform-result-thrown.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/server-functions-transport-failure.spec.tsx | 15 | 0 |  |  |  |
+| web/test/server/server-functions-undefined-arguments.spec.tsx | 7 | 0 |  |  |  |
+| web/test/server/server-functions-version-skew.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/server-functions-wrap-invocation-validation.spec.tsx | 7 | 0 |  |  |  |
+| web/test/server/server-functions-wrap-nested-direct.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/server-observe-invocations.spec.tsx | 9 | 0 | 2 |  |  |
+| web/test/server/server-owner-walks.spec.tsx | 0 | 5 |  |  | not ours: runs Solid's built packages in a child process |
+| web/test/server/server-render-route.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/server-trace.spec.tsx | 42 | 0 | 6 |  |  |
+| web/test/server/shared-async-sources.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/shell-suspend-loading-inline.spec.tsx | 8 | 0 |  |  |  |
+| web/test/server/slot-hydration-3567.spec.tsx | 31 | 0 |  |  |  |
+| web/test/server/spread-function-source.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/spread-hydration.spec.tsx | 7 | 0 |  |  |  |
+| web/test/server/spread-omit.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/spread-static-tail.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/spread-static-text.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/ssr-async-rejection-3569.spec.tsx | 19 | 0 |  |  |  |
+| web/test/server/ssr-async-rejection-3570.spec.tsx | 6 | 0 |  |  |  |
+| web/test/server/ssr-class-style-separators.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/ssr-class.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/ssr-element-names.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/ssr-element-nullish-attrs.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/ssr-element-sources.spec.tsx | 24 | 0 |  |  |  |
+| web/test/server/ssr-error-sanitization.spec.tsx | 0 | 22 |  |  | not ours: runs Solid's built packages in a child process |
+| web/test/server/ssr-fragment-rejection-stub-batch.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/ssr-response-teardown-3768.spec.tsx | 9 | 0 |  |  |  |
+| web/test/server/ssr-serialized-rejection-stub-batch.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/ssr-stream.spec.tsx | 116 | 0 |  |  |  |
+| web/test/server/ssr-style-properties.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/ssr-text-separators.spec.tsx | 8 | 0 |  |  |  |
+| web/test/server/stream-cancel-iterators-3626.spec.tsx | 16 | 0 |  |  |  |
+| web/test/server/stream-hang-nested-loading-3478.spec.tsx | 3 | 0 |  |  |  |
+| web/test/server/then-shell-suspend.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/tier-announce.spec.tsx | 14 | 0 |  |  |  |
+| web/test/server/tree-rewrite.spec.tsx | 10 | 0 |  |  |  |
+| web/test/server/use-head-loading.spec.tsx | 4 | 0 |  |  |  |
+| web/test/server/welcome-status-parity.spec.tsx | 2 | 0 |  |  |  |
+| web/test/server/write-before-resume.gen.spec.tsx | 1 | 0 |  |  |  |
+| web/test/show-in-for.spec.tsx | 1 | 0 |  |  |  |
+| web/test/show-optimistic-sync-write-3698.spec.tsx | 2 | 0 |  |  |  |
+| web/test/show.spec.tsx | 30 | 0 |  |  |  |
+| web/test/spread-enumerate.spec.tsx | 4 | 0 |  |  |  |
+| web/test/spread-nodes.spec.tsx | 26 | 0 |  |  |  |
+| web/test/spread-nullish.spec.tsx | 4 | 0 |  |  |  |
+| web/test/spread-omit.spec.tsx | 1 | 0 |  |  |  |
+| web/test/spread-sources.spec.tsx | 13 | 0 |  |  |  |
+| web/test/spread-static-text.spec.tsx | 3 | 0 |  |  |  |
+| web/test/style-class-tracked.spec.tsx | 9 | 0 |  |  |  |
+| web/test/superseded-source-blocks-3462.spec.tsx | 2 | 0 |  |  |  |
+| web/test/switch.spec.tsx | 30 | 0 |  |  |  |
+| web/test/take-hydration-value.spec.ts | 4 | 0 |  |  |  |
+| web/test/template-document-shell.spec.tsx | 5 | 0 |  |  |  |
+| web/test/trace-client.spec.tsx | 1 | 0 |  |  |  |
+| web/test/use-head-css-gating-client.spec.tsx | 5 | 0 |  |  |  |
+| web/test/use-head-loading-client.spec.tsx | 2 | 0 |  |  |  |
+| web/test/wait-asset.spec.tsx | 4 | 0 |  |  |  |
+| web/test/wide-scope-insert-3739.spec.tsx | 4 | 0 |  |  |  |
+| web/test/zombie-show-leak-3543.spec.tsx | 1 | 0 |  |  |  |
