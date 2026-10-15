@@ -239,6 +239,8 @@ let renderingAt: Fiber | null = null;
 /** Where the last dry run that held its transition suspended. */
 let heldAt: Fiber | null = null;
 export const dryHeldAt = () => heldAt;
+/** Whether the dry run running now is an urgent update's (not a transition's). */
+export const dryUrgent = () => urgent;
 /** A dry run stopped between two components: where it is, and what it renders with. */
 let paused: { it: Generator<void, void, void>; preview: Preview; urgent: boolean; inBoundary: number } | null = null;
 

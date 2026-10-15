@@ -14,7 +14,7 @@ import { FragmentInstance, fragmentsAbove } from "./fragment-ref.ts";
 import { checkClassInstance, checkDerivedState, checkShouldUpdate, checkSnapshot, flushUnsafeLifecycleWarnings, recordUnsafeLifecycles } from "./class-checks.ts";
 import { FORM_TAGS, initForm, restoreForm, updateForm } from "./forms.ts";
 import { type Ancestors, ancestorsWith, checkNesting, checkTextNesting } from "./nesting.ts";
-import { PAUSED, type Preview, dropPausedTransition, dryHeldAt, resumeTransition, transitionPaused, tryTransition } from "./dryrun.ts";
+import { PAUSED, type Preview, dropPausedTransition, dryHeldAt, dryUrgent as recordUrgent, resumeTransition, transitionPaused, tryTransition } from "./dryrun.ts";
 import { setClientHooks, setRecordHooks, withHooks } from "./hooks.ts";
 import { checkKeys, checkTag, dev, duplicateKey, muteWarnings, setOwner, shown, warn, FIBER, PROPS, ROOT_FIBER } from "./warnings.ts";
 import { assertValidProps, checkTagName, customTag, inertEmpty } from "./attributes.ts";
@@ -3045,6 +3045,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     if (rec) {
       for (const s of rec.sources) followNode(s);
       for (const s of rec.follows) followNode(s);
+      for (const a of rec.actions) a();
       f.insertion = rec.insertion;
       f.layout = rec.layout;
       f.passive = rec.passive;
@@ -4361,12 +4362,16 @@ export const client = {
     // (Mounting while hydrating, even in a transition: the initial value, as the server drew it.)
     const hydratingMount = hydrating && !h.seen;
     h.seen = true;
-    if (Object.is(value, shown) || (applyingTransition && !hydratingMount && !eagerTransition)) {
-      if (!Object.is(value, shown)) h.v = value;
+    // Recorded (a dry run's render): what it does kept for the replay.
+    const later = recordActions ?? null;
+    const asTransition = recordActions ? !recordUrgent() && !eagerTransition : applyingTransition && !hydratingMount && !eagerTransition;
+    if (Object.is(value, shown) || asTransition) {
+      if (!Object.is(value, shown)) later ? later.push(() => void (h.v = value)) : (h.v = value);
       return value;
     }
-    h.wanted = value;
-    if (!h.booked) {
+    const defer = () => {
+      h.wanted = value;
+      if (h.booked) return;
       h.booked = true;
       deferredWaiting++;
       deferTransition(() => {
@@ -4375,7 +4380,9 @@ export const client = {
         layoutQueue.push(() => void deferredWaiting--);
         h.put(h.wanted);
       });
-    }
+    };
+    if (later) later.push(defer);
+    else defer();
     return shown;
   },
   useDebugValue() {},
@@ -4513,6 +4520,8 @@ type Recorded = {
   cls?: { after: any; queue: any[]; doneBefore: any[] | undefined; deletions: (() => void)[] };
   /** What it follows whose changes do not change what it drew. */
   follows: any[];
+  /** What it does at commit. */
+  actions: (() => void)[];
   took: number;
 };
 const recorded = new Map<Fiber, Recorded>();
@@ -4524,6 +4533,8 @@ const drafts = new Map<any, Fiber>();
 let recordStates: Map<any, any> | null = null;
 let recordContexts: [any, any][] | null = null;
 let recordFollows: any[] | null = null;
+/** What a recorded render does at commit (its replay runs them). */
+let recordActions: (() => void)[] | null = null;
 /** A recorded class render's getSnapshotBeforeUpdate, kept for later. */
 let recordedSnapshot: (() => void) | null = null;
 /** The snapshots of the renders recorded, in the order their subtrees were done (children before their parents). */
@@ -4534,7 +4545,7 @@ const NOT_RECORDABLE = Symbol("not recordable");
 const notRecordable = () => {
   throw NOT_RECORDABLE;
 };
-const recordHooks: any = { ...client, useDeferredValue: notRecordable, useActionState: notRecordable, useOptimistic: notRecordable, useEffectEvent: notRecordable };
+const recordHooks: any = { ...client, useActionState: notRecordable, useOptimistic: notRecordable, useEffectEvent: notRecordable };
 setRecordHooks(recordHooks);
 
 /** A context's value for `f`, as its dry run provides it when recorded (the provider's signal read all the same). */
@@ -4566,13 +4577,14 @@ export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [
   const deletionsFrom = deletions.length;
   recordedSnapshot = null;
   const saved = [f.insertion, f.layout, f.passive];
-  const was = { current, hookAt, recordStates, recordContexts, recordFollows, A: internals.A };
+  const was = { current, hookAt, recordStates, recordContexts, recordFollows, recordActions, A: internals.A };
   f.insertion = f.layout = f.passive = NO_EFFECTS;
   current = f;
   hookAt = 0;
   recordStates = states;
   recordContexts = contexts;
   const follows: any[] = (recordFollows = []);
+  const actions: (() => void)[] = (recordActions = []);
   internals.A = asyncDispatcher;
   const began = profilersMounted ? now() : 0;
   try {
@@ -4602,7 +4614,7 @@ export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [
               }
             }
           : undefined,
-      cls, props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, follows, took: profilersMounted ? now() - began : 0 });
+      cls, props, out: r.value, insertion: f.insertion!, layout: f.layout!, passive: f.passive!, hooks: hookAt, sources: r.sources, versions: r.versions, previewed, follows, actions, took: profilersMounted ? now() - began : 0 });
     return { out: r.value };
   } catch (e) {
     if (e === NOT_RECORDABLE) return null;
@@ -4625,6 +4637,7 @@ export function recordRender(f: Fiber, props: any, preview: Preview, contexts: [
     recordStates = was.recordStates;
     recordContexts = was.recordContexts;
     recordFollows = was.recordFollows;
+    recordActions = was.recordActions;
     internals.A = was.A;
   }
 }
