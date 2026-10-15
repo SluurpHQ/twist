@@ -2428,8 +2428,18 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
     return f;
   }
   // Rendered already by a transition's dry run: that fiber, its hooks and its record kept.
-  const d = drafts.size ? drafts.get(props) : undefined;
+  let d = drafts.size ? drafts.get(props) : undefined;
   if (d) drafts.delete(props);
+  // Rendered by a root hydration that suspended: that fiber again, its render replayed.
+  const h = !d && hydrating && hydrationResuming && hydrationKept.size ? hydrationKept.get(props) : undefined;
+  if (h && h.fiber.type === type) {
+    hydrationKept.delete(props);
+    d = h.fiber;
+    d.dead = false;
+    d.children = [];
+    d.stop = undefined;
+    recorded.set(d, h.record);
+  }
   let f: Fiber;
   if (d && d.type === type && !d.dead && d.strict === (parent.strict || parent.type === STRICT)) {
     d.key = key;
@@ -2447,8 +2457,9 @@ function mount(c: any, key: Key, type: any, parent: Fiber, host: Node, before: N
     work.units.splice(work.at++, 0, () => !f.dead && start(f, hostParentOf(f), nextDomAfter(f)));
     return f;
   }
-  // Its boundary has suspended while hydrating: the rest of it waits, as React stops rendering there.
-  if (hydrating && regions[regions.length - 1]?.suspended) return f;
+  // Its boundary has suspended while hydrating: the rest of it waits, as React stops rendering there. (So does the
+  // rest of a root whose hydration suspended with no boundary: the attempt is thrown away.)
+  if (hydrating && (regions.length ? regions[regions.length - 1]!.suspended : hydrationWaits)) return f;
   if (type === SUSPENSE && hydrating) hydrateBoundary(f, host, before);
   else start(f, host, before);
   return f;
@@ -3041,6 +3052,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
   internals.A = asyncDispatcher;
   if (f.render === renderClass && f.inst?.getSnapshotBeforeUpdate && f.committed && !f.strict && !hydrating && !applyingTransition && !recorded.has(f)) renderAhead(f);
   const rec = recorded.size ? takeRecorded(f) : null;
+  let threw = false;
   try {
     if (rec) {
       for (const s of rec.sources) followNode(s);
@@ -3072,6 +3084,7 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     // An update that suspends: what was on the page stays (React
     // keeps the committed UI and tries again when the data is there), rather than its children going and coming.
     // (Under a Suspense outside a transition too: the committed output stays, hidden behind the fallback.)
+    threw = true;
     const keep = f.committed && e && typeof (e as any).then === "function";
     out = keep ? KEEP : null;
     current = prevCurrent;
@@ -3205,6 +3218,8 @@ function draw(f: Fiber, placeHost?: Node, placeBefore: Node | null = null) {
     nestedTime = outerNested + took;
   }
   insertionQueue.push(...f.insertion);
+  // Hydrating: what it drew, for a retry of a root that suspends to replay (see keepHydrated).
+  if (hydrating && !kept && f.render === renderFunction) (f as any).hydrationDrawn = { insertion: f.insertion, layout: f.layout, passive: f.passive, hooks: f.hooks?.length ?? 0, threw };
   if ((f as any).unfinished) (f as any).unfinished = false;
   else if (hiddenActivities && insideHidden(f)) (f as any).waitsToAppear = true;
   else {
@@ -4548,6 +4563,47 @@ const notRecordable = () => {
 const recordHooks: any = { ...client, useActionState: notRecordable, useOptimistic: notRecordable, useEffectEvent: notRecordable };
 setRecordHooks(recordHooks);
 
+/** Components a root hydration that suspended had rendered: each fiber and its render, by its element's props. */
+const hydrationKept = new Map<any, { fiber: Fiber; record: Recorded }>();
+/** A root's retry asked for by the data its hydration waited on, and whether the attempt drawing now is that one. */
+let hydrationResumeAsked = false;
+let hydrationResuming = false;
+/**
+ * A root hydration thrown away because something suspended with no boundary above: the function components that
+ * finished their own render kept (hooks, output, what they read, their effects), for the retry to replay rather than
+ * call again. React keeps that work and replays only what suspended. Their effects queued meanwhile are taken out:
+ * they run once, with the commit that keeps them.
+ */
+function keepHydrated(top: Fiber) {
+  hydrationKept.clear();
+  // (A synchronous attempt's work, an event's or flushSync's, is not kept: React replays only a concurrent render that
+  // waited for its data.)
+  if (syncing || selectiveTarget) return;
+  const effects = new Set<() => void>();
+  const walk = (f: Fiber) => {
+    const drawn = (f as any).hydrationDrawn;
+    // (Not one whose own render suspended or threw: that one renders again.)
+    if (f.kind === COMP && drawn && !f.strict && !drawn.threw && f.out !== undefined && f.out !== KEEP) {
+      const sources: any[] = f.stop ? [...((f.stop as any).sources ?? [])] : [];
+      for (const list of [drawn.insertion, drawn.layout, drawn.passive]) for (const fn of list) effects.add(fn);
+      const record: Recorded = {
+        props: f.props, out: f.out, insertion: drawn.insertion, layout: drawn.layout, passive: drawn.passive, hooks: drawn.hooks,
+        sources, versions: sources.map((n) => n.version), previewed: new Map(), follows: [], actions: [], took: 0,
+      };
+      hydrationKept.set(f.props, { fiber: f, record });
+    }
+    (f as any).hydrationDrawn = undefined;
+    for (const c of f.children) walk(c);
+  };
+  walk(top);
+  if (!effects.size) return;
+  for (const q of [insertionQueue, layoutQueue, passiveQueue]) {
+    const left = q.filter((fn) => !effects.has(fn));
+    q.length = 0;
+    q.push(...left);
+  }
+}
+
 /** A context's value for `f`, as its dry run provides it when recorded (the provider's signal read all the same). */
 function contextFor(f: Fiber, ctx: any) {
   const v = readContext(f, ctx);
@@ -5359,6 +5415,8 @@ export function createRoot(container: Element | Document | DocumentFragment, opt
         }
       }
       depth++;
+      // (The retry the data's arrival set off goes on with what the last attempt rendered; any other starts over.)
+      if (hydrate) (hydrationResuming = hydrationResumeAsked), (hydrationResumeAsked = false);
       if (hydrate) (hydrating = new Map()), (mismatched = false), (attrsDiffer = false), (madeWhileHydrating = []), (hydrationWaits = null), (hydrationError = null), (rootDiff = (process.env.NODE_ENV !== "production" && dev()) ? new DiffScope() : null);
       const wasRendering = rendering;
       rendering = true;
@@ -5460,6 +5518,7 @@ export function createRoot(container: Element | Document | DocumentFragment, opt
           mismatched = false;
           attrsDiffer = false;
           for (const n of madeWhileHydrating.splice(0)) n.parentNode?.removeChild(n);
+          keepHydrated(top);
           discardingHydration = true;
           try {
             for (const c of top.children) unmount(c, false);
@@ -5475,11 +5534,13 @@ export function createRoot(container: Element | Document | DocumentFragment, opt
             hydrationWaiting = false;
             hydrateFirst = latest;
             pending = NONE;
+            hydrationResumeAsked = true;
             asked.set(asked.peek() + 1);
             flushSignals();
           };
           waits.then(again, again);
         } else if (hydrate) {
+          hydrationKept.clear();
           dropUnclaimed(container, top);
           // (Unless an error no boundary caught already took the root down.)
           if (mismatched && !(state as any).failed) {
