@@ -484,7 +484,7 @@ function subFetch<T>(fn: (prev?: T) => any, prev?: T) {
   const ogFetch = fetch;
   const ogPromise = Promise;
   try {
-    window.fetch = () => new MockPromise() as any;
+    window.fetch = (() => new MockPromise()) as unknown as typeof fetch;
     Promise = MockPromise as any;
     const result = fn(prev);
     // An async GENERATOR's body has not run yet — its reads before the

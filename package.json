@@ -54,6 +54,9 @@
       "types": "./src/serial.d.ts",
       "default": "./src/serial.js"
     },
+    "./solid-types": {
+      "types": "./src/solid.d.ts"
+    },
     "./modules": "./modules.js",
     "./vite": "./vite.js",
     "./compiler": "./napi/index.js"
@@ -73,9 +76,7 @@
   },
   "dependencies": {
     "@types/react": "~19.3.0",
-    "@types/react-dom": "~19.3.0",
-    "solid-js": "2.0.0-rc.14",
-    "@solidjs/web": "2.0.0-rc.14"
+    "@types/react-dom": "~19.3.0"
   },
   "peerDependencies": {
     "vite": ">=6",
