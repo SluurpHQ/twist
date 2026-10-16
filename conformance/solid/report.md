@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-8897 pass, 12 fail, 714 files (0 did not load, 15 test Solid's internals), 87 tests skipped (by Solid, or by skips.ts)
+8899 pass, 10 fail, 714 files (0 did not load, 15 test Solid's internals), 87 tests skipped (by Solid, or by skips.ts)
 
 0 more pass that Solid itself fails (its own `.fails` tests, pinning its known bugs)
 
@@ -380,7 +380,7 @@
 | web/test/context.spec.tsx | 7 | 0 |  |  |  |
 | web/test/delegated-event-cross-runtime.spec.tsx | 7 | 0 | 1 |  |  |
 | web/test/delegated-event-listener-object.spec.ts | 2 | 0 |  |  |  |
-| web/test/derived-presence-async-3726.spec.tsx | 1 | 1 |  |  |  |
+| web/test/derived-presence-async-3726.spec.tsx | 2 | 0 |  |  |  |
 | web/test/dev-warning.spec.tsx | 13 | 0 |  |  |  |
 | web/test/diagnostic-element-ref.spec.tsx | 1 | 0 |  |  |  |
 | web/test/dist-frames-server-instance.spec.ts | 0 | 9 |  |  | not ours: runs Solid's built packages in a child process |
@@ -509,7 +509,7 @@
 | web/test/loading-reset-collects-forwarded-3459.spec.tsx | 1 | 0 |  |  |  |
 | web/test/loading.spec.tsx | 21 | 0 |  |  |  |
 | web/test/lowercase-on-attribute.spec.tsx | 9 | 0 | 1 |  |  |
-| web/test/nested-render-effect-cleanup-issue-3404.spec.tsx | 0 | 1 |  |  |  |
+| web/test/nested-render-effect-cleanup-issue-3404.spec.tsx | 1 | 0 |  |  |  |
 | web/test/optimistic-confirm-holds-signal-3706.spec.tsx | 4 | 0 |  |  |  |
 | web/test/optimistic-for-index-frame-f1.spec.tsx | 43 | 0 |  |  |  |
 | web/test/optimistic-lazy-show-preview-3706.spec.tsx | 3 | 0 |  |  |  |

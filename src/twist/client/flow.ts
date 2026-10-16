@@ -12,6 +12,18 @@ import { createErrorBoundary, createLoadingBoundary, sharedConfig } from "./hydr
 import type { Accessor, RevealOrder } from "../core/index.js";
 export type { RevealOrder };
 import type { Element as SolidElement } from "./types.js";
+import { isDynamic } from "../marks.ts";
+
+/**
+ * A boundary's children as Solid evaluates them: each dynamic hole (`__twist_d`, which Solid's compiler emits as a
+ * memo) a memo made here, in the boundary's children computation. Otherwise the boundary's output pass, which also
+ * reads what the holes show, would run them again, and with them the components they render.
+ */
+function holes(children: any): any {
+  if (isDynamic(children)) return createMemo(children);
+  if (!Array.isArray(children) || !children.some((c) => isDynamic(c) || Array.isArray(c))) return children;
+  return children.map(holes);
+}
 
 type NonZeroParams<T extends (...args: any[]) => any> = Parameters<T>["length"] extends 0
   ? never
@@ -417,7 +429,7 @@ export function Errored(props: {
   children: SolidElement;
 }): SolidElement {
   return createErrorBoundary(
-    () => props.children,
+    () => holes(props.children),
     (err: ErrorAccessor, reset) => {
       const f = props.fallback;
       // A fallback that cannot see the error — a value, or a zero-arity
@@ -507,7 +519,7 @@ export function Loading(props: {
 }): SolidElement {
   const onOpt = "on" in props ? { on: () => props.on } : undefined;
   return createLoadingBoundary(
-    () => props.children,
+    () => holes(props.children),
     () => props.fallback,
     onOpt
   ) as unknown as SolidElement;
