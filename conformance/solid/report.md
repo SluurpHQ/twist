@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-8905 pass, 2 fail, 714 files (0 did not load, 15 test Solid's internals), 89 tests skipped (by Solid, or by skips.ts)
+8906 pass, 1 fail, 714 files (0 did not load, 15 test Solid's internals), 89 tests skipped (by Solid, or by skips.ts)
 
 0 more pass that Solid itself fails (its own `.fails` tests, pinning its known bugs)
 
@@ -479,7 +479,7 @@
 | web/test/hydration/welcome-status-lazy.spec.tsx | 1 | 0 |  |  |  |
 | web/test/hydration/welcome-status-loaded.spec.tsx | 1 | 0 |  |  |  |
 | web/test/hydration/welcome-status-streamed.spec.tsx | 1 | 0 |  |  |  |
-| web/test/hydration/write-before-resume.spec.tsx | 0 | 1 |  |  |  |
+| web/test/hydration/write-before-resume.spec.tsx | 1 | 0 |  |  |  |
 | web/test/inherited-dom-properties.spec.ts | 2 | 0 |  |  |  |
 | web/test/insert-falsy-sole-child-issue-3571.spec.tsx | 8 | 0 |  |  |  |
 | web/test/insert-flatten-needs-unwrap.spec.tsx | 1 | 0 |  |  |  |

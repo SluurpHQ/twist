@@ -1801,8 +1801,13 @@ function claimLoading(props: { fallback?: any; children?: any; on?: unknown }, a
     sc.registry = registry;
     sharedConfig.hydrating = true;
     try {
-      runWithOwner(boundary, () => claimHtml(props.children, false, { parent: host, next: ahead ? ahead.nextSibling : host.firstChild }));
-      flush();
+      // In the boundary's resume window, as Solid's resume claims: what it reads is the server's (the snapshot), and
+      // what goes pending while it catches up is held by the boundary.
+      const claim = () => {
+        runWithOwner(boundary, () => claimHtml(props.children, false, { parent: host, next: ahead ? ahead.nextSibling : host.firstChild }));
+        flush();
+      };
+      sc.hydrateWindow ? sc.hydrateWindow(id, claim, { registry }, boundary) : claim();
     } finally {
       hydrating = was;
       sc.registry = prevRegistry;
