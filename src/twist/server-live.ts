@@ -74,6 +74,22 @@ export function createLiveHoles(sink, scoped) {
     // The impurity gates.
     recordStamp: 0,
     gateHit: false,
+    /** A boundary's discovery pass: the holes it mints are its own, closed with `discard` when the pass is thrown
+     * away for another (its html never reaches the page). `end` steps out of it. */
+    pass() {
+      const own = { key: null, children: [], closed: false };
+      if (engine.parent) engine.parent.children.push(own);
+      const prev = engine.parent;
+      engine.parent = own;
+      return {
+        end() {
+          engine.parent = prev;
+        },
+        discard() {
+          closeChildren(own);
+        }
+      };
+    },
     /** Intercept a thunk content hole: resolve it, and — when the evaluation */
     content(hole) {
       // A retry fn of an escalated hole re-enters here on its re-pull —

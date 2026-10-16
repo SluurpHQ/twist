@@ -478,43 +478,52 @@ function ssrLoadingBoundary(
     }
   }
 
+  // The live holes the last pass minted (a server component's): closed when another pass replaces it.
+  let livePass: { end(): void; discard(): void } | undefined;
   function runDiscovery(): SSRTemplateObject | undefined {
+    livePass?.discard();
     disposeOwner(o, false);
     serializeBuffer = [];
     retryPromise = undefined;
     resolveCount = 0;
     passes++;
-    return runLoadingPhase(() => {
-      try {
-        // The boundary is an insertion root: its content never passes a
-        // compiled `escape` hole, so escape here — same as the fallback path.
-        const value = fn();
-        return resolveIn(() => ctx.resolve(ctx.escape(value)));
-      } catch (err) {
-        if (err instanceof NotReadyError) {
-          retryPromise = (err as any).source as Promise<any>;
+    const live = (ctx as any).liveHoles;
+    livePass = live ? live.pass() : undefined;
+    try {
+      return runLoadingPhase(() => {
+        try {
+          // The boundary is an insertion root: its content never passes a
+          // compiled `escape` hole, so escape here — same as the fallback path.
+          const value = fn();
+          return resolveIn(() => ctx.resolve(ctx.escape(value)));
+        } catch (err) {
+          if (err instanceof NotReadyError) {
+            retryPromise = (err as any).source as Promise<any>;
+            return undefined;
+          }
+          // Already routed: a template hole ran `ssrHandleError` on its way
+          // here (the handler rethrows after routing) — propagate as before,
+          // or the enclosing Errored would render its fallback twice.
+          if (handledRenderError === err) throw err;
+          // A bare child — `<Loading>{data()}</Loading>`, or a component whose
+          // return IS the read — throws straight out of `fn()`: no template
+          // hole sits between it and this boundary, so nothing ran
+          // `ssrHandleError` for it the way `ssr()` does for a hole. Route it
+          // the same way: the ErrorContext handler installed by
+          // `runLoadingPhase` owns it once the fragment is registered (`_fr`
+          // rejects, the client re-renders the subtree — `handling: "client"`,
+          // the verdict #2997 pins for a hole in the same position); on the
+          // synchronous first pass it defers to the enclosing Errored's
+          // handler, or rethrows when there is none. Rethrown raw instead, a
+          // rejection here reached `finalizeError` as an uncontained error and
+          // failed the whole request pre-flush (#3569).
+          ssrHandleError(err);
           return undefined;
         }
-        // Already routed: a template hole ran `ssrHandleError` on its way
-        // here (the handler rethrows after routing) — propagate as before,
-        // or the enclosing Errored would render its fallback twice.
-        if (handledRenderError === err) throw err;
-        // A bare child — `<Loading>{data()}</Loading>`, or a component whose
-        // return IS the read — throws straight out of `fn()`: no template
-        // hole sits between it and this boundary, so nothing ran
-        // `ssrHandleError` for it the way `ssr()` does for a hole. Route it
-        // the same way: the ErrorContext handler installed by
-        // `runLoadingPhase` owns it once the fragment is registered (`_fr`
-        // rejects, the client re-renders the subtree — `handling: "client"`,
-        // the verdict #2997 pins for a hole in the same position); on the
-        // synchronous first pass it defers to the enclosing Errored's
-        // handler, or rethrows when there is none. Rethrown raw instead, a
-        // rejection here reached `finalizeError` as an uncontained error and
-        // failed the whole request pre-flush (#3569).
-        ssrHandleError(err);
-        return undefined;
-      }
-    }) as any;
+      }) as any;
+    } finally {
+      livePass?.end();
+    }
   }
 
   // Boundary output accessors are live-hole opt-outs (`$lhSkip`): the

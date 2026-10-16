@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-8899 pass, 10 fail, 714 files (0 did not load, 15 test Solid's internals), 87 tests skipped (by Solid, or by skips.ts)
+8905 pass, 4 fail, 714 files (0 did not load, 15 test Solid's internals), 87 tests skipped (by Solid, or by skips.ts)
 
 0 more pass that Solid itself fails (its own `.fails` tests, pinning its known bugs)
 
@@ -69,12 +69,12 @@
 | signals/tests/createRevealOrder.test.ts | 38 | 0 |  |  |  |
 | signals/tests/createRoot.test.ts | 22 | 0 |  |  |  |
 | signals/tests/createSignal.test.ts | 10 | 0 |  |  |  |
-| signals/tests/createTrackedEffect.test.ts | 18 | 1 |  |  |  |
+| signals/tests/createTrackedEffect.test.ts | 19 | 0 |  |  |  |
 | signals/tests/derived-write-then-derivation-3733.test.ts | 37 | 0 |  |  |  |
 | signals/tests/dev.test.ts | 28 | 0 |  |  |  |
 | signals/tests/diagnostics.test.ts | 25 | 0 | 1 |  |  |
 | signals/tests/direct-commit-readers-posture.test.ts | 3 | 0 |  |  |  |
-| signals/tests/direction-rule-probe.test.ts | 3 | 1 |  |  |  |
+| signals/tests/direction-rule-probe.test.ts | 4 | 0 |  |  |  |
 | signals/tests/disposed-read-lifecycle.test.ts | 5 | 0 |  |  |  |
 | signals/tests/dist-artifacts.test.ts | 1 | 21 |  |  | not ours: runs Solid's built packages in a child process |
 | signals/tests/dormant-memo-chain-3554.test.ts | 5 | 0 | 1 |  |  |
@@ -137,7 +137,7 @@
 | signals/tests/latest-repeated-writes.test.ts | 4 | 0 |  |  |  |
 | signals/tests/latest-shadow-owned-write.test.ts | 2 | 0 |  |  |  |
 | signals/tests/latest-unobserved-memo.test.ts | 3 | 0 |  |  |  |
-| signals/tests/loading-fallback-in-flush-3540.test.ts | 69 | 3 |  |  |  |
+| signals/tests/loading-fallback-in-flush-3540.test.ts | 72 | 0 |  |  |  |
 | signals/tests/loading-fallback-release-3540.test.ts | 2 | 0 |  |  |  |
 | signals/tests/loading-on-frame-following-3540.test.ts | 25 | 0 |  |  |  |
 | signals/tests/loading-on-rearm-3540.test.ts | 7 | 0 |  |  |  |
@@ -578,7 +578,7 @@
 | web/test/server/frame-live-document.spec.tsx | 6 | 0 |  |  |  |
 | web/test/server/frame-live-framing.spec.tsx | 5 | 0 |  |  |  |
 | web/test/server/frame-live-holes-chat.spec.tsx | 1 | 0 |  |  |  |
-| web/test/server/frame-live-holes-projection.spec.tsx | 5 | 1 |  |  |  |
+| web/test/server/frame-live-holes-projection.spec.tsx | 6 | 0 |  |  |  |
 | web/test/server/frame-live-holes.spec.tsx | 1 | 0 |  |  |  |
 | web/test/server/frame-live-resume.spec.tsx | 9 | 0 |  |  |  |
 | web/test/server/frame-nonlive-document-3666.spec.tsx | 3 | 0 |  |  |  |
