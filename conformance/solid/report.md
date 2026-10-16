@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-8906 pass, 1 fail, 714 files (0 did not load, 15 test Solid's internals), 89 tests skipped (by Solid, or by skips.ts)
+8906 pass, 0 fail, 714 files (0 did not load, 15 test Solid's internals), 89 tests skipped (by Solid, or by skips.ts)
 
 0 more pass that Solid itself fails (its own `.fails` tests, pinning its known bugs)
 
@@ -462,7 +462,7 @@
 | web/test/hydration/nav-before-resume.spec.tsx | 2 | 0 |  |  |  |
 | web/test/hydration/null-owner-3609.spec.tsx | 4 | 0 |  |  |  |
 | web/test/hydration/onsettled-hydrate.spec.tsx | 3 | 0 |  |  |  |
-| web/test/hydration/parity-harness.spec.tsx | 140 | 1 |  |  |  |
+| web/test/hydration/parity-harness.spec.tsx | 140 | 0 |  |  |  |
 | web/test/hydration/preload-failure-document-root.spec.tsx | 3 | 0 |  |  |  |
 | web/test/hydration/refresh-hmr-stream.spec.tsx | 4 | 0 |  |  |  |
 | web/test/hydration/show-fallback.spec.tsx | 4 | 0 |  |  |  |

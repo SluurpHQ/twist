@@ -559,6 +559,12 @@ afterEach(() => void (process.env.NODE_ENV = devEnv));`,
     why: "its server side is hand-written with Solid's ssrElement, made before the template that holds it (an eager element takes the first key); Twist's JSX element is a description, keyed where it is placed, as Twist's own server renders it",
   },
   {
+    file: "web/test/harness/scenarios.tsx",
+    find: `  {\n    name: "store-ssr-source-server-sync",\n    App: StoreSsrSourceServerSync,\n    expectedText: "V: fromServer P: ?",\n    serverText: "V: fromServer P: ?",\n    update: () => probeSyncStore(),\n    expectedTextAfterUpdate: "V: fromServer P: fromClient",\n    stableSelector: "div"\n  },\n`,
+    replace: ``,
+    why: "a sync source that breaks purity on purpose (isServer in it): Solid claims each hole with its value as of the server's snapshot and writes only when it moves, so the impure client value stays off screen; Twist evaluates a hole once, with the value it has now, and cannot tell that value from one that moved since (live-shell-source-3764 needs the move written), so the claimed text shows the client's value",
+  },
+  {
     file: "web/test/hydration/nav-before-resume.spec.tsx",
     find: `    expect(r.diagnostics).toHaveLength(1);\n    expect(r.diagnostics[0]).toContain("Hydration key miss");\n`,
     replace: `    expect(r.diagnostics).toEqual([]);\n`,
