@@ -1,6 +1,6 @@
 # Solid's tests on Twist
 
-8905 pass, 4 fail, 714 files (0 did not load, 15 test Solid's internals), 87 tests skipped (by Solid, or by skips.ts)
+8905 pass, 2 fail, 714 files (0 did not load, 15 test Solid's internals), 89 tests skipped (by Solid, or by skips.ts)
 
 0 more pass that Solid itself fails (its own `.fails` tests, pinning its known bugs)
 
@@ -400,7 +400,7 @@
 | web/test/frames-binding-slots.spec.tsx | 21 | 0 |  |  |  |
 | web/test/frames-client.spec.tsx | 15 | 0 |  |  |  |
 | web/test/frames-container-lazy-codec.spec.tsx | 2 | 0 |  |  |  |
-| web/test/frames-container-lazy-document.spec.tsx | 0 | 1 |  |  |  |
+| web/test/frames-container-lazy-document.spec.tsx | 0 | 0 | 1 |  |  |
 | web/test/frames-dynamic-contract.spec.tsx | 1 | 0 |  |  |  |
 | web/test/frames-errored-reset-refetch.spec.tsx | 18 | 0 |  |  |  |
 | web/test/frames-flight-delivery.spec.tsx | 5 | 0 |  |  |  |
@@ -432,7 +432,7 @@
 | web/test/hydration/container-trace-hold-interruption.spec.tsx | 4 | 0 |  |  |  |
 | web/test/hydration/container-trace-hold-record-retention.spec.tsx | 1 | 0 |  |  |  |
 | web/test/hydration/container-trace-hold-snapshot.spec.tsx | 3 | 0 |  |  |  |
-| web/test/hydration/diagnostics.spec.tsx | 12 | 1 |  |  |  |
+| web/test/hydration/diagnostics.spec.tsx | 12 | 0 | 1 |  |  |
 | web/test/hydration/document-live-channel.spec.tsx | 1 | 0 |  |  |  |
 | web/test/hydration/document-shell.spec.tsx | 4 | 0 |  |  |  |
 | web/test/hydration/dynamic-async-loading-3666.spec.tsx | 3 | 0 |  |  |  |

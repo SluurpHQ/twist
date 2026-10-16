@@ -23,6 +23,16 @@ export const CHANGES: Change[] = [
     replace: `    return children(() => el)();`,
     why: "calls what <Child /> compiles to (a function in Solid's output, a component description in Twist's); resolved with children() instead, in the same run",
   },
+  {
+    file: "web/test/hydration/diagnostics.spec.tsx",
+    skip: "late Loading rejection hydrates without orphan warning",
+    why: "renders its server HTML with the server's renderToStream over JSX compiled for the client (Loading, Errored and createMemo from the client's solid-js, one module graph): Twist's server renders its own server layer, never client-compiled control flow, so the client Loading answers its fallback and nothing streams",
+  },
+  {
+    file: "web/test/frames-container-lazy-document.spec.tsx",
+    skip: "held with the server interior on screen, then mounted with the live store (nested references share it)",
+    why: "watches the hold while the traces tier loads, assuming a module load takes a task (Vitest's loader); under Bun the tier's import, its dependencies already loaded, settles within the test's microtask window (measured: resident at the 12th), so the hold is over before it looks — the timing of the loader, not of Twist",
+  },
   // ---- Solid's private structures
   {
     file: "signals/tests/store/optimistic-draft-visibility-3665.test.ts",
