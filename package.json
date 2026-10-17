@@ -1,6 +1,6 @@
 {
   "name": "@sluurp/twist",
-  "version": "0.5.0-alpha.0",
+  "version": "0.5.0-beta.0",
   "description": "One runtime for React's API and Solid 2's: fine-grained DOM on signals, server rendering, streaming and hydration, React and Solid-style components in the same tree.",
   "type": "module",
   "license": "MIT",
@@ -76,7 +76,8 @@
   },
   "dependencies": {
     "@types/react": "~19.3.0",
-    "@types/react-dom": "~19.3.0"
+    "@types/react-dom": "~19.3.0",
+    "csstype": "^3.2.3"
   },
   "peerDependencies": {
     "vite": ">=6",

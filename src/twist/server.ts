@@ -1,6 +1,7 @@
 // Twist's server runtime (`@solidjs/web` on a server): JSX makes descriptions, rendered to HTML top-down so hydration
 // keys are taken in document order, as the client claims them. A template's root element takes a key; elements nested
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
+export type { JSX } from "./jsx/jsx.js";
 declare const process: { env: Record<string, string | undefined> };
 import { ssrScope, createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwnerForRerun as resetOwner, runWithOwner, untrack, onCleanup, merge, omit, isStatic, NoHydrateContext, getProjectionTrace, SOURCE_ANSWER, type Owner } from "./server/signals.ts";
 import { sharedConfig } from "./server/shared.ts";

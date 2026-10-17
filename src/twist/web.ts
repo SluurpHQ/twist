@@ -2,6 +2,7 @@
 // by Bun's JSX calls. Elements are made at once, fixed markup copied from templates; each marked part is bound to its
 // node by an effect of its own; components run once. Written from Solid 2's design (RFCs 03 and 07) and its tests,
 // not its code.
+export type { JSX } from "./jsx/jsx.js";
 declare const process: { env: Record<string, string | undefined> };
 import { diagnose, OBSERVE } from "./diagnostics.ts";
 import {

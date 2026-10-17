@@ -5,8 +5,8 @@
 One runtime for React's API and Solid 2's. Components written either way render into the same tree, on fine-grained
 signals: no virtual DOM, no re-running components to find what changed.
 
-> **Alpha.** Twist is version 0.5, in alpha. The APIs follow React 19 and Solid 2 (release candidate 14), but some
-> behaviours are not there yet (see [Compatibility](#compatibility)). Expect breaking changes.
+> **Beta.** Twist is version 0.5, in beta. Its APIs follow React 19 and Solid 2 (release candidate 14), and it passes
+> their own test suites (see [Compatibility](#compatibility)). Breaking changes are still possible before 1.0.
 
 ## What it does
 
@@ -43,6 +43,35 @@ Each file is read for what it is. A file that imports `solid-js` or `@solidjs/we
 `react` is React-style. A file that imports neither follows the app: React-style when its package.json lists `react`
 and not `solid-js`, Solid-style otherwise. When a file of one kind imports a component of the other, Twist adds the
 bridge that lets each render the other; an app of one kind never loads it.
+
+### Types
+
+Types come with Twist: React's from `@types/react` 19.3, which Twist depends on, and Solid's as Twist's own, so
+`solid-js` need not be installed. A React app's `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  }
+}
+```
+
+A Solid app's:
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "types": ["@sluurp/twist/solid-types"]
+  }
+}
+```
+
+In an app with both, keep the React settings, add `"types": ["@sluurp/twist/solid-types"]`, and start each Solid file
+with `/** @jsxImportSource @solidjs/web */`.
 
 The `examples/` folder has four apps, all on Twist: `vite-react` (a React app), `vite-solid` (a Solid app),
 `vite-solid1` (a Solid 1 app) and `vite-mixed` (a Solid app that uses React-style components, with their own state

@@ -32,7 +32,8 @@ Released under the MIT License, as above.
 
 Some files are ported from Solid (https://github.com/solidjs/solid), each saying so at its top: the attribution
 engine (src/twist/attribution/), the performance tracks (src/twist/performance-tracks.ts), frames
-(src/twist/frames/), and parts of the server runtime, assets and container traces:
+(src/twist/frames/), the JSX types of Solid-style files (src/twist/jsx/jsx.d.ts, jsx-properties.d.ts), and parts of
+the server runtime, assets and container traces:
 
 Copyright (c) 2016-2026 Ryan Carniato and contributors
 
