@@ -81,12 +81,10 @@ Memory is the heap each row keeps after a garbage collection; the server render 
 
 Twist is checked against React's and Solid's own test suites (`conformance/`):
 
-- React 19: 4,052 tests pass, 14 fail. Most of the failures need React's render phase apart from its commit: a
-  transition that yields midway and is interrupted, or snapshots taken children first before anything changes.
-- Solid 2: 8,897 tests pass, 12 fail. Most of the failures are Solid's own at release candidate 14 (its published
-  build fails them too), and a server render reading the browser's reactive core. Solid's own server tests, which drive
-  its server half through a stand-in renderer, run on Twist's. Tests that only check Solid's private
-  structures or its own build files are left out, each with its reason (`conformance/solid/skips.ts`).
+- React 19: all 4,065 tests pass, transitions that yield midway and are interrupted included.
+- Solid 2: all 8,906 tests pass. Solid's own server tests, which drive its server half through a stand-in renderer,
+  run on Twist's. Tests that only check Solid's private structures or its own build files are left out, and so are a
+  few where Twist works differently on purpose, each with its reason (`conformance/solid/skips.ts`).
 - Solid 1.9: 424 tests pass, 11 fail. The failures are writes held by a transition until it settles, cycle errors,
   the order memos run in after their sources change, and markup details (Twist marks dynamic children with comments).
   Rendered on a server, resources send what they loaded and the page hydrates without fetching again.
