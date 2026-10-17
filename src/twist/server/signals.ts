@@ -375,6 +375,20 @@ function allocateOwner(explicitId: string | undefined, transparent: boolean): SS
   return owner;
 }
 
+/** runWithOwner for a function of two arguments: no closure made for it, for what runs once per element. */
+export function runWithOwnerOf<A, B, T>(owner: Owner | null, fn: (a: A, b: B) => T, a: A, b: B): T {
+  const prev = currentOwner;
+  currentOwner = owner as unknown as SSROwner | null;
+  try {
+    return fn(a, b);
+  } catch (error) {
+    stampThrower(error, owner);
+    throw error;
+  } finally {
+    currentOwner = prev;
+  }
+}
+
 export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
   const prev = currentOwner;
   currentOwner = owner as unknown as SSROwner | null;

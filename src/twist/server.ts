@@ -3,7 +3,7 @@
 // in the same template do not; elements made at run time (dynamic tags, spreads into ssrElement) do.
 export type { JSX } from "./jsx/jsx.js";
 declare const process: { env: Record<string, string | undefined> };
-import { ssrScope, createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwnerForRerun as resetOwner, runWithOwner, untrack, onCleanup, merge, omit, isStatic, NoHydrateContext, getProjectionTrace, SOURCE_ANSWER, type Owner } from "./server/signals.ts";
+import { ssrScope, createMemo, createOwner, createRoot, getNextChildId, getOwner, NotReadyError, resetOwnerForRerun as resetOwner, runWithOwner, runWithOwnerOf, untrack, onCleanup, merge, omit, isStatic, NoHydrateContext, getProjectionTrace, SOURCE_ANSWER, type Owner } from "./server/signals.ts";
 import { sharedConfig } from "./server/shared.ts";
 import { childIdCount, setChildIdCount, keyOwnerOf, inIdScope, idPlace, standing, settlesOf, fileRenderRoot, renderContextOf } from "./server/twist.ts";
 import { OBSERVE, emitDiagnostic, setRouteDeclarer } from "./diagnostics.ts";
@@ -253,7 +253,7 @@ function runOps(ops: Op[], values: unknown[], keyed: boolean): string {
   // hole needs the list's state, then given as one part (as each piece would be one).
   let out = "";
   let cur: Parts | null = null;
-  const outer: [Parts | null, string][] = [];
+  let outer: [Parts | null, string][] | null = null;
   for (let j = 0; j < ops.length; j++) {
     const op = ops[j]!;
     if (typeof op === "string") {
@@ -287,14 +287,14 @@ function runOps(ops: Op[], values: unknown[], keyed: boolean): string {
         out += element(described(op.spec, values, at, op.meta), false);
         break;
       case 5:
-        outer.push([cur, out]);
+        (outer ??= []).push([cur, out]);
         cur = new Parts();
         out = "";
         break;
       case 6: {
         if (out) cur!.add(out, false, false);
         const done = cur!.out;
-        [cur, out] = outer.pop()!;
+        [cur, out] = outer!.pop()!;
         out += done;
         break;
       }
@@ -829,7 +829,11 @@ function validTag(tag: string) {
 function element(el: Element_, keyed: boolean): string {
   // (Rendered, all of it, under the owner it takes its key under: as Solid's template makes its parts where it is made.)
   const under = el.owner ? keyOwnerOf(el.owner) : null;
-  if (under && under !== getOwner()) return runWithOwner(under, () => element(el, keyed));
+  return under && under !== getOwner() ? runWithOwnerOf(under, elementHere, el, keyed) : elementHere(el, keyed);
+}
+
+/** An element written under the owner it is rendered in (see element). */
+function elementHere(el: Element_, keyed: boolean): string {
   if (el.ops && (!Object.hasOwn(el, "props") || el.props === el.made) && !el.skip && !el.sources && el.children === undefined && (sharedConfig.context as any)?.claims === undefined) return runOps(el.ops, el.values!, keyed);
   const { tag } = el;
   let is = el.tagIs;
@@ -945,7 +949,11 @@ function dynamicKids(raw: any): string {
   if ((!render || !render.async) && !(sharedConfig.context as any)?.liveHoles) return inIdScope(readChildren, raw);
   return hole(idScope(() => liveHole(() => read(raw)) ?? children(read(raw))), true);
 }
-const readChildren = (raw: any) => children(read(raw));
+const readChildren = (raw: any) => {
+  const v = read(raw);
+  // (The commonest: a value written as text.)
+  return typeof v === "string" ? escape(v) : typeof v === "number" ? String(v) : children(v);
+};
 
 function children(c: any): string {
   if (Array.isArray(c)) return list(c, !!(c as any)[OWN], true);

@@ -113,7 +113,7 @@ rounds taken in turn):
 | | create 1,000 rows | replace 1,000 rows | swap rows | create 10,000 rows | memory a row | server render, 1,000 rows | bundle (minified) |
 |---|---|---|---|---|---|---|---|
 | Solid 2 | 17.8 | 19.9 | 1.1 | 203 | 1,454 B | 0.14 | 65 KB |
-| Twist, Solid's API | 18.3 | 19.8 | 1.1 | 211 | 1,279 B | 0.22 | 86 KB |
+| Twist, Solid's API | 18.3 | 19.8 | 1.1 | 211 | 1,279 B | 0.18 | 86 KB |
 | React 19.3 | 19.8 | 24.0 | 17.8 | 300 | 1,735 B | 0.89 | 210 KB |
 | Twist, React's API | 21.1 | 24.2 | 1.4 | 239 | 1,760 B | 1.03 | 157 KB (132 KB `nano`) |
 
