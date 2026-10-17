@@ -3,7 +3,8 @@
 // The ssr-* ones are their server twins (ssr.tsx, ssr-solid.tsx), built for Bun. The -plain ones keep their names,
 // for profiles.
 import { transformAsync } from "@babel/core";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { SRC, featureFile } from "../modules.js";
 import { compile } from "../test/twist-compile.ts";
 
 const src = join(import.meta.dir, "..", "src");
@@ -26,6 +27,18 @@ const solidFlush = flushing(`import { flush } from "solid-js"; export const flus
 const none = flushing("export const flushSync = (fn) => fn && fn();");
 
 const REACT = /^react(-dom)?(\/.*)?$/;
+/** Twist's own modules of features left out (`features` as twist() takes it): their stand-ins from src/off/. */
+const leftOut = (features: unknown): Plugin => ({
+  name: "twist-features",
+  setup: (b) =>
+    b.onResolve({ filter: /^\.\.?\// }, (a: any) => {
+      const from = String(a.importer).replace(/\\/g, "/");
+      if (!from.startsWith(SRC)) return undefined;
+      const file = join(dirname(from), a.path).replace(/\\/g, "/");
+      const swapped = featureFile(file, features);
+      return swapped !== file ? { path: swapped } : undefined;
+    }),
+});
 const at = (dir: string, files: Record<string, string>) => Object.fromEntries(Object.entries(files).map(([k, v]) => [k, join(dir, v)]));
 const ours = resolving("ours", REACT, at(src, { react: "react.ts", "react/jsx-runtime": "jsx-runtime.ts", "react-dom": "react-dom.ts", "react-dom/client": "client.ts", "react-dom/server": "server.ts" }));
 // Preact through its React layer; in the browser it draws in a microtask by default: at once here, as flushSync is.
@@ -72,6 +85,7 @@ const apps: Record<string, App> = {
   solid: { entry: "app-solid.tsx", plugins: [solidFlush, solid("dom")] },
   sluurp: { entry: "app.tsx", plugins: [ours] },
   "sluurp-plain": { entry: "app.tsx", plugins: [ours], minify: false },
+  "sluurp-nano": { entry: "app.tsx", plugins: [leftOut("nano"), ours] },
   twist: { entry: "app-solid.tsx", plugins: [solidFlush, twist(false)] },
   "twist-named": { entry: "app-solid.tsx", plugins: [solidFlush, twist(false)], minify: "named" },
   "solid-named": { entry: "app-solid.tsx", plugins: [solidFlush, solid("dom")], minify: "named" },

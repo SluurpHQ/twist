@@ -60,6 +60,26 @@ export const SRC = fileURLToPath(new URL("./src/", import.meta.url)).replace(/\\
 /** The file answering `name` from `table` (the browser's, or the server's), or undefined. */
 export const fileFor = (table, name, server = false) => (table[name] ? SRC + table[name][server ? 1 : 0] : undefined);
 
+/**
+ * What a build may leave out of React's API, each by the module it lives in: all of it is in unless said. A feature
+ * left out loads its stand-in from src/off/ instead (same exports, doing nothing, or saying it is left out).
+ */
+export const FEATURES = { float: "float-client.ts", fragmentRefs: "fragment-ref.ts", viewTransitions: "view-transition.ts" };
+
+/** The smallest React: no Float (<title>, <meta> and stylesheets hoisted), no Fragment refs, no view transitions. */
+export const NANO = { float: false, fragmentRefs: false, viewTransitions: false };
+
+/** `features` as given: "nano", or an object naming what is left out (`{ float: false }`). */
+export const featuresOf = (features) => (features === "nano" ? NANO : features ?? {});
+
+/** The file Twist's own `file` loads as, with `features`: its stand-in when its feature is left out. */
+export function featureFile(file, features) {
+  const p = file.replace(/\\/g, "/");
+  const left = featuresOf(features);
+  for (const [name, mod] of Object.entries(FEATURES)) if (left[name] === false && p === SRC + mod) return SRC + "off/" + mod;
+  return file;
+}
+
 /** Whether a file is written Solid-style: it imports Solid's API (not the signals both kinds share), or names it as its JSX. */
 export const SOLID_STYLE =
   /\bfrom\s*["'](solid-js(\/[\w-]+)?|@solidjs\/web(\/[\w-]+)?|@sluurp\/twist(\/(store|web|jsx-runtime|jsx-dev-runtime))?)["']|@jsxImportSource\s+(solid-js|@solidjs\/web|@sluurp\/twist)\b/;

@@ -9,8 +9,8 @@
 // condition is asked for first, and those libraries are compiled here like the app's own files (not pre-bundled).
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
-import { REACT, SIGNALS, SOLID, SOLID1, SOLID_STYLE, SRC, fileFor } from "./modules.js";
+import { dirname, join } from "node:path";
+import { REACT, SIGNALS, SOLID, SOLID1, SOLID_STYLE, SRC, featureFile, fileFor } from "./modules.js";
 import { compile } from "./napi/index.js";
 
 // Vite's own default conditions (6 and later), which a plugin that adds one must repeat.
@@ -105,9 +105,13 @@ function reactPackage(file) {
  * imports Solid, React-style when it imports React; one that imports neither is React's when the app lists React and
  * not Solid, else Solid's.
  *
+ * `features` leaves parts of React's API out of the build: "nano" (no Float, Fragment refs or view transitions), or
+ * an object such as `{ float: false }`. Everything is in unless said.
+ *
+ * @param {{ features?: "nano" | { float?: boolean; fragmentRefs?: boolean; viewTransitions?: boolean } }} [options]
  * @returns {import("vite").Plugin}
  */
-export default function twist() {
+export default function twist({ features } = {}) {
   let serving = false;
   let reactByDefault = false;
   /** The module tables, in order: Solid 1's first for an app on Solid 1. */
@@ -152,7 +156,14 @@ export default function twist() {
         ssr: { noExternal: [...answered, ...libraries], resolve: { conditions: ["solid", ...defaultServerConditions] } },
       };
     },
-    resolveId(id, _importer, opts) {
+    resolveId(id, importer, opts) {
+      // Twist's own module of a feature left out: its stand-in.
+      const from = importer?.split("?")[0].replace(/\\/g, "/");
+      if (features && from?.startsWith(SRC) && id.startsWith(".")) {
+        const file = join(dirname(from), id).replace(/\\/g, "/");
+        const swapped = featureFile(file, features);
+        if (swapped !== file) return swapped;
+      }
       for (const table of tables) {
         const file = fileFor(table, id, !!opts?.ssr);
         if (file) return file;

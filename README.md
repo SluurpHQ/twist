@@ -44,6 +44,19 @@ Each file is read for what it is. A file that imports `solid-js` or `@solidjs/we
 and not `solid-js`, Solid-style otherwise. When a file of one kind imports a component of the other, Twist adds the
 bridge that lets each render the other; an app of one kind never loads it.
 
+### Smaller builds
+
+Everything in React's API is in unless you leave it out. `"nano"` leaves out what most apps never use: Float (a
+`<title>`, `<meta>` or stylesheet with a precedence moved to the `<head>`), refs on a Fragment, and `<ViewTransition>`:
+
+```js
+export default { plugins: [twist({ features: "nano" })] };
+```
+
+That takes the React build from 157 to 132 KB minified (55 to 47 KB gzipped). Leave out one at a time with an object, such
+as `{ features: { float: false } }`. Left out, a `<title>` stays where it is written (said once while developing),
+a ref on a Fragment throws an error that says why, and a `<ViewTransition>` draws its children without animating.
+
 ### Types
 
 Types come with Twist: React's from `@types/react` 19.3, which Twist depends on, and Solid's as Twist's own, so
@@ -102,7 +115,7 @@ rounds taken in turn):
 | Solid 2 | 17.8 | 19.9 | 1.1 | 203 | 1,454 B | 0.14 | 65 KB |
 | Twist, Solid's API | 18.3 | 19.8 | 1.1 | 211 | 1,279 B | 0.22 | 86 KB |
 | React 19.3 | 19.8 | 24.0 | 17.8 | 300 | 1,735 B | 0.89 | 210 KB |
-| Twist, React's API | 21.1 | 24.2 | 1.4 | 239 | 1,760 B | 1.03 | 148 KB |
+| Twist, React's API | 21.1 | 24.2 | 1.4 | 239 | 1,760 B | 1.03 | 157 KB (132 KB `nano`) |
 
 Memory is the heap each row keeps after a garbage collection; the server render is in Bun.
 
