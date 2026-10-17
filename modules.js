@@ -60,5 +60,6 @@ export const SRC = fileURLToPath(new URL("./src/", import.meta.url)).replace(/\\
 /** The file answering `name` from `table` (the browser's, or the server's), or undefined. */
 export const fileFor = (table, name, server = false) => (table[name] ? SRC + table[name][server ? 1 : 0] : undefined);
 
-/** Whether a file is written Solid-style: it imports Solid's API, or names it as its JSX. */
-export const SOLID_STYLE = /\bfrom\s*["'](solid-js|@solidjs\/web|@sluurp\/twist)(\/[\w-]+)?["']|@jsxImportSource\s+(solid-js|@solidjs\/web|@sluurp\/twist)\b/;
+/** Whether a file is written Solid-style: it imports Solid's API (not the signals both kinds share), or names it as its JSX. */
+export const SOLID_STYLE =
+  /\bfrom\s*["'](solid-js(\/[\w-]+)?|@solidjs\/web(\/[\w-]+)?|@sluurp\/twist(\/(store|web|jsx-runtime|jsx-dev-runtime))?)["']|@jsxImportSource\s+(solid-js|@solidjs\/web|@sluurp\/twist)\b/;
