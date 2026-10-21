@@ -15,3 +15,5 @@ conformance/solid1/errors.txt
 conformance/solid1/report.json
 examples/*/dist/
 npm/
+conformance/solid/dist/
+conformance/solid/server-functions/
