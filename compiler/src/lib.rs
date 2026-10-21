@@ -102,7 +102,9 @@ pub fn compile_with(source: &str, path: &str, hot: bool) -> Result<String, Strin
     }
     let mut out = if pass.edits.is_empty() { source.to_string() } else { apply(source, pass.edits) };
     if pass.used || marks > 0 {
-        out = format!("import {{ __twist_d, __twist_c, __twist_ref, __twist_use, __twist_k, __twist_mark, __twist_memo }} from \"{RUNTIME}\";\n{out}");
+        // (Spreads: the runtime's merge given by this file, so an app without any leaves merge out of its bundle.)
+        let (spreads, given) = if pass.spreads > 0 { (", __twist_spreads", "__twist_spreads();\n") } else { ("", "") };
+        out = format!("import {{ __twist_d, __twist_c, __twist_ref, __twist_use, __twist_k, __twist_mark, __twist_memo{spreads} }} from \"{RUNTIME}\";\n{given}{out}");
     }
     Ok(templates(&out, kind))
 }
@@ -831,6 +833,14 @@ mod tests {
         let jsx = c("const B = () => <Loading fallback={<Spinner />} render={(e) => <i>{e}</i>} />;");
         assert!(jsx.contains("fallback={__twist_d(() => (<Spinner />))}"), "{jsx}");
         assert!(jsx.contains("render={(e) =>"), "{jsx}");
+    }
+
+    #[test]
+    fn a_file_with_spreads_gives_their_merge() {
+        let out = c("const A = (p) => <div {...p}>x</div>;");
+        assert!(out.contains(", __twist_spreads } from \"@solidjs/web\";\n__twist_spreads();\n"), "{out}");
+        let none = c("const B = (p) => <div class=\"x\">{p.y}</div>;");
+        assert!(!none.contains("__twist_spreads"), "no spread, no merge: {none}");
     }
 
     #[test]

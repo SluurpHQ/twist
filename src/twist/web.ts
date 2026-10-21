@@ -38,7 +38,7 @@ import { CONFIG_TRANSPARENT } from "./core/core/constants.ts";
 import { dispose as disposeNode } from "./core/core/owner.ts";
 import { checkHydrationComplete, claimFragment, createEffect, createMemo, createSignal, enableHydration, fragmentAbort, hydrationPaused, initBoundaryResume, replayHeldFragment, sharedConfig } from "./client/hydration.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, Match, isTwist, __twist_mark, builtin, erroredFallback } from "./client/control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, mergedSpreads, Loading, Errored, Match, isTwist, __twist_mark, builtin, erroredFallback } from "./client/control.ts";
 import { $DEVCOMP } from "./client/core.ts";
 
 export * from "./client/control.ts";
@@ -232,7 +232,7 @@ function mergedProps(props: Record<string, any>) {
     else own[k] = v;
   }
   if (own) sources.push(own);
-  return merge(...sources);
+  return mergedSpreads(sources);
 }
 
 /** An element's prop bound to a value: a render effect (a style or class object read whole, so one changed in place

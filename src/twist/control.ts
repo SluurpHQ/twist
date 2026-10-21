@@ -77,6 +77,16 @@ export function renderComponent<P, R>(Comp: (props: P) => any, props: P, render:
   return runWithOwner(o, body);
 }
 
+/** Spread props' merge, given by each compiled file that has spreads (`__twist_spreads()`, which the compiler adds): an
+ * app without spreads leaves `merge` and its helpers out of its bundle. */
+let mergeSpreads: ((...sources: any[]) => any) | null = null;
+export const __twist_spreads = () => void (mergeSpreads ??= merge);
+/** Props with spreads merged in their order. */
+export function mergedSpreads(sources: any[]): any {
+  if (!mergeSpreads) throw new Error("spread props reached the runtime from a file Twist did not compile");
+  return mergeSpreads(...sources);
+}
+
 /** A component's props: marked parts as getters, spreads read where used, children lazy. */
 export function componentProps(raw: Record<string, any>): Record<string, any> {
   const sources: any[] = [];
@@ -93,7 +103,7 @@ export function componentProps(raw: Record<string, any>): Record<string, any> {
   }
   if (!sources.length) return own;
   if (Object.keys(own).length) sources.push(own);
-  return merge(...sources);
+  return mergedSpreads(sources);
 }
 
 /** A spread's object, read each time a key is read (so a props object's getters keep working). */

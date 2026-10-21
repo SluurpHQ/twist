@@ -42,7 +42,7 @@ import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
 import { $PROXY, $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback, $DEVCOMP } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, mergedSpreads, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback, $DEVCOMP } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -234,7 +234,7 @@ function mergedProps(props: Record<string, any>) {
     else own[k] = v;
   }
   if (own) sources.push(own);
-  return merge(...sources);
+  return mergedSpreads(sources);
 }
 
 /** A prop on an element: bound when it can change, set once when it cannot. */

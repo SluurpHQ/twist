@@ -53,6 +53,16 @@ export const __twist_memo = <T,>(fn: () => T) => createMemo(fn, { sync: true } a
 /** `use:fn={value}` (Solid 1's directive): nothing on a server (refs are the browser's). */
 export const __twist_use = (_fn: unknown, _value: unknown) => () => {};
 
+/** Spread props' merge, given by each compiled file that has spreads (`__twist_spreads()`, which the compiler adds): an
+ * app without spreads leaves `merge` and its helpers out of its bundle. */
+let mergeSpreads: ((...sources: any[]) => any) | null = null;
+export const __twist_spreads = () => void (mergeSpreads ??= merge);
+/** Props with spreads merged in their order. */
+export function mergedSpreads(sources: any[]): any {
+  if (!mergeSpreads) throw new Error("spread props reached the runtime from a file Twist did not compile");
+  return mergeSpreads(...sources);
+}
+
 /** A component's props: marked parts as getters, spreads (each read where used) merged in their order, children lazy. */
 export function componentProps(raw: Record<string, any>): Record<string, any> {
   let sources: any[] | null = null;
@@ -72,7 +82,7 @@ export function componentProps(raw: Record<string, any>): Record<string, any> {
   }
   if (!sources) return own;
   if (owned) sources.push(own);
-  return merge(...sources);
+  return mergedSpreads(sources);
 }
 
 /** A spread's object, read each time a key is read, a proxy as merge() takes one. */
