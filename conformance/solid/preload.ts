@@ -56,6 +56,12 @@ for (const k of ["describe", "it", "test", "expect", "beforeAll", "beforeEach", 
 const src = join(import.meta.dir, "..", "..", "src");
 const solid = join(src, "twist", "client", "index.ts");
 const signals = join(src, "twist", "core", "index.ts");
+/** Files under one of `dirs`. */
+const under = (...dirs: string[]) => new RegExp("^(" + dirs.map((d) => d.replace(/[\\/]/g, "[\\\\/]").replace(/[.:]/g, "\\$&")).join("|") + ")[\\\\/].*\\.(ts|tsx|js|jsx)$");
+// (Twist's files, and Solid's tests: some read Twist's fields by name, as they read Solid's.)
+const OWN_FILE = under(src, join(import.meta.dir, "solid-tests"));
+// (The addon as run.ts built it: every test file loads it, none rebuilds it.)
+const { mangle } = process.env.TWIST_MANGLE ? await import("../../napi/index.js") : { mangle: null as never };
 
 plugin({
   name: "twist",
@@ -64,13 +70,17 @@ plugin({
     b.onResolve({ filter: /^solid-js$/ }, () => ({ path: solid }));
     b.onResolve({ filter: /^@solidjs\/signals$/ }, () => ({ path: signals }));
     b.onResolve({ filter: /^vitest$/ }, () => ({ path: join(import.meta.dir, "vitest.ts") }));
+    // TWIST_MANGLE=1: Twist's files with their private names made short, as a production browser build has them.
+    // (Not ssr-stream's: its data is a Vite manifest whose keys look private, `_dep`.)
+    if (process.env.TWIST_MANGLE) b.onLoad({ filter: OWN_FILE }, (a) => ({ contents: a.path.endsWith("ssr-stream.spec.tsx") ? readFileSync(a.path, "utf8") : mangle(readFileSync(a.path, "utf8"), a.path), loader: a.path.slice(a.path.lastIndexOf(".") + 1) as "ts" | "tsx" | "js" | "jsx" }));
   },
 });
 
 // A halt (an uncaught effect error) ends with its test: it does not leak into the next one.
+// (Imported once the plugin is in: Twist's files loaded as every test loads them.)
 import { afterEach as eachDone } from "bun:test";
-import { resetErrorHalt } from "../../src/twist/core/index.ts";
-import { resetErrorHalt as resetServerHalt } from "../../src/twist/signals.ts";
+const { resetErrorHalt } = await import("../../src/twist/core/index.ts");
+const { resetErrorHalt: resetServerHalt } = await import("../../src/twist/signals.ts");
 // (Only under the test runner: this file also preloads plain bun runs.)
 try {
   eachDone(() => (resetErrorHalt(), resetServerHalt()));

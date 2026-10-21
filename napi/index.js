@@ -25,3 +25,6 @@ const addon = load();
  * component's mark also names it, for hot reload.
  */
 export const compile = (source, path, { hot = false } = {}) => addon.compile(source, path, hot);
+
+/** One of Twist's own files (`source`, at `path`) with its private property names made short, for a production browser build. */
+export const mangle = (source, path) => addon.mangle(source, path);

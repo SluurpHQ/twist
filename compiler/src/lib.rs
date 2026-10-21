@@ -21,6 +21,9 @@ use oxc::parser::Parser;
 use oxc::semantic::ScopeFlags;
 use oxc::span::{GetSpan, SourceType, Span};
 
+mod mangle;
+pub use mangle::mangle;
+
 const RUNTIME: &str = "@solidjs/web";
 
 struct Edit {

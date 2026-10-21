@@ -4,6 +4,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const here = import.meta.dir;
+// TWIST_MANGLE=1: the compiler's addon built once here, before the test files (which only load it) run.
+if (process.env.TWIST_MANGLE && Bun.spawnSync(["node", join(import.meta.dir, "..", "..", "scripts", "build-compiler.mjs")], { stdout: "ignore", stderr: "inherit" }).exitCode !== 0) throw new Error("Twist's compiler did not build");
 const filter = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "";
 // `--accept`: the baseline rewritten even when files lost passes (a change that rightly costs some).
 const accept = process.argv.includes("--accept");

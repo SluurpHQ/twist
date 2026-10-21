@@ -6,6 +6,8 @@ import { join, relative } from "node:path";
 import { NOT_OURS } from "./not-ours.ts";
 
 const here = import.meta.dir;
+// TWIST_MANGLE=1: the compiler's addon built once here, before the test files (which only load it) run.
+if (process.env.TWIST_MANGLE && Bun.spawnSync(["node", join(import.meta.dir, "..", "scripts", "build-compiler.mjs")], { stdout: "ignore", stderr: "inherit" }).exitCode !== 0) throw new Error("Twist's compiler did not build");
 const notOurs = Object.values(NOT_OURS).reduce((n, t) => n + Object.keys(t).length, 0);
 const filter = process.argv[2] ?? "";
 const files: string[] = [];

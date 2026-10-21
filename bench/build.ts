@@ -5,7 +5,7 @@
 import { transformAsync } from "@babel/core";
 import { dirname, join } from "node:path";
 import { SRC, featureFile } from "../modules.js";
-import { compile } from "../test/twist-compile.ts";
+import { compile, mangle } from "../test/twist-compile.ts";
 
 const src = join(import.meta.dir, "..", "src");
 type Plugin = { name: string; setup: (b: any) => void };
@@ -49,6 +49,7 @@ const preactAtOnce: Plugin = {
   setup: (b) => b.onLoad({ filter: /app\.tsx$/ }, async (a: any) => ({ contents: `import { options } from "preact"; options.debounceRendering = (f) => f();\n` + (await Bun.file(a.path).text()), loader: "tsx" })),
 };
 const SOLID_FILE = /(app-solid|ssr-solid)\.tsx$/;
+const OWN_FILE = new RegExp("^" + src.replace(/[\\/]/g, "[\\\\/]").replace(/[.:]/g, "\\$&") + "[\\\\/].*\\.(ts|js)$");
 /** Solid's own compiler, for the DOM or the server (hydratable there, as Twist's server always is). */
 const solid = (generate: "dom" | "ssr"): Plugin => ({
   name: "solid",
@@ -72,6 +73,8 @@ const twist = (server: boolean): Plugin => {
     setup: (b) => {
       b.onResolve({ filter: /^(solid-js|@solidjs\/web)(\/.*)?$/ }, (a: any) => (files[a.path] ? { path: files[a.path] } : undefined));
       b.onLoad({ filter: SOLID_FILE }, async (a: any) => ({ contents: `/** @jsxImportSource @solidjs/web */\n` + compile(await Bun.file(a.path).text(), a.path), loader: "tsx" }));
+      // (In the browser, Twist's own files with their private names made short, as a production build has them.)
+      if (!server) b.onLoad({ filter: OWN_FILE }, async (a: any) => ({ contents: mangle(await Bun.file(a.path).text(), a.path), loader: a.path.slice(a.path.lastIndexOf(".") + 1) }));
     },
   };
 };
@@ -90,6 +93,7 @@ const apps: Record<string, App> = {
   "twist-named": { entry: "app-solid.tsx", plugins: [solidFlush, twist(false)], minify: "named" },
   "solid-named": { entry: "app-solid.tsx", plugins: [solidFlush, solid("dom")], minify: "named" },
   "twist-plain": { entry: "app-solid.tsx", plugins: [solidFlush, twist(false)], minify: false },
+  "solid-plain": { entry: "app-solid.tsx", plugins: [solidFlush, solid("dom")], minify: false },
   signals: { entry: "app-signals.tsx", plugins: [ours] },
   "signals-plain": { entry: "app-signals.tsx", plugins: [ours], minify: false },
   "ssr-react": { entry: "ssr.tsx", plugins: [], server: true },

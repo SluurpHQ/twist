@@ -5,6 +5,17 @@ import { plugin } from "bun";
 import { isAbsolute, join } from "node:path";
 import "./gates.ts";
 
+// TWIST_MANGLE=1: Twist's files with their private names made short, as a production browser build has them (in
+// before any of them loads).
+if (process.env.TWIST_MANGLE) {
+  const { readFileSync } = await import("node:fs");
+  // (The addon as run.ts built it: every test file loads it, none rebuilds it.)
+  const { mangle } = await import("../napi/index.js");
+  const own = join(import.meta.dir, "..", "src");
+  const OWN_FILE = new RegExp("^" + own.replace(/[\\/]/g, "[\\\\/]").replace(/[.:]/g, "\\$&") + "[\\\\/].*\\.(ts|js)$");
+  plugin({ name: "twist-mangle", setup: (b) => b.onLoad({ filter: OWN_FILE }, (a) => ({ contents: mangle(readFileSync(a.path, "utf8"), a.path), loader: a.path.slice(a.path.lastIndexOf(".") + 1) as "ts" | "js" })) });
+}
+
 // jsdom loads no frames (React's tests render <iframe src="https://…">), and has `nonce` on every element.
 // (Inline scripts run, as under Jest's jsdom, which runs them dangerously.)
 GlobalRegistrator.register({ url: "http://localhost/", settings: { disableIframePageLoading: true, enableJavaScriptEvaluation: true, disableJavaScriptFileLoading: true, suppressInsecureJavaScriptEnvironmentWarning: true } });

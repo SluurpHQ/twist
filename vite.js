@@ -11,12 +11,13 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { REACT, SIGNALS, SOLID, SOLID1, SOLID_STYLE, SRC, featureFile, fileFor } from "./modules.js";
-import { compile } from "./napi/index.js";
+import { compile, mangle } from "./napi/index.js";
 
 // Vite's own default conditions (6 and later), which a plugin that adds one must repeat.
 const defaultClientConditions = ["module", "browser", "development|production"];
 const defaultServerConditions = ["module", "node", "development|production"];
 const JSX_FILE = /\.[jt]sx(\?.*)?$/;
+const OWN_CODE = /\.(ts|tsx|js)$/;
 const PRAGMA = /\/\*\*?\s*@jsxImportSource\s+\S+\s*\*\//;
 const OWN = ["@sluurp/twist", "solid-js", "@solidjs/web"];
 
@@ -175,7 +176,9 @@ export default function twist({ features } = {}) {
     },
     async transform(code, id, opts) {
       const file = id.split("?")[0].replace(/\\/g, "/");
-      if (!JSX_FILE.test(file) || file.startsWith(SRC)) return null;
+      // Twist's own files, in a production browser build: their private names made short, as Solid's build has its own.
+      if (file.startsWith(SRC)) return !serving && !opts?.ssr && OWN_CODE.test(file) ? { code: mangle(code, file), map: null } : null;
+      if (!JSX_FILE.test(file)) return null;
       // A library's JSX is Solid-style when it says so (it imports Solid); otherwise it is left as it is.
       const library = file.includes("/node_modules/");
       if (library && !SOLID_STYLE.test(code)) return null;
