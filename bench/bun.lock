@@ -16,6 +16,9 @@
         "react-dom": "19.3.0",
         "solid-js": "2.0.0-rc.14",
       },
+      "devDependencies": {
+        "playwright-core": "1.63.0",
+      },
     },
   },
   "packages": {
@@ -128,6 +131,8 @@
     "parse5": ["parse5@7.3.0", "", { "dependencies": { "entities": "^6.0.0" } }, "sha512-IInvU7fabl34qmi9gY8XOVxhYyMyuH2xUNpb2q8/Y+7552KlejkRvqvD19nMoUW/uQGGbqNpA6Tufu5FL5BZgw=="],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
+
+    "playwright-core": ["playwright-core@1.63.0", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg=="],
 
     "preact": ["preact@11.0.0-rc.2", "", { "peerDependencies": { "preact-render-to-string": ">=6.7.0" }, "optionalPeers": ["preact-render-to-string"] }, "sha512-pXZc/lFB2lCnI0ZM3ceuA+9EAGhNV/v48rgUsrh0+kxTOi9CPCkAImX9AhPi8fXg5M2J2gzT/XHxXq4RlwjDOA=="],
 
