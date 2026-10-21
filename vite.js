@@ -48,11 +48,13 @@ function solidLibraries(root) {
 function hotModule(out) {
   const markImport = "__twist_mark, __twist_memo } from";
   if (out.split(markImport).length !== 2) return out;
+  // (The registry made first: the file's components are marked where they are declared, as the module runs.)
   return (
+    `import { $$registry as __twist_registry, $$component as __twist_component, $$refresh as __twist_refresh } from "@sluurp/twist/refresh";
+const __twist_hot = __twist_registry();
+` +
     out.replace(markImport, "__twist_mark as __twist_mark_base, __twist_memo } from") +
     `
-import { $$registry as __twist_registry, $$component as __twist_component, $$refresh as __twist_refresh } from "@sluurp/twist/refresh";
-const __twist_hot = __twist_registry();
 function __twist_mark(c, name) {
   const marked = __twist_mark_base(c, name);
   return import.meta.hot ? __twist_component(__twist_hot, name ?? marked.name, marked) : marked;
@@ -190,7 +192,9 @@ export default function twist({ features } = {}) {
       const hot = serving && !opts?.ssr && !library;
       let out = compile(code.replace(PRAGMA, ""), file, { hot });
       if (hot && out.includes("__twist_mark(")) out = hotModule(out);
-      return { code: "/** @jsxImportSource @sluurp/twist */\n" + head + out, map: null };
+      // (Its JSX Solid 1's on an app on Solid 1: `solid-js/jsx-runtime` is answered by Twist's Solid 1 runtime.)
+      const jsx = tables[0] === SOLID1 ? "solid-js" : "@sluurp/twist";
+      return { code: `/** @jsxImportSource ${jsx} */\n` + head + out, map: null };
     },
   };
 }
