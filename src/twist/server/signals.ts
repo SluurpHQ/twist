@@ -3161,12 +3161,10 @@ export function mapArray<T, U>(
           const origId = ownerId(rowOwner);
           try {
             for (let i = 0, len = items.length; i < len; i++) {
-              if (origId !== undefined) {
-                rowOwner.id = formatChildId(origId, i);
-              }
+              const rowId = origId !== undefined ? (rowOwner.id = formatChildId(origId, i)) : undefined;
               rowOwner._childCount = 0;
               s.push(
-                rowRun(rowOwner, origId, i, () => options.keyed === false
+                rowRun(rowId, () => options.keyed === false
                   ? indexes
                     ? (mapFn as (v: Accessor<T>, i: number) => U)(() => items[i], i)
                     : (mapFn as (v: Accessor<T>) => U)(() => items[i])
@@ -3202,10 +3200,9 @@ export function mapArray<T, U>(
  * (Twist: a row run under an owner of its own with the row's id — the id the virtual row scope gives it — when ids are
  * given: Twist's JSX describes, and a row's elements are rendered after it ran, under the owner they were made under.)
  */
-function rowRun<U>(rowOwner: SSROwner, origId: string | undefined, i: number, run: () => U): U {
-  if (origId === undefined) return run();
-  const row = createOwner({ id: formatChildId(origId, i) });
-  return runWithOwner(row, run);
+function rowRun<U>(rowId: string | undefined, run: () => U): U {
+  if (rowId === undefined) return run();
+  return runWithOwner(createOwner({ id: rowId }), run);
 }
 
 export function repeat<T>(
@@ -3232,11 +3229,9 @@ export function repeat<T>(
         const origId = ownerId(rowOwner);
         try {
           for (let i = 0; i < len; i++) {
-            if (origId !== undefined) {
-              rowOwner.id = formatChildId(origId, i);
-            }
+            const rowId = origId !== undefined ? (rowOwner.id = formatChildId(origId, i)) : undefined;
             rowOwner._childCount = 0;
-            out[i] = rowRun(rowOwner, origId, i, () => mapFn(i + offset));
+            out[i] = rowRun(rowId, () => mapFn(i + offset));
           }
         } finally {
           rowOwner.id = origId;
