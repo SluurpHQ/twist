@@ -20,7 +20,8 @@ const git = (args: string[], cwd?: string) => {
 if (!existsSync(join(clone, ".git"))) git(["clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", REF, "https://github.com/solidjs/solid.git", clone]);
 git(["sparse-checkout", "set", "--no-cone", ...Object.keys(PARTS).map((p) => `/${p}/`)], clone);
 
-const out = join(here, "solid-tests");
+// TWIST_SSR=compiled: a second tree, for ssr-compare.ts to set its server renders against solid-tests'.
+const out = join(here, process.env.TWIST_SSR === "compiled" ? "solid-tests-compiled" : "solid-tests");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 for (const [from, to] of Object.entries(PARTS)) cpSync(join(clone, from), join(out, to), { recursive: true });
@@ -187,7 +188,9 @@ for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-s
   const dir = join(here, "node_modules", ...name.split("/"));
   mkdirSync(dir, { recursive: true });
   await Bun.write(join(dir, "package.json"), JSON.stringify({ name, type: "module", exports: { ".": "./index.js", "./jsx-runtime": "./index.js", "./jsx-dev-runtime": "./index.js", "./internal": "./internal.js" } }));
-  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(twist(file))};\n` + (name === "@twist/solid-server" ? serverDev : ""));
+  // (The web runtime through ssr-record.ts: itself, and each render's HTML kept when TWIST_SSR_RECORD asks.)
+  const entry = name === "@twist/web-server" ? join(here, "ssr-record.ts").split("\\").join("/") : twist(file);
+  await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(entry)};\n` + (name === "@twist/solid-server" ? serverDev : ""));
   await Bun.write(join(dir, "internal.js"), `export * from ${JSON.stringify(twist("internal.server.ts"))};\n`);
 }
 {
@@ -196,4 +199,4 @@ for (const [name, file] of [["@twist/web-server", "server.ts"], ["@twist/solid-s
   await Bun.write(join(dir, "package.json"), JSON.stringify({ name: "@twist/vitest", type: "module", exports: { ".": "./index.js" } }));
   await Bun.write(join(dir, "index.js"), `export * from ${JSON.stringify(join(here, "vitest.ts").split("\\").join("/"))};\n`);
 }
-console.log(`Solid's tests at ${REF} (${git(["rev-parse", "--short", "HEAD"], clone)}) in solid-tests/`);
+console.log(`Solid's tests at ${REF} (${git(["rev-parse", "--short", "HEAD"], clone)}) in ${relative(here, out)}/`);
