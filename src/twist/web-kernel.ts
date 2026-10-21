@@ -42,7 +42,7 @@ import { checkHydrationComplete, enableHydration, fragmentAbort, hydrationPaused
 import { merge, omit, isStatic, leafDescriptor, LIVE } from "./flow.ts";
 import { $PROXY, $TARGET } from "./store.ts";
 export { isStatic };
-import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, mergedSpreads, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback, $DEVCOMP } from "./control.ts";
+import { __twist_c, __twist_d, __twist_ref, componentProps, createComponent, callComponent, callInline, renderComponent, isChildren, isDynamic, spreadSource, mergedSpreads, __twist_spreads as spreadsGiven, Loading, Errored, isTwist, __twist_mark, builtin, setDescribedNode, erroredFallback, $DEVCOMP } from "./control.ts";
 
 export * from "./control.ts";
 export * from "./response.ts";
@@ -119,7 +119,7 @@ const PROPS: Record<string, Set<string>> = {
 
 function element(tag: string, props: Record<string, any>): Element {
   // With a spread: every prop as one merged source (later ones winning, a key the spread drops falling back).
-  const merged = hasSpread(props) ? mergedProps(props) : null;
+  const merged = spreads && hasSpread(props) ? spreads.merged(props) : null;
   // `xmlns`, read once (untracked): the namespace it is made in, over what its tag says.
   const xmlns = untrack(() => {
     const v = (merged ?? props).xmlns;
@@ -133,7 +133,7 @@ function element(tag: string, props: Record<string, any>): Element {
         : MATH_TAGS.has(tag)
           ? document.createElementNS(MATH_NS, tag)
           : document.createElement(tag);
-  if (merged) return spreadOn(el, merged, false, false), el;
+  if (merged) return spreads!.on(el, merged, false, false), el;
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) insertHosted(el, props.children, null);
   // A select's static value, as Solid's compiled code sets it: once its options are in, and again after a microtask
@@ -217,6 +217,14 @@ function fill(el: Element, plan: Plan, values: unknown[], at: { i: number }) {
 }
 
 const hasSpread = (props: Record<string, any>) => Object.keys(props).some((k) => k.startsWith("$spread$"));
+
+/** Elements with spread props, given by each compiled file that has spreads (`__twist_spreads()`): an app without
+ * spreads leaves their merge and `spreadOn` out of its bundle. */
+let spreads: { merged: typeof mergedProps; on: typeof spreadOn } | null = null;
+export const __twist_spreads = () => {
+  spreadsGiven();
+  spreads ??= { merged: mergedProps, on: spreadOn };
+};
 
 /** JSX props with spreads as one source, in their order: a marked part read where used, a spread read each time. */
 function mergedProps(props: Record<string, any>) {
@@ -1888,7 +1896,7 @@ function claimDescribed(d: { tag: string; props: Record<string, any>; owner?: an
     (sc as any).completed?.add(el);
   }
   const props = d.props;
-  if (hasSpread(props)) return spreadOn(el, mergedProps(props), false, true), el;
+  if (spreads && hasSpread(props)) return spreads.on(el, spreads.merged(props), false, true), el;
   for (const k of Object.keys(props)) if (k !== "children") set(el, k, props[k]);
   if ("children" in props) claimChildren(props.children, { parent: el, next: el.firstChild });
   return el;
